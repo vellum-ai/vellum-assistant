@@ -121,7 +121,7 @@ describe('AssistantConfigSchema', () => {
   test('applies memory.conflicts defaults', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.conflicts).toEqual({
-      enabled: false,
+      enabled: true,
       gateMode: 'soft',
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
@@ -139,7 +139,7 @@ describe('AssistantConfigSchema', () => {
   test('applies memory.profile defaults', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.profile).toEqual({
-      enabled: false,
+      enabled: true,
       maxInjectTokens: 800,
     });
   });
@@ -149,6 +149,27 @@ describe('AssistantConfigSchema', () => {
       memory: { profile: { maxInjectTokens: 0 } },
     });
     expect(result.success).toBe(false);
+  });
+
+  test('applies rollout defaults for dynamic budget and entity relation features', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.retrieval.dynamicBudget).toEqual({
+      enabled: true,
+      minInjectTokens: 1200,
+      maxInjectTokens: 10000,
+      targetHeadroomTokens: 10000,
+    });
+    expect(result.memory.entity.extractRelations).toEqual({
+      enabled: true,
+      backfillBatchSize: 200,
+    });
+    expect(result.memory.entity.relationRetrieval).toEqual({
+      enabled: true,
+      maxSeedEntities: 8,
+      maxNeighborEntities: 20,
+      maxEdges: 40,
+      neighborScoreMultiplier: 0.7,
+    });
   });
 
   test('applies memory.cleanup defaults', () => {

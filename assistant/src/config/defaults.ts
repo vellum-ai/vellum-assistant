@@ -55,7 +55,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       },
       scopePolicy: 'allow_global_fallback' as const,
       dynamicBudget: {
-        enabled: false,
+        enabled: true,
         minInjectTokens: 1200,
         maxInjectTokens: 10000,
         targetHeadroomTokens: 10000,
@@ -90,11 +90,11 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
       extractRelations: {
-        enabled: false,
+        enabled: true,
         backfillBatchSize: 200,
       },
       relationRetrieval: {
-        enabled: false,
+        enabled: true,
         maxSeedEntities: 8,
         maxNeighborEntities: 20,
         maxEdges: 40,
@@ -102,14 +102,14 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       },
     },
     conflicts: {
-      enabled: false,
+      enabled: true,
       gateMode: 'soft',
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
     },
     profile: {
-      enabled: false,
+      enabled: true,
       maxInjectTokens: 800,
     },
   },

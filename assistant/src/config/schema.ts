@@ -222,7 +222,7 @@ export const MemoryRerankingConfigSchema = z.object({
 export const MemoryDynamicBudgetConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.retrieval.dynamicBudget.enabled must be a boolean' })
-    .default(false),
+    .default(true),
   minInjectTokens: z
     .number({ error: 'memory.retrieval.dynamicBudget.minInjectTokens must be a number' })
     .int('memory.retrieval.dynamicBudget.minInjectTokens must be an integer')
@@ -335,7 +335,7 @@ export const MemoryRetrievalConfigSchema = z.object({
     })
     .default('allow_global_fallback'),
   dynamicBudget: MemoryDynamicBudgetConfigSchema.default({
-    enabled: false,
+    enabled: true,
     minInjectTokens: 1200,
     maxInjectTokens: 10000,
     targetHeadroomTokens: 10000,
@@ -412,20 +412,20 @@ export const MemoryEntityConfigSchema = z.object({
   extractRelations: z.object({
     enabled: z
       .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
-      .default(false),
+      .default(true),
     backfillBatchSize: z
       .number({ error: 'memory.entity.extractRelations.backfillBatchSize must be a number' })
       .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
       .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
       .default(200),
   }).default({
-    enabled: false,
+    enabled: true,
     backfillBatchSize: 200,
   }),
   relationRetrieval: z.object({
     enabled: z
       .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
-      .default(false),
+      .default(true),
     maxSeedEntities: z
       .number({ error: 'memory.entity.relationRetrieval.maxSeedEntities must be a number' })
       .int('memory.entity.relationRetrieval.maxSeedEntities must be an integer')
@@ -447,7 +447,7 @@ export const MemoryEntityConfigSchema = z.object({
       .lte(1, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be <= 1')
       .default(0.7),
   }).default({
-    enabled: false,
+    enabled: true,
     maxSeedEntities: 8,
     maxNeighborEntities: 20,
     maxEdges: 40,
@@ -458,7 +458,7 @@ export const MemoryEntityConfigSchema = z.object({
 export const MemoryConflictsConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.conflicts.enabled must be a boolean' })
-    .default(false),
+    .default(true),
   gateMode: z
     .enum(['soft'], { error: 'memory.conflicts.gateMode must be "soft"' })
     .default('soft'),
@@ -482,7 +482,7 @@ export const MemoryConflictsConfigSchema = z.object({
 export const MemoryProfileConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.profile.enabled must be a boolean' })
-    .default(false),
+    .default(true),
   maxInjectTokens: z
     .number({ error: 'memory.profile.maxInjectTokens must be a number' })
     .int('memory.profile.maxInjectTokens must be an integer')
@@ -537,7 +537,7 @@ export const MemoryConfigSchema = z.object({
     },
     scopePolicy: 'allow_global_fallback',
     dynamicBudget: {
-      enabled: false,
+      enabled: true,
       minInjectTokens: 1200,
       maxInjectTokens: 10000,
       targetHeadroomTokens: 10000,
@@ -572,11 +572,11 @@ export const MemoryConfigSchema = z.object({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
     extractRelations: {
-      enabled: false,
+      enabled: true,
       backfillBatchSize: 200,
     },
     relationRetrieval: {
-      enabled: false,
+      enabled: true,
       maxSeedEntities: 8,
       maxNeighborEntities: 20,
       maxEdges: 40,
@@ -584,14 +584,14 @@ export const MemoryConfigSchema = z.object({
     },
   }),
   conflicts: MemoryConflictsConfigSchema.default({
-    enabled: false,
+    enabled: true,
     gateMode: 'soft',
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
   }),
   profile: MemoryProfileConfigSchema.default({
-    enabled: false,
+    enabled: true,
     maxInjectTokens: 800,
   }),
 });
@@ -734,7 +734,7 @@ export const AssistantConfigSchema = z.object({
       },
       scopePolicy: 'allow_global_fallback',
       dynamicBudget: {
-        enabled: false,
+        enabled: true,
         minInjectTokens: 1200,
         maxInjectTokens: 10000,
         targetHeadroomTokens: 10000,
@@ -769,11 +769,11 @@ export const AssistantConfigSchema = z.object({
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
       extractRelations: {
-        enabled: false,
+        enabled: true,
         backfillBatchSize: 200,
       },
       relationRetrieval: {
-        enabled: false,
+        enabled: true,
         maxSeedEntities: 8,
         maxNeighborEntities: 20,
         maxEdges: 40,
@@ -781,14 +781,14 @@ export const AssistantConfigSchema = z.object({
       },
     },
     conflicts: {
-      enabled: false,
+      enabled: true,
       gateMode: 'soft',
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
     },
     profile: {
-      enabled: false,
+      enabled: true,
       maxInjectTokens: 800,
     },
   }),

@@ -634,22 +634,22 @@ graph TB
 
 | Config key | Default | Purpose |
 |---|---:|---|
-| `memory.retrieval.dynamicBudget.enabled` | `false` | Toggle per-turn recall budget calculation from live prompt headroom. |
+| `memory.retrieval.dynamicBudget.enabled` | `true` | Toggle per-turn recall budget calculation from live prompt headroom. |
 | `memory.retrieval.dynamicBudget.minInjectTokens` | `1200` | Lower clamp for computed recall injection budget. |
 | `memory.retrieval.dynamicBudget.maxInjectTokens` | `10000` | Upper clamp for computed recall injection budget. |
 | `memory.retrieval.dynamicBudget.targetHeadroomTokens` | `10000` | Reserved headroom to keep free for response generation/tool traces. |
-| `memory.entity.extractRelations.enabled` | `false` | Enable relation edge extraction and persistence in `memory_entity_relations`. |
+| `memory.entity.extractRelations.enabled` | `true` | Enable relation edge extraction and persistence in `memory_entity_relations`. |
 | `memory.entity.extractRelations.backfillBatchSize` | `200` | Batch size for checkpointed `backfill_entity_relations` jobs. |
-| `memory.entity.relationRetrieval.enabled` | `false` | Enable one-hop relation expansion from matched seed entities at recall time. |
+| `memory.entity.relationRetrieval.enabled` | `true` | Enable one-hop relation expansion from matched seed entities at recall time. |
 | `memory.entity.relationRetrieval.maxSeedEntities` | `8` | Maximum matched seed entities from the query. |
 | `memory.entity.relationRetrieval.maxNeighborEntities` | `20` | Maximum unique neighbor entities expanded from relation edges. |
 | `memory.entity.relationRetrieval.maxEdges` | `40` | Maximum relation edges traversed during expansion. |
 | `memory.entity.relationRetrieval.neighborScoreMultiplier` | `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits. |
-| `memory.conflicts.enabled` | `false` | Enable soft conflict gate for unresolved `memory_item_conflicts`. |
+| `memory.conflicts.enabled` | `true` | Enable soft conflict gate for unresolved `memory_item_conflicts`. |
 | `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
 | `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
 | `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
-| `memory.profile.enabled` | `false` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
+| `memory.profile.enabled` | `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
 | `memory.profile.maxInjectTokens` | `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block. |
 
 ### Memory Recall Debugging Playbook
