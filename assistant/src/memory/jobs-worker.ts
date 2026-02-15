@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { and, asc, desc, eq, gt, gte, isNull, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNull, lt, ne, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
@@ -640,12 +640,15 @@ function backfillJob(job: MemoryJob, config: AssistantConfig): void {
     messageId: lastMessage.id,
   });
 
-  if (config.memory.entity.enabled && config.memory.entity.extractRelations.enabled) {
-    enqueueBackfillEntityRelationsJob(force);
-  }
-
   if (batch.length === 200) {
     enqueueMemoryJob('backfill', {});
+  } else if (config.memory.entity.enabled && config.memory.entity.extractRelations.enabled) {
+    // Enqueue only after the final batch so the relation backfill does not
+    // overlap with messages the normal backfill already covered via
+    // indexMessageNow → extract_items → extract_entities.  Never forward the
+    // force flag: the relation backfill's own checkpoint tracks which messages
+    // still need entity extraction independently of the normal backfill.
+    enqueueBackfillEntityRelationsJob();
   }
 }
 
@@ -664,13 +667,25 @@ function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConfig): vo
     RELATION_BACKFILL_CHECKPOINT_ID_KEY,
   );
   const batchSize = Math.max(1, config.memory.entity.extractRelations.backfillBatchSize);
+
+  const afterCursor = or(
+    gt(messages.createdAt, cursor.createdAt),
+    and(eq(messages.createdAt, cursor.createdAt), gt(messages.id, cursor.messageId)),
+  );
+
+  // Honor extractFromAssistant config — same role filter as indexMessageNow
+  const roleFilter = config.memory.extraction.extractFromAssistant
+    ? undefined
+    : ne(messages.role, 'assistant');
+
+  const conditions = roleFilter
+    ? and(afterCursor, roleFilter)
+    : afterCursor;
+
   const batch = db
-    .select({ id: messages.id, createdAt: messages.createdAt })
+    .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt })
     .from(messages)
-    .where(or(
-      gt(messages.createdAt, cursor.createdAt),
-      and(eq(messages.createdAt, cursor.createdAt), gt(messages.id, cursor.messageId)),
-    ))
+    .where(conditions)
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(batchSize)
     .all();

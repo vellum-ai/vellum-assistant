@@ -2077,6 +2077,146 @@ describe('Memory V2 regressions', () => {
     expect(summary!.scopeId).toBe('default');
   });
 
+  test('forced backfill does not double-schedule entity extraction via relation backfill', async () => {
+    const db = getDb();
+    const now = 1_700_002_000_000;
+    const originalEnabled = TEST_CONFIG.memory.entity.enabled;
+    const originalRelationsEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    TEST_CONFIG.memory.entity.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-no-double',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      // Insert fewer than 200 messages so the backfill completes in one batch
+      for (let i = 0; i < 3; i++) {
+        db.insert(messages).values({
+          id: `msg-no-double-${i}`,
+          conversationId: 'conv-no-double',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: `Test message ${i} for double scheduling` }]),
+          createdAt: now + i + 1,
+        }).run();
+      }
+
+      // Enqueue a forced backfill
+      enqueueMemoryJob('backfill', { force: true });
+      await runMemoryJobsOnce();
+
+      // The backfill should have completed (< 200 msgs) and enqueued a
+      // non-forced relation backfill.  Count extract_entities jobs: they
+      // should come only from the extract_items chain, not duplicated by
+      // the relation backfill (which hasn't run yet).
+      const relationBackfillJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(and(
+          eq(memoryJobs.type, 'backfill_entity_relations'),
+          eq(memoryJobs.status, 'pending'),
+        ))
+        .all();
+
+      // A non-forced relation backfill should be enqueued
+      expect(relationBackfillJobs.length).toBeLessThanOrEqual(1);
+
+      // Verify the relation backfill was NOT force-flagged
+      if (relationBackfillJobs.length === 1) {
+        const payload = JSON.parse(relationBackfillJobs[0].payload);
+        expect(payload.force).not.toBe(true);
+      }
+    } finally {
+      TEST_CONFIG.memory.entity.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalRelationsEnabled;
+    }
+  });
+
+  test('relation backfill respects extractFromAssistant=false config', async () => {
+    const db = getDb();
+    const now = 1_700_003_000_000;
+    const originalEnabled = TEST_CONFIG.memory.entity.enabled;
+    const originalRelationsEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    const originalBatchSize = TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize;
+    const originalExtractFromAssistant = TEST_CONFIG.memory.extraction.extractFromAssistant;
+    TEST_CONFIG.memory.entity.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = 10;
+    TEST_CONFIG.memory.extraction.extractFromAssistant = false;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-role-filter',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values([
+        {
+          id: 'msg-role-user',
+          conversationId: 'conv-role-filter',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'User message for entity extraction.' }]),
+          createdAt: now + 1,
+        },
+        {
+          id: 'msg-role-assistant',
+          conversationId: 'conv-role-filter',
+          role: 'assistant',
+          content: JSON.stringify([{ type: 'text', text: 'Assistant message that should be skipped.' }]),
+          createdAt: now + 2,
+        },
+        {
+          id: 'msg-role-user-2',
+          conversationId: 'conv-role-filter',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Another user message for extraction.' }]),
+          createdAt: now + 3,
+        },
+      ]).run();
+
+      enqueueBackfillEntityRelationsJob(true);
+      await runMemoryJobsOnce();
+
+      // Only user messages should have extract_entities jobs
+      const extractJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, 'extract_entities'))
+        .all();
+
+      const extractedMessageIds = extractJobs.map((j) => {
+        const payload = JSON.parse(j.payload);
+        return payload.messageId;
+      });
+
+      expect(extractedMessageIds).toContain('msg-role-user');
+      expect(extractedMessageIds).toContain('msg-role-user-2');
+      expect(extractedMessageIds).not.toContain('msg-role-assistant');
+    } finally {
+      TEST_CONFIG.memory.entity.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalRelationsEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = originalBatchSize;
+      TEST_CONFIG.memory.extraction.extractFromAssistant = originalExtractFromAssistant;
+    }
+  });
+
   test('entity relations upsert is idempotent under repeated processing', () => {
     const db = getDb();
     const sourceEntityId = upsertEntity({
