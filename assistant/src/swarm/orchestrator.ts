@@ -157,9 +157,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
     result.retryCount = retries;
 
-    activeCount--;
     processResult(result);
-    signalProgress();
   }
 
   while (ready.length > 0 || activeCount > 0) {
@@ -170,14 +168,16 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       const task = ready.shift()!;
       activeCount++;
       // Fire-and-forget — completion is handled inside runTask.
-      // The .catch guard ensures activeCount is decremented even if an
-      // unexpected error (e.g. a throwing onStatus callback) propagates
-      // past runTask's internal try/catch, preventing a deadlock where
-      // the main loop waits on signalProgress() that never fires.
-      runTask(task).catch(() => {
-        activeCount--;
-        signalProgress();
-      });
+      // .finally() ensures activeCount is decremented exactly once
+      // regardless of where an error occurs (e.g. a throwing onStatus
+      // callback inside processResult). .catch() suppresses the
+      // unhandled rejection for fire-and-forget usage.
+      runTask(task)
+        .finally(() => {
+          activeCount--;
+          signalProgress();
+        })
+        .catch(() => {});
     }
 
     // Nothing left to launch and nothing running — we're done

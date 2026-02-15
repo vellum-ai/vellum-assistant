@@ -367,7 +367,7 @@ describe('executeSwarm', () => {
     expect(summary.stats.completed).toBe(2);
   });
 
-  test('does not deadlock when onStatus callback throws', async () => {
+  test('does not deadlock when onStatus callback throws on task_started', async () => {
     const plan = makePlan({
       tasks: [
         { id: 'a', role: 'coder', objective: 'A', dependencies: [] },
@@ -375,8 +375,8 @@ describe('executeSwarm', () => {
     });
 
     // The onStatus callback throws on task_started, which happens inside
-    // runTask before the try/catch in runWorkerTask. The .catch() guard on
-    // the fire-and-forget promise should prevent a deadlock.
+    // runTask before the worker runs. The .finally() guard on the
+    // fire-and-forget promise should prevent a deadlock.
     const summary = await executeSwarm({
       plan,
       limits: DEFAULT_LIMITS,
@@ -387,7 +387,42 @@ describe('executeSwarm', () => {
       },
     });
 
-    // The swarm should still complete (via the .catch guard) rather than hang
+    // The swarm should still complete (via the .finally guard) rather than hang
     expect(summary.stats.totalTasks).toBe(1);
+  });
+
+  test('does not double-decrement activeCount when onStatus throws on task_completed', async () => {
+    // Regression: when onStatus threw inside processResult (after the task
+    // finished), the old .catch() guard would decrement activeCount a second
+    // time, driving it negative and causing early termination / incorrect stats.
+    const plan = makePlan({
+      tasks: [
+        { id: 'a', role: 'coder', objective: 'A', dependencies: [] },
+        { id: 'b', role: 'coder', objective: 'B', dependencies: [] },
+        { id: 'c', role: 'coder', objective: 'C', dependencies: ['a'] },
+      ],
+    });
+
+    let throwCount = 0;
+    const summary = await executeSwarm({
+      plan,
+      limits: resolveSwarmLimits({ ...DEFAULT_LIMITS, maxWorkers: 2 }),
+      backend: makeBackend(),
+      workingDir: '/tmp',
+      onStatus: (event) => {
+        // Throw only on the first task_completed to simulate the bug scenario
+        if (event.kind === 'task_completed' && throwCount === 0) {
+          throwCount++;
+          throw new Error('callback boom');
+        }
+      },
+    });
+
+    // Despite the throw, the remaining tasks should still run correctly.
+    // With the old double-decrement bug, activeCount would go negative and
+    // the orchestrator could terminate early or produce wrong stats.
+    expect(summary.stats.totalTasks).toBe(3);
+    // At least 2 tasks should complete (b always succeeds, plus either a or c)
+    expect(summary.stats.completed).toBeGreaterThanOrEqual(2);
   });
 });
