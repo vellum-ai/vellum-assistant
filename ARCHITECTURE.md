@@ -68,6 +68,7 @@ graph TB
             INDEXER["Memory Indexer<br/>segment + extract"]
             RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
             CONFLICT_STORE["ConflictStore<br/>pending/resolved clarification state"]
+            CLARIFICATION_RESOLVER["ClarificationResolver<br/>heuristics + timeout-bounded LLM fallback"]
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
