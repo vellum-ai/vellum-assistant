@@ -223,6 +223,25 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testDismissErrorAlsoClearsSessionError() {
+        viewModel.sessionId = "sess-1"
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "API error",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
+        viewModel.dismissError()
+
+        XCTAssertNil(viewModel.sessionError,
+                      "dismissError() should also clear sessionError")
+        XCTAssertNil(viewModel.errorText)
+    }
+
     func testErrorFinalizesStreamingAssistantMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
@@ -1233,6 +1252,23 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertNil(viewModel.sessionError,
                       "session_error from a different session should be ignored")
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSessionErrorIgnoredBeforeSessionClaimed() {
+        // sessionId is nil — no session claimed yet
+        XCTAssertNil(viewModel.sessionId)
+
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-other",
+            code: .providerNetwork,
+            userMessage: "Connection failed",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+
+        XCTAssertNil(viewModel.sessionError,
+                      "session_error should be ignored before session is claimed")
         XCTAssertNil(viewModel.errorText)
     }
 
