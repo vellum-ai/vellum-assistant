@@ -535,6 +535,7 @@ export interface PongMessage {
 
 export interface GenerationCancelled {
   type: 'generation_cancelled';
+  sessionId?: string;
 }
 
 export interface GenerationHandoff {
