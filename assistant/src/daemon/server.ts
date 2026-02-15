@@ -34,6 +34,7 @@ export class DaemonServer {
   private socketToCuSession = new Map<net.Socket, Set<string>>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
+  private cuObservationParseSequence = new Map<string, number>();
   // Persisted session options (e.g. systemPromptOverride, maxResponseTokens)
   // so that evicted sessions can be recreated with the same overrides.
   private sessionOptions = new Map<string, SessionCreateOptions>();
@@ -136,6 +137,7 @@ export class DaemonServer {
     this.connectedSockets.clear();
     this.socketToSession.clear();
     this.socketSandboxOverride.clear();
+    this.cuObservationParseSequence.clear();
 
     await serverClosed;
     log.info('Daemon server stopped');
@@ -374,6 +376,8 @@ export class DaemonServer {
     });
 
     socket.on('data', (data) => {
+      const chunkReceivedAtMs = Date.now();
+      const parseStartNs = process.hrtime.bigint();
       let messages;
       try {
         messages = parser.feed(data.toString());
@@ -383,7 +387,24 @@ export class DaemonServer {
         socket.destroy();
         return;
       }
+      const parsedAtMs = Date.now();
+      const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const msg of messages) {
+        if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
+          const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
+          const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
+          const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;
+          const sequence = previousSequence + 1;
+          this.cuObservationParseSequence.set(sessionId, sequence);
+          log.info({
+            sessionId,
+            sequence,
+            chunkReceivedAtMs,
+            parsedAtMs,
+            parseDurationMs,
+            payloadJsonBytes: Buffer.byteLength(JSON.stringify(msg), 'utf8'),
+          }, 'IPC_METRIC cu_observation_parse');
+        }
         const result = validateClientMessage(msg);
         if (!result.valid) {
           log.warn({ reason: result.reason }, 'Invalid IPC message, dropping client');
@@ -409,6 +430,7 @@ export class DaemonServer {
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {
         for (const cuSessionId of cuSessionIds) {
+          this.cuObservationParseSequence.delete(cuSessionId);
           const cuSession = this.cuSessions.get(cuSessionId);
           if (cuSession) {
             cuSession.abort();
