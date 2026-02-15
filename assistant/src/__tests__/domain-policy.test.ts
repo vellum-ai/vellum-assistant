@@ -56,6 +56,10 @@ describe('isDomainAllowed', () => {
     expect(isDomainAllowed('not a valid host!!!', ['example.com'])).toBe(false);
   });
 
+  test('denies malformed host even when same string is in allowed list', () => {
+    expect(isDomainAllowed('not a valid host!!!', ['not a valid host!!!'])).toBe(false);
+  });
+
   test('denies IP addresses', () => {
     expect(isDomainAllowed('192.168.1.1', ['192.168.1.1'])).toBe(false);
   });
