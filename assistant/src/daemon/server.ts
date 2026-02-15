@@ -483,7 +483,7 @@ export class DaemonServer {
     }
   }
 
-  private broadcast(msg: ServerMessage): void {
+  broadcast(msg: ServerMessage): void {
     for (const socket of this.connectedSockets) {
       this.send(socket, msg);
     }

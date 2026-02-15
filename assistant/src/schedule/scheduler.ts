@@ -5,6 +5,7 @@ import {
   createScheduleRun,
   completeScheduleRun,
 } from './schedule-store.js';
+import { claimDueReminders, setReminderConversationId } from '../tools/reminder/reminder-store.js';
 
 const log = getLogger('scheduler');
 
@@ -13,6 +14,8 @@ export type ScheduleMessageProcessor = (
   message: string,
 ) => Promise<unknown>;
 
+export type ReminderNotifier = (reminder: { id: string; label: string; message: string }) => void;
+
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
   stop(): void;
@@ -20,7 +23,10 @@ export interface SchedulerHandle {
 
 const TICK_INTERVAL_MS = 15_000;
 
-export function startScheduler(processMessage: ScheduleMessageProcessor): SchedulerHandle {
+export function startScheduler(
+  processMessage: ScheduleMessageProcessor,
+  notifyReminder: ReminderNotifier,
+): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
 
@@ -28,7 +34,7 @@ export function startScheduler(processMessage: ScheduleMessageProcessor): Schedu
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runScheduleOnce(processMessage);
+      await runScheduleOnce(processMessage, notifyReminder);
     } catch (err) {
       log.error({ err }, 'Schedule tick failed');
     } finally {
@@ -42,7 +48,7 @@ export function startScheduler(processMessage: ScheduleMessageProcessor): Schedu
 
   return {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(processMessage);
+      return runScheduleOnce(processMessage, notifyReminder);
     },
     stop(): void {
       stopped = true;
@@ -51,12 +57,15 @@ export function startScheduler(processMessage: ScheduleMessageProcessor): Schedu
   };
 }
 
-async function runScheduleOnce(processMessage: ScheduleMessageProcessor): Promise<number> {
+async function runScheduleOnce(
+  processMessage: ScheduleMessageProcessor,
+  notifyReminder: ReminderNotifier,
+): Promise<number> {
   const now = Date.now();
-  const jobs = claimDueSchedules(now);
-  if (jobs.length === 0) return 0;
-
   let processed = 0;
+
+  // ── Cron jobs ───────────────────────────────────────────────────────
+  const jobs = claimDueSchedules(now);
   for (const job of jobs) {
     const conversation = createConversation(`Schedule: ${job.name}`);
     const runId = createScheduleRun(job.id, conversation.id);
@@ -73,6 +82,27 @@ async function runScheduleOnce(processMessage: ScheduleMessageProcessor): Promis
     }
   }
 
-  log.info({ processed, total: jobs.length }, 'Schedule tick complete');
+  // ── One-shot reminders ──────────────────────────────────────────────
+  const dueReminders = claimDueReminders(now);
+  for (const reminder of dueReminders) {
+    if (reminder.mode === 'execute') {
+      const conversation = createConversation(`Reminder: ${reminder.label}`);
+      setReminderConversationId(reminder.id, conversation.id);
+      try {
+        log.info({ reminderId: reminder.id, label: reminder.label, conversationId: conversation.id }, 'Executing reminder');
+        await processMessage(conversation.id, reminder.message);
+      } catch (err) {
+        log.warn({ err, reminderId: reminder.id }, 'Reminder execution failed');
+      }
+    } else {
+      log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');
+      notifyReminder({ id: reminder.id, label: reminder.label, message: reminder.message });
+    }
+    processed += 1;
+  }
+
+  if (processed > 0) {
+    log.info({ processed }, 'Schedule tick complete');
+  }
   return processed;
 }
