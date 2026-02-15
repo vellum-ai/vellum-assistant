@@ -182,7 +182,7 @@ struct ComposerView: View {
                 }
                 return .handled
             }
-            guard keyPress.modifiers.isEmpty else { return .ignored }
+            guard keyPress.modifiers.isEmpty || keyPress.modifiers == .command else { return .ignored }
             inputText = inputText.replacingOccurrences(
                 of: "\\n$", with: "", options: .regularExpression
             )
