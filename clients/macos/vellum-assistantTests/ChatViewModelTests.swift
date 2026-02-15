@@ -463,6 +463,27 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText, "Regenerate while sending should silently do nothing")
     }
 
+    func testRegenerateClearsStaleSessionError() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = true
+
+        // Simulate a stale session error from a previous failure
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .providerApi,
+            userMessage: "Stale error",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
+        XCTAssertNotNil(viewModel.sessionError)
+        XCTAssertNotNil(viewModel.errorText)
+
+        viewModel.regenerateLastMessage()
+
+        XCTAssertNil(viewModel.sessionError, "Regenerate should clear stale session error")
+        XCTAssertNil(viewModel.errorText, "Regenerate should clear stale error text")
+    }
+
     func testStopGeneratingWhenDisconnectedResetsAllState() {
         // Set up state directly to establish meaningful queue state, since
         // DaemonClient.send() throws when connection is nil.

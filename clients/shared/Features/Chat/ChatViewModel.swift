@@ -1119,6 +1119,8 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
+        errorText = nil
+        sessionError = nil
         isSending = true
         isThinking = true
         suggestion = nil
