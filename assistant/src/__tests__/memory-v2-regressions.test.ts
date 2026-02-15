@@ -1238,6 +1238,7 @@ describe('Memory V2 regressions', () => {
       const updatedConflict = getConflictById(conflict.id);
 
       expect(existing?.invalidAt).not.toBeNull();
+      expect(existing?.status).toBe('superseded');
       expect(candidate?.status).toBe('active');
       expect(updatedConflict?.status).toBe('resolved_keep_candidate');
       expect(updatedConflict?.resolutionNote).toContain('Background message resolver');

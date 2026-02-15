@@ -1655,13 +1655,21 @@ export class Session {
     if (!conflictConfig?.enabled || conflictConfig.gateMode !== 'soft') return null;
 
     this.conflictTurnCounter += 1;
-    await this.resolvePendingConflictsFromUserTurn(userMessage, conflictConfig.resolverLlmTimeoutMs);
+    const threshold = conflictConfig.relevanceThreshold;
+    const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
+    const pendingBeforeResolve = listPendingConflictDetails('default', 50);
+    const relevantBeforeResolve = pendingBeforeResolve.filter(
+      (conflict) => computeConflictRelevance(userMessage, conflict) >= threshold,
+    );
+    await this.resolvePendingConflictsFromUserTurn(
+      userMessage,
+      conflictConfig.resolverLlmTimeoutMs,
+      relevantBeforeResolve,
+    );
 
     const pending = listPendingConflictDetails('default', 50);
     if (pending.length === 0) return null;
 
-    const threshold = conflictConfig.relevanceThreshold;
-    const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const scored = pending.map((conflict) => ({
       conflict,
       relevance: computeConflictRelevance(userMessage, conflict),
@@ -1684,9 +1692,9 @@ export class Session {
   private async resolvePendingConflictsFromUserTurn(
     userMessage: string,
     resolverTimeoutMs: number,
+    pendingConflicts: PendingConflictDetail[],
   ): Promise<void> {
-    const pending = listPendingConflictDetails('default', 25);
-    for (const conflict of pending) {
+    for (const conflict of pendingConflicts) {
       const resolution = await resolveConflictClarification(
         {
           existingStatement: conflict.existingStatement,
