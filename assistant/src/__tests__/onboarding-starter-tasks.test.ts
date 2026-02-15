@@ -1,0 +1,191 @@
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const TEST_DIR = join(tmpdir(), `vellum-starter-tasks-test-${crypto.randomUUID()}`);
+
+import { mock } from 'bun:test';
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => TEST_DIR,
+  getDataDir: () => TEST_DIR,
+  getWorkspaceDir: () => TEST_DIR,
+  getWorkspaceConfigPath: () => join(TEST_DIR, 'config.json'),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
+  getWorkspaceHooksDir: () => join(TEST_DIR, 'hooks'),
+  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
+  ensureDataDir: () => {},
+  getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
+  getPidPath: () => join(TEST_DIR, 'vellum.pid'),
+  getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getHistoryPath: () => join(TEST_DIR, 'history'),
+  getHooksDir: () => join(TEST_DIR, 'hooks'),
+  getIpcBlobDir: () => join(TEST_DIR, 'ipc-blobs'),
+  getSandboxRootDir: () => join(TEST_DIR, 'sandbox'),
+  getSandboxWorkingDir: () => TEST_DIR,
+  getInterfacesDir: () => join(TEST_DIR, 'interfaces'),
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getPlatformName: () => process.platform,
+  getClipboardCommand: () => null,
+  removeSocketFile: () => {},
+  migratePath: () => {},
+  migrateToWorkspaceLayout: () => {},
+  migrateToDataLayout: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+const { buildStarterTaskPlaybookSection, buildSystemPrompt } = await import('../config/system-prompt.js');
+
+describe('buildStarterTaskPlaybookSection', () => {
+  test('returns a string with the section heading', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('## Starter Task Playbooks');
+  });
+
+  test('documents all three kickoff intents', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('[STARTER_TASK:make_it_yours]');
+    expect(section).toContain('[STARTER_TASK:research_topic]');
+    expect(section).toContain('[STARTER_TASK:research_to_ui]');
+  });
+
+  test('includes the make_it_yours playbook', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('### Playbook: make_it_yours');
+    expect(section).toContain('accent color');
+    expect(section).toContain('Dashboard Color Preference');
+    expect(section).toContain('user_selected');
+  });
+
+  test('includes the research_topic playbook', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('### Playbook: research_topic');
+    expect(section).toContain('web search');
+  });
+
+  test('includes the research_to_ui playbook', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('### Playbook: research_to_ui');
+    expect(section).toContain('app_create');
+  });
+
+  test('includes general rules section', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('### General rules for all starter tasks');
+  });
+
+  test('enforces trust gating in general rules', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('trust gating');
+    expect(section).toContain('do NOT ask for elevated permissions');
+  });
+
+  test('references USER.md onboarding tasks for status tracking', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('## Onboarding Tasks');
+    expect(section).toContain('in_progress');
+    expect(section).toContain('done');
+    expect(section).toContain('deferred_to_dashboard');
+  });
+
+  test('make_it_yours playbook handles locale confirmation', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('locale');
+    expect(section).toContain('confidence: low');
+  });
+
+  test('make_it_yours playbook includes confirmation step', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('Confirm the selection');
+    expect(section).toContain('Sound good?');
+  });
+
+  test('research_to_ui playbook references dynamic UI quality standards', () => {
+    const section = buildStarterTaskPlaybookSection();
+    expect(section).toContain('Dynamic UI quality standards');
+    expect(section).toContain('anti-AI-slop');
+  });
+});
+
+describe('starter task playbook integration with buildSystemPrompt', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('buildSystemPrompt includes the starter task playbook section', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('## Starter Task Playbooks');
+  });
+
+  test('starter task playbook appears after onboarding guidance', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    const result = buildSystemPrompt();
+    const onboardingIdx = result.indexOf('## Onboarding State Management');
+    const starterIdx = result.indexOf('## Starter Task Playbooks');
+    expect(onboardingIdx).toBeGreaterThan(-1);
+    expect(starterIdx).toBeGreaterThan(-1);
+    expect(onboardingIdx).toBeLessThan(starterIdx);
+  });
+
+  test('starter task playbook appears before channel awareness', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    const result = buildSystemPrompt();
+    const starterIdx = result.indexOf('## Starter Task Playbooks');
+    const channelIdx = result.indexOf('## Channel Awareness & Trust Gating');
+    expect(starterIdx).toBeGreaterThan(-1);
+    expect(channelIdx).toBeGreaterThan(-1);
+    expect(starterIdx).toBeLessThan(channelIdx);
+  });
+
+  test('all three kickoff intents present in full system prompt', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('[STARTER_TASK:make_it_yours]');
+    expect(result).toContain('[STARTER_TASK:research_topic]');
+    expect(result).toContain('[STARTER_TASK:research_to_ui]');
+  });
+});
+
+describe('USER.md template starter task fields', () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('USER.md template includes all three starter task fields', () => {
+    const templatePath = join(import.meta.dirname ?? __dirname, '..', 'config', 'templates', 'USER.md');
+    const content = readFileSync(templatePath, 'utf-8');
+    expect(content).toContain('**make_it_yours:** pending');
+    expect(content).toContain('**research_topic:** pending');
+    expect(content).toContain('**research_to_ui:** pending');
+  });
+
+  test('USER.md template preserves existing task fields', () => {
+    const templatePath = join(import.meta.dirname ?? __dirname, '..', 'config', 'templates', 'USER.md');
+    const content = readFileSync(templatePath, 'utf-8');
+    expect(content).toContain('**set_name:** pending');
+    expect(content).toContain('**set_locale:** pending');
+    expect(content).toContain('**first_conversation:** pending');
+  });
+});

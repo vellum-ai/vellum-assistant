@@ -38,7 +38,9 @@ _Tracks progress through onboarding steps. Each task is one of: pending, in_prog
 
 - **set_name:** pending
 - **set_locale:** pending
-- **choose_color:** pending
+- **make_it_yours:** pending
+- **research_topic:** pending
+- **research_to_ui:** pending
 - **first_conversation:** pending
 
 ## Trust Stage
