@@ -8,19 +8,22 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
     public var body: some View {
         HStack(spacing: 0) {
+            // Main content - shrinks when panel appears
             main
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+            // Panel slides in from right, pushing content
             if showPanel, let panel = panel {
                 panel
                     .frame(width: panelWidth)
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding([.bottom, .leading, .trailing], VSpacing.sm)
+                    .padding(.vertical, VSpacing.sm)
+                    .padding(.leading, VSpacing.sm)
                     .transition(.move(edge: .trailing))
             }
         }
-        .animation(VAnimation.standard, value: showPanel)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPanel)
     }
 
     public init(

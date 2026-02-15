@@ -5,7 +5,7 @@ struct ThreadModel: Identifiable, Hashable {
     let title: String
     let createdAt: Date
     /// Daemon conversation ID for restored threads. Nil for new, unsaved threads.
-    let sessionId: String?
+    var sessionId: String?
     /// Whether the thread is hidden from the tab bar (for drawer mode)
     var isHidden: Bool
 
