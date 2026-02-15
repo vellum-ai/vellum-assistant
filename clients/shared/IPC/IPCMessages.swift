@@ -703,6 +703,24 @@ public typealias ClawhubInspectOwner = IPCSkillsInspectResponseDataOwner
 /// Backed by generated `IPCSkillsInspectResponseDataStats`.
 public typealias ClawhubInspectStats = IPCSkillsInspectResponseDataStats
 
+// The server may omit stats fields for newly created skills,
+// so we default missing values to 0 instead of crashing.
+extension IPCSkillsInspectResponseDataStats {
+    enum CodingKeys: String, CodingKey {
+        case stars, installs, downloads, versions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            stars: try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0,
+            installs: try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0,
+            downloads: try container.decodeIfPresent(Int.self, forKey: .downloads) ?? 0,
+            versions: try container.decodeIfPresent(Int.self, forKey: .versions) ?? 0
+        )
+    }
+}
+
 /// Version info from a ClaWHub inspect response.
 /// Backed by generated `IPCSkillsInspectResponseDataLatestVersion`.
 public typealias ClawhubInspectVersion = IPCSkillsInspectResponseDataLatestVersion
