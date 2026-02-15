@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
@@ -55,7 +55,7 @@ export function _resetDockerChecks(): void {
 function checkDockerCli(): void {
   if (dockerCliAvailable) return;
   try {
-    execSync('docker --version', { stdio: 'ignore', timeout: 5000 });
+    execFileSync('docker', ['--version'], { stdio: 'ignore', timeout: 5000 });
     dockerCliAvailable = true;
   } catch {
     throw new ToolError(
@@ -68,7 +68,7 @@ function checkDockerCli(): void {
 function checkDockerDaemon(): void {
   if (dockerDaemonReachable) return;
   try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10000 });
+    execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 10000 });
     dockerDaemonReachable = true;
   } catch {
     throw new ToolError(
@@ -92,21 +92,20 @@ function checkImageAvailable(image: string): void {
   }
 }
 
-function checkMountProbe(sandboxRoot: string): void {
-  if (mountProbeCache.has(sandboxRoot)) return;
+function checkMountProbe(sandboxRoot: string, image: string): void {
+  const cacheKey = `${sandboxRoot}\0${image}`;
+  if (mountProbeCache.has(cacheKey)) return;
   try {
-    // Use execFileSync with argv segments to prevent shell interpolation
-    // of the sandbox root path (which may contain spaces or special chars).
     execFileSync(
       'docker',
       [
         'run', '--rm',
         '--mount', `type=bind,src=${sandboxRoot},dst=/workspace`,
-        'ubuntu:22.04', 'test', '-w', '/workspace',
+        image, 'test', '-w', '/workspace',
       ],
       { stdio: 'ignore', timeout: 15000 },
     );
-    mountProbeCache.add(sandboxRoot);
+    mountProbeCache.add(cacheKey);
   } catch {
     throw new ToolError(
       'Cannot bind-mount the sandbox root into a Docker container or /workspace is not writable. ' +
@@ -171,7 +170,7 @@ export class DockerBackend implements SandboxBackend {
     checkDockerCli();
     checkDockerDaemon();
     checkImageAvailable(this.config.image);
-    checkMountProbe(this.sandboxRoot);
+    checkMountProbe(this.sandboxRoot, this.config.image);
   }
 
   wrap(command: string, workingDir: string): SandboxResult {

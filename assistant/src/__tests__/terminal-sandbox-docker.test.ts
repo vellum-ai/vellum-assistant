@@ -362,12 +362,18 @@ describe('DockerBackend — custom config', () => {
 
 describe('DockerBackend — preflight: Docker CLI check', () => {
   test('throws ToolError with install hint when docker CLI is missing', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker')) {
-        throw new Error('command not found: docker');
-      }
-      return undefined;
-    });
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('--version')
+        ) {
+          throw new Error('command not found: docker');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
@@ -382,8 +388,11 @@ describe('DockerBackend — preflight: Docker CLI check', () => {
     backend.wrap('ls', sandboxRoot);
 
     // docker --version should only be called once (cached after success).
-    const versionCalls = execSyncMock.mock.calls.filter(
-      (args) => typeof args[0] === 'string' && args[0] === 'docker --version',
+    const versionCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('--version'),
     );
     expect(versionCalls.length).toBe(1);
   });
@@ -391,12 +400,18 @@ describe('DockerBackend — preflight: Docker CLI check', () => {
 
 describe('DockerBackend — preflight: Docker daemon check', () => {
   test('throws ToolError with start hint when daemon is unreachable', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd === 'docker info') {
-        throw new Error('Cannot connect to the Docker daemon');
-      }
-      return undefined;
-    });
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('info')
+        ) {
+          throw new Error('Cannot connect to the Docker daemon');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
@@ -410,8 +425,11 @@ describe('DockerBackend — preflight: Docker daemon check', () => {
     backend.wrap('ls', sandboxRoot);
     backend.wrap('ls', sandboxRoot);
 
-    const infoCalls = execSyncMock.mock.calls.filter(
-      (args) => typeof args[0] === 'string' && args[0] === 'docker info',
+    const infoCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('info'),
     );
     expect(infoCalls.length).toBe(1);
   });
@@ -568,6 +586,27 @@ describe('DockerBackend — preflight: mount probe', () => {
     expect(argv).toContain('--mount');
   });
 
+  test('mount probe uses configured image, not hardcoded ubuntu:22.04', () => {
+    const backend = new DockerBackend(
+      sandboxRoot,
+      { image: 'alpine:3.19' },
+      1000,
+      1000,
+    );
+    backend.wrap('ls', sandboxRoot);
+
+    const mountCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('run'),
+    );
+    expect(mountCalls.length).toBe(1);
+    const argv = mountCalls[0]![1] as string[];
+    expect(argv).toContain('alpine:3.19');
+    expect(argv).not.toContain('ubuntu:22.04');
+  });
+
   test('caches successful mount probe per sandbox root', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     backend.wrap('ls', sandboxRoot);
@@ -585,13 +624,15 @@ describe('DockerBackend — preflight: mount probe', () => {
 
 describe('DockerBackend — preflight check order', () => {
   test('checks CLI before daemon', () => {
-    // All docker commands fail, but we expect the CLI error first.
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker')) {
-        throw new Error('docker not available');
-      }
-      return undefined;
-    });
+    // All docker execFileSync calls fail, but we expect the CLI error first.
+    execFileSyncMock.mockImplementation(
+      (file: string) => {
+        if (file === 'docker') {
+          throw new Error('docker not available');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     try {
@@ -609,12 +650,6 @@ describe('DockerBackend — preflight check order', () => {
     backend.wrap('ls', sandboxRoot);
 
     // Now make all docker commands fail.
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker')) {
-        throw new Error('docker unavailable');
-      }
-      return undefined;
-    });
     execFileSyncMock.mockImplementation(
       (file: string) => {
         if (file === 'docker') {
@@ -632,12 +667,18 @@ describe('DockerBackend — preflight check order', () => {
 
   test('re-checks negative results on subsequent calls', () => {
     // Start with CLI failing.
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd === 'docker --version') {
-        throw new Error('not found');
-      }
-      return undefined;
-    });
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('--version')
+        ) {
+          throw new Error('not found');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
@@ -645,7 +686,7 @@ describe('DockerBackend — preflight check order', () => {
     );
 
     // Now make it succeed.
-    execSyncMock.mockImplementation(() => undefined);
+    execFileSyncMock.mockImplementation(() => undefined);
     const result = backend.wrap('ls', sandboxRoot);
     expect(result.command).toBe('docker');
   });
@@ -659,12 +700,14 @@ describe('DockerBackend — no unsandboxed fallback', () => {
   });
 
   test('preflight failure always throws, never returns unsandboxed result', () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === 'string' && cmd.includes('docker')) {
-        throw new Error('not available');
-      }
-      return undefined;
-    });
+    execFileSyncMock.mockImplementation(
+      (file: string) => {
+        if (file === 'docker') {
+          throw new Error('not available');
+        }
+        return undefined;
+      },
+    );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     let threw = false;
