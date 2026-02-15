@@ -609,32 +609,29 @@ export class Session {
       let llmCallStartedEmitted = false;
 
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
+        // Emit llm_call_started once per provider call. Called on first streaming
+        // token (text or thinking) or, for tool-only turns, right before the
+        // usage event so every llm_call_finished has a matching start.
+        const emitLlmCallStartedIfNeeded = () => {
+          if (llmCallStartedEmitted) return;
+          llmCallStartedEmitted = true;
+          this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
+            requestId: reqId,
+            status: 'info',
+            attributes: { provider: this.provider.name, model: model || 'unknown' },
+          });
+        };
+
         switch (event.type) {
           case 'text_delta':
-            // Emit llm_call_started on the first streaming token of each provider call
-            if (!llmCallStartedEmitted) {
-              llmCallStartedEmitted = true;
-              this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
-                requestId: reqId,
-                status: 'info',
-                attributes: { provider: this.provider.name, model: model || 'unknown' },
-              });
-            }
+            emitLlmCallStartedIfNeeded();
             onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
             if (isFirstMessage) firstAssistantText += event.text;
             break;
           case 'thinking_delta':
-            // Emit llm_call_started on first thinking token if not already emitted.
             // Thinking content itself is NOT included in traces to avoid leaking
             // extended-thinking data.
-            if (!llmCallStartedEmitted) {
-              llmCallStartedEmitted = true;
-              this.traceEmitter.emit('llm_call_started', `LLM call to ${this.provider.name}`, {
-                requestId: reqId,
-                status: 'info',
-                attributes: { provider: this.provider.name, model: model || 'unknown' },
-              });
-            }
+            emitLlmCallStartedIfNeeded();
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
@@ -708,6 +705,10 @@ export class Session {
             exchangeInputTokens += event.inputTokens;
             exchangeOutputTokens += event.outputTokens;
             model = event.model;
+
+            // Ensure llm_call_started is emitted even for tool-only turns
+            // (where no text_delta or thinking_delta events fire)
+            emitLlmCallStartedIfNeeded();
 
             // Emit llm_call_finished trace with token and latency metrics
             this.traceEmitter.emit('llm_call_finished', `LLM call to ${this.provider.name} finished`, {
