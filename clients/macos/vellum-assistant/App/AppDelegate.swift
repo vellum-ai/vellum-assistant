@@ -888,7 +888,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent, zoomManager: zoomManager)
+        let main = MainWindow(daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, zoomManager: zoomManager)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
