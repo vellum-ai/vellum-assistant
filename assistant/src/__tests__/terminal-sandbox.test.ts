@@ -43,7 +43,7 @@ mock.module('node:fs', () => ({
 const { wrapCommand } = await import('../tools/terminal/sandbox.js');
 const { ToolError } = await import('../util/errors.js');
 
-const defaultDocker = { image: 'node:20-slim', shell: 'sh', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' as const };
+const defaultDocker = { image: 'node:20-slim', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' as const };
 
 function disabledConfig(): SandboxConfig {
   return { enabled: false, backend: 'native', docker: defaultDocker };
