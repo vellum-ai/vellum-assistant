@@ -7,9 +7,24 @@ struct ActivityPanel: View {
 
     var body: some View {
         VSidePanel(title: "Activity", onClose: onClose) {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                ForEach(toolCalls) { toolCall in
-                    ActivityStepView(toolCall: toolCall)
+            ZStack(alignment: .leading) {
+                // Vertical timeline line aligned with center of status circles
+                Rectangle()
+                    .fill(VColor.surfaceBorder)
+                    .frame(width: 1)
+                    .padding(.leading, 11) // center of 24pt circle
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                        ActivityStepView(toolCall: toolCall)
+                            .padding(.vertical, VSpacing.sm)
+
+                        if index < toolCalls.count - 1 {
+                            Divider()
+                                .background(VColor.surfaceBorder)
+                                .padding(.leading, 32)
+                        }
+                    }
                 }
             }
         }
@@ -118,15 +133,6 @@ struct ActivityStepView: View {
                 .padding(.leading, 32)
             }
         }
-        .padding(VSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(toolCall.isError ? VColor.error.opacity(0.05) : VColor.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
     }
 
     private var statusColor: Color {
