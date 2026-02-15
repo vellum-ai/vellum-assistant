@@ -98,6 +98,11 @@ final class SecretPromptManager {
         panels.removeAll()
     }
 
+    /// Forward the user's response to the daemon via `onResponse`.
+    ///
+    /// **Security invariant**: This method intentionally never logs `value`.
+    /// All logging in this class uses metadata-only fields (requestId, service, field).
+    /// Any future change that adds logging here must be audited for secret leaks.
     private func respond(requestId: String, value: String?, delivery: String? = nil) -> Bool {
         let success = onResponse?(requestId, value, delivery) ?? true
         if success && value == nil {
