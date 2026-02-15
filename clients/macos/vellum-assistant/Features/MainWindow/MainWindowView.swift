@@ -326,14 +326,14 @@ struct MainWindowView: View {
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .padding(.bottom, VSpacing.sm)
-        .padding(.leading, VSpacing.sm)
+        .padding(.bottom, VSpacing.xs)
+        .padding(.leading, VSpacing.xs)
     }
 
     private func drawerDragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(width: VSpacing.sm)
+            .frame(width: VSpacing.xs)
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering {
@@ -362,7 +362,7 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
+                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2)
 
                         // Update width without animation to prevent jitter
                         var transaction = Transaction()
