@@ -174,6 +174,37 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 }
 
 /**
+ * Prepend workspace top-level directory context to a user message.
+ */
+export function injectWorkspaceTopLevelContext(message: Message, contextText: string): Message {
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: contextText },
+      ...message.content,
+    ],
+  };
+}
+
+/**
+ * Strip `<workspace_top_level>` blocks injected by
+ * `injectWorkspaceTopLevelContext`.  Called after the agent run to prevent
+ * workspace context from persisting in session history.
+ */
+export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const nextContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !block.text.startsWith('<workspace_top_level>');
+    });
+    if (nextContent.length === message.content.length) return message;
+    if (nextContent.length === 0) return null;
+    return { ...message, content: nextContent };
+  }).filter((message): message is NonNullable<typeof message> => message !== null);
+}
+
+/**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
  * injected by `injectActiveSurfaceContext`.  Called after the agent run to
  * prevent the (potentially 100 KB) surface HTML from persisting in session
@@ -203,6 +234,7 @@ export function applyRuntimeInjections(
   options: {
     softConflictInstruction?: string | null;
     activeSurface?: ActiveSurfaceContext | null;
+    workspaceTopLevelContext?: string | null;
   },
 ): Message[] {
   let result = runMessages;
@@ -223,6 +255,19 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectActiveSurfaceContext(userTail, options.activeSurface),
+      ];
+    }
+  }
+
+  // Workspace top-level context is injected last so it appears first
+  // (prepended) in the user message content, keeping cache breakpoints
+  // anchored to the trailing blocks.
+  if (options.workspaceTopLevelContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectWorkspaceTopLevelContext(userTail, options.workspaceTopLevelContext),
       ];
     }
   }
