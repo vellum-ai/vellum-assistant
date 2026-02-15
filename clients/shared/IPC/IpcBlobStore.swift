@@ -13,12 +13,7 @@ func resolveBlobDir(environment: [String: String]? = nil) -> URL {
     let env = environment ?? ProcessInfo.processInfo.environment
     let root: String
     if let baseDataDir = env["BASE_DATA_DIR"], !baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let trimmed = baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("~/") {
-            root = NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
-        } else {
-            root = trimmed
-        }
+        root = baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines)
     } else {
         root = NSHomeDirectory()
     }

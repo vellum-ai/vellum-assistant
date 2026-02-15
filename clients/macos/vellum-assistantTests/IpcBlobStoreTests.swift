@@ -133,10 +133,4 @@ final class IpcBlobStoreTests: XCTestCase {
         XCTAssertEqual(resolved, expected)
     }
 
-    func testResolveBlobDirExpandsTildeInBaseDataDir() {
-        let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "~/custom"])
-        let expected = URL(fileURLWithPath: NSHomeDirectory() + "/custom")
-            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
-        XCTAssertEqual(resolved, expected)
-    }
 }
