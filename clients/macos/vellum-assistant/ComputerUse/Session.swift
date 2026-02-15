@@ -210,8 +210,13 @@ final class ComputerUseSession: ObservableObject {
     // MARK: - Action Handler
 
     private func handleAction(_ action: CuActionMessage) async {
-        let agentAction = mapToAgentAction(action)
+        var agentAction = mapToAgentAction(action)
         currentStepNumber = action.stepNumber
+
+        guard let resolved = await resolveCoordinatesIfNeeded(for: agentAction, stepNumber: action.stepNumber) else {
+            return
+        }
+        agentAction = resolved
 
         // Update state for UI
         state = .running(
@@ -498,6 +503,8 @@ final class ComputerUseSession: ObservableObject {
         let script = msg.input["script"]?.value as? String
         let elementId = extractInt(from: msg.input, key: "element_id")
             ?? extractInt(from: msg.input, key: "elementId")
+        let toElementId = extractInt(from: msg.input, key: "to_element_id")
+            ?? extractInt(from: msg.input, key: "toElementId")
         let elementDescription = msg.input["element_description"]?.value as? String
             ?? msg.input["elementDescription"]?.value as? String
 
@@ -517,8 +524,112 @@ final class ComputerUseSession: ObservableObject {
             appName: appName,
             script: script,
             resolvedFromElementId: elementId,
+            resolvedToElementId: toElementId,
             elementDescription: elementDescription
         )
+    }
+
+    private func resolveCoordinatesIfNeeded(for action: AgentAction, stepNumber: Int) async -> AgentAction? {
+        var resolved = action
+
+        switch resolved.type {
+        case .click, .doubleClick, .rightClick:
+            if resolved.x == nil || resolved.y == nil {
+                guard let sourceId = resolved.resolvedFromElementId else {
+                    await sendRecoverableExecutionError(
+                        "Action requires either x/y coordinates or element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                guard let center = elementCenter(for: sourceId) else {
+                    await sendRecoverableExecutionError(
+                        "Could not resolve element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide x/y coordinates.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                resolved.x = center.x
+                resolved.y = center.y
+            }
+
+        case .scroll:
+            if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
+                guard let center = elementCenter(for: sourceId) else {
+                    await sendRecoverableExecutionError(
+                        "Could not resolve element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide x/y coordinates.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                resolved.x = center.x
+                resolved.y = center.y
+            }
+
+        case .drag:
+            if resolved.x == nil || resolved.y == nil {
+                if let sourceId = resolved.resolvedFromElementId {
+                    guard let center = elementCenter(for: sourceId) else {
+                        await sendRecoverableExecutionError(
+                            "Could not resolve source element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide source x/y coordinates.",
+                            stepNumber: stepNumber
+                        )
+                        return nil
+                    }
+                    resolved.x = center.x
+                    resolved.y = center.y
+                } else {
+                    await sendRecoverableExecutionError(
+                        "Drag action requires source coordinates (x/y) or element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+            }
+
+            if resolved.toX == nil || resolved.toY == nil {
+                if let destinationId = resolved.resolvedToElementId {
+                    guard let center = elementCenter(for: destinationId) else {
+                        await sendRecoverableExecutionError(
+                            "Could not resolve destination to_element_id [\(destinationId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide to_x/to_y coordinates.",
+                            stepNumber: stepNumber
+                        )
+                        return nil
+                    }
+                    resolved.toX = center.x
+                    resolved.toY = center.y
+                } else {
+                    await sendRecoverableExecutionError(
+                        "Drag action requires destination coordinates (to_x/to_y) or to_element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+            }
+
+        default:
+            break
+        }
+
+        return resolved
+    }
+
+    private func elementCenter(for elementId: Int) -> CGPoint? {
+        guard let flatElements = previousFlatElements,
+              let element = flatElements.first(where: { $0.id == elementId }),
+              !element.frame.isEmpty else {
+            return nil
+        }
+        return CGPoint(x: element.frame.midX, y: element.frame.midY)
+    }
+
+    private func sendRecoverableExecutionError(_ message: String, stepNumber: Int) async {
+        log.warning("[\(stepNumber)] Coordinate resolution failed: \(message, privacy: .public)")
+        let obs = await buildObservation(executionResult: nil, executionError: message)
+        if let obs {
+            try? daemonClient.send(obs)
+        }
+        state = .thinking(step: stepNumber + 1, maxSteps: maxSteps)
     }
 
     private func extractCGFloat(from input: [String: AnyCodable], key: String) -> CGFloat? {

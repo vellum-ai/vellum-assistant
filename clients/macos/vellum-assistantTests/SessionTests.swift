@@ -636,6 +636,166 @@ final class SessionTests: XCTestCase {
         await runTask.value
     }
 
+    // MARK: - Element ID Resolution
+
+    @MainActor
+    func testClickWithElementId_resolvesCoordinates() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["element_id": AnyCodable(1)],
+            reasoning: "Click the submit button by ID",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Clicked by ID",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        XCTAssertEqual(executor.executedActions.count, 1)
+        let executed = executor.executedActions[0]
+        XCTAssertEqual(executed.type, .click)
+        XCTAssertEqual(executed.resolvedFromElementId, 1)
+        XCTAssertEqual(executed.x ?? -1, 140, accuracy: 0.001)
+        XCTAssertEqual(executed.y ?? -1, 215, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testDragWithElementIds_resolvesBothEndpoints() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_drag",
+            input: [
+                "element_id": AnyCodable(1),
+                "to_element_id": AnyCodable(2),
+            ],
+            reasoning: "Drag from source ID to destination ID",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Dragged by IDs",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        XCTAssertEqual(executor.executedActions.count, 1)
+        let executed = executor.executedActions[0]
+        XCTAssertEqual(executed.type, .drag)
+        XCTAssertEqual(executed.resolvedFromElementId, 1)
+        XCTAssertEqual(executed.resolvedToElementId, 2)
+        XCTAssertEqual(executed.x ?? -1, 140, accuracy: 0.001)
+        XCTAssertEqual(executed.y ?? -1, 215, accuracy: 0.001)
+        XCTAssertEqual(executed.toX ?? -1, 200, accuracy: 0.001)
+        XCTAssertEqual(executed.toY ?? -1, 165, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testUnresolvableElementId_sendsRecoverableErrorObservation() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        let initialObsCount = daemonClient.sentMessages.compactMap({ $0 as? CuObservationMessage }).count
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["element_id": AnyCodable(999)],
+            reasoning: "Try stale element ID",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThan(obsMessages.count, initialObsCount)
+        XCTAssertTrue(obsMessages.last?.executionError?.contains("Could not resolve element_id [999]") == true)
+        XCTAssertEqual(executor.executedActions.count, 0)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Recovered from stale id",
+            stepCount: 1
+        )))
+        await runTask.value
+    }
+
+    @MainActor
+    func testDragDestinationElementId_acceptsCamelCaseKey() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_drag",
+            input: [
+                "element_id": AnyCodable(1),
+                "toElementId": AnyCodable(2),
+            ],
+            reasoning: "Use camelCase destination element key",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Dragged by camelCase IDs",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        XCTAssertEqual(executor.executedActions.count, 1)
+        XCTAssertEqual(executor.executedActions[0].resolvedToElementId, 2)
+        XCTAssertEqual(executor.executedActions[0].toX ?? -1, 200, accuracy: 0.001)
+        XCTAssertEqual(executor.executedActions[0].toY ?? -1, 165, accuracy: 0.001)
+    }
+
     // MARK: - Undo
 
     @MainActor
