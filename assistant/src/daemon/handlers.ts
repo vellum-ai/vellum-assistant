@@ -64,6 +64,7 @@ import { addRule, removeRule, updateRule, getAllRules } from '../permissions/tru
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
+import { handleWatchObservation } from './watch-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
 import { defaultGallery } from '../gallery/default-gallery.js';
@@ -389,7 +390,7 @@ const handlers: DispatchMap = {
   cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
-  watch_observation: (_msg, _socket, _ctx) => { /* TODO: handle watch observations */ },
+  watch_observation: handleWatchObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),

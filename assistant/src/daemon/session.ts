@@ -30,6 +30,17 @@ import { classifySessionError, isUserCancellation, buildSessionErrorMessage } fr
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerTimerCompletionNotifier, unregisterTimerCompletionNotifier, pruneSessionTimers } from '../tools/timer/pomodoro.js';
+import {
+  registerWatchStartNotifier,
+  unregisterWatchStartNotifier,
+  registerWatchCommentaryNotifier,
+  unregisterWatchCommentaryNotifier,
+  registerWatchCompletionNotifier,
+  unregisterWatchCompletionNotifier,
+  pruneWatchSessions,
+} from '../tools/watch/watch-state.js';
+import type { WatchSession } from '../tools/watch/watch-state.js';
+import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
@@ -147,6 +158,49 @@ export class Session {
         durationMinutes: timer.durationMinutes,
       });
     });
+
+    registerWatchStartNotifier(conversationId, (session: WatchSession) => {
+      this.sendToClient({
+        type: 'watch_started',
+        sessionId: conversationId,
+        watchId: session.watchId,
+        durationSeconds: session.durationSeconds,
+        intervalSeconds: session.intervalSeconds,
+      });
+    });
+
+    registerWatchCommentaryNotifier(conversationId, (_session: WatchSession) => {
+      const commentary = lastCommentaryBySession.get(conversationId);
+      if (commentary) {
+        lastCommentaryBySession.delete(conversationId);
+        this.sendToClient({
+          type: 'assistant_text_delta',
+          text: commentary,
+          sessionId: conversationId,
+        });
+        this.sendToClient({
+          type: 'message_complete',
+          sessionId: conversationId,
+        });
+      }
+    });
+
+    registerWatchCompletionNotifier(conversationId, (_session: WatchSession) => {
+      const summary = lastSummaryBySession.get(conversationId);
+      if (summary) {
+        lastSummaryBySession.delete(conversationId);
+        this.sendToClient({
+          type: 'assistant_text_delta',
+          text: summary,
+          sessionId: conversationId,
+        });
+        this.sendToClient({
+          type: 'message_complete',
+          sessionId: conversationId,
+        });
+      }
+    });
+
     this.executor = new ToolExecutor(this.prompter);
     registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
@@ -335,6 +389,10 @@ export class Session {
       this.surfaceState.clear();
       unregisterTimerCompletionNotifier(this.conversationId);
       pruneSessionTimers(this.conversationId);
+      unregisterWatchStartNotifier(this.conversationId);
+      unregisterWatchCommentaryNotifier(this.conversationId);
+      unregisterWatchCompletionNotifier(this.conversationId);
+      pruneWatchSessions(this.conversationId);
 
       // Clear queued messages and notify each caller with a session-scoped
       // cancel event so other sessions do not receive cross-thread errors.
