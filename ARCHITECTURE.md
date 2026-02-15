@@ -932,6 +932,76 @@ Key behaviors:
 
 ---
 
+## Dynamic Skill Authoring — Tool Flow
+
+The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/skills/` (managed skills directory) and require explicit user confirmation.
+
+```mermaid
+graph TB
+    subgraph "1. Evaluate (Sandbox)"
+        SNIPPET["Model drafts<br/>TypeScript snippet"]
+        EVAL_TOOL["evaluate_typescript_code<br/>───────────────<br/>RiskLevel: High<br/>Always sandboxed"]
+        TEMP["Temp dir:<br/>workingDir/.vellum-eval/&lt;uuid&gt;"]
+        WRAPPER["Wrapper runner<br/>imports snippet, calls<br/>default() or run()"]
+        SANDBOX["wrapCommand()<br/>forced sandbox=true"]
+        RESULT["JSON result:<br/>ok, exitCode, result,<br/>stdout, stderr,<br/>durationMs, timeout"]
+    end
+
+    subgraph "2. Persist (Filesystem)"
+        SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
+        MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()<br/>upsertSkillsIndexEntry()"]
+        SKILL_DIR["~/.vellum/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
+        INDEX["~/.vellum/skills/<br/>SKILLS.md (index)"]
+    end
+
+    subgraph "3. Load & Use"
+        SKILL_LOAD["skill_load tool<br/>resolves from disk"]
+        SESSION["Agent session<br/>uses skill instructions"]
+    end
+
+    subgraph "4. Delete"
+        DELETE["delete_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
+        RM_DIR["rmSync skill directory"]
+        RM_INDEX["removeSkillsIndexEntry()"]
+    end
+
+    subgraph "File Watcher"
+        WATCHER["Skills directory watcher<br/>detects changes"]
+        EVICT["Session eviction<br/>+ recreation"]
+    end
+
+    SNIPPET --> EVAL_TOOL
+    EVAL_TOOL --> TEMP
+    TEMP --> WRAPPER
+    WRAPPER --> SANDBOX
+    SANDBOX --> RESULT
+    RESULT -->|"ok=true + user consent"| SCAFFOLD
+
+    SCAFFOLD --> MANAGED_STORE
+    MANAGED_STORE --> SKILL_DIR
+    MANAGED_STORE --> INDEX
+
+    SKILL_DIR --> WATCHER
+    INDEX --> WATCHER
+    WATCHER --> EVICT
+
+    SKILL_DIR --> SKILL_LOAD
+    SKILL_LOAD --> SESSION
+
+    DELETE --> RM_DIR
+    DELETE --> RM_INDEX
+    RM_DIR --> WATCHER
+```
+
+**Key design decisions:**
+- `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
+- Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
+- Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
+- After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
+- macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
+
+---
+
 ## Opportunistic Message Queue — Handoff Flow
 
 When the daemon is busy generating a response, the client can continue sending messages. These are queued (FIFO, max 10) and drained automatically at safe checkpoints in the tool loop, not only at full completion.

@@ -144,6 +144,34 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
+## Dynamic Skill Authoring
+
+The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
+
+### Workflow
+
+1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/skills/<id>/`.
+3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
+4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
+
+### Tools
+
+| Tool | Risk Level | Description |
+|------|-----------|-------------|
+| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/skills/<id>/`. Creates `SKILL.md` with frontmatter and updates `SKILLS.md` index. |
+| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
+
+All three tools require explicit user approval before execution (Risk Level = High).
+
+### Constraints
+
+- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
+- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
+- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
+- Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
+
 ## Assistant Attachments
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
