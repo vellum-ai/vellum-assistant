@@ -62,7 +62,9 @@ function validatePageFilename(filename: string): void {
     filename.includes('\\') ||
     filename.includes('..') ||
     filename !== filename.trim() ||
-    filename === 'index.html'
+    filename === 'index.html' ||
+    filename === 'manifest.json' ||
+    filename === 'signature.json'
   ) {
     throw new Error(`Invalid page filename: ${filename}`);
   }
@@ -187,8 +189,12 @@ export function updateApp(
   const { pages: _existingPages, ...jsonDef } = updated;
   writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(jsonDef, null, 2));
 
-  // Persist additional pages as separate files
+  // Clear existing pages directory before writing new pages to prevent stale files
   if (pages && Object.keys(pages).length > 0) {
+    const pagesDir = join(getAppsDir(), id, 'pages');
+    if (existsSync(pagesDir)) {
+      rmSync(pagesDir, { recursive: true, force: true });
+    }
     savePages(id, pages);
   }
 
