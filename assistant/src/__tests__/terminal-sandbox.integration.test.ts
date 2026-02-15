@@ -10,7 +10,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { execFileSync, execSync, spawnSync } from 'node:child_process';
+import { execFileSync, execSync as _execSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,

@@ -6,10 +6,10 @@ import { getConfig } from '../config/loader.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import {
-  getMemoryCheckpoint,
+  getMemoryCheckpoint as _getMemoryCheckpoint,
   readMessageCursorCheckpoint,
   resetMessageCursorCheckpoint,
-  setMemoryCheckpoint,
+  setMemoryCheckpoint as _setMemoryCheckpoint,
   writeMessageCursorCheckpoint,
 } from './checkpoints.js';
 import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
