@@ -6,10 +6,9 @@ import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 import { wrapCommand } from './sandbox.js';
+import { formatShellOutput } from '../shared/shell-output.js';
 
 const log = getLogger('shell-tool');
-
-const MAX_OUTPUT_LENGTH = 50_000;
 
 /**
  * Environment variables that are safe to pass through to child processes.
@@ -129,37 +128,12 @@ class ShellTool implements Tool {
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
-
-        let output = stdout;
-        if (stderr) {
-          output += (output ? '\n' : '') + stderr;
-        }
-
-        const statusParts: string[] = [];
-
-        if (timedOut) {
-          const msg = `<command_timeout seconds="${timeoutSec}" />`;
-          output += `\n${msg}`;
-          statusParts.push(msg);
-        }
-
-        // Truncate if too long
-        if (output.length > MAX_OUTPUT_LENGTH) {
-          const msg = '<output_truncated limit="50K" />';
-          output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
-          statusParts.push(msg);
-        }
-
-        if (!output.trim()) {
-          output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
-        } else if (code !== 0 && !timedOut) {
-          statusParts.push(`<command_exit code="${code}" />`);
-        }
+        const result = formatShellOutput(stdout, stderr, code, timedOut, timeoutSec);
 
         resolve({
-          content: output,
-          isError: code !== 0 || timedOut,
-          status: statusParts.length > 0 ? statusParts.join('\n') : undefined,
+          content: result.content,
+          isError: result.isError,
+          status: result.status,
         });
       });
 
