@@ -63,12 +63,6 @@ export function loadConfig(): GatewayConfig {
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
   const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
 
-  if (!telegramBotToken || !telegramWebhookSecret) {
-    log.warn(
-      "TELEGRAM_BOT_TOKEN and/or TELEGRAM_WEBHOOK_SECRET not set — Telegram integration disabled",
-    );
-  }
-
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
