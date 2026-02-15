@@ -145,14 +145,14 @@ describe('runtime runs — HTTP layer', () => {
     try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
-  function startServer(sessionFactory: () => Session): { orchestrator: RunOrchestrator } {
+  async function startServer(sessionFactory: () => Session): Promise<{ orchestrator: RunOrchestrator }> {
     port = 18000 + Math.floor(Math.random() * 1000);
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => sessionFactory(),
       resolveAttachments: () => [],
     });
     server = new RuntimeHttpServer({ port, runOrchestrator: orchestrator });
-    server.start();
+    await server.start();
     return { orchestrator };
   }
 
@@ -167,7 +167,7 @@ describe('runtime runs — HTTP layer', () => {
   // ── POST /runs ──────────────────────────────────────────────────────
 
   test('POST /runs creates a run and returns 201', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
@@ -186,7 +186,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('POST /runs returns 400 when conversationKey missing', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
@@ -202,7 +202,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('POST /runs returns 400 when content is empty', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
@@ -217,7 +217,7 @@ describe('runtime runs — HTTP layer', () => {
 
   test('POST /runs returns 409 when session busy', async () => {
     const session = makeHangingSession();
-    startServer(() => session);
+    await startServer(() => session);
 
     // First run starts and hangs
     const res1 = await fetch(runsUrl(), {
@@ -243,7 +243,7 @@ describe('runtime runs — HTTP layer', () => {
   // ── GET /runs/:id ───────────────────────────────────────────────────
 
   test('GET /runs/:id returns run status', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeHangingSession());
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -263,7 +263,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('GET /runs/:id returns completed after agent loop finishes', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -284,7 +284,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('GET /runs/:id returns failed with error', async () => {
-    startServer(() => makeFailingSession('Backend error'));
+    await startServer(() => makeFailingSession('Backend error'));
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -306,7 +306,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('GET /runs/:id returns 404 for unknown run', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl('/nonexistent'));
     expect(res.status).toBe(404);
@@ -315,7 +315,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('GET /runs/:id returns 404 for different assistant', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -334,7 +334,7 @@ describe('runtime runs — HTTP layer', () => {
   // ── POST /runs/:id/decision ─────────────────────────────────────────
 
   test('POST /runs/:id/decision returns accepted for pending confirmation', async () => {
-    startServer(() => makeConfirmationSession('swarm_delegate'));
+    await startServer(() => makeConfirmationSession('swarm_delegate'));
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -366,7 +366,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('POST /runs/:id/decision returns 400 for invalid decision', async () => {
-    startServer(() => makeHangingSession());
+    await startServer(() => makeHangingSession());
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
@@ -387,7 +387,7 @@ describe('runtime runs — HTTP layer', () => {
   });
 
   test('POST /runs/:id/decision returns 404 for unknown run', async () => {
-    startServer(() => makeCompletingSession());
+    await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl('/nonexistent/decision'), {
       method: 'POST',
