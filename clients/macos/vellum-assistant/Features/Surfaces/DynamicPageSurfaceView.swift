@@ -400,6 +400,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             } else {
                 if navigationAction.navigationType == .other {
                     decisionHandler(.allow)
+                } else if navigationAction.navigationType == .linkActivated,
+                          let url = navigationAction.request.url,
+                          let scheme = url.scheme?.lowercased(),
+                          ["http", "https", "mailto"].contains(scheme) {
+                    NSWorkspace.shared.open(url)
+                    decisionHandler(.cancel)
                 } else {
                     decisionHandler(.cancel)
                 }
