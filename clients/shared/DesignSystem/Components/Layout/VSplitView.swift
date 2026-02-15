@@ -11,32 +11,34 @@ public struct VSplitView<Main: View, Panel: View>: View {
     @GestureState private var dragStartWidth: Double? = nil
 
     public var body: some View {
-        HStack(spacing: 0) {
-            // Main content - styled as panel
-            main
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(VColor.backgroundSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .padding([.bottom, .leading], VSpacing.sm)
-                .padding(.trailing, showPanel && panel != nil ? 0 : VSpacing.sm)
-
-            // Panel slides in from right, pushing content
-            if showPanel, let panel = panel {
-                // Drag divider (transparent but draggable)
-                dragDivider
-
-                panel
-                    .frame(width: panelWidth)
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Main content - styled as panel
+                main
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding([.bottom, .trailing], VSpacing.sm)
-                    .transition(.move(edge: .trailing))
+                    .padding([.bottom, .leading], VSpacing.sm)
+                    .padding(.trailing, showPanel && panel != nil ? 0 : VSpacing.sm)
+
+                // Panel slides in from right, pushing content
+                if showPanel, let panel = panel {
+                    // Drag divider (transparent but draggable)
+                    dragDivider(availableWidth: geometry.size.width)
+
+                    panel
+                        .frame(width: panelWidth)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        .padding([.bottom, .trailing], VSpacing.sm)
+                        .transition(.move(edge: .trailing))
+                }
             }
+            .animation(VAnimation.standard, value: showPanel)
         }
-        .animation(VAnimation.standard, value: showPanel)
     }
 
-    private var dragDivider: some View {
+    private func dragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
             .frame(width: VSpacing.sm)
@@ -63,7 +65,12 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         let initialWidth = dragStartWidth ?? panelWidth
                         // Dragging left (negative) increases width, dragging right (positive) decreases width
                         let newWidth = initialWidth - value.translation.width
-                        panelWidth = min(max(newWidth, 300), 800)
+
+                        // Compute max panel width: available width minus minimum main content (300pt), divider (8pt), and padding (16pt total)
+                        let minMainContent: CGFloat = 300
+                        let maxAllowed = availableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
+
+                        panelWidth = min(max(newWidth, 300), maxAllowed)
                     }
             )
     }
