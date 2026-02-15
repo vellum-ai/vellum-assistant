@@ -20,6 +20,7 @@ struct MainWindowView: View {
     @State private var drawerDragStartWidth: Double?
     @State private var drawerDragStartAvailableWidth: CGFloat?
     @State private var isDrawerDragging: Bool = false
+    private let drawerDragCoordinateSpaceName = "MainWindowDrawerDragCoordinateSpace"
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -111,6 +112,7 @@ struct MainWindowView: View {
                             // Center: Chat + right panel
                             chatContentView(geometry: geometry)
                         }
+                        .coordinateSpace(name: drawerDragCoordinateSpaceName)
                         .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
                 } else {
@@ -341,7 +343,7 @@ struct MainWindowView: View {
                 }
             }
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
                     .onChanged { value in
                         // Capture initial state on first drag event
                         if drawerDragStartWidth == nil {
@@ -355,7 +357,10 @@ struct MainWindowView: View {
                             return
                         }
 
-                        let newWidth = initialWidth + value.translation.width
+                        // Use a stable parent coordinate space so divider movement
+                        // does not feed back into gesture translation while dragging.
+                        let deltaX = value.location.x - value.startLocation.x
+                        let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
 

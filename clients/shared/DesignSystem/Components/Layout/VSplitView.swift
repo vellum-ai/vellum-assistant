@@ -13,6 +13,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
+    private let dragCoordinateSpaceName = "VSplitViewDragCoordinateSpace"
 
     // MARK: - Body
 
@@ -41,6 +42,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         .transition(.move(edge: .trailing))
                 }
             }
+            .coordinateSpace(name: dragCoordinateSpaceName)
             .animation(isDragging ? nil : VAnimation.standard, value: showPanel)
         }
     }
@@ -60,7 +62,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
             }
             #endif
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
                     .onChanged { value in
                         self.handleDragChanged(value, availableWidth: availableWidth)
                     }
@@ -88,8 +90,10 @@ public struct VSplitView<Main: View, Panel: View>: View {
             return
         }
 
-        // Calculate new width (dragging left increases, right decreases)
-        let newWidth = initialWidth - value.translation.width
+        // Measure drag in a stable parent coordinate space so the divider moving
+        // during resize does not change the gesture's reference frame.
+        let deltaX = value.location.x - value.startLocation.x
+        let newWidth = initialWidth - Double(deltaX)
 
         // Calculate constraints
         let minPanelWidth: CGFloat = 300
