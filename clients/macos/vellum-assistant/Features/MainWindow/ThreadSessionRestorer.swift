@@ -16,6 +16,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     func removeChatViewModel(for threadId: UUID)
     func makeViewModel() -> ChatViewModel
     func activateThread(_ id: UUID)
+    func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
 }
 
@@ -109,6 +110,10 @@ final class ThreadSessionRestorer {
 
         if let firstVisible = restoredThreads.first(where: { !$0.isArchived }) {
             delegate.activateThread(firstVisible.id)
+        } else if defaultThreadIsEmpty {
+            // All restored threads are archived and the default thread was removed,
+            // so create a new empty thread to avoid a blank window.
+            delegate.createThread()
         }
 
         log.info("Restored \(restoredThreads.count) threads from daemon")

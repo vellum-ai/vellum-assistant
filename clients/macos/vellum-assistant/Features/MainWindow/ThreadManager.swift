@@ -210,6 +210,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             self?.ambientAgent?.activeWatchSession?.stop()
             self?.ambientAgent?.activeWatchSession = nil
         }
+        viewModel.onSessionCreated = { [weak self, weak viewModel] sessionId in
+            guard let self, let viewModel else { return }
+            self.backfillSessionId(sessionId, for: viewModel)
+        }
         return viewModel
     }
 
@@ -218,6 +222,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     // MARK: - Private
+
+    /// Backfill ThreadModel.sessionId when the daemon assigns a session to a new thread.
+    private func backfillSessionId(_ sessionId: String, for viewModel: ChatViewModel) {
+        guard let threadId = chatViewModels.first(where: { $0.value === viewModel })?.key,
+              let index = threads.firstIndex(where: { $0.id == threadId }),
+              threads[index].sessionId == nil else { return }
+        threads[index].sessionId = sessionId
+    }
 
     private var archivedSessionIds: Set<String> {
         get {

@@ -11,6 +11,8 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     var restoreRecentThreads: Bool = true
     var viewModels: [UUID: ChatViewModel] = [:]
     var activatedThreadId: UUID?
+    var createThreadCallCount = 0
+    var archivedSessionIds: Set<String> = []
     private let daemonClient: DaemonClient
 
     init(daemonClient: DaemonClient) {
@@ -35,6 +37,19 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 
     func activateThread(_ id: UUID) {
         activatedThreadId = id
+    }
+
+    func createThread() {
+        createThreadCallCount += 1
+        let thread = ThreadModel()
+        let vm = makeViewModel()
+        threads.insert(thread, at: 0)
+        viewModels[thread.id] = vm
+        activatedThreadId = thread.id
+    }
+
+    func isSessionArchived(_ sessionId: String) -> Bool {
+        archivedSessionIds.contains(sessionId)
     }
 }
 
@@ -274,5 +289,64 @@ struct ThreadSessionRestorerTests {
 
         // Only 5 sessions should be restored
         #expect(delegate.threads.count == 5)
+    }
+
+    // MARK: - All-Archived Restore
+
+    @Test @MainActor
+    func allArchivedSessionsCreatesNewThread() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        // Mark all sessions as archived
+        delegate.archivedSessionIds = ["s1", "s2"]
+
+        // Start with one empty default thread
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Chat 1", updatedAt: 3000),
+            (id: "s2", title: "Chat 2", updatedAt: 2000),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Default thread replaced, restored threads are archived, new thread created
+        #expect(delegate.createThreadCallCount == 1)
+        // 2 archived threads + 1 new thread
+        #expect(delegate.threads.count == 3)
+        // The new thread should be active
+        #expect(delegate.activatedThreadId != nil)
+        #expect(delegate.threads.first(where: { $0.id == delegate.activatedThreadId })?.isArchived == false)
+    }
+
+    @Test @MainActor
+    func allArchivedWithNonEmptyDefaultDoesNotCreateThread() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        delegate.archivedSessionIds = ["s1"]
+
+        // Default thread has an active session (not empty)
+        let activeThread = ThreadModel(title: "Active")
+        let activeVm = delegate.makeViewModel()
+        activeVm.sessionId = "active-session"
+        delegate.threads = [activeThread]
+        delegate.viewModels[activeThread.id] = activeVm
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Archived Chat", updatedAt: 1000),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Default thread preserved, no new thread created
+        #expect(delegate.createThreadCallCount == 0)
+        #expect(delegate.threads.count == 2)
+        #expect(delegate.threads.contains(where: { $0.id == activeThread.id }))
     }
 }
