@@ -9,6 +9,14 @@ import type {
 } from "../types.js";
 import { ProviderError } from "../../util/errors.js";
 
+const TOOL_ID_RE = /[^a-zA-Z0-9_-]/g;
+
+/** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
+function sanitizeToolId(id: string): string {
+  const sanitized = id.replace(TOOL_ID_RE, '_');
+  return sanitized || `fallback_${Date.now()}`;
+}
+
 export class AnthropicProvider implements Provider {
   public readonly name = "anthropic";
   private client: Anthropic;
@@ -137,11 +145,12 @@ export class AnthropicProvider implements Provider {
       case "tool_use":
         return {
           type: "tool_use",
-          id: block.id,
+          id: sanitizeToolId(block.id),
           name: block.name,
           input: block.input,
         };
       case "tool_result": {
+        const toolUseId = sanitizeToolId(block.tool_use_id);
         if (block.contentBlocks && block.contentBlocks.length > 0) {
           // Build rich content array: text + images for Anthropic's native multi-part tool results
           const parts: Anthropic.ToolResultBlockParam['content'] = [
@@ -163,14 +172,14 @@ export class AnthropicProvider implements Provider {
           }
           return {
             type: "tool_result",
-            tool_use_id: block.tool_use_id,
+            tool_use_id: toolUseId,
             content: parts,
             is_error: block.is_error,
           };
         }
         return {
           type: "tool_result",
-          tool_use_id: block.tool_use_id,
+          tool_use_id: toolUseId,
           content: block.content,
           is_error: block.is_error,
         };
