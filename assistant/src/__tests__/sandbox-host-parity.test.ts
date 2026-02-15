@@ -45,6 +45,7 @@ mock.module('../util/logger.js', () => ({
 import { FileSystemOps, type PathPolicy } from '../tools/shared/filesystem/file-ops-service.js';
 import { sandboxPolicy, hostPolicy } from '../tools/shared/filesystem/path-policy.js';
 import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
+import { formatShellOutput, MAX_OUTPUT_LENGTH } from '../tools/shared/shell-output.js';
 
 // Dynamically import modules that depend on the mocked logger
 const { NativeBackend } = await import('../tools/terminal/backends/native.js');
@@ -546,9 +547,7 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const sandboxOps = new FileSystemOps(sandboxPolicyFor(dir));
 
     const result = sandboxOps.writeFileSafe({ path: '/tmp/somewhere-else.txt', content: 'bad' });
-    // /tmp/somewhere-else.txt is outside the sandbox boundary (which is a subdir of /tmp)
-    // This might resolve inside or outside depending on the sandbox root.
-    // The key is that the policy is enforced.
+    expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe('INVALID_PATH');
     }
@@ -607,98 +606,58 @@ describe('SandboxResult shape consistency across backends', () => {
 // 7. Terminal output format consistency
 // ===========================================================================
 
-describe('Terminal output format: sandbox and host tools share same format', () => {
-  // The output formatting is identical because both shell.ts and host-shell.ts
-  // use the same spawn + output-collection pattern. We verify the format
-  // expectations here against the shared patterns.
-
+describe('Terminal output format: formatShellOutput shared by sandbox and host', () => {
   test('successful command output has no XML status tags', () => {
-    // Simulate the output formatting logic used by both tools:
-    const stdout = 'hello world';
-    const stderr = '';
-    const code = 0;
+    const result = formatShellOutput('hello world', '', 0, false, 120);
 
-    let output = stdout;
-    if (stderr) {
-      output += (output ? '\n' : '') + stderr;
-    }
-    if (!output.trim()) {
-      output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
-    }
-
-    expect(output).toBe('hello world');
-    expect(output).not.toContain('<command_exit');
-    expect(output).not.toContain('<command_completed');
+    expect(result.content).toBe('hello world');
+    expect(result.content).not.toContain('<command_exit');
+    expect(result.content).not.toContain('<command_completed');
+    expect(result.isError).toBe(false);
+    expect(result.status).toBeUndefined();
   });
 
   test('empty output on success produces <command_completed /> tag', () => {
-    const stdout = '';
-    const stderr = '';
-    const code = 0;
+    const result = formatShellOutput('', '', 0, false, 120);
 
-    let output = stdout;
-    if (stderr) {
-      output += (output ? '\n' : '') + stderr;
-    }
-    if (!output.trim()) {
-      output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
-    }
-
-    expect(output).toBe('<command_completed />');
+    expect(result.content).toBe('<command_completed />');
+    expect(result.isError).toBe(false);
   });
 
   test('non-zero exit code with empty output produces <command_exit /> tag', () => {
-    const stdout = '';
-    const stderr = '';
-    const code = 42;
+    const result = formatShellOutput('', '', 42, false, 120);
 
-    let output = stdout;
-    if (stderr) {
-      output += (output ? '\n' : '') + stderr;
-    }
-    if (!output.trim()) {
-      output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
-    }
-
-    expect(output).toBe('<command_exit code="42" />');
+    expect(result.content).toBe('<command_exit code="42" />');
+    expect(result.isError).toBe(true);
   });
 
   test('stderr is appended to stdout with a newline separator', () => {
-    const stdout = 'out';
-    const stderr = 'err';
+    const result = formatShellOutput('out', 'err', 0, false, 120);
 
-    let output = stdout;
-    if (stderr) {
-      output += (output ? '\n' : '') + stderr;
-    }
-
-    expect(output).toBe('out\nerr');
+    expect(result.content).toBe('out\nerr');
   });
 
   test('stderr-only output uses stderr as the output', () => {
-    const stdout = '';
-    const stderr = 'error message';
+    const result = formatShellOutput('', 'error message', 0, false, 120);
 
-    let output = stdout;
-    if (stderr) {
-      output += (output ? '\n' : '') + stderr;
-    }
-
-    expect(output).toBe('error message');
+    expect(result.content).toBe('error message');
   });
 
-  test('output truncation uses same limit constant', () => {
-    const MAX_OUTPUT_LENGTH = 50_000;
+  test('output truncation uses the shared MAX_OUTPUT_LENGTH constant', () => {
     const longOutput = 'x'.repeat(MAX_OUTPUT_LENGTH + 100);
+    const result = formatShellOutput(longOutput, '', 0, false, 120);
 
-    let output = longOutput;
-    if (output.length > MAX_OUTPUT_LENGTH) {
-      const msg = '<output_truncated limit="50K" />';
-      output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
-    }
+    expect(result.content.length).toBe(MAX_OUTPUT_LENGTH + 1 + '<output_truncated limit="50K" />'.length);
+    expect(result.content).toContain('<output_truncated');
+  });
 
-    expect(output.length).toBe(MAX_OUTPUT_LENGTH + 1 + '<output_truncated limit="50K" />'.length);
-    expect(output).toContain('<output_truncated');
+  test('timed-out command appends timeout tag and sets isError', () => {
+    const result = formatShellOutput('partial', '', 137, true, 30);
+
+    expect(result.content).toContain('partial');
+    expect(result.content).toContain('<command_timeout seconds="30" />');
+    expect(result.isError).toBe(true);
+    expect(result.status).toContain('<command_timeout');
   });
 });
 
@@ -873,19 +832,20 @@ describe('Regression: edge cases in shared FileSystemOps', () => {
     const targetFile = join(dir, 'target.txt');
     writeFileSync(targetFile, 'linked content');
 
+    const linkPath = join(dir, 'link.txt');
     try {
-      const linkPath = join(dir, 'link.txt');
       require('node:fs').symlinkSync(targetFile, linkPath);
-
-      const ops = new FileSystemOps(sandboxPolicyFor(dir));
-      const result = ops.readFileSafe({ path: 'link.txt' });
-
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.value.content).toContain('linked content');
     } catch {
       // Symlink creation may fail on some systems — skip gracefully
+      return;
     }
+
+    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    const result = ops.readFileSafe({ path: 'link.txt' });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.content).toContain('linked content');
   });
 });
 
