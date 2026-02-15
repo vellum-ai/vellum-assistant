@@ -5,6 +5,7 @@ import {
   buildSessionErrorMessage,
 } from '../daemon/session-error.js';
 import type { ErrorContext } from '../daemon/session-error.js';
+import { ProviderError } from '../util/errors.js';
 
 describe('isUserCancellation', () => {
   it('returns false for non-AbortError even when abort flag is set', () => {
@@ -174,6 +175,81 @@ describe('classifySessionError', () => {
       const result = classifySessionError('plain string error', baseCtx);
       expect(result.code).toBe('SESSION_PROCESSING_FAILED');
       expect(result.debugDetails).toBe('plain string error');
+    });
+  });
+
+  describe('ProviderError with statusCode (deterministic classification)', () => {
+    it('classifies ProviderError with 429 as PROVIDER_RATE_LIMIT', () => {
+      const err = new ProviderError('Rate limit exceeded', 'anthropic', 429);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_RATE_LIMIT');
+      expect(result.retryable).toBe(true);
+    });
+
+    it('classifies ProviderError with 500 as PROVIDER_API (retryable)', () => {
+      const err = new ProviderError('Internal server error', 'anthropic', 500);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(true);
+    });
+
+    it('classifies ProviderError with 502 as PROVIDER_API (retryable)', () => {
+      const err = new ProviderError('Bad gateway', 'openai', 502);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(true);
+    });
+
+    it('classifies ProviderError with 503 as PROVIDER_API (retryable)', () => {
+      const err = new ProviderError('Service unavailable', 'gemini', 503);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(true);
+    });
+
+    it('classifies ProviderError with 401 as PROVIDER_API (not retryable)', () => {
+      const err = new ProviderError('Unauthorized', 'anthropic', 401);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('classifies ProviderError with 400 as PROVIDER_API (not retryable)', () => {
+      const err = new ProviderError('Bad request', 'anthropic', 400);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('ProviderError without statusCode falls back to regex', () => {
+      const err = new ProviderError('ECONNREFUSED', 'anthropic');
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_NETWORK');
+      expect(result.retryable).toBe(true);
+    });
+
+    it('statusCode takes priority over conflicting message regex', () => {
+      // Message says "rate limit" but statusCode is 500 → should use statusCode
+      const err = new ProviderError('rate limit error', 'anthropic', 500);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(true);
+    });
+  });
+
+  describe('debug detail truncation', () => {
+    it('truncates debugDetails longer than 4000 chars', () => {
+      const longMsg = 'x'.repeat(5000);
+      const result = classifySessionError(new Error(longMsg), baseCtx);
+      expect(result.debugDetails!.length).toBeLessThanOrEqual(4020); // 4000 + truncation marker
+      expect(result.debugDetails!).toContain('… (truncated)');
+    });
+
+    it('preserves debugDetails under 4000 chars', () => {
+      const shortMsg = 'short error message';
+      const result = classifySessionError(new Error(shortMsg), baseCtx);
+      expect(result.debugDetails).toBeDefined();
+      expect(result.debugDetails!).not.toContain('… (truncated)');
     });
   });
 
