@@ -119,7 +119,7 @@ mock.module('../config/skills.js', () => ({
 }));
 
 mock.module('../config/skill-state.js', () => ({
-  resolveSkillStates: (catalog: any[]) => catalog.map((s: any) => ({
+  resolveSkillStates: (catalog: Record<string, unknown>[]) => catalog.map((s) => ({
     summary: s,
     state: 'enabled',
     degraded: false,
@@ -195,7 +195,7 @@ describe('Session slash command — unknown', () => {
     // Should have emitted assistant_text_delta with the unknown message
     const textDeltas = events.filter((e) => e.type === 'assistant_text_delta');
     expect(textDeltas.length).toBe(1);
-    const delta = textDeltas[0] as any;
+    const delta = textDeltas[0] as { text: string };
     expect(delta.text).toContain('Unknown command `/not-a-skill`');
     expect(delta.text).toContain('/start-the-day');
 

@@ -116,7 +116,7 @@ mock.module('../config/skills.js', () => ({
 }));
 
 mock.module('../config/skill-state.js', () => ({
-  resolveSkillStates: (catalog: any[]) => catalog.map((s: any) => ({
+  resolveSkillStates: (catalog: Record<string, unknown>[]) => catalog.map((s) => ({
     summary: s,
     state: 'enabled',
     degraded: false,
@@ -233,7 +233,7 @@ describe('Session queue slash handling', () => {
     expect(eventsUnknown.some((e) => e.type === 'message_dequeued')).toBe(true);
     const textDeltas = eventsUnknown.filter((e) => e.type === 'assistant_text_delta');
     expect(textDeltas.length).toBe(1);
-    expect((textDeltas[0] as any).text).toContain('Unknown command');
+    expect((textDeltas[0] as { text: string }).text).toContain('Unknown command');
     expect(eventsUnknown.some((e) => e.type === 'message_complete')).toBe(true);
 
     // msg-3 events: dequeued (agent loop started)
@@ -269,8 +269,8 @@ describe('Session queue slash handling', () => {
     const lastUserMsg = pendingRuns[1].messages[pendingRuns[1].messages.length - 1];
     expect(lastUserMsg.role).toBe('user');
     const text = lastUserMsg.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
       .join('');
     expect(text).toContain('start-the-day');
     expect(text).toContain('Start the Day');

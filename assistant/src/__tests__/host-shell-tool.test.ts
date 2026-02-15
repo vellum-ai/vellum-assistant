@@ -11,7 +11,7 @@ const originalSpawn = realChildProcess.spawn;
 const spawnCalls: { command: string; args: string[] }[] = [];
 const spawnSpy = mock((...args: Parameters<typeof realChildProcess.spawn>) => {
   spawnCalls.push({ command: args[0] as string, args: args[1] as string[] });
-  return (originalSpawn as Function)(...args);
+  return (originalSpawn as (...a: unknown[]) => unknown)(...args);
 });
 
 mock.module('node:child_process', () => ({

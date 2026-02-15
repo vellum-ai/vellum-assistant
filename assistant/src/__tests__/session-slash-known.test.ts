@@ -116,7 +116,7 @@ mock.module('../config/skills.js', () => ({
 }));
 
 mock.module('../config/skill-state.js', () => ({
-  resolveSkillStates: (catalog: any[]) => catalog.map((s: any) => ({
+  resolveSkillStates: (catalog: Record<string, unknown>[]) => catalog.map((s) => ({
     summary: s,
     state: 'enabled',
     degraded: false,
@@ -217,8 +217,8 @@ describe('Session slash command — known', () => {
     const lastUserMsg = pendingRuns[0].messages[pendingRuns[0].messages.length - 1];
     expect(lastUserMsg.role).toBe('user');
     const text = lastUserMsg.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
       .join('');
     expect(text).toContain('slash command');
     expect(text).toContain('start-the-day');
@@ -241,8 +241,8 @@ describe('Session slash command — known', () => {
     const lastUserMsg = pendingRuns[0].messages[pendingRuns[0].messages.length - 1];
     expect(lastUserMsg.role).toBe('user');
     const text = lastUserMsg.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
       .join('');
     expect(text).toContain('hello world');
 
