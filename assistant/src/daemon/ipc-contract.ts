@@ -613,6 +613,8 @@ export interface HistoryResponse {
     text: string;
     timestamp: number;
     toolCalls?: HistoryResponseToolCall[];
+    /** True when tool_use blocks appeared before any text block in the original content. */
+    toolCallsBeforeText?: boolean;
     attachments?: UserMessageAttachment[];
   }>;
 }

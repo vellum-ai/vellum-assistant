@@ -217,6 +217,8 @@ export interface HistoryToolCall {
 export interface RenderedHistoryContent {
   text: string;
   toolCalls: HistoryToolCall[];
+  /** True when the first tool_use block appeared before any text block. */
+  toolCallsBeforeText: boolean;
 }
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
@@ -229,19 +231,23 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     } else {
       text = String(content);
     }
-    return { text, toolCalls: [] };
+    return { text, toolCalls: [], toolCallsBeforeText: false };
   }
 
   const textParts: string[] = [];
   const attachmentParts: string[] = [];
   const toolCalls: HistoryToolCall[] = [];
   const pendingToolUses = new Map<string, HistoryToolCall>();
+  let seenText = false;
+  let seenToolUse = false;
+  let toolCallsBeforeText = false;
 
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
 
     if (block.type === 'text' && typeof block.text === 'string') {
       textParts.push(block.text);
+      seenText = true;
       continue;
     }
     if (block.type === 'file') {
@@ -259,6 +265,10 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const entry: HistoryToolCall = { name, input };
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
+      if (!seenToolUse) {
+        seenToolUse = true;
+        if (!seenText) toolCallsBeforeText = true;
+      }
       continue;
     }
     if (block.type === 'tool_result') {
@@ -300,7 +310,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     rendered = `${text}\n${attachmentParts.join('\n')}`;
   }
 
-  return { text: rendered, toolCalls };
+  return { text: rendered, toolCalls, toolCallsBeforeText };
 }
 
 /**
@@ -705,6 +715,7 @@ export interface ParsedHistoryMessage {
   text: string;
   timestamp: number;
   toolCalls: HistoryToolCall[];
+  toolCallsBeforeText: boolean;
 }
 
 function handleHistoryRequest(
@@ -716,16 +727,18 @@ function handleHistoryRequest(
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
+    let toolCallsBeforeText = false;
     try {
       const content = JSON.parse(m.content);
       const rendered = renderHistoryContent(content);
       text = rendered.text;
       toolCalls = rendered.toolCalls;
+      toolCallsBeforeText = rendered.toolCallsBeforeText;
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
     }
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -750,7 +763,7 @@ function handleHistoryRequest(
       role: m.role,
       text: m.text,
       timestamp: m.timestamp,
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
     };
   });
