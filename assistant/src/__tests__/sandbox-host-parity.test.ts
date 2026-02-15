@@ -512,14 +512,14 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const sandboxResult = sandboxOps.readFileSafe({ path: '../../../etc/hostname' });
     expect(sandboxResult.ok).toBe(false);
     if (!sandboxResult.ok) {
-      expect(sandboxResult.error.code).toBe('INVALID_PATH');
+      expect(sandboxResult.error.code).toBe('PATH_OUT_OF_BOUNDS');
     }
 
     // Host: relative paths are rejected (requires absolute)
     const hostResult = hostOps.readFileSafe({ path: 'relative.txt' });
     expect(hostResult.ok).toBe(false);
     if (!hostResult.ok) {
-      expect(hostResult.error.code).toBe('INVALID_PATH');
+      expect(hostResult.error.code).toBe('PATH_NOT_ABSOLUTE');
     }
   });
 
@@ -539,7 +539,7 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const result = hostOps.readFileSafe({ path: 'just-a-name.txt' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('INVALID_PATH');
+      expect(result.error.code).toBe('PATH_NOT_ABSOLUTE');
     }
   });
 
@@ -550,7 +550,7 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const result = sandboxOps.writeFileSafe({ path: '/tmp/somewhere-else.txt', content: 'bad' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('INVALID_PATH');
+      expect(result.error.code).toBe('PATH_OUT_OF_BOUNDS');
     }
   });
 });
