@@ -206,7 +206,7 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
   const firstWord = words[0];
   const firstNorm = normalized[0];
   for (const qw of QUESTION_WORD_PREFIXES) {
-    if (firstNorm === qw || (firstWord.startsWith(qw) && firstWord[qw.length] === "'")) return false;
+    if (firstNorm === qw || (firstWord.startsWith(qw) && "'\u2018\u2019".includes(firstWord[qw.length]))) return false;
   }
 
   const hasAction = normalized.some((w) => ACTION_CUES.has(w));
