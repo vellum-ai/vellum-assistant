@@ -13,7 +13,6 @@ public struct InlineDynamicPagePreview: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Icon + Title + Subtitle
             HStack(alignment: .top, spacing: VSpacing.sm) {
                 if let icon = preview.icon {
                     Text(icon)
@@ -35,7 +34,6 @@ public struct InlineDynamicPagePreview: View {
                 }
             }
 
-            // Description
             if let description = preview.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.body)
@@ -43,7 +41,6 @@ public struct InlineDynamicPagePreview: View {
                     .lineLimit(3)
             }
 
-            // Metric pills (max 3)
             if let metrics = preview.metrics, !metrics.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
@@ -52,7 +49,6 @@ public struct InlineDynamicPagePreview: View {
                 }
             }
 
-            // View Output button
             HStack {
                 Spacer()
                 Button {
