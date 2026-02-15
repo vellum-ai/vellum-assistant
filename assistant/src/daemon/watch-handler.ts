@@ -151,7 +151,7 @@ async function generateSummary(session: WatchSession): Promise<void> {
       (Date.now() - session.startedAt) / 60_000,
     );
     const expectedMinutes = Math.round(session.durationSeconds / 60);
-    const wasCancelled = session.status === 'completing' && elapsedMinutes < expectedMinutes - 1;
+    const wasCancelled = elapsedMinutes < expectedMinutes - 1;
 
     const userContent = [
       `Focus area: ${session.focusArea}`,
