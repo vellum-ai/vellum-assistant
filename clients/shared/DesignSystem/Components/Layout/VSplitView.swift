@@ -4,6 +4,8 @@ import AppKit
 #endif
 
 public struct VSplitView<Main: View, Panel: View>: View {
+    // MARK: - Properties
+
     public let main: Main
     public let panel: Panel?
     @Binding public var panelWidth: Double
@@ -11,6 +13,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
+
+    // MARK: - Body
 
     public var body: some View {
         GeometryReader { geometry in
@@ -58,46 +62,56 @@ public struct VSplitView<Main: View, Panel: View>: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        // Capture initial state on first drag event
-                        if dragStartWidth == nil {
-                            dragStartWidth = panelWidth
-                            dragStartAvailableWidth = availableWidth
-                            isDragging = true
-                        }
-
-                        guard let initialWidth = dragStartWidth,
-                              let initialAvailableWidth = dragStartAvailableWidth else {
-                            return
-                        }
-
-                        // Dragging left (negative) increases width, dragging right (positive) decreases width
-                        let newWidth = initialWidth - value.translation.width
-
-                        // Compute max panel width: available width minus minimum main content (300pt), divider (8pt), and padding (16pt total)
-                        let minMainContent: CGFloat = 300
-                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
-
-                        // Disable all animations during drag to prevent jitter
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            panelWidth = min(max(newWidth, 300), maxAllowed)
-                        }
+                        self.handleDragChanged(value, availableWidth: availableWidth)
                     }
                     .onEnded { _ in
-                        // Reset drag state
-                        isDragging = false
-                        dragStartWidth = nil
-                        dragStartAvailableWidth = nil
+                        self.resetDragState()
                     }
             )
             .onDisappear {
-                // Reset drag state if view is removed mid-drag (e.g., panel closed)
-                isDragging = false
-                dragStartWidth = nil
-                dragStartAvailableWidth = nil
+                self.resetDragState()
             }
     }
+
+    // MARK: - Drag Helpers
+
+    private func handleDragChanged(_ value: DragGesture.Value, availableWidth: CGFloat) {
+        // Capture initial state on first drag event
+        if dragStartWidth == nil {
+            dragStartWidth = panelWidth
+            dragStartAvailableWidth = availableWidth
+            isDragging = true
+        }
+
+        guard let initialWidth = dragStartWidth,
+              let initialAvailableWidth = dragStartAvailableWidth else {
+            return
+        }
+
+        // Calculate new width (dragging left increases, right decreases)
+        let newWidth = initialWidth - value.translation.width
+
+        // Calculate constraints
+        let minPanelWidth: CGFloat = 300
+        let minMainContentWidth: CGFloat = 300
+        let dividerAndPadding = VSpacing.sm + (VSpacing.sm * 2)
+        let maxAllowed = initialAvailableWidth - minMainContentWidth - dividerAndPadding
+
+        // Update width without animation to prevent jitter
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            panelWidth = min(max(newWidth, minPanelWidth), maxAllowed)
+        }
+    }
+
+    private func resetDragState() {
+        isDragging = false
+        dragStartWidth = nil
+        dragStartAvailableWidth = nil
+    }
+
+    // MARK: - Initialization
 
     public init(
         panelWidth: Binding<Double>,
