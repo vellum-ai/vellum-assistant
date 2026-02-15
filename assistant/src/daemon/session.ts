@@ -52,14 +52,9 @@ import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import { getApp } from '../memory/app-store.js';
-import {
-  applyConflictResolution,
-  listPendingConflictDetails,
-  markConflictAsked,
-} from '../memory/conflict-store.js';
-import type { PendingConflictDetail } from '../memory/conflict-store.js';
-import { resolveConflictClarification } from '../memory/clarification-resolver.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
+import { ConflictGate } from './session-conflict-gate.js';
+import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -108,11 +103,6 @@ export interface QueuePolicy {
   checkpointHandoffEnabled: boolean;
 }
 
-interface ConflictGateDecision {
-  question: string;
-  relevant: boolean;
-}
-
 export class Session {
   public readonly conversationId: string;
   private provider: Provider;
@@ -135,8 +125,7 @@ export class Session {
   private contextCompactedAt: number | null = null;
   private currentRequestId?: string;
   private assistantId: string | null = null;
-  private conflictTurnCounter = 0;
-  private conflictLastAskedTurn = new Map<string, number>();
+  private conflictGate = new ConflictGate();
   private hasNoClient = false;
   private messageQueue: QueuedMessage[] = [];
   private currentActiveSurfaceId?: string;
@@ -652,7 +641,10 @@ export class Session {
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
-      const conflictGate = await this.evaluateConflictGate(content, runtimeConfig);
+      const conflictConfig = runtimeConfig.memory?.conflicts;
+      const conflictGate = conflictConfig
+        ? await this.conflictGate.evaluate(content, conflictConfig)
+        : null;
       if (conflictGate?.relevant) {
         const clarificationOnlyResponse = [
           conflictGate.question,
@@ -1673,86 +1665,6 @@ export class Session {
     }
   }
 
-  private async evaluateConflictGate(
-    userMessage: string,
-    runtimeConfig: ReturnType<typeof getConfig>,
-  ): Promise<ConflictGateDecision | null> {
-    const conflictConfig = runtimeConfig.memory?.conflicts;
-    if (!conflictConfig?.enabled || conflictConfig.gateMode !== 'soft') return null;
-
-    this.conflictTurnCounter += 1;
-    const threshold = conflictConfig.relevanceThreshold;
-    const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
-    const pendingBeforeResolve = listPendingConflictDetails('default', 50);
-    const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
-      const relevance = computeConflictRelevance(userMessage, conflict);
-      return relevance >= threshold || this.wasConflictRecentlyAsked(conflict.id, cooldownTurns);
-    });
-    await this.resolvePendingConflictsFromUserTurn(
-      userMessage,
-      conflictConfig.resolverLlmTimeoutMs,
-      candidatesBeforeResolve,
-    );
-
-    const pending = listPendingConflictDetails('default', 50);
-    if (pending.length === 0) return null;
-
-    const scored = pending.map((conflict) => ({
-      conflict,
-      relevance: computeConflictRelevance(userMessage, conflict),
-    }));
-    const relevant = scored.filter((entry) => entry.relevance >= threshold);
-    const irrelevant = scored.filter((entry) => entry.relevance < threshold);
-    const ordered = [...relevant, ...irrelevant];
-
-    const askable = ordered.find((entry) => this.shouldAskConflict(entry.conflict.id, cooldownTurns));
-    if (!askable) return null;
-
-    this.conflictLastAskedTurn.set(askable.conflict.id, this.conflictTurnCounter);
-    markConflictAsked(askable.conflict.id);
-    return {
-      question: askable.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(askable.conflict),
-      relevant: askable.relevance >= threshold,
-    };
-  }
-
-  private async resolvePendingConflictsFromUserTurn(
-    userMessage: string,
-    resolverTimeoutMs: number,
-    pendingConflicts: PendingConflictDetail[],
-  ): Promise<void> {
-    for (const conflict of pendingConflicts) {
-      const resolution = await resolveConflictClarification(
-        {
-          existingStatement: conflict.existingStatement,
-          candidateStatement: conflict.candidateStatement,
-          userMessage,
-        },
-        { timeoutMs: resolverTimeoutMs },
-      );
-      if (resolution.resolution === 'still_unclear') continue;
-
-      applyConflictResolution({
-        conflictId: conflict.id,
-        resolution: resolution.resolution,
-        mergedStatement: resolution.resolution === 'merge' ? resolution.resolvedStatement : null,
-        resolutionNote: resolution.explanation,
-      });
-    }
-  }
-
-  private shouldAskConflict(conflictId: string, cooldownTurns: number): boolean {
-    const lastAskedTurn = this.conflictLastAskedTurn.get(conflictId);
-    if (lastAskedTurn === undefined) return true;
-    return this.conflictTurnCounter - lastAskedTurn >= cooldownTurns;
-  }
-
-  private wasConflictRecentlyAsked(conflictId: string, cooldownTurns: number): boolean {
-    const lastAskedTurn = this.conflictLastAskedTurn.get(conflictId);
-    if (lastAskedTurn === undefined) return false;
-    return this.conflictTurnCounter - lastAskedTurn <= cooldownTurns;
-  }
-
   private async surfaceProxyResolver(
     toolName: string,
     input: Record<string, unknown>,
@@ -2041,23 +1953,6 @@ function injectClarificationRequestIntoUserMessage(message: Message, question: s
   };
 }
 
-function injectDynamicProfileIntoUserMessage(message: Message, profileText: string): Message {
-  const trimmedProfile = profileText.trim();
-  if (trimmedProfile.length === 0) return message;
-  const block = [
-    '[Dynamic profile context start]',
-    trimmedProfile,
-    '[Dynamic profile context end]',
-  ].join('\n');
-  return {
-    ...message,
-    content: [
-      ...message.content,
-      { type: 'text', text: `\n\n${block}` },
-    ],
-  };
-}
-
 function injectActiveSurfaceContext(message: Message, surfaceId: string, html: string): Message {
   const MAX_HTML_LENGTH = 100_000;
   const truncatedHtml = html.length > MAX_HTML_LENGTH
@@ -2080,68 +1975,6 @@ function injectActiveSurfaceContext(message: Message, surfaceId: string, html: s
       ...message.content,
     ],
   };
-}
-
-function stripDynamicProfileMessages(messages: Message[], profileText: string): Message[] {
-  const trimmedProfile = profileText.trim();
-  if (trimmedProfile.length === 0) return messages;
-  const injectedBlock = `\n\n[Dynamic profile context start]\n${trimmedProfile}\n[Dynamic profile context end]`;
-  return messages.map((message) => {
-    if (message.role !== 'user') return message;
-    let changed = false;
-    const nextContent = message.content.map((block) => {
-      if (block.type !== 'text') return block;
-      const nextText = block.text.split(injectedBlock).join('');
-      if (nextText === block.text) return block;
-      changed = true;
-      return {
-        ...block,
-        text: nextText.replace(/\n{3,}/g, '\n\n').trimEnd(),
-      };
-    });
-    return changed ? { ...message, content: nextContent } : message;
-  });
-}
-
-function buildFallbackConflictQuestion(conflict: PendingConflictDetail): string {
-  return [
-    'I have two conflicting notes and need your confirmation.',
-    `A) ${conflict.existingStatement}`,
-    `B) ${conflict.candidateStatement}`,
-    'Which one should I keep?',
-  ].join('\n');
-}
-
-function computeConflictRelevance(
-  userMessage: string,
-  conflict: Pick<PendingConflictDetail, 'existingStatement' | 'candidateStatement'>,
-): number {
-  const queryTokens = tokenizeForConflictRelevance(userMessage);
-  if (queryTokens.size === 0) return 0;
-  const existingTokens = tokenizeForConflictRelevance(conflict.existingStatement);
-  const candidateTokens = tokenizeForConflictRelevance(conflict.candidateStatement);
-  return Math.max(
-    overlapRatio(queryTokens, existingTokens),
-    overlapRatio(queryTokens, candidateTokens),
-  );
-}
-
-function tokenizeForConflictRelevance(input: string): Set<string> {
-  const tokens = input
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 4);
-  return new Set(tokens);
-}
-
-function overlapRatio(left: Set<string>, right: Set<string>): number {
-  if (left.size === 0 || right.size === 0) return 0;
-  let overlap = 0;
-  for (const token of left) {
-    if (right.has(token)) overlap += 1;
-  }
-  return overlap / Math.max(left.size, right.size);
 }
 
 const ORDERING_ERROR_PATTERNS = [
