@@ -3,7 +3,7 @@ import SwiftUI
 
 struct LayoutGallerySection: View {
     @State private var showPanel = true
-    @State private var panelWidth: CGFloat = 280
+    @State private var panelWidth: Double = 280
     @State private var pinnedTabSelection: Int = 0
 
     var body: some View {
@@ -98,7 +98,7 @@ struct LayoutGallerySection: View {
                     Divider().background(VColor.surfaceBorder)
 
                     VSplitView(
-                        panelWidth: panelWidth,
+                        panelWidth: $panelWidth,
                         showPanel: showPanel
                     ) {
                         VStack {
