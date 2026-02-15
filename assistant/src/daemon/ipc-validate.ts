@@ -107,6 +107,12 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     if (obj.value !== undefined && typeof obj.value !== 'string') {
       return 'secret_response "value" must be a string when present';
     }
+    if (obj.delivery !== undefined) {
+      const validDeliveries = ['store', 'transient_send'];
+      if (typeof obj.delivery !== 'string' || !validDeliveries.includes(obj.delivery)) {
+        return `secret_response "delivery" must be one of: ${validDeliveries.join(', ')}`;
+      }
+    }
     return null;
   },
 
