@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -7,6 +7,18 @@ import { getLogger } from '../util/logger.js';
 
 const execAsync = promisify(exec);
 const log = getLogger('tls-certs');
+
+/**
+ * Check if OpenSSL is available in PATH
+ */
+async function checkOpenSSLAvailable(): Promise<boolean> {
+  try {
+    await execAsync('openssl version');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface TLSCertPaths {
   certPath: string;
@@ -44,6 +56,12 @@ export function certificatesExist(certPath: string, keyPath: string): boolean {
 export async function generateSelfSignedCert(certPath: string, keyPath: string): Promise<void> {
   const certsDir = join(getRootDir(), 'certs');
 
+  // Check if OpenSSL is available
+  const hasOpenSSL = await checkOpenSSLAvailable();
+  if (!hasOpenSSL) {
+    throw new Error('OpenSSL is not installed or not available in PATH. Please install OpenSSL to use TCP/TLS mode.');
+  }
+
   // Ensure certs directory exists
   if (!existsSync(certsDir)) {
     mkdirSync(certsDir, { recursive: true, mode: 0o700 });
@@ -52,14 +70,20 @@ export async function generateSelfSignedCert(certPath: string, keyPath: string):
   log.info({ certPath, keyPath }, 'Generating self-signed TLS certificate');
 
   try {
+    // Validate paths to prevent shell injection
+    if (certPath.includes("'") || certPath.includes('"') || keyPath.includes("'") || keyPath.includes('"')) {
+      throw new Error('Certificate paths cannot contain quotes');
+    }
+
     // Generate private key and certificate in one command
+    // Use single quotes to prevent shell expansion
     const cmd = [
       'openssl req',
       '-x509',
       '-newkey rsa:2048',
       '-nodes',
-      '-keyout', keyPath,
-      '-out', certPath,
+      `-keyout '${keyPath}'`,
+      `-out '${certPath}'`,
       '-days 365',
       '-subj "/CN=vellum-daemon"',
       '-sha256',
@@ -67,9 +91,14 @@ export async function generateSelfSignedCert(certPath: string, keyPath: string):
 
     await execAsync(cmd);
 
-    // Set restrictive permissions on key file
-    await execAsync(`chmod 600 "${keyPath}"`);
-    await execAsync(`chmod 644 "${certPath}"`);
+    // Set restrictive permissions using Node's chmodSync (cross-platform)
+    try {
+      chmodSync(keyPath, 0o600);
+      chmodSync(certPath, 0o644);
+    } catch (chmodErr) {
+      // Log but don't fail - permissions are best-effort on some platforms
+      log.warn({ err: chmodErr, keyPath, certPath }, 'Failed to set file permissions (may be unsupported on this platform)');
+    }
 
     log.info({ certPath, keyPath }, 'Successfully generated self-signed TLS certificate');
   } catch (err) {

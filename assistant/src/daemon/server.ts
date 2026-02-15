@@ -76,7 +76,14 @@ export class DaemonServer {
 
     // Start TCP/TLS server if enabled
     if (config.network.tcpEnabled) {
-      await this.startTcpServer(config.network);
+      try {
+        await this.startTcpServer(config.network);
+      } catch (err) {
+        // If TCP server fails to start, log but don't crash
+        // Unix socket server is still running
+        log.error({ err }, 'Failed to start TCP/TLS server. Unix socket server is still available.');
+        // Don't throw - daemon can still operate via Unix socket
+      }
     }
   }
 
@@ -121,7 +128,12 @@ export class DaemonServer {
           {
             cert,
             key,
-            // Allow self-signed certificates (for development)
+            // Server config: Don't require client certificates
+            // WARNING: Using self-signed certificates with no client auth is suitable
+            // for development only. For production:
+            // - Use properly signed certificates from a trusted CA
+            // - Implement token-based authentication (planned for separate PR)
+            // - Consider mutual TLS (mTLS) for stronger authentication
             requestCert: false,
             rejectUnauthorized: false,
           },
