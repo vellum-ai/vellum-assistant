@@ -14,6 +14,7 @@ EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
+  "memory-regressions.experimental.test.ts"
 )
 
 found_test=0
