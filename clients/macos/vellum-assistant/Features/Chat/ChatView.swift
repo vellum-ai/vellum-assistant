@@ -592,6 +592,11 @@ struct ChatView: View {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
             }
         }
+        .onChange(of: editorContentHeight) {
+            if editorContentHeight > 200 {
+                proxy.scrollTo("composer-bottom", anchor: .bottom)
+            }
+        }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                 onAcceptSuggestion()
