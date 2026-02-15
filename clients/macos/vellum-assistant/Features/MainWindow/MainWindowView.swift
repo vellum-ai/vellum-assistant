@@ -284,7 +284,8 @@ struct MainWindowView: View {
                         onRegenerate: { viewModel.regenerateLastMessage() },
                         sessionError: viewModel.sessionError,
                         onRetry: { viewModel.retryAfterSessionError() },
-                        onDismissSessionError: { viewModel.dismissSessionError() }
+                        onDismissSessionError: { viewModel.dismissSessionError() },
+                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() }
                     )
                 }
             }, panel: {
