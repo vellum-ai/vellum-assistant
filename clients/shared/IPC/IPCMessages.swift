@@ -633,17 +633,6 @@ public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
 /// Backed by generated `IPCSkillStateChanged`.
 public typealias SkillStateChangedMessage = IPCSkillStateChanged
 
-/// Push event: updates available. Wire type: "skills_updates_available"
-/// Kept hand-maintained — no generated equivalent in the TS contract.
-public struct SkillsUpdatesAvailableMessage: Decodable, Sendable {
-    public struct UpdateInfo: Decodable, Sendable {
-        public let name: String
-        public let installedVersion: String
-        public let latestVersion: String
-    }
-    public let skills: [UpdateInfo]
-}
-
 /// A ClaWHub skill returned from a search or explore query.
 /// Kept hand-maintained — this type is decoded from the `data` field of
 /// `skills_operation_response` (which is `AnyCodable` in the contract).
@@ -1038,7 +1027,6 @@ public enum ServerMessage: Decodable, Sendable {
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
-    case skillsUpdatesAvailable(SkillsUpdatesAvailableMessage)
     case skillsOperationResponse(SkillsOperationResponseMessage)
     case skillsInspectResponse(SkillsInspectResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
@@ -1148,9 +1136,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "skills_state_changed":
             let message = try SkillStateChangedMessage(from: decoder)
             self = .skillStateChanged(message)
-        case "skills_updates_available":
-            let message = try SkillsUpdatesAvailableMessage(from: decoder)
-            self = .skillsUpdatesAvailable(message)
         case "skills_operation_response":
             let message = try SkillsOperationResponseMessage(from: decoder)
             self = .skillsOperationResponse(message)

@@ -94,9 +94,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
-    /// Called when the daemon sends a `skills_updates_available` push event.
-    public var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
-
     /// Called when the daemon sends a `skills_operation_response` message.
     public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
 
@@ -742,8 +739,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTrustRulesListResponse?(msg.rules)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
-        case .skillsUpdatesAvailable(let msg):
-            onSkillsUpdatesAvailable?(msg)
         case .skillsOperationResponse(let msg):
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
