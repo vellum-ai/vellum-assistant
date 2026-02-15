@@ -75,9 +75,9 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           }
         }
 
-        // Treat abort as cancellation, not success
+        // Treat abort as non-retryable cancellation, not a retryable timeout
         if (input.signal?.aborted) {
-          return { success: false, output: 'Cancelled (aborted)', failureReason: 'timeout' as const, durationMs: Date.now() - start };
+          return { success: false, output: 'Cancelled (aborted)', failureReason: 'cancelled' as const, durationMs: Date.now() - start };
         }
 
         return { success: true, output: resultText || 'Completed', durationMs: Date.now() - start };

@@ -101,9 +101,9 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         signal,
       });
 
-      // Retry loop
+      // Retry loop — skip retries when the swarm is being cancelled
       let retries = 0;
-      while (result.status === 'failed' && retries < limits.maxRetriesPerTask) {
+      while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
         retries++;
         result = await runWorkerTask({
           task,

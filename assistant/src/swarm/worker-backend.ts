@@ -89,6 +89,7 @@ export function getProfilePolicy(profile: WorkerProfile): ProfilePolicy {
 export type WorkerFailureReason =
   | 'backend_unavailable'
   | 'timeout'
+  | 'cancelled'
   | 'malformed_output'
   | 'tool_denied';
 
