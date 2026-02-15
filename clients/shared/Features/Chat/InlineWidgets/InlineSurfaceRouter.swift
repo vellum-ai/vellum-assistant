@@ -43,6 +43,7 @@ public struct InlineSurfaceRouter: View {
                 actionButtons
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .inlineWidgetCard()
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview {
@@ -68,9 +69,8 @@ public struct InlineSurfaceRouter: View {
                 .padding(VSpacing.sm)
             }
         }
-        // Dynamic page previews should be compact, not stretch to fill.
-        // Use maxWidth instead of fixedSize so narrow parent views still constrain the card.
-        .frame(maxWidth: isDynamicPreview ? 350 : .infinity, alignment: .leading)
+        // Consistent width for all widget cards; dynamic page previews are more compact.
+        .frame(maxWidth: isDynamicPreview ? 350 : 540, alignment: .leading)
     }
 
     @ViewBuilder
