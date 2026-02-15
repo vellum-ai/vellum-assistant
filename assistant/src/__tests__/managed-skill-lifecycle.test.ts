@@ -1,0 +1,256 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+let TEST_DIR = '';
+
+const mockConfig = {
+  provider: 'anthropic',
+  model: 'test',
+  apiKeys: {},
+  maxTokens: 4096,
+  dataDir: '/tmp',
+  timeouts: {
+    shellDefaultTimeoutSec: 120,
+    shellMaxTimeoutSec: 600,
+    permissionTimeoutSec: 300,
+  },
+  sandbox: { enabled: false },
+  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  secretDetection: { enabled: true, action: 'warn' as const, entropyThreshold: 4.0 },
+  auditLog: { retentionDays: 0 },
+};
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => TEST_DIR,
+  getDataDir: () => TEST_DIR,
+  ensureDataDir: () => {},
+  getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
+  getPidPath: () => join(TEST_DIR, 'vellum.pid'),
+  getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
+  getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getHistoryPath: () => join(TEST_DIR, 'history'),
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getPlatformName: () => process.platform,
+  getClipboardCommand: () => null,
+  removeSocketFile: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+}));
+
+mock.module('../tools/terminal/sandbox.js', () => ({
+  wrapCommand: (command: string, _workingDir: string, _config: unknown) => ({
+    command: 'bash',
+    args: ['-c', '--', command],
+    sandboxed: false,
+  }),
+}));
+
+import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
+import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
+import { EvaluateTypescriptTool } from '../tools/terminal/evaluate-typescript.js';
+import { SkillLoadTool } from '../tools/skills/load.js';
+import { loadSkillCatalog } from '../config/skills.js';
+import { buildSystemPrompt } from '../config/system-prompt.js';
+import type { ToolContext } from '../tools/types.js';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
+const scaffoldTool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const deleteTool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
+
+function makeContext(): ToolContext {
+  return {
+    workingDir: '/tmp',
+    sessionId: 'test-session',
+    conversationId: 'test-conversation',
+  };
+}
+
+beforeEach(() => {
+  TEST_DIR = mkdtempSync(join(tmpdir(), 'lifecycle-test-'));
+  mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+});
+
+afterEach(() => {
+  rmSync(TEST_DIR, { recursive: true, force: true });
+});
+
+describe('managed skill lifecycle: scaffold → catalog → prompt → delete', () => {
+  test('full lifecycle: create skill, verify in catalog and prompt, then delete', async () => {
+    // Step 1: Scaffold a managed skill
+    const scaffoldResult = await scaffoldTool.execute({
+      skill_id: 'lifecycle-test',
+      name: 'Lifecycle Test',
+      description: 'Integration test skill.',
+      body_markdown: 'Run the lifecycle test procedure.',
+      emoji: '🧪',
+    }, makeContext());
+
+    expect(scaffoldResult.isError).not.toBe(true);
+    const scaffoldData = JSON.parse(scaffoldResult.content as string);
+    expect(scaffoldData.created).toBe(true);
+
+    // Step 2: Verify SKILL.md was written
+    const skillMdPath = join(TEST_DIR, 'skills', 'lifecycle-test', 'SKILL.md');
+    expect(existsSync(skillMdPath)).toBe(true);
+    const skillContent = readFileSync(skillMdPath, 'utf-8');
+    expect(skillContent).toContain('name: "Lifecycle Test"');
+    expect(skillContent).toContain('description: "Integration test skill."');
+    expect(skillContent).toContain('Run the lifecycle test procedure.');
+
+    // Step 3: Verify skill appears in catalog
+    const catalog = loadSkillCatalog();
+    const found = catalog.find(s => s.id === 'lifecycle-test');
+    expect(found).toBeDefined();
+    expect(found!.name).toBe('Lifecycle Test');
+    expect(found!.description).toBe('Integration test skill.');
+
+    // Step 4: Verify skill appears in system prompt
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('lifecycle-test');
+    expect(prompt).toContain('Lifecycle Test');
+    expect(prompt).toContain('## Dynamic Skill Authoring Workflow');
+
+    // Step 5: Delete the skill
+    const deleteResult = await deleteTool.execute({
+      skill_id: 'lifecycle-test',
+    }, makeContext());
+
+    expect(deleteResult.isError).not.toBe(true);
+    const deleteData = JSON.parse(deleteResult.content as string);
+    expect(deleteData.deleted).toBe(true);
+
+    // Step 6: Verify skill is gone from filesystem
+    expect(existsSync(skillMdPath)).toBe(false);
+
+    // Step 7: Verify skill no longer in catalog
+    const catalogAfter = loadSkillCatalog();
+    expect(catalogAfter.find(s => s.id === 'lifecycle-test')).toBeUndefined();
+
+    // Step 8: Verify SKILLS.md index no longer has the entry
+    const indexPath = join(TEST_DIR, 'skills', 'SKILLS.md');
+    if (existsSync(indexPath)) {
+      const indexContent = readFileSync(indexPath, 'utf-8');
+      expect(indexContent).not.toContain('lifecycle-test');
+    }
+  });
+
+  test('scaffold with overwrite replaces existing skill', async () => {
+    const ctx = makeContext();
+
+    // Create initial skill
+    await scaffoldTool.execute({
+      skill_id: 'overwrite-test',
+      name: 'V1',
+      description: 'Version 1.',
+      body_markdown: 'Original body.',
+    }, ctx);
+
+    // Overwrite with updated content
+    const result = await scaffoldTool.execute({
+      skill_id: 'overwrite-test',
+      name: 'V2',
+      description: 'Version 2.',
+      body_markdown: 'Updated body.',
+      overwrite: true,
+    }, ctx);
+
+    expect(result.isError).not.toBe(true);
+
+    const skillContent = readFileSync(
+      join(TEST_DIR, 'skills', 'overwrite-test', 'SKILL.md'), 'utf-8'
+    );
+    expect(skillContent).toContain('name: "V2"');
+    expect(skillContent).toContain('Updated body.');
+    expect(skillContent).not.toContain('Original body.');
+
+    // Index should still have exactly one entry
+    const indexContent = readFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8'
+    );
+    const matches = indexContent.match(/overwrite-test/g);
+    expect(matches?.length).toBe(1);
+  });
+
+  test('delete non-existent skill returns error', async () => {
+    const result = await deleteTool.execute({
+      skill_id: 'does-not-exist',
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+  });
+
+  test('evaluate → scaffold → skill_load chain: literal tool execution', async () => {
+    const ctx = makeContext();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
+    const evalTool = new (EvaluateTypescriptTool as any)() as InstanceType<typeof EvaluateTypescriptTool>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<typeof SkillLoadTool>;
+
+    // Step 1: Run evaluate_typescript_code with code that returns skill metadata
+    const code = `export default () => ({
+  name: 'Chain Test',
+  description: 'Created from evaluate output.',
+  body: 'This skill was dynamically created.\\n\\nRun: \\\`echo chain-test-ok\\\`',
+});`;
+
+    const evalResult = await evalTool.execute({ code }, ctx);
+    expect(evalResult.isError).not.toBe(true);
+
+    const evalData = JSON.parse(evalResult.content as string);
+    expect(evalData.ok).toBe(true);
+    expect(evalData.result).toBeDefined();
+    expect(evalData.result.name).toBe('Chain Test');
+
+    // Step 2: Feed evaluate output into scaffold_managed_skill
+    const meta = evalData.result;
+    const scaffoldResult = await scaffoldTool.execute({
+      skill_id: 'chain-test',
+      name: meta.name,
+      description: meta.description,
+      body_markdown: meta.body,
+    }, ctx);
+
+    expect(scaffoldResult.isError).not.toBe(true);
+    const scaffoldData = JSON.parse(scaffoldResult.content as string);
+    expect(scaffoldData.created).toBe(true);
+
+    // Step 3: Call skill_load tool to load the created skill
+    const loadResult = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
+    expect(loadResult.isError).not.toBe(true);
+    const loadContent = loadResult.content as string;
+    expect(loadContent).toContain('Skill: Chain Test');
+    expect(loadContent).toContain('ID: chain-test');
+    expect(loadContent).toContain('Description: Created from evaluate output.');
+    expect(loadContent).toContain('dynamically created');
+    expect(loadContent).toContain('echo chain-test-ok');
+
+    // Step 4: Clean up
+    const deleteResult = await deleteTool.execute({ skill_id: 'chain-test' }, ctx);
+    expect(deleteResult.isError).not.toBe(true);
+
+    // Step 5: Verify skill_load returns error for deleted skill
+    const loadAfterDelete = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
+    expect(loadAfterDelete.isError).toBe(true);
+  });
+});

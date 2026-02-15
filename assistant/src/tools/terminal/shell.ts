@@ -6,46 +6,10 @@ import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 import { wrapCommand } from './sandbox.js';
+import { formatShellOutput } from '../shared/shell-output.js';
+import { buildSanitizedEnv } from './safe-env.js';
 
 const log = getLogger('shell-tool');
-
-const MAX_OUTPUT_LENGTH = 50_000;
-
-/**
- * Environment variables that are safe to pass through to child processes.
- * Everything else (API keys, tokens, credentials) is stripped to prevent
- * accidental leakage via agent-spawned commands.
- */
-const SAFE_ENV_VARS = [
-  'PATH',
-  'HOME',
-  'TERM',
-  'LANG',
-  'EDITOR',
-  'SHELL',
-  'USER',
-  'TMPDIR',
-  'LC_ALL',
-  'LC_CTYPE',
-  'XDG_RUNTIME_DIR',
-  'DISPLAY',
-  'COLORTERM',
-  'TERM_PROGRAM',
-  'SSH_AUTH_SOCK',
-  'SSH_AGENT_PID',
-  'GPG_TTY',
-  'GNUPGHOME',
-] as const;
-
-function buildSanitizedEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SAFE_ENV_VARS) {
-    if (process.env[key] != null) {
-      env[key] = process.env[key]!;
-    }
-  }
-  return env;
-}
 
 class ShellTool implements Tool {
   name = 'bash';
@@ -99,8 +63,10 @@ class ShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      const sandboxEnabled = context.sandboxOverride ?? config.sandbox.enabled;
-      const wrapped = wrapCommand(command, context.workingDir, sandboxEnabled);
+      const sandboxConfig = context.sandboxOverride != null
+        ? { ...config.sandbox, enabled: context.sandboxOverride }
+        : config.sandbox;
+      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig);
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env: buildSanitizedEnv(),
@@ -127,37 +93,12 @@ class ShellTool implements Tool {
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
-
-        let output = stdout;
-        if (stderr) {
-          output += (output ? '\n' : '') + stderr;
-        }
-
-        const statusParts: string[] = [];
-
-        if (timedOut) {
-          const msg = `<command_timeout seconds="${timeoutSec}" />`;
-          output += `\n${msg}`;
-          statusParts.push(msg);
-        }
-
-        // Truncate if too long
-        if (output.length > MAX_OUTPUT_LENGTH) {
-          const msg = '<output_truncated limit="50K" />';
-          output = output.slice(0, MAX_OUTPUT_LENGTH) + `\n${msg}`;
-          statusParts.push(msg);
-        }
-
-        if (!output.trim()) {
-          output = code === 0 ? '<command_completed />' : `<command_exit code="${code}" />`;
-        } else if (code !== 0 && !timedOut) {
-          statusParts.push(`<command_exit code="${code}" />`);
-        }
+        const result = formatShellOutput(stdout, stderr, code, timedOut, timeoutSec);
 
         resolve({
-          content: output,
-          isError: code !== 0 || timedOut,
-          status: statusParts.length > 0 ? statusParts.join('\n') : undefined,
+          content: result.content,
+          isError: result.isError,
+          status: result.status,
         });
       });
 

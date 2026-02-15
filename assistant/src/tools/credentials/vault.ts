@@ -1,7 +1,6 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import {
   getSecureKey,
   setSecureKey,
@@ -172,4 +171,4 @@ class CredentialStoreTool implements Tool {
   }
 }
 
-registerTool(new CredentialStoreTool());
+export const credentialStoreTool = new CredentialStoreTool();

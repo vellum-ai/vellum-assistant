@@ -4,9 +4,30 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
+#if os(macOS)
+/// Resolve the Unix domain socket path for the daemon connection.
+/// Returns the path in priority order:
+/// 1. `VELLUM_DAEMON_SOCKET` environment variable (trimmed, with ~/ expansion)
+/// 2. `~/.vellum/vellum.sock`
+///
+/// Accepts an optional environment dictionary for testability.
+func resolveSocketPath(environment: [String: String]? = nil) -> String {
+    let env = environment ?? ProcessInfo.processInfo.environment
+    if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("~/") {
+            return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
+        }
+        return trimmed
+    }
+    return NSHomeDirectory() + "/.vellum/vellum.sock"
+}
+#endif
+
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
 public protocol DaemonClientProtocol {
+    var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
 }
@@ -28,9 +49,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
 
-    /// Shared flag so only one TrustRulesView sheet is open at a time across SettingsPanel and SettingsView.
-    /// Both surfaces bind to this instead of local @State, preventing the second sheet from overwriting
-    /// the first sheet's `onTrustRulesListResponse` callback on DaemonClient.
+    /// Whether blob transport has been verified for this connection.
+    /// Resets to `false` on disconnect/reconnect. Only set to `true` after
+    /// a successful probe round-trip on macOS local-socket connections.
+    @Published public private(set) var isBlobTransportAvailable: Bool = false
+
+    /// The runtime HTTP server port, populated via `daemon_status` on connect.
+    /// `nil` means the HTTP server is not running.
+    @Published public var httpPort: Int?
+
+    /// Latest memory health payload from daemon `memory_status` events.
+    @Published public var latestMemoryStatus: MemoryStatusMessage?
+
+    /// Whether a TrustRulesView sheet is currently open from any settings surface.
+    /// Used to prevent multiple trust rules sheets from racing on the shared callback.
     @Published public var isTrustRulesSheetOpen: Bool = false
 
     // MARK: - Surface Event Callbacks
@@ -75,14 +107,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
-    /// Called when the daemon sends a `skills_updates_available` push event.
-    public var onSkillsUpdatesAvailable: ((SkillsUpdatesAvailableMessage) -> Void)?
-
     /// Called when the daemon sends a `skills_operation_response` message.
     public var onSkillsOperationResponse: ((SkillsOperationResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `skills_inspect_response` message.
     public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `trace_event` message.
+    public var onTraceEvent: ((TraceEventMessage) -> Void)?
 
     /// Called when the daemon sends an `apps_list_response` message.
     public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
@@ -92,6 +124,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `shared_app_delete_response` message.
     public var onSharedAppDeleteResponse: ((SharedAppDeleteResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `fork_shared_app_response` message.
+    public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `bundle_app_response` message.
     public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
@@ -104,6 +139,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `share_to_slack_response` message.
+    public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `slack_webhook_config_response` message.
+    public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
@@ -138,6 +179,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Maximum line size: 96 MB (for screenshots with base64).
     private let maxLineSize = 96 * 1024 * 1024
 
+    /// Monotonic per-session sequence for CU observation sends.
+    private var cuObservationSequenceBySession: [String: Int] = [:]
+
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
@@ -159,12 +203,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Pong timeout task handle.
     private var pongTimeoutTask: Task<Void, Never>?
 
+    /// Blob probe task handle — fire-and-forget after connect on macOS.
+    private var blobProbeTask: Task<Void, Never>?
+
+    /// The probe ID we're currently waiting for a response to.
+    /// Used to match ipc_blob_probe_result to the outstanding probe.
+    /// Internal (not private) for testability via @testable import.
+    var pendingProbeId: String?
+
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
+    private let config: DaemonConfig
+
     // MARK: - Init
 
-    public init() {}
+    public init(config: DaemonConfig = .default) {
+        self.config = config
+    }
 
     deinit {
         // Swift 5.9+: deinit on @MainActor class is NOT guaranteed to run on main actor.
@@ -184,6 +240,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         pingTask?.cancel()
         pongTimeoutTask?.cancel()
+        blobProbeTask?.cancel()
         connection?.cancel()
         for continuation in subscribers.values {
             continuation.finish()
@@ -193,22 +250,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Socket Path
 
-    /// Resolves the daemon socket path (macOS only):
-    /// 1. `VELLUM_DAEMON_SOCKET` environment variable (or override dictionary)
-    /// 2. `~/.vellum/vellum.sock`
-    ///
-    /// Accepts an optional environment dictionary for testability.
+    /// Resolves the daemon socket path (macOS only).
+    /// Delegates to the standalone `resolveSocketPath()` function for DRY.
     #if os(macOS)
     public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
-        let env = environment ?? ProcessInfo.processInfo.environment
-        if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("~/") {
-                return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
-            }
-            return trimmed
-        }
-        return NSHomeDirectory() + "/.vellum/vellum.sock"
+        return VellumAssistantShared.resolveSocketPath(environment: environment)
     }
     #endif
 
@@ -227,13 +273,27 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         shouldReconnect = true
 
         #if os(macOS)
-        let socketPath = Self.resolveSocketPath()
-        log.info("Connecting to daemon socket at \(socketPath)")
-        let endpoint = NWEndpoint.unix(path: socketPath)
+        log.info("Connecting to daemon socket at \(self.config.socketPath)")
+        let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         #elseif os(iOS)
-        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
+        // Check UserDefaults first to pick up runtime changes, fall back to config
+        // This allows reconnects to pick up changed settings while preserving custom configs for tests
+        let hostname: String
+        let port: UInt16
+
+        if let userHostname = UserDefaults.standard.string(forKey: "daemon_hostname"), !userHostname.isEmpty {
+            hostname = userHostname
+        } else {
+            hostname = self.config.hostname
+        }
+
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        let port = UInt16(clamping: rawPort > 0 && rawPort <= 65535 ? rawPort : 8765)
+        if rawPort > 0 && rawPort <= 65535 {
+            port = UInt16(rawPort)
+        } else {
+            port = self.config.port
+        }
+
         log.info("Connecting to daemon at \(hostname):\(port)")
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
@@ -282,6 +342,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                             self.reconnectDelay = 1.0
                             self.startReceiveLoop()
                             self.startPingTimer()
+                            #if os(macOS)
+                            self.runBlobProbe()
+                            #endif
                             checkedContinuation.resume()
                         }
 
@@ -335,11 +398,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    /// Closure that, when set, replaces the real send path.
+    /// Used in tests to avoid needing a live NWConnection.
+    internal var sendOverride: ((Any) throws -> Void)?
+
     /// Send a message to the daemon.
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
     /// distinguish a silently-dropped message from a successful write.
     public func send<T: Encodable>(_ message: T) throws {
+        if let override = sendOverride {
+            try override(message)
+            return
+        }
+
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
@@ -347,6 +419,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         var data = try encoder.encode(message)
         data.append(contentsOf: [0x0A]) // newline byte
+
+        if let observation = message as? CuObservationMessage {
+            let previousSequence = cuObservationSequenceBySession[observation.sessionId] ?? 0
+            let sequence = previousSequence + 1
+            cuObservationSequenceBySession[observation.sessionId] = sequence
+            let payloadJSONBytes = max(0, data.count - 1)
+            let screenshotBase64Bytes = observation.screenshot?.utf8.count ?? 0
+            let axTreeBytes = observation.axTree?.utf8.count ?? 0
+            let sendTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
+            log.info(
+                "IPC_METRIC cu_observation_send sessionId=\(observation.sessionId) sequence=\(sequence) sendTsMs=\(sendTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes)"
+            )
+        }
 
         conn.send(content: data, completion: .contentProcessed { error in
             if let error {
@@ -539,6 +624,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SharedAppDeleteRequestMessage(uuid: uuid))
     }
 
+    /// Fork a shared app into a local editable copy.
+    public func sendForkSharedApp(uuid: String) throws {
+        try send(ForkSharedAppRequestMessage(uuid: uuid))
+    }
+
+    /// Share a local app to Slack via configured webhook.
+    public func sendShareToSlack(appId: String) throws {
+        try send(ShareToSlackRequestMessage(appId: appId))
+    }
+
+    /// Get or set the Slack webhook URL configuration.
+    public func sendSlackWebhookConfig(action: String, webhookUrl: String? = nil) throws {
+        try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -588,6 +688,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         reconnectTask = nil
         stopPingTimer()
+        blobProbeTask?.cancel()
+        blobProbeTask = nil
+        pendingProbeId = nil
+        isBlobTransportAvailable = false
 
         if let conn = connection {
             conn.stateUpdateHandler = nil
@@ -596,7 +700,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         receiveBuffer = Data()
+        cuObservationSequenceBySession.removeAll()
         isConnected = false
+        httpPort = nil
+        latestMemoryStatus = nil
 
         // Finish all subscriber streams so `for await` loops terminate
         // instead of hanging forever on disconnect.
@@ -679,6 +786,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             pongTimeoutTask = nil
         }
 
+        // Handle daemon status internally.
+        if case .daemonStatus(let status) = message {
+            httpPort = status.httpPort.flatMap { Int(exactly: $0) }
+        }
+
+        // Handle blob probe result internally.
+        if case .ipcBlobProbeResult(let result) = message {
+            handleBlobProbeResult(result)
+        }
+
         // Forward surface messages to registered callbacks.
         switch message {
         case .uiSurfaceShow(let msg):
@@ -710,8 +827,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTrustRulesListResponse?(msg.rules)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
-        case .skillsUpdatesAvailable(let msg):
-            onSkillsUpdatesAvailable?(msg)
         case .skillsOperationResponse(let msg):
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
@@ -722,6 +837,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):
             onSharedAppDeleteResponse?(msg)
+        case .forkSharedAppResponse(let msg):
+            onForkSharedAppResponse?(msg)
         case .bundleAppResponse(let msg):
             onBundleAppResponse?(msg)
         case .openBundleResponse(let msg):
@@ -730,6 +847,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSessionListResponse?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
+        case .shareToSlackResponse(let msg):
+            onShareToSlackResponse?(msg)
+        case .slackWebhookConfigResponse(let msg):
+            onSlackWebhookConfigResponse?(msg)
+        case .memoryStatus(let msg):
+            latestMemoryStatus = msg
+        case .traceEvent(let msg):
+            onTraceEvent?(msg)
         case .error(let msg):
             onError?(msg)
         #if os(macOS)
@@ -753,6 +878,62 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Broadcast to all subscribers.
         for continuation in subscribers.values {
             continuation.yield(message)
+        }
+    }
+
+    // MARK: - Blob Probe (macOS only)
+
+    #if os(macOS)
+    /// Initiate a blob probe after connecting. Writes a nonce file to the shared
+    /// blob directory and sends a probe message to the daemon. The daemon reads
+    /// the file, hashes it, and responds. If the hashes match, blob transport
+    /// is confirmed available for this connection.
+    private func runBlobProbe() {
+        blobProbeTask?.cancel()
+        isBlobTransportAvailable = false
+
+        blobProbeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let store = IpcBlobStore.shared
+            store.ensureDirectory()
+
+            guard let probe = store.writeProbeFile() else {
+                log.warning("Blob probe: failed to write probe file")
+                return
+            }
+
+            self.pendingProbeId = probe.probeId
+
+            do {
+                try self.send(IpcBlobProbeMessage(
+                    probeId: probe.probeId,
+                    nonceSha256: probe.nonceSha256
+                ))
+                log.info("Blob probe sent: \(probe.probeId)")
+            } catch {
+                log.warning("Blob probe: failed to send probe message: \(error.localizedDescription)")
+                self.pendingProbeId = nil
+            }
+        }
+    }
+    #endif
+
+    /// Process a blob probe result from the daemon.
+    /// Internal (not private) for testability via @testable import.
+    func handleBlobProbeResult(_ result: IpcBlobProbeResultMessage) {
+        guard result.probeId == pendingProbeId else {
+            log.warning("Blob probe: ignoring stale result for \(result.probeId) (expected \(self.pendingProbeId ?? "nil"))")
+            return
+        }
+        pendingProbeId = nil
+
+        if result.ok {
+            isBlobTransportAvailable = true
+            log.info("Blob transport verified for this connection")
+        } else {
+            isBlobTransportAvailable = false
+            log.warning("Blob probe failed: \(result.reason ?? "unknown")")
         }
     }
 

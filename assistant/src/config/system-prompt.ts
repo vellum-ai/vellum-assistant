@@ -58,8 +58,148 @@ export function buildSystemPrompt(): string {
   if (soul) parts.push(soul);
   if (user) parts.push(user);
   parts.push(buildConfigSection(baseDir));
+  parts.push(buildAttachmentSection());
+  parts.push(buildDynamicUiSection());
+  parts.push(buildSwarmGuidanceSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
+}
+
+function buildAttachmentSection(): string {
+  return [
+    '## Sending Files and Images',
+    '',
+    'To attach a file or image to your reply, include a self-closing XML tag in your response text:',
+    '',
+    '```',
+    '<vellum-attachment source="sandbox" path="output/chart.png" />',
+    '```',
+    '',
+    '- `source`: `sandbox` (default, files inside the sandbox working directory) or `host` (absolute paths on the host filesystem — requires user approval).',
+    '- `path`: Required. Relative path for sandbox, absolute path for host.',
+    '- `filename`: Optional override for the delivered filename (defaults to the basename of the path).',
+    '- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).',
+    '',
+    'Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.',
+  ].join('\n');
+}
+
+function buildDynamicUiSection(): string {
+  return [
+    '## Dynamic UI',
+    '',
+    '### When to use',
+    'Use `ui_show` with `surface_type: "dynamic_page"` when the response involves structured data, visual metrics, comparisons, multi-item results, charts, weather, flights, financial data, dashboards, or anything better presented visually than as plain text. Do NOT use for simple text answers, short factual replies, or casual conversation.',
+    '',
+    '**Important:** `ui_show` only works in interactive UI sessions (e.g. the macOS desktop app). Non-UI channels such as HTTP API, Telegram, and gateway integrations cannot render dynamic pages or cards. When responding through a non-UI channel, present data as well-formatted text instead of calling `ui_show`.',
+    '',
+    '### How it works',
+    'Write a self-contained HTML string (no external resources). The CSS design system (`vellum-design-system.css`) and JS widget library (`vellum-widgets.js`) are auto-injected. Call `ui_show` with `surface_type: "dynamic_page"` and `data: { html: "<your html>", preview: { ... } }`.',
+    '',
+    '### Preview cards',
+    'Always include `preview` in `data`: `{ title, subtitle?, description?, icon? (emoji), metrics?: [{ label, value }] }`. This renders a compact inline card in chat with a "View Output" button. Keep the accompanying chat text to 1-2 sentences summarizing the result.',
+    '',
+    '### Design system tokens',
+    'Semantic colors: `--v-bg`, `--v-surface`, `--v-surface-border`, `--v-text`, `--v-text-secondary`, `--v-text-muted`, `--v-accent`, `--v-success`, `--v-danger`, `--v-warning`.',
+    'Palettes: `--v-slate-{950..50}`, `--v-violet-*`, `--v-emerald-*`, `--v-rose-*`, `--v-amber-*`, `--v-indigo-*`.',
+    'Spacing: `--v-spacing-xs` through `--v-spacing-xxxl`. Radius: `--v-radius-sm`/`md`/`lg`/`pill`.',
+    '',
+    '### Component classes',
+    'Layout: `.v-card`, `.v-card-grid`, `.v-metric-card`, `.v-metric-grid`, `.v-data-table`, `.v-stat-row`, `.v-tabs`, `.v-accordion`, `.v-timeline`, `.v-divider`, `.v-page`, `.v-hero`, `.v-section-header`, `.v-pullquote`, `.v-comparison`, `.v-feature-grid`, `.v-feature-card`, `.v-gradient-text`, `.v-animate-in`.',
+    'Domain: `.v-flight-card`, `.v-weather-card`, `.v-stock-ticker`, `.v-billing-chart`, `.v-itinerary`, `.v-boarding-pass`, `.v-receipt`, `.v-invoice`.',
+    'UI: `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-badge`, `.v-status-badge` (`.success`/`.error`/`.warning`), `.v-progress-bar`, `.v-search-bar`, `.v-empty-state`, `.v-action-list`.',
+    '',
+    '### Content pages vs. data pages',
+    'When presenting factual data (weather, flights, stocks, search results), use the appropriate domain components (`.v-flight-card`, `.v-weather-card`, etc.) for clean, scannable output.',
+    '',
+    'When presenting document content, summaries, strategies, or creative material (PDFs, articles, presentations), design a visually rich page like a product landing page or magazine spread:',
+    '- Use `.v-hero` with `.v-hero-badge` for the document title and key theme',
+    '- Use `.v-section-header` with icon + label to introduce each section',
+    '- Use `.v-pullquote` for key quotes or central insights',
+    '- Use `.v-comparison` for before/after or contrasting ideas',
+    '- Use `.v-feature-grid` with `.v-feature-card` for listing themes, capabilities, or takeaways',
+    '- Wrap sections in `.v-animate-in` for staggered fade-in animation',
+    '- Use `.v-page` as the outer container for proper width and section spacing',
+    '- Use `.v-gradient-text` for accent headings',
+    '',
+    '### Widget JS APIs',
+    '```',
+    'vellum.widgets.sparkline(container, number[], {width, height, color})',
+    'vellum.widgets.barChart(container, [{label, value, color?}], {width, height, horizontal?})',
+    'vellum.widgets.lineChart(container, [{label, value}], {width, height, showDots?, showGrid?})',
+    'vellum.widgets.progressRing(container, value0to100, {size, color, label?})',
+    'vellum.widgets.sortTable(tableId)  — make .v-data-table sortable',
+    'vellum.widgets.tabs(tabsId)        — wire .v-tabs click behavior',
+    'vellum.openExternal(url)           — open URL in default browser',
+    'vellum.sendAction(actionId, data)  — send interaction back to assistant',
+    '```',
+    '',
+    '### Example — Flight results page',
+    '```html',
+    '<div style="max-width:500px;margin:0 auto;display:flex;flex-direction:column;gap:12px">',
+    '  <h2 style="color:var(--v-text);margin:0">Flights: IAH → LGA</h2>',
+    '  <div class="v-flight-card">',
+    '    <div class="v-flight-header">',
+    '      <span class="v-flight-airline">Spirit</span>',
+    '      <span class="v-flight-price">$120</span>',
+    '    </div>',
+    '    <div class="v-flight-route">',
+    '      <div class="v-flight-endpoint"><div class="v-flight-time">6:38 PM</div><div class="v-flight-code">IAH</div></div>',
+    '      <div class="v-flight-duration"><span>3h 28m</span><div class="v-flight-line"></div><span>Nonstop</span></div>',
+    '      <div class="v-flight-endpoint"><div class="v-flight-time">11:06 PM</div><div class="v-flight-code">LGA</div></div>',
+    '    </div>',
+    '  </div>',
+    '</div>',
+    '```',
+    '',
+    '### Example — Document landing page',
+    '```html',
+    '<div class="v-page">',
+    '  <div class="v-hero v-animate-in">',
+    '    <span class="v-hero-badge">Strategy Document</span>',
+    '    <h1>Project Vision</h1>',
+    '    <p class="v-hero-subtitle">Key themes and strategic direction from the planning document.</p>',
+    '  </div>',
+    '  <div class="v-animate-in">',
+    '    <div class="v-section-header">',
+    '      <span class="v-section-label">🎯 Core Insight</span>',
+    '      <h2>The Big Idea</h2>',
+    '    </div>',
+    '    <div class="v-pullquote">',
+    '      <p class="v-pullquote-text">"The central thesis of the document."</p>',
+    '      <ul class="v-pullquote-points">',
+    '        <li>Supporting point one</li>',
+    '        <li>Supporting point two</li>',
+    '      </ul>',
+    '    </div>',
+    '  </div>',
+    '  <div class="v-comparison v-animate-in">',
+    '    <div class="v-comparison-card before">',
+    '      <div class="v-comparison-label">Before</div>',
+    '      <div>Current state</div>',
+    '    </div>',
+    '    <span class="v-comparison-arrow">→</span>',
+    '    <div class="v-comparison-card after">',
+    '      <div class="v-comparison-label">After</div>',
+    '      <div>Target state</div>',
+    '    </div>',
+    '  </div>',
+    '</div>',
+    '```',
+    '',
+    '### Tool chaining',
+    'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a `dynamic_page` rather than displaying raw tool outputs.',
+    '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
+    '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished `dynamic_page` with the appropriate component classes.',
+  ].join('\n');
+}
+
+export function buildSwarmGuidanceSection(): string {
+  return [
+    '## Parallel Task Orchestration',
+    '',
+    'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+  ].join('\n');
 }
 
 function buildConfigSection(configDir: string): string {
@@ -119,11 +259,35 @@ function readPromptFile(path: string): string | null {
 
 function appendSkillsCatalog(basePrompt: string): string {
   const skills = loadSkillCatalog();
-  if (skills.length === 0) return basePrompt;
+
+  const sections: string[] = [basePrompt];
 
   const catalog = formatSkillsCatalog(skills);
-  if (!catalog) return basePrompt;
-  return `${basePrompt}\n\n${catalog}`;
+  if (catalog) sections.push(catalog);
+
+  sections.push(buildDynamicSkillWorkflowSection());
+
+  return sections.join('\n\n');
+}
+
+function buildDynamicSkillWorkflowSection(): string {
+  return [
+    '## Dynamic Skill Authoring Workflow',
+    '',
+    'When the user requests a capability that no existing tool or skill can satisfy, follow this exact procedure:',
+    '',
+    '1. **Validate the gap.** Confirm no existing tool or installed skill covers the need.',
+    '2. **Draft a TypeScript snippet.** Write a self-contained snippet that exports a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.',
+    '3. **Test with `evaluate_typescript_code`.** Call the tool to run the snippet in a sandbox. Iterate until it passes.',
+    '4. **Persist with `scaffold_managed_skill`.** Only after successful evaluation and explicit user consent, call `scaffold_managed_skill` to write the skill to `~/.vellum/skills/<id>/`.',
+    '5. **Load and use.** Call `skill_load` with the new skill ID before invoking the skill-driven flow.',
+    '',
+    'Important constraints:',
+    '- **Never persist or delete skills without explicit user confirmation.** Both operations require user approval.',
+    '- If evaluation fails after 3 attempts, summarize the failure and ask the user for guidance instead of continuing to retry.',
+    '- After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
+    '- To remove a managed skill, use `delete_managed_skill`.',
+  ].join('\n');
 }
 
 function escapeXml(str: string): string {

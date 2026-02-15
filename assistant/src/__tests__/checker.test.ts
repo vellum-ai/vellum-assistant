@@ -29,6 +29,12 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { RiskLevel } from '../permissions/types.js';
 import { addRule, clearCache } from '../permissions/trust-store.js';
 
+// Import managed skill tools so they register in the tool registry.
+// Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
+// instead of the declared RiskLevel.High — producing wrong test behavior.
+import '../tools/skills/scaffold-managed.js';
+import '../tools/skills/delete-managed.js';
+
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
@@ -301,6 +307,126 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
 
+    test('host_file_read with higher-priority host rule → allow', async () => {
+      addRule('host_file_read', 'host_file_read:/etc/hosts', 'everywhere', 'allow', 2000);
+      const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_read:/etc/hosts');
+    });
+
+    test('host_file_write with higher-priority host rule → allow', async () => {
+      addRule('host_file_write', 'host_file_write:/Users/test/project/*', 'everywhere', 'allow', 2000);
+      const result = await check('host_file_write', { path: '/Users/test/project/output.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_write:/Users/test/project/*');
+    });
+
+    test('host_file_edit with higher-priority host rule → allow', async () => {
+      addRule('host_file_edit', 'host_file_edit:/opt/config/app.yml', 'everywhere', 'allow', 2000);
+      const result = await check('host_file_edit', { path: '/opt/config/app.yml' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('host_file_edit:/opt/config/app.yml');
+    });
+
+    test('host_bash reuses bash-style command matching', async () => {
+      addRule('host_bash', 'npm *', 'everywhere', 'allow', 2000);
+      const result = await check('host_bash', { command: 'npm test' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe('npm *');
+    });
+
+    test('host_file_read prompts by default via host ask rule', async () => {
+      const result = await check('host_file_read', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_read-global');
+    });
+
+    test('host_file_write prompts by default via host ask rule', async () => {
+      const result = await check('host_file_write', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_write-global');
+    });
+
+    test('host_file_edit prompts by default via host ask rule', async () => {
+      const result = await check('host_file_edit', { path: '/etc/hosts' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_file_edit-global');
+    });
+
+    test('host_bash prompts by default via host ask rule', async () => {
+      const result = await check('host_bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-host_bash-global');
+    });
+
+    test('scaffold_managed_skill prompts by default via managed skill ask rule', async () => {
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-scaffold_managed_skill-global');
+    });
+
+    test('delete_managed_skill prompts by default via managed skill ask rule', async () => {
+      const result = await check('delete_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-delete_managed_skill-global');
+    });
+
+    test('allow rule for scaffold_managed_skill still prompts (High risk)', async () => {
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('allow rule for scaffold_managed_skill does not match other skill ids', async () => {
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
+      const result = await check('scaffold_managed_skill', { skill_id: 'other-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('wildcard allow rule for delete_managed_skill still prompts (High risk)', async () => {
+      addRule('delete_managed_skill', 'delete_managed_skill:*', 'everywhere', 'allow', 2000);
+      const result = await check('delete_managed_skill', { skill_id: 'any-skill' }, '/tmp');
+      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('cu_click prompts by default via computer-use ask rule', async () => {
+      const result = await check('cu_click', { reasoning: 'Click the save button' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-cu_click-global');
+    });
+
+    test('request_computer_control prompts by default via computer-use ask rule', async () => {
+      const result = await check('request_computer_control', { task: 'Open system settings' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule?.id).toBe('default:ask-request_computer_control-global');
+    });
+
+    test('higher-priority allow rule can override default cu ask rule', async () => {
+      addRule('cu_click', 'cu_click:*', 'everywhere', 'allow', 2000);
+      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.decision).toBe('allow');
+      expect(result.matchedRule?.priority).toBe(2000);
+    });
+
+    test('higher-priority deny rule can override default cu ask rule', async () => {
+      addRule('cu_click', 'cu_click:*', 'everywhere', 'deny', 2001);
+      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.matchedRule?.decision).toBe('deny');
+      expect(result.matchedRule?.priority).toBe(2001);
+    });
+
     test('deny rule for skill_load matches specific skill selectors', async () => {
       addRule('skill_load', 'skill_load:dangerous-skill', 'everywhere', 'deny');
       const result = await check('skill_load', { skill: 'dangerous-skill' }, '/tmp');
@@ -569,6 +695,29 @@ describe('Permission Checker', () => {
       expect(options[2].pattern).toBe('file_read:*');
     });
 
+    test('host_file_read: generates prefixed file, directory, and tool wildcard', () => {
+      const options = generateAllowlistOptions('host_file_read', { path: '/etc/hosts' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('host_file_read:/etc/hosts');
+      expect(options[1].pattern).toBe('host_file_read:/etc/*');
+      expect(options[2].pattern).toBe('host_file_read:*');
+    });
+
+    test('host_file_write with file_path key', () => {
+      const options = generateAllowlistOptions('host_file_write', { file_path: '/tmp/out.txt' });
+      expect(options[0].pattern).toBe('host_file_write:/tmp/out.txt');
+      expect(options[1].pattern).toBe('host_file_write:/tmp/*');
+      expect(options[2].pattern).toBe('host_file_write:*');
+    });
+
+    test('host_bash: generates exact, subcommand wildcard, and program wildcard', () => {
+      const options = generateAllowlistOptions('host_bash', { command: 'npm install express' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('npm install express');
+      expect(options[1].pattern).toBe('npm install *');
+      expect(options[2].pattern).toBe('npm *');
+    });
+
     test('file_write with file_path key', () => {
       const options = generateAllowlistOptions('file_write', { file_path: '/tmp/out.txt' });
       expect(options[0].pattern).toBe('file_write:/tmp/out.txt');
@@ -633,6 +782,31 @@ describe('Permission Checker', () => {
       expect(options[1].pattern).toBe('web_fetch:*');
     });
 
+    test('scaffold_managed_skill: generates per-skill and wildcard options', () => {
+      const options = generateAllowlistOptions('scaffold_managed_skill', { skill_id: 'my-tool' });
+      expect(options).toHaveLength(2);
+      expect(options[0].label).toBe('my-tool');
+      expect(options[0].pattern).toBe('scaffold_managed_skill:my-tool');
+      expect(options[0].description).toBe('This skill only');
+      expect(options[1].label).toBe('scaffold_managed_skill:*');
+      expect(options[1].pattern).toBe('scaffold_managed_skill:*');
+      expect(options[1].description).toBe('All managed skill scaffolds');
+    });
+
+    test('delete_managed_skill: generates per-skill and wildcard options', () => {
+      const options = generateAllowlistOptions('delete_managed_skill', { skill_id: 'doomed' });
+      expect(options).toHaveLength(2);
+      expect(options[0].pattern).toBe('delete_managed_skill:doomed');
+      expect(options[1].pattern).toBe('delete_managed_skill:*');
+      expect(options[1].description).toBe('All managed skill deletes');
+    });
+
+    test('scaffold_managed_skill with empty skill_id: only wildcard option', () => {
+      const options = generateAllowlistOptions('scaffold_managed_skill', { skill_id: '' });
+      expect(options).toHaveLength(1);
+      expect(options[0].pattern).toBe('scaffold_managed_skill:*');
+    });
+
     test('web_fetch: escapes minimatch metacharacters in generated exact and origin patterns', () => {
       const options = generateAllowlistOptions('web_fetch', { url: 'https://[2001:db8::1]/search?q=test' });
       expect(options).toHaveLength(3);
@@ -672,6 +846,13 @@ describe('Permission Checker', () => {
       const options = generateScopeOptions('/var/data/app');
       expect(options[0].label).toBe('/var/data/app');
       expect(options[1].label).toBe('/var/data/*');
+    });
+
+    test('host tools prioritize everywhere scope first', () => {
+      const options = generateScopeOptions('/var/data/app', 'host_file_read');
+      expect(options[0]).toEqual({ label: 'everywhere', scope: 'everywhere' });
+      expect(options[1].scope).toBe('/var/data/app');
+      expect(options[2].scope).toBe('/var/data');
     });
   });
 });

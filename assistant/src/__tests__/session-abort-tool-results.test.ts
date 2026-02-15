@@ -48,6 +48,13 @@ mock.module('../security/secret-allowlist.js', () => ({
   resetAllowlist: () => {},
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemoryConflictAndCleanupStats: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 // Track all messages persisted to DB
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
@@ -111,7 +118,7 @@ mock.module('../agent/loop.js', () => ({
         ],
       };
       history.push(assistantMessage);
-      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 10, outputTokens: 20, model: 'mock', providerDurationMs: 50 });
       onEvent({ type: 'message_complete', message: assistantMessage });
 
       // First tool completes — fires tool_result event

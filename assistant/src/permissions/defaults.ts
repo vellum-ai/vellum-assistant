@@ -12,6 +12,22 @@ export interface DefaultRuleTemplate {
 
 /** Tools that directly access the filesystem by path. */
 const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
+const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
+const COMPUTER_USE_TOOLS = [
+  'cu_click',
+  'cu_double_click',
+  'cu_right_click',
+  'cu_type_text',
+  'cu_key',
+  'cu_scroll',
+  'cu_drag',
+  'cu_wait',
+  'cu_open_app',
+  'cu_run_applescript',
+  'request_computer_control',
+  // cu_done and cu_respond are terminal signal tools (RiskLevel.Low) — they
+  // don't perform any computer action, so they should NOT get an 'ask' rule.
+] as const;
 
 /**
  * Returns default trust rules shipped with the assistant.
@@ -22,7 +38,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // (path.join produces backslashes on Windows, which minimatch treats as escapes).
   const protectedDir = join(getRootDir(), 'protected').replaceAll('\\', '/');
 
-  return FILE_TOOLS.map((tool) => ({
+  const protectedFileRules = FILE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-protected`,
     tool,
     pattern: `${tool}:${protectedDir}/**`,
@@ -30,4 +46,53 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     decision: 'ask' as const,
     priority: 1000,
   }));
+
+  const hostFileRules = HOST_FILE_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: `${tool}:/**`,
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 50,
+  }));
+
+  // host_bash command candidates are raw commands ("ls", "npm test"), so the
+  // global default ask rule uses "**" (globstar) instead of a "tool:*" prefix
+  // because commands often contain "/" (e.g. "cat /etc/hosts").
+  const hostShellRule: DefaultRuleTemplate = {
+    id: 'default:ask-host_bash-global',
+    tool: 'host_bash',
+    pattern: '**',
+    scope: 'everywhere',
+    decision: 'ask',
+    priority: 50,
+  };
+
+  // Standalone "**" globstar — minimatch only treats ** as globstar when it is
+  // its own path segment, so a "tool:**" prefix would collapse to single-star
+  // behavior and fail to match candidates containing "/".  The tool is already
+  // filtered by `findHighestPriorityRule` (rule.tool !== tool), so a prefix is
+  // unnecessary.
+  const computerUseRules = COMPUTER_USE_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: '**',
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 1000,
+  }));
+
+  // Managed skill authoring tools — scaffold and delete modify ~/.vellum/skills/
+  // and should require explicit user approval.
+  const MANAGED_SKILL_TOOLS = ['scaffold_managed_skill', 'delete_managed_skill'] as const;
+  const managedSkillRules = MANAGED_SKILL_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: `${tool}:*`,
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 1000,
+  }));
+
+  return [...protectedFileRules, ...hostFileRules, hostShellRule, ...computerUseRules, ...managedSkillRules];
 }

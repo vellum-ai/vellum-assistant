@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 struct ThreadTabBar: View {
@@ -41,7 +42,7 @@ struct ThreadTabBar: View {
 
                 // Panel toggle buttons
                 HStack(spacing: VSpacing.sm) {
-                    VIconButton(label: "Generated", icon: "wand.and.stars", isActive: activePanel == .generated) {
+                    VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated) {
                         togglePanel(.generated)
                     }
                     VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent) {

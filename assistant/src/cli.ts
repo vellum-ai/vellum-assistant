@@ -22,10 +22,6 @@ const HEARTBEAT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-export interface CliOptions {
-  noSandbox?: boolean;
-}
-
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === 'string' ? rawUrl : String(rawUrl ?? '');
   if (!value) return '';
@@ -43,7 +39,7 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   }
 }
 
-export async function startCli(options: CliOptions = {}): Promise<void> {
+export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
   let socket: net.Socket;
   let parser = createMessageParser();
@@ -164,6 +160,9 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
     process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
+    if (req.executionTarget) {
+      process.stdout.write(`\u2502 Target: ${req.executionTarget}\n`);
+    }
     if (req.diff) {
       const diffOutput = req.diff.isNewFile
         ? formatNewFileDiff(req.diff.newContent, req.diff.filePath)
@@ -629,9 +628,6 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
       try {
         if (shouldAutoStartDaemon()) await ensureDaemonRunning();
         await connect();
-        if (options.noSandbox) {
-          send({ type: 'sandbox_set', enabled: false });
-        }
         reconnecting = false;
         return;
       } catch {
@@ -831,8 +827,4 @@ export async function startCli(options: CliOptions = {}): Promise<void> {
   // Initial connection
   await connect();
 
-  // Send sandbox override if --no-sandbox was passed
-  if (options.noSandbox) {
-    send({ type: 'sandbox_set', enabled: false });
-  }
 }

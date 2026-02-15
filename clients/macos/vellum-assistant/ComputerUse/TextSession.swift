@@ -128,6 +128,10 @@ final class TextSession: ObservableObject {
                     self.state = .failed(reason: error.message)
                     return
 
+                case .sessionError(let error) where error.sessionId == self.daemonSessionId && self.daemonSessionId != nil:
+                    self.state = .failed(reason: error.userMessage)
+                    return
+
                 default:
                     break
                 }
@@ -197,6 +201,10 @@ final class TextSession: ObservableObject {
 
                 case .cuError(let error) where error.sessionId == sessionId:
                     self.state = .failed(reason: error.message)
+                    return
+
+                case .sessionError(let error) where error.sessionId == sessionId:
+                    self.state = .failed(reason: error.userMessage)
                     return
 
                 default:

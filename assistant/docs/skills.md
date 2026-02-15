@@ -70,3 +70,31 @@ Resolution order:
 3. Unique skill id prefix
 
 If the selector is ambiguous or missing, `skill_load` returns an error.
+
+## Slash Skill Commands
+
+Users can invoke skills directly from any chat surface using slash commands:
+
+```
+/skill-id [optional arguments]
+```
+
+### Behavior
+
+- **Matching**: Exact skill ID only (case-insensitive). No fuzzy matching, prefix matching, or name aliasing.
+- **Parse**: Happens on send — the first whitespace-delimited token is inspected. If it starts with `/` and is a valid skill ID, it's treated as a slash command.
+- **Known command**: Content is rewritten into a model-facing prompt that instructs the assistant to invoke the skill. Trailing arguments are preserved verbatim.
+- **Unknown command**: A deterministic assistant response is returned listing available slash commands. No model call occurs.
+- **Path-like tokens**: Tokens with multiple slashes (e.g. `/tmp/file`, `/Users/sidd`) are ignored and treated as normal text.
+- **Task submit**: Slash candidates in `task_submit` bypass the interaction classifier and route directly to `text_qa`, preventing misrouting to `computer_use`.
+
+### Eligibility
+
+A skill appears as a slash command when:
+
+1. `userInvocable` is `true` in its configuration.
+2. Its resolved state is not `disabled`.
+
+### Valid Skill IDs
+
+Slash skill IDs must start with an alphanumeric character and contain only `[A-Za-z0-9._-]`.

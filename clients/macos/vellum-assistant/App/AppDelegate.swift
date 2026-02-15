@@ -85,13 +85,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     private var thinkingWindow: ThinkingIndicatorWindow?
-    public let ambientAgent = AmbientAgent()
-    public let daemonClient = DaemonClient()
-    let surfaceManager = SurfaceManager()
-    let toolConfirmationManager = ToolConfirmationManager()
-    let secretPromptManager = SecretPromptManager()
+    public let services = AppServices()
     private let daemonLauncher = DaemonLauncher()
     private let updateManager = UpdateManager()
+
+    // Forwarding accessors — ownership lives in `services`, these keep
+    // existing internal references working without a mass-rename.
+    private var daemonClient: DaemonClient { services.daemonClient }
+    private var ambientAgent: AmbientAgent { services.ambientAgent }
+    private var surfaceManager: SurfaceManager { services.surfaceManager }
+    private var toolConfirmationManager: ToolConfirmationManager { services.toolConfirmationManager }
+    private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
+    private var zoomManager: ZoomManager { services.zoomManager }
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
@@ -128,6 +133,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupDaemonClient()
         setupMenuBar()
+        setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -277,6 +283,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onAppDataResponse = { [weak self] msg in
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
         }
+
+        // Route dynamic pages to workspace
+        surfaceManager.onDynamicPageShow = { [weak self] msg in
+            guard let self else { return }
+            self.showMainWindow()
+            NotificationCenter.default.post(
+                name: .openDynamicWorkspace,
+                object: nil,
+                userInfo: ["surfaceMessage": msg]
+            )
+        }
     }
 
     private func setupToolConfirmationManager() {
@@ -372,9 +389,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            mainWindow?.show()
-        }
+        // Don't show the main window while onboarding is active — the app
+        // isn't fully initialized yet and showing it would let users bypass
+        // the onboarding flow with partially initialized state.
+        guard onboardingWindow == nil else { return true }
+
+        // Always show the main window on reopen (e.g. Spotlight, Dock click).
+        // Even when hasVisibleWindows is true, the window may be behind other apps
+        // and the user expects it to come to the front.
+        showMainWindow()
         return true
     }
 
@@ -388,6 +411,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
     }
+
+    private func setupViewMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        let viewMenu = NSMenu(title: "View")
+
+        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(handleZoomIn), keyEquivalent: "=")
+        zoomInItem.keyEquivalentModifierMask = .command
+        zoomInItem.target = self
+        viewMenu.addItem(zoomInItem)
+
+        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(handleZoomOut), keyEquivalent: "-")
+        zoomOutItem.keyEquivalentModifierMask = .command
+        zoomOutItem.target = self
+        viewMenu.addItem(zoomOutItem)
+
+        let resetItem = NSMenuItem(title: "Actual Size", action: #selector(handleZoomReset), keyEquivalent: "0")
+        resetItem.keyEquivalentModifierMask = .command
+        resetItem.target = self
+        viewMenu.addItem(resetItem)
+
+        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+    }
+
+    @objc private func handleZoomIn() { zoomManager.zoomIn() }
+    @objc private func handleZoomOut() { zoomManager.zoomOut() }
+    @objc private func handleZoomReset() { zoomManager.resetZoom() }
 
     private func configureMenuBarIcon(_ button: NSStatusBarButton) {
         let iconSize: CGFloat = 18
@@ -761,6 +813,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.onboardingWindow = nil
 
             self?.setupMenuBar()
+            self?.setupViewMenu()
             self?.setupHotKey()
             self?.setupEscapeMonitor()
             self?.setupVoiceInput()
@@ -839,7 +892,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent)
+        let main = MainWindow(services: services)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
@@ -873,7 +926,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: ambientAgent, daemonClient: daemonClient))
+        let hostingController = NSHostingController(rootView: SettingsView(store: services.settingsStore, ambientAgent: services.ambientAgent, daemonClient: services.daemonClient))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],

@@ -107,6 +107,23 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_item_conflicts (
+      id TEXT PRIMARY KEY,
+      scope_id TEXT NOT NULL DEFAULT 'default',
+      existing_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
+      candidate_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
+      relationship TEXT NOT NULL,
+      status TEXT NOT NULL,
+      clarification_question TEXT,
+      resolution_note TEXT,
+      last_asked_at INTEGER,
+      resolved_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS memory_summaries (
       id TEXT PRIMARY KEY,
       scope TEXT NOT NULL,
@@ -263,6 +280,19 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS shared_app_links (
+      id TEXT PRIMARY KEY,
+      share_token TEXT NOT NULL UNIQUE,
+      bundle_data BLOB NOT NULL,
+      bundle_size_bytes INTEGER NOT NULL,
+      manifest_json TEXT NOT NULL,
+      download_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
@@ -380,6 +410,7 @@ export function initializeDb(): void {
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
+  migrateMemoryEntityRelationDedup(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
@@ -388,10 +419,30 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_segments_message_segment ON memory_segments(message_id, segment_index)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_conversation_created ON memory_segments(conversation_id, created_at DESC)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_sources_message_id ON memory_item_sources(message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_status_created ON memory_item_conflicts(status, created_at)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_status_resolved_at ON memory_item_conflicts(status, resolved_at)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_scope_status ON memory_item_conflicts(scope_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_existing_item_id ON memory_item_conflicts(existing_item_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_conflicts_candidate_item_id ON memory_item_conflicts(candidate_item_id)`);
+  database.run(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_item_conflicts_pending_pair_unique
+    ON memory_item_conflicts(scope_id, existing_item_id, candidate_item_id)
+    WHERE status = 'pending_clarification'
+  `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
+  database.run(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_jobs_conflict_resolve_dedupe
+    ON memory_jobs(
+      type,
+      status,
+      json_extract(payload, '$.messageId'),
+      COALESCE(json_extract(payload, '$.scopeId'), 'default')
+    )
+  `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_time ON memory_summaries(scope, end_at DESC)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
@@ -418,8 +469,11 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model ON llm_usage_events(model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
 
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_shared_app_links_share_token ON shared_app_links(share_token)`);
+
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_name ON memory_entities(name)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(type)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_entity_relations_unique_edge ON memory_entity_relations(source_entity_id, target_entity_id, relation)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_source ON memory_entity_relations(source_entity_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_target ON memory_entity_relations(target_entity_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_memory_item ON memory_item_entities(memory_item_id)`);
@@ -528,4 +582,82 @@ function migrateMemoryFtsBackfill(database: ReturnType<typeof drizzle<typeof sch
     INSERT INTO memory_segment_fts(segment_id, text)
     SELECT id, text FROM memory_segments
   `);
+}
+
+/**
+ * One-shot migration: merge duplicate relation edges so uniqueness can be
+ * enforced on (source_entity_id, target_entity_id, relation).
+ */
+function migrateMemoryEntityRelationDedup(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_memory_entity_relations_dedup_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  try {
+    raw.exec('BEGIN');
+
+    raw.exec(/*sql*/ `
+      CREATE TEMP TABLE memory_entity_relation_merge AS
+      WITH ranked AS (
+        SELECT
+          source_entity_id,
+          target_entity_id,
+          relation,
+          first_seen_at,
+          last_seen_at,
+          evidence,
+          ROW_NUMBER() OVER (
+            PARTITION BY source_entity_id, target_entity_id, relation
+            ORDER BY last_seen_at DESC, first_seen_at DESC, id DESC
+          ) AS rank_latest
+        FROM memory_entity_relations
+      )
+      SELECT
+        source_entity_id,
+        target_entity_id,
+        relation,
+        MIN(first_seen_at) AS merged_first_seen_at,
+        MAX(last_seen_at) AS merged_last_seen_at,
+        MAX(CASE WHEN rank_latest = 1 THEN evidence ELSE NULL END) AS merged_evidence
+      FROM ranked
+      GROUP BY source_entity_id, target_entity_id, relation
+    `);
+
+    raw.exec(/*sql*/ `DELETE FROM memory_entity_relations`);
+
+    raw.exec(/*sql*/ `
+      INSERT INTO memory_entity_relations (
+        id,
+        source_entity_id,
+        target_entity_id,
+        relation,
+        evidence,
+        first_seen_at,
+        last_seen_at
+      )
+      SELECT
+        lower(hex(randomblob(16))),
+        source_entity_id,
+        target_entity_id,
+        relation,
+        merged_evidence,
+        merged_first_seen_at,
+        merged_last_seen_at
+      FROM memory_entity_relation_merge
+    `);
+
+    raw.exec(/*sql*/ `DROP TABLE memory_entity_relation_merge`);
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  }
 }
