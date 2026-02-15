@@ -539,6 +539,13 @@ Combine widget primitives to build complex UIs efficiently:
 </div>
 <script>
   vellum.widgets.multiSelect('my-table');
+
+  // Toggle bulk-action toolbar when checkboxes change
+  document.getElementById('my-table').addEventListener('change', () => {
+    const anyChecked = document.querySelectorAll('#my-table tbody input:checked').length > 0;
+    document.getElementById('bulk-toolbar').hidden = !anyChecked;
+  });
+
   function handleBulk(action) {
     const selected = document.querySelectorAll('#my-table tbody input:checked');
     const ids = Array.from(selected).map(cb => cb.closest('tr').dataset.id);
