@@ -936,9 +936,7 @@ public final class ChatViewModel: ObservableObject {
 
         case .sessionError(let msg):
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
-            let typedError = SessionError(from: msg)
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
-            sessionError = typedError
             // Mirror the same UI reset as the generic .error handler so the
             // chat doesn't get stuck in a sending/thinking state.
             isThinking = false
@@ -949,8 +947,11 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
-            // Also set errorText so existing UI that reads errorText still works.
+            // When the user intentionally cancelled, suppress both the typed
+            // session error and the errorText so no toast appears.
             if !wasCancelling {
+                let typedError = SessionError(from: msg)
+                sessionError = typedError
                 errorText = msg.userMessage
             }
             for i in messages.indices {

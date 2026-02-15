@@ -347,7 +347,7 @@ describe('Session message queue', () => {
     // Queue should be empty
     expect(session.getQueueDepth()).toBe(0);
 
-    // Both queued messages should have received error events
+    // Both queued messages should have received generic error events
     const err2 = events2.find((e) => e.type === 'error');
     expect(err2).toBeDefined();
     expect(err2!.type === 'error' && err2!.message).toContain('queued message discarded');
@@ -355,6 +355,14 @@ describe('Session message queue', () => {
     const err3 = events3.find((e) => e.type === 'error');
     expect(err3).toBeDefined();
     expect(err3!.type === 'error' && err3!.message).toContain('queued message discarded');
+
+    // abort() must NOT emit session_error — cancel should only show
+    // generation_cancelled behavior, never a session-error toast.
+    const sessionErr2 = events2.find((e) => e.type === 'session_error');
+    expect(sessionErr2).toBeUndefined();
+
+    const sessionErr3 = events3.find((e) => e.type === 'session_error');
+    expect(sessionErr3).toBeUndefined();
   });
 
   test('queue depth is reported correctly as messages are added and drained', async () => {

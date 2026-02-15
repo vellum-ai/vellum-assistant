@@ -1379,9 +1379,12 @@ final class ChatViewModelTests: XCTestCase {
         )
         viewModel.handleServerMessage(.sessionError(errorMsg))
 
-        // errorText should be suppressed during cancellation (user-initiated)
+        // Both errorText and sessionError should be suppressed during cancellation
+        // (user-initiated cancel should only show generation_cancelled, never a toast)
         XCTAssertNil(viewModel.errorText,
                       "Session error during cancellation should not display errorText")
+        XCTAssertNil(viewModel.sessionError,
+                      "Session error during cancellation should not set typed sessionError")
     }
 
     func testSessionErrorNonRetryableFlag() {

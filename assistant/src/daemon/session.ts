@@ -322,15 +322,12 @@ export class Session {
       unregisterTimerCompletionNotifier(this.conversationId);
       pruneSessionTimers(this.conversationId);
 
-      // Clear queued messages and notify each caller
+      // Clear queued messages and notify each caller.
+      // Only emit a generic `error` — NOT `session_error` — so the client's
+      // cancel-path suppression (wasCancelling) handles cleanup without
+      // surfacing a session-error toast to the user.
       for (const queued of this.messageQueue) {
         queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
-        queued.onEvent(buildSessionErrorMessage(this.conversationId, {
-          code: 'SESSION_ABORTED',
-          userMessage: 'The request was interrupted. You can try sending your message again.',
-          retryable: true,
-          debugDetails: 'Session aborted — queued message discarded',
-        }));
       }
       this.messageQueue = [];
     }
