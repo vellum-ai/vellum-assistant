@@ -808,7 +808,7 @@ function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.hidden = true);
   document.getElementById('view-' + name).hidden = false;
   document.querySelectorAll('.nav-link').forEach(btn => btn.classList.remove('active'));
-  document.querySelector(`[onclick="showView('${name}')"]`).classList.add('active');
+  document.querySelector(`[onclick="showView('${name}')"]`)?.classList.add('active');
 }
 ```
 
@@ -822,13 +822,15 @@ Call `app_create` with:
 - `schema_json`: JSON schema as string
 - `html`: Complete HTML document as string
 - `auto_open`: (optional, defaults to `true`) Opens the app immediately
+- `preview`: (optional) Inline preview card — see below
 
 Since `auto_open` defaults to `true`, you don't need to call `app_open` separately after `app_create`.
 
-#### Preview metadata (ui_show only)
+#### Preview metadata
 
-When calling `ui_show` with `surface_type: "dynamic_page"`, include a `preview` object for an inline chat preview card:
+Both `ui_show` and `app_create` support a `preview` object for an inline chat preview card. Always include it so the user sees a compact summary without opening the app.
 
+**With `ui_show`:**
 ```json
 {
   "surface_type": "dynamic_page",
@@ -848,7 +850,24 @@ When calling `ui_show` with `surface_type: "dynamic_page"`, include a `preview` 
 }
 ```
 
-Preview fields: `title` (required), `subtitle`, `description`, `icon` (emoji), `metrics` (up to 3 key-value pills). Note: `preview` applies to `ui_show` only, not `app_create` or `app_open`.
+**With `app_create`:**
+```json
+{
+  "name": "Expense Tracker",
+  "schema_json": "{}",
+  "html": "...",
+  "preview": {
+    "title": "Expense Tracker",
+    "icon": "💰",
+    "metrics": [
+      { "label": "Records", "value": "24" },
+      { "label": "Categories", "value": "8" }
+    ]
+  }
+}
+```
+
+Preview fields: `title` (required), `subtitle`, `description`, `icon` (emoji), `metrics` (up to 3 key-value pills). When `app_create` is called with `auto_open: true` (the default), the preview is forwarded through `app_open` automatically.
 
 ### 6. Handle Iteration
 
