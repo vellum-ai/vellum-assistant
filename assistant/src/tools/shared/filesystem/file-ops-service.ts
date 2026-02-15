@@ -30,9 +30,11 @@ export type PathPolicy = (
 
 export class FileSystemOps {
   private policy: PathPolicy;
+  private sizeLimit: number | undefined;
 
-  constructor(policy: PathPolicy) {
+  constructor(policy: PathPolicy, options?: { sizeLimit?: number }) {
     this.policy = policy;
+    this.sizeLimit = options?.sizeLimit;
   }
 
   // -------------------------------------------------------------------------
@@ -55,7 +57,7 @@ export class FileSystemOps {
       return { ok: false, error: Err.notAFile(filePath) };
     }
 
-    const sizeErr = checkFileSizeOnDisk(filePath);
+    const sizeErr = checkFileSizeOnDisk(filePath, this.sizeLimit);
     if (sizeErr) {
       return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
     }
@@ -93,7 +95,7 @@ export class FileSystemOps {
     }
     const filePath = pathCheck.resolved;
 
-    const sizeErr = checkContentSize(input.content, filePath);
+    const sizeErr = checkContentSize(input.content, filePath, this.sizeLimit);
     if (sizeErr) {
       return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
     }
@@ -144,7 +146,7 @@ export class FileSystemOps {
 
     // Size-check the file on disk (swallow ENOENT — readFileSync gives a clearer error)
     try {
-      const sizeErr = checkFileSizeOnDisk(filePath);
+      const sizeErr = checkFileSizeOnDisk(filePath, this.sizeLimit);
       if (sizeErr) {
         return { ok: false, error: Err.sizeLimitExceeded(filePath, sizeErr) };
       }

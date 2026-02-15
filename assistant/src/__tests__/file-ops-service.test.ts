@@ -80,9 +80,11 @@ describe('FileSystemOps.readFileSafe', () => {
     const filePath = join(dir, 'big.txt');
     writeFileSync(filePath, 'x'.repeat(200));
 
-    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 100 });
     const result = ops.readFileSafe({ path: 'big.txt' });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 
   test('returns INVALID_PATH for path outside sandbox', () => {
@@ -162,12 +164,14 @@ describe('FileSystemOps.writeFileSafe', () => {
     expect(result.error.code).toBe('INVALID_PATH');
   });
 
-  test('returns SIZE_LIMIT_EXCEEDED for oversized content (indirectly)', () => {
+  test('returns SIZE_LIMIT_EXCEEDED for oversized content', () => {
     const dir = makeTempDir();
-    const ops = new FileSystemOps(sandboxPolicyFor(dir));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 10 });
 
-    const result = ops.writeFileSafe({ path: 'small.txt', content: 'small' });
-    expect(result.ok).toBe(true);
+    const result = ops.writeFileSafe({ path: 'big.txt', content: 'x'.repeat(50) });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 });
 
@@ -291,6 +295,22 @@ describe('FileSystemOps.editFileSafe', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe('MATCH_NOT_FOUND');
+  });
+
+  test('returns SIZE_LIMIT_EXCEEDED for oversized file on edit', () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, 'big.txt'), 'x'.repeat(200));
+    const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 100 });
+
+    const result = ops.editFileSafe({
+      path: 'big.txt',
+      oldString: 'x',
+      newString: 'y',
+      replaceAll: false,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('SIZE_LIMIT_EXCEEDED');
   });
 
   test('returns INVALID_PATH for path outside sandbox', () => {
