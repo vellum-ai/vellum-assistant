@@ -206,38 +206,30 @@ describe('ipc-blob-store', () => {
       await expect(readBlob(ref)).rejects.toThrow('Blob SHA-256 mismatch');
     });
 
-    test('rejects oversized ax_tree blob', async () => {
+    test('rejects oversized ax_tree blob before reading file', async () => {
       const id = randomUUID();
-      // 2 MB + 1 byte
-      const content = Buffer.alloc(2 * 1024 * 1024 + 1);
-
-      writeBlobFile(id, content);
-
+      // Declare a size over 2 MB limit — file doesn't even need to exist
       const ref: IpcBlobRef = {
         id,
         kind: 'ax_tree',
         encoding: 'utf8',
-        byteLength: content.byteLength,
+        byteLength: 2 * 1024 * 1024 + 1,
       };
 
-      await expect(readBlob(ref)).rejects.toThrow('exceeds size limit');
+      await expect(readBlob(ref)).rejects.toThrow('declared size exceeds limit');
     });
 
-    test('rejects oversized screenshot_jpeg blob', async () => {
+    test('rejects oversized screenshot_jpeg blob before reading file', async () => {
       const id = randomUUID();
-      // 10 MB + 1 byte
-      const content = Buffer.alloc(10 * 1024 * 1024 + 1);
-
-      writeBlobFile(id, content);
-
+      // Declare a size over 10 MB limit — file doesn't even need to exist
       const ref: IpcBlobRef = {
         id,
         kind: 'screenshot_jpeg',
         encoding: 'binary',
-        byteLength: content.byteLength,
+        byteLength: 10 * 1024 * 1024 + 1,
       };
 
-      await expect(readBlob(ref)).rejects.toThrow('exceeds size limit');
+      await expect(readBlob(ref)).rejects.toThrow('declared size exceeds limit');
     });
 
     test('accepts screenshot_jpeg blob at exactly 10 MB', async () => {

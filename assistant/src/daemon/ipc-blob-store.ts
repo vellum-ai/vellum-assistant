@@ -9,7 +9,7 @@ import {
   realpathSync,
 } from 'node:fs';
 import { readFile, readdir, lstat, realpath, unlink } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const log = getLogger('ipc-blob-store');
@@ -44,9 +44,10 @@ export function resolveBlobPath(id: string): string {
   const candidate = resolve(join(blobDir, `${id}${BLOB_EXTENSION}`));
 
   // Symlink protection: verify the resolved path stays within the blob dir.
-  // Use resolve() on the blob dir itself to normalize it consistently.
+  // Use relative() for separator-agnostic containment check.
   const normalizedBlobDir = resolve(blobDir);
-  if (!candidate.startsWith(normalizedBlobDir + '/') && candidate !== normalizedBlobDir) {
+  const rel = relative(normalizedBlobDir, candidate);
+  if (rel.startsWith('..') || rel.startsWith(sep + sep) || rel === '') {
     throw new Error(`Blob path escapes blob directory: ${id}`);
   }
 
@@ -66,7 +67,8 @@ async function assertRegularFileInBlobDir(filePath: string): Promise<void> {
   const real = await realpath(filePath);
   // Realpath both the file and the blob dir so macOS /var → /private/var is handled
   const realBlobDir = await realpath(getIpcBlobDir());
-  if (!real.startsWith(realBlobDir + '/')) {
+  const realRel = relative(realBlobDir, real);
+  if (realRel.startsWith('..') || realRel.startsWith(sep + sep) || realRel === '') {
     throw new Error(`Blob realpath escapes blob directory: ${real}`);
   }
 }
@@ -81,7 +83,8 @@ function assertRegularFileInBlobDirSync(filePath: string): void {
   }
   const real = realpathSync(filePath);
   const realBlobDir = realpathSync(getIpcBlobDir());
-  if (!real.startsWith(realBlobDir + '/')) {
+  const realRel = relative(realBlobDir, real);
+  if (realRel.startsWith('..') || realRel.startsWith(sep + sep) || realRel === '') {
     throw new Error(`Blob realpath escapes blob directory: ${real}`);
   }
 }
@@ -122,20 +125,28 @@ export function validateBlobKindEncoding(
 export async function readBlob(ref: IpcBlobRef): Promise<Buffer> {
   const filePath = resolveBlobPath(ref.id);
 
-  // Symlink-safe: verify the file is a regular file with realpath inside blob dir
+  // Enforce hard size limits by kind against declared byteLength before any I/O
+  const maxSize = ref.kind === 'screenshot_jpeg' ? MAX_SCREENSHOT_BLOB_SIZE : MAX_AX_BLOB_SIZE;
+  if (ref.byteLength > maxSize) {
+    throw new Error(
+      `Blob ${ref.id} declared size exceeds limit for kind "${ref.kind}": ${ref.byteLength} > ${maxSize}`,
+    );
+  }
+
+  // Symlink-safe: verify the file is a regular file with realpath inside blob dir.
+  // assertRegularFileInBlobDir also lstat()s, giving us symlink detection.
   await assertRegularFileInBlobDir(filePath);
 
   const buf = await readFile(filePath);
 
-  // Validate size matches declared byteLength
+  // Validate actual size matches declared byteLength
   if (buf.byteLength !== ref.byteLength) {
     throw new Error(
       `Blob size mismatch for ${ref.id}: expected ${ref.byteLength} bytes, got ${buf.byteLength}`,
     );
   }
 
-  // Enforce hard size limits by kind
-  const maxSize = ref.kind === 'screenshot_jpeg' ? MAX_SCREENSHOT_BLOB_SIZE : MAX_AX_BLOB_SIZE;
+  // Double-check actual size against limit (in case byteLength was spoofed to be small)
   if (buf.byteLength > maxSize) {
     throw new Error(
       `Blob ${ref.id} exceeds size limit for kind "${ref.kind}": ${buf.byteLength} > ${maxSize}`,
