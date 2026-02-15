@@ -90,12 +90,6 @@ public struct InlineDynamicPagePreview: View {
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.textPrimary)
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
-        )
     }
 }
 

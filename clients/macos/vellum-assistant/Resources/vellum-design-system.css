@@ -1520,4 +1520,259 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-top: 1px solid var(--v-surface-border);
 }
 
+/* ── Tier 3: Content & Landing Page Components ─────────────── */
+
+/* Page — centered content container for landing pages */
+.v-page {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-xxl);
+  width: 100%;
+}
+
+/* Hero — top-of-page banner with gradient background */
+.v-hero {
+  position: relative;
+  background: linear-gradient(135deg, var(--v-violet-950) 0%, var(--v-indigo-950) 100%);
+  border-radius: var(--v-radius-xl);
+  padding: var(--v-spacing-xxxl) var(--v-spacing-xl);
+  text-align: center;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--v-spacing-md);
+}
+.v-hero::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120%;
+  height: 80%;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--v-violet-700) 30%, transparent) 0%, transparent 70%);
+  pointer-events: none;
+}
+.v-hero-badge {
+  display: inline-block;
+  padding: var(--v-spacing-xs) var(--v-spacing-lg);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--v-radius-pill);
+  font-size: var(--v-font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--v-slate-300);
+  position: relative;
+}
+.v-hero h1 {
+  font-size: 2.5rem;
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff 30%, var(--v-slate-200) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+  position: relative;
+  line-height: 1.15;
+}
+.v-hero-subtitle {
+  font-size: var(--v-font-size-base);
+  color: var(--v-slate-400);
+  max-width: 500px;
+  margin: 0 auto;
+  line-height: 1.5;
+  position: relative;
+}
+
+/* Section Header — labeled section intro */
+.v-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-xs);
+  margin-bottom: var(--v-spacing-lg);
+}
+.v-section-label {
+  font-size: var(--v-font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--v-accent);
+}
+.v-section-header h2 {
+  margin: 0;
+}
+.v-section-desc {
+  font-size: var(--v-font-size-base);
+  color: var(--v-text-secondary);
+  margin: 0;
+}
+
+/* Pullquote — dramatic blockquote with glassmorphism */
+.v-pullquote {
+  position: relative;
+  background: var(--v-surface);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-lg);
+  padding: var(--v-spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-md);
+}
+.v-pullquote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--v-spacing-lg);
+  bottom: var(--v-spacing-lg);
+  width: 3px;
+  background: linear-gradient(180deg, var(--v-violet-600) 0%, var(--v-indigo-600) 100%);
+  border-radius: var(--v-radius-pill);
+}
+.v-pullquote-text {
+  font-size: var(--v-font-size-lg);
+  font-style: italic;
+  color: var(--v-text);
+  line-height: 1.5;
+  margin: 0;
+  padding-left: var(--v-spacing-lg);
+}
+.v-pullquote-points {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-sm);
+  padding-left: var(--v-spacing-lg);
+}
+.v-pullquote-points li {
+  position: relative;
+  padding-left: var(--v-spacing-lg);
+  font-size: var(--v-font-size-base);
+  color: var(--v-text-secondary);
+}
+.v-pullquote-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--v-accent);
+}
+
+/* Comparison — before/after or contrasting ideas */
+.v-comparison {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: var(--v-spacing-md);
+  align-items: center;
+}
+.v-comparison-card {
+  background: var(--v-surface);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-lg);
+  padding: var(--v-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-sm);
+}
+.v-comparison-card.before {
+  background: color-mix(in srgb, var(--v-surface) 60%, var(--v-bg));
+}
+.v-comparison-card.before .v-comparison-label {
+  color: var(--v-text-muted);
+}
+.v-comparison-card.after {
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface));
+  border-color: color-mix(in srgb, var(--v-accent) 25%, var(--v-surface-border));
+}
+.v-comparison-card.after .v-comparison-label {
+  color: var(--v-accent);
+}
+.v-comparison-label {
+  font-size: var(--v-font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.v-comparison-arrow {
+  font-size: var(--v-font-size-xl);
+  color: var(--v-text-muted);
+  text-align: center;
+}
+
+/* Feature Grid — auto-fit grid of feature cards */
+.v-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--v-spacing-lg);
+}
+.v-feature-card {
+  background: var(--v-surface);
+  border: 1px solid var(--v-surface-border);
+  border-radius: var(--v-radius-lg);
+  padding: var(--v-spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-spacing-sm);
+  transition: transform var(--v-duration-fast) ease-out,
+              box-shadow var(--v-duration-fast) ease-out;
+}
+.v-feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--v-shadow-md);
+}
+.v-feature-card .v-feature-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+.v-feature-card .v-feature-title {
+  font-size: var(--v-font-size-base);
+  font-weight: 600;
+  color: var(--v-text);
+}
+.v-feature-card .v-feature-desc {
+  font-size: var(--v-font-size-sm);
+  color: var(--v-text-secondary);
+  line-height: 1.4;
+}
+
+/* Gradient Text — violet→indigo text fill */
+.v-gradient-text {
+  background: linear-gradient(135deg, var(--v-violet-500) 0%, var(--v-indigo-500) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Staggered Fade-In Animation */
+@keyframes v-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.v-animate-in {
+  animation: v-fade-in var(--v-duration-slow) ease-out both;
+}
+.v-animate-in:nth-child(1) { animation-delay: 0s; }
+.v-animate-in:nth-child(2) { animation-delay: 0.1s; }
+.v-animate-in:nth-child(3) { animation-delay: 0.2s; }
+.v-animate-in:nth-child(4) { animation-delay: 0.3s; }
+.v-animate-in:nth-child(5) { animation-delay: 0.4s; }
+.v-animate-in:nth-child(6) { animation-delay: 0.5s; }
+
 } /* end @layer vellum-design-system */

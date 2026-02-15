@@ -422,6 +422,72 @@ Change modifiers: `.up`, `.down`
 </div>
 ```
 
+**Content & Landing Page Components:**
+
+`.v-hero` — Hero banner with gradient background:
+```html
+<div class="v-hero">
+  <span class="v-hero-badge">Category</span>
+  <h1>Page Title</h1>
+  <p class="v-hero-subtitle">A brief description or tagline.</p>
+</div>
+```
+
+`.v-section-header` — Labeled section intro:
+```html
+<div class="v-section-header">
+  <span class="v-section-label">🎯 Section Label</span>
+  <h2>Section Title</h2>
+  <p class="v-section-desc">Optional description text.</p>
+</div>
+```
+
+`.v-pullquote` — Blockquote with gradient accent border:
+```html
+<div class="v-pullquote">
+  <p class="v-pullquote-text">"A key quote or central insight."</p>
+  <ul class="v-pullquote-points">
+    <li>Supporting point one</li>
+    <li>Supporting point two</li>
+  </ul>
+</div>
+```
+
+`.v-comparison` — Before/after or contrasting ideas (3-column grid):
+```html
+<div class="v-comparison">
+  <div class="v-comparison-card before">
+    <div class="v-comparison-label">Before</div>
+    <div>Current state description</div>
+  </div>
+  <span class="v-comparison-arrow">→</span>
+  <div class="v-comparison-card after">
+    <div class="v-comparison-label">After</div>
+    <div>Target state description</div>
+  </div>
+</div>
+```
+
+`.v-feature-grid` + `.v-feature-card` — Auto-fit grid of feature cards with hover lift:
+```html
+<div class="v-feature-grid">
+  <div class="v-feature-card">
+    <div class="v-feature-icon">🚀</div>
+    <div class="v-feature-title">Feature Name</div>
+    <div class="v-feature-desc">Short description of this feature.</div>
+  </div>
+</div>
+```
+
+`.v-page` — Centered content container (max-width 600px, vertical sections):
+```html
+<div class="v-page">
+  <div class="v-hero v-animate-in">...</div>
+  <div class="v-animate-in">...</div>
+</div>
+```
+Use `.v-animate-in` on children for staggered fade-in. Use `.v-gradient-text` for accent-colored gradient text.
+
 #### Widget JavaScript utilities
 
 Interactive utilities are available at `window.vellum.widgets.*`. All are self-contained with no external dependencies.
