@@ -3,10 +3,33 @@ import SwiftUI
 
 struct NavigationToolbar: View {
     @Binding var activePanel: SidePanelType?
+    @Binding var contentMode: ContentMode
+    var isChatPoppedOut: Bool = false
+    var onPopOutChat: (() -> Void)?
+    var onDockChat: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
+                // Left group -- content mode toggle
+                ContentModeToggle(contentMode: $contentMode)
+
+                // Pop-out / dock button for chat mode
+                if contentMode == .chat {
+                    VIconButton(
+                        label: isChatPoppedOut ? "Dock Chat" : "Pop Out Chat",
+                        icon: isChatPoppedOut ? "rectangle.center.inset.filled" : "rectangle.portrait.on.rectangle.portrait",
+                        isActive: isChatPoppedOut,
+                        iconOnly: true
+                    ) {
+                        if isChatPoppedOut {
+                            onDockChat?()
+                        } else {
+                            onPopOutChat?()
+                        }
+                    }
+                }
+
                 Spacer()
 
                 // Right group — labeled buttons
@@ -54,9 +77,10 @@ struct NavigationToolbar_Preview: PreviewProvider {
 
 private struct NavigationToolbarPreviewWrapper: View {
     @State private var panel: SidePanelType? = .settings
+    @State private var mode: ContentMode = .dashboard
 
     var body: some View {
-        NavigationToolbar(activePanel: $panel)
+        NavigationToolbar(activePanel: $panel, contentMode: $mode)
     }
 }
 #endif

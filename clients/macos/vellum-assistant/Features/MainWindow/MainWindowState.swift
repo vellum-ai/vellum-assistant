@@ -1,10 +1,17 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// Which top-level content the main window displays.
+enum ContentMode: String, CaseIterable {
+    case dashboard
+    case chat
+}
+
 /// Cross-view UI state for the main window, extracted from `MainWindowView`
 /// to make it explicit, injectable, and easier to preview.
 @MainActor
 final class MainWindowState: ObservableObject {
+    @Published var contentMode: ContentMode = .dashboard
     @Published var activePanel: SidePanelType?
     @Published var isDynamicExpanded = false
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
@@ -12,6 +19,8 @@ final class MainWindowState: ObservableObject {
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
     @Published var activityToolCalls: [ToolCallData] = []
+    /// Whether the chat is popped out into its own window.
+    @Published var isChatPoppedOut = false
 
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
