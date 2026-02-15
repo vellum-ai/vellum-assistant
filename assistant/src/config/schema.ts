@@ -219,6 +219,27 @@ export const MemoryRerankingConfigSchema = z.object({
     .default(20),
 });
 
+export const MemoryDynamicBudgetConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.dynamicBudget.enabled must be a boolean' })
+    .default(false),
+  minInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.minInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.minInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.minInjectTokens must be a positive integer')
+    .default(1200),
+  maxInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.maxInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.maxInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.maxInjectTokens must be a positive integer')
+    .default(10000),
+  targetHeadroomTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.targetHeadroomTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.targetHeadroomTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.targetHeadroomTokens must be a positive integer')
+    .default(10000),
+});
+
 /**
  * Per-kind freshness windows (in days). Items older than their window
  * (based on lastSeenAt) are down-ranked unless recently reinforced.
@@ -313,6 +334,12 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
+  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({
+    enabled: false,
+    minInjectTokens: 1200,
+    maxInjectTokens: 10000,
+    targetHeadroomTokens: 10000,
+  }),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -409,6 +436,12 @@ export const MemoryConfigSchema = z.object({
       reinforcementShieldDays: 7,
     },
     scopePolicy: 'allow_global_fallback',
+    dynamicBudget: {
+      enabled: false,
+      minInjectTokens: 1200,
+      maxInjectTokens: 10000,
+      targetHeadroomTokens: 10000,
+    },
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -537,6 +570,12 @@ export const AssistantConfigSchema = z.object({
         reinforcementShieldDays: 7,
       },
       scopePolicy: 'allow_global_fallback',
+      dynamicBudget: {
+        enabled: false,
+        minInjectTokens: 1200,
+        maxInjectTokens: 10000,
+        targetHeadroomTokens: 10000,
+      },
     },
     segmentation: {
       targetTokens: 450,
@@ -616,6 +655,13 @@ export const AssistantConfigSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'segmentation', 'overlapTokens'],
       message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
+    });
+  }
+  if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['memory', 'retrieval', 'dynamicBudget', 'minInjectTokens'],
+      message: 'memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens',
     });
   }
 });
