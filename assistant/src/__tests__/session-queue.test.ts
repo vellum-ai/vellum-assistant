@@ -177,7 +177,7 @@ mock.module('../agent/loop.js', () => ({
 import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
 import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
 
-function makeSession(): Session {
+function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
   const provider = {
     name: 'mock',
     async sendMessage(): Promise<ProviderResponse> {
@@ -189,7 +189,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session('conv-1', provider, 'system prompt', 4096, sendToClient ?? (() => {}), '/tmp');
 }
 
 /**
@@ -957,5 +957,47 @@ describe('Session usage requestId correlation', () => {
     const mainAgentUsage = capturedUsageEvents.find((e) => e.actor === 'main_agent');
     expect(mainAgentUsage).toBeDefined();
     expect(mainAgentUsage!.requestId).toBe('req-42');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Terminal trace events on rejection/failure paths
+// ---------------------------------------------------------------------------
+
+describe('Terminal trace events on rejection/failure', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('queued persist failure emits request_error trace', async () => {
+    const traceEvents: ServerMessage[] = [];
+    const session = makeSession((msg) => {
+      if ('type' in msg && msg.type === 'trace_event') traceEvents.push(msg);
+    });
+    await session.loadFromDb();
+
+    // Start first message
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue empty content (will fail persistUserMessage)
+    session.enqueueMessage('', [], () => {}, 'req-bad');
+    // Enqueue valid message so drain continues
+    session.enqueueMessage('msg-3', [], () => {}, 'req-3');
+
+    // Complete first — triggers drain, empty msg fails persist
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Should have a request_error trace for the failed persist
+    const errorTrace = traceEvents.find(
+      (e) => 'kind' in e && e.kind === 'request_error' && 'requestId' in e && e.requestId === 'req-bad',
+    );
+    expect(errorTrace).toBeDefined();
+
+    // Cleanup
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
   });
 });

@@ -965,6 +965,11 @@ export class Session {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
+        this.traceEmitter.emit('request_error', `Unknown-slash persist failed: ${message}`, {
+          requestId: next.requestId,
+          status: 'error',
+          attributes: { reason: 'persist_failure' },
+        });
         next.onEvent({ type: 'error', message });
       }
       // Continue draining regardless of success/failure
@@ -984,6 +989,11 @@ export class Session {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
+      this.traceEmitter.emit('request_error', `Queued message persist failed: ${message}`, {
+        requestId: next.requestId,
+        status: 'error',
+        attributes: { reason: 'persist_failure' },
+      });
       next.onEvent({ type: 'error', message });
       // Continue draining — don't strand remaining messages
       this.drainQueue();
