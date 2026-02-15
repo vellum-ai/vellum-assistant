@@ -889,7 +889,9 @@ export class Session {
 
       // Persist resolved attachments and link to the last assistant message
       if (assistantAttachments.length > 0 && lastAssistantMessageId) {
-        const assistantId = getApp()?.id;
+        // TODO: Get assistant ID from request context when available
+        // For now, skip persistence in IPC/desktop mode (no assistant context)
+        const assistantId = undefined as string | undefined;
         if (assistantId) {
           for (let i = 0; i < assistantAttachments.length; i++) {
             const draft = assistantAttachments[i];
