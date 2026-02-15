@@ -1327,6 +1327,10 @@ private struct ScrollOffsetReader: NSViewRepresentable {
             self.offset = offset
         }
 
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
         @objc func boundsDidChange(_ notification: Notification) {
             guard let clipView = notification.object as? NSClipView else { return }
             offset.wrappedValue = clipView.bounds.origin.y
