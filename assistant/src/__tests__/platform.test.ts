@@ -59,8 +59,8 @@ describe('baseline path characterization (pre-migration)', () => {
     expect(getSandboxRootDir()).toBe(join(data, 'sandbox'));
     expect(getSandboxWorkingDir()).toBe(join(root, 'workspace'));
 
-    // WILL MOVE to ~/.vellum/workspace/hooks
-    expect(getHooksDir()).toBe(join(root, 'hooks'));
+    // Now resolves under workspace/hooks
+    expect(getHooksDir()).toBe(join(root, 'workspace', 'hooks'));
 
     // STAYS ROOT — runtime files remain at ~/.vellum/
     expect(getPidPath()).toBe(join(root, 'vellum.pid'));
