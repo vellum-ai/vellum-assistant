@@ -23,8 +23,8 @@ struct OnboardingFlowView: View {
                 .opacity(0.25)
                 .allowsHitTesting(false)
 
-                if state.currentStep <= 7 {
-                    // Vertical card layout (steps 0-7)
+                if state.currentStep <= 5 {
+                    // Vertical card layout (steps 0-5)
                     VStack(spacing: 0) {
                         // TOP: Meadow background + stage image
                         ZStack {
@@ -50,12 +50,8 @@ struct OnboardingFlowView: View {
                                 case 3:
                                     FnKeyStepView(state: state)
                                 case 4:
-                                    SpeechPermissionStepView(state: state)
-                                case 5:
                                     AccessibilityPermissionStepView(state: state)
-                                case 6:
-                                    ScreenPermissionStepView(state: state)
-                                case 7:
+                                case 5:
                                     AliveStepView(
                                         state: state,
                                         onComplete: onComplete,
@@ -98,7 +94,7 @@ struct OnboardingFlowView: View {
                     .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
                     .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 } else {
-                    // Step 8: Interview — manages its own layout
+                    // Step 6: Interview — manages its own layout
                     InterviewStepView(
                         state: state,
                         daemonClient: daemonClient,

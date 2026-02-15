@@ -14,14 +14,14 @@ struct OnboardingStageImage: View {
     @State private var displayedStage: Int = 1
     @State private var isTransitioning = false
 
-    /// Maps onboarding step (0-7) to stage image number (1-5).
+    /// Maps onboarding step (0-5) to stage image number (1-5).
     private var stageNumber: Int {
         switch currentStep {
-        case 0, 1, 2: return 1
-        case 3:       return 2
-        case 4, 5:    return 3
-        case 6:       return 4
-        default:      return 5
+        case 0, 1: return 1
+        case 2:    return 2
+        case 3:    return 3
+        case 4:    return 4
+        default:   return 5
         }
     }
 
