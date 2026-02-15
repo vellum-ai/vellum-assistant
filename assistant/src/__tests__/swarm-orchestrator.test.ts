@@ -314,4 +314,80 @@ describe('executeSwarm', () => {
     expect(aEnd).toBeGreaterThan(-1);
     expect(cStart).toBeLessThan(aEnd);
   });
+
+  test('abort waits for in-flight workers before emitting done', async () => {
+    const events: OrchestratorEvent[] = [];
+    const controller = new AbortController();
+
+    const plan = makePlan({
+      tasks: [
+        { id: 'fast', role: 'coder', objective: 'fast', dependencies: [] },
+        { id: 'slow', role: 'coder', objective: 'slow', dependencies: [] },
+      ],
+    });
+
+    const backend = makeBackend({
+      runTask: async (input) => {
+        if (input.prompt.includes('fast')) {
+          // Fast task finishes quickly and triggers abort
+          await new Promise((r) => setTimeout(r, 5));
+          controller.abort();
+        } else {
+          // Slow task is still running when abort fires
+          await new Promise((r) => setTimeout(r, 80));
+        }
+        return {
+          success: true,
+          output: '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
+          durationMs: 10,
+        };
+      },
+    });
+
+    const summary = await executeSwarm({
+      plan,
+      limits: resolveSwarmLimits({ ...DEFAULT_LIMITS, maxWorkers: 2 }),
+      backend,
+      workingDir: '/tmp',
+      onStatus: (event) => events.push(event),
+      signal: controller.signal,
+    });
+
+    const doneIdx = events.findIndex((e) => e.kind === 'done');
+    const lastCompletedIdx = events.reduce(
+      (max, e, i) => (e.kind === 'task_completed' ? i : max), -1,
+    );
+
+    // done must come after all task_completed events
+    expect(doneIdx).toBeGreaterThan(-1);
+    expect(lastCompletedIdx).toBeGreaterThan(-1);
+    expect(doneIdx).toBeGreaterThan(lastCompletedIdx);
+
+    // Both tasks should have completed (in-flight worker was waited on)
+    expect(summary.stats.completed).toBe(2);
+  });
+
+  test('does not deadlock when onStatus callback throws', async () => {
+    const plan = makePlan({
+      tasks: [
+        { id: 'a', role: 'coder', objective: 'A', dependencies: [] },
+      ],
+    });
+
+    // The onStatus callback throws on task_started, which happens inside
+    // runTask before the try/catch in runWorkerTask. The .catch() guard on
+    // the fire-and-forget promise should prevent a deadlock.
+    const summary = await executeSwarm({
+      plan,
+      limits: DEFAULT_LIMITS,
+      backend: makeBackend(),
+      workingDir: '/tmp',
+      onStatus: (event) => {
+        if (event.kind === 'task_started') throw new Error('boom');
+      },
+    });
+
+    // The swarm should still complete (via the .catch guard) rather than hang
+    expect(summary.stats.totalTasks).toBe(1);
+  });
 });

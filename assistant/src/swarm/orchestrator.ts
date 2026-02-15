@@ -169,14 +169,28 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     while (ready.length > 0 && activeCount < limits.maxWorkers) {
       const task = ready.shift()!;
       activeCount++;
-      // Fire-and-forget — completion is handled inside runTask
-      runTask(task);
+      // Fire-and-forget — completion is handled inside runTask.
+      // The .catch guard ensures activeCount is decremented even if an
+      // unexpected error (e.g. a throwing onStatus callback) propagates
+      // past runTask's internal try/catch, preventing a deadlock where
+      // the main loop waits on signalProgress() that never fires.
+      runTask(task).catch(() => {
+        activeCount--;
+        signalProgress();
+      });
     }
 
     // Nothing left to launch and nothing running — we're done
     if (activeCount === 0 && ready.length === 0) break;
 
     // Wait until a running task completes (or a new task becomes ready)
+    await waitForProgress();
+  }
+
+  // Let in-flight workers settle before finalizing — if we broke out of the
+  // loop due to abort, workers may still be running and would otherwise emit
+  // events (task_completed / task_failed) after the 'done' event.
+  while (activeCount > 0) {
     await waitForProgress();
   }
 
