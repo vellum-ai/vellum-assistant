@@ -240,7 +240,7 @@ export class RuntimeHttpServer {
     const messages: RuntimeMessagePayload[] = merged.map((m) => {
       let msgAttachments: RuntimeAttachmentMetadata[] = [];
       if (m.role === 'assistant' && m.id) {
-        const linked = attachmentsStore.getAttachmentsForMessage(m.id, assistantId);
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id, assistantId);
         if (linked.length > 0) {
           msgAttachments = linked.map((a) => ({
             id: a.id,
@@ -814,7 +814,7 @@ export class RuntimeHttpServer {
           try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
           const rendered = renderHistoryContent(parsed);
 
-          const linked = attachmentsStore.getAttachmentsForMessage(msgs[i].id, assistantId);
+          const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, assistantId);
           const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
