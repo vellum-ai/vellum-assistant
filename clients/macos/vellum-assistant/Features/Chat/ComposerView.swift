@@ -88,6 +88,7 @@ struct ComposerView: View {
         .padding(.bottom, 18)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
+        .animation(VAnimation.fast, value: editorContentHeight)
     }
 
     private var isComposerExpanded: Bool {
@@ -136,9 +137,7 @@ struct ComposerView: View {
                         Color.clear
                             .onAppear { editorContentHeight = geo.size.height }
                             .onChange(of: geo.size.height) { _, h in
-                                withAnimation(VAnimation.spring) {
-                                    editorContentHeight = h
-                                }
+                                editorContentHeight = h
                             }
                     }
                 )
