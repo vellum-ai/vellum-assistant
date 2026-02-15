@@ -18,24 +18,22 @@ public struct InlineDynamicPagePreview: View {
             onViewOutput()
         } label: {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                HStack(alignment: .top, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let icon = preview.icon {
                         Text(icon)
                             .font(.system(size: 24))
                     }
 
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                        Text(preview.title)
-                            .font(VFont.headline)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(2)
+                    Text(preview.title)
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(2)
 
-                        if let subtitle = preview.subtitle {
-                            Text(subtitle)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                                .lineLimit(1)
-                        }
+                    if let subtitle = preview.subtitle {
+                        Text(subtitle)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
                     }
                 }
 
@@ -53,16 +51,6 @@ public struct InlineDynamicPagePreview: View {
                         }
                     }
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
-                    .padding(VSpacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.surfaceBorder.opacity(isHovered ? 0.6 : 0.3))
-                    )
             }
             .contentShape(Rectangle())
         }
