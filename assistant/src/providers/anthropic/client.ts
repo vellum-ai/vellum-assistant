@@ -68,6 +68,20 @@ export class AnthropicProvider implements Provider {
         }));
       }
 
+      // Place cache breakpoints on the last two user turns so the
+      // conversation prefix is cached between agent-loop iterations.
+      const userIndices: number[] = [];
+      for (let i = 0; i < params.messages.length; i++) {
+        if (params.messages[i].role === 'user') userIndices.push(i);
+      }
+      for (const idx of userIndices.slice(-2)) {
+        const content = params.messages[idx].content;
+        if (Array.isArray(content) && content.length > 0) {
+          (content[content.length - 1] as unknown as { cache_control?: { type: string } })
+            .cache_control = { type: 'ephemeral' };
+        }
+      }
+
       const stream = this.client.messages.stream(params, { signal });
 
       stream.on("text", (text) => {
