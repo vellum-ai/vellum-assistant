@@ -16,6 +16,7 @@ struct MainWindowView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
+    @State private var workspaceComposerExpanded = false
     @State private var showSharePicker = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
@@ -527,7 +528,8 @@ struct MainWindowView: View {
                     onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                     onPaste: { viewModel.addAttachmentFromPasteboard() },
                     onMicrophoneToggle: onMicrophoneToggle,
-                    editorContentHeight: $workspaceEditorContentHeight
+                    editorContentHeight: $workspaceEditorContentHeight,
+                    isComposerExpanded: $workspaceComposerExpanded
                 )
             }
         }

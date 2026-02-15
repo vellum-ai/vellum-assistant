@@ -19,8 +19,12 @@ struct ComposerView: View {
     /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
     @Binding var editorContentHeight: CGFloat
 
+    /// Exposed to ChatView so composerReservedHeight stays in sync with the
+    /// sticky expansion state (set true when text wraps, reset when text clears).
+    @Binding var isComposerExpanded: Bool
+
     @State private var composerScrollOffset: CGFloat = 0
-    @State private var expandedLatch = false
+    @State private var shouldRefocusAfterSend = false
     @FocusState private var isComposerFocused: Bool
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -93,18 +97,18 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: editorContentHeight)
         .onAppear { isComposerFocused = true }
         .onChange(of: isComposerFocused) { _, focused in
-            // Re-focus the composer when it loses focus while the window is
-            // still key (e.g. Cmd+Return resignsFirstResponder as a side effect).
-            // Text selection in chat bubbles uses .textSelection(.enabled) which
-            // doesn't steal focus, so this won't fight user interactions.
-            if !focused, NSApp.keyWindow?.isKeyWindow == true {
+            // Only re-focus after sending a message (Return key). Without
+            // the guard, every focus loss while the window is key would
+            // steal first responder from side-panel inputs (settings, etc.).
+            if !focused, shouldRefocusAfterSend {
+                shouldRefocusAfterSend = false
                 DispatchQueue.main.async {
                     isComposerFocused = true
                     // After re-focus, NSTextField selects all text by default.
                     // Clear the selection and place the cursor at the end.
                     DispatchQueue.main.async {
                         if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-                            let end = textView.string.count
+                            let end = (textView.string as NSString).length
                             textView.setSelectedRange(NSRange(location: end, length: 0))
                         }
                     }
@@ -113,13 +117,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Sticky: once the text wraps past a single line, stay expanded until
-    /// the text is cleared. This prevents a layout oscillation where the
-    /// wider expanded TextField causes text to unwrap, which triggers compact
-    /// mode, which causes text to wrap again, ad infinitum.
-    private var isComposerExpanded: Bool {
-        expandedLatch
-    }
+    // isComposerExpanded is a @Binding — sticky latch set true when text
+    // wraps past a single line, reset when text clears. Prevents layout
+    // oscillation and keeps ChatView.composerReservedHeight in sync.
 
     private var isScrolledToBottom: Bool {
         let maxOffset = editorContentHeight - 200
@@ -187,13 +187,13 @@ struct ComposerView: View {
             if editorContentHeight > 200 {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
             }
-            if inputText.isEmpty { expandedLatch = false }
+            if inputText.isEmpty { isComposerExpanded = false }
         }
         .onChange(of: editorContentHeight) {
             if editorContentHeight > 200 {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
             }
-            if editorContentHeight > 28 { expandedLatch = true }
+            if editorContentHeight > 28 { isComposerExpanded = true }
         }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
@@ -216,6 +216,7 @@ struct ComposerView: View {
                 of: "\\n$", with: "", options: .regularExpression
             )
             if canSend {
+                shouldRefocusAfterSend = true
                 onSend()
             }
             return .handled
