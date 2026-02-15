@@ -107,6 +107,10 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingAttachments: [ChatAttachment] = []
     @Published public var isRecording: Bool = false
     @Published public var isWorkspaceRefinementInFlight: Bool = false
+    /// Tracks whether a cancel was initiated during a workspace refinement.
+    /// Used by `messageComplete` to correctly suppress refinement side-effects
+    /// even though `isWorkspaceRefinementInFlight` is cleared immediately for UI.
+    private var cancelledDuringRefinement: Bool = false
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
 
@@ -685,8 +689,9 @@ public final class ChatViewModel: ObservableObject {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
-            let wasRefinement = isWorkspaceRefinementInFlight
+            let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
             isCancelling = false
@@ -730,6 +735,7 @@ public final class ChatViewModel: ObservableObject {
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
             let wasCancelling = isCancelling
@@ -1163,6 +1169,7 @@ public final class ChatViewModel: ObservableObject {
         // (via generation_cancelled or message_complete) to prevent the
         // user from sending a new message before the daemon has stopped.
         isCancelling = true
+        cancelledDuringRefinement = isWorkspaceRefinementInFlight
         isWorkspaceRefinementInFlight = false
         isThinking = false
 
@@ -1186,6 +1193,7 @@ public final class ChatViewModel: ObservableObject {
             guard self.isCancelling else { return }
             log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
             self.isWorkspaceRefinementInFlight = false
+            self.cancelledDuringRefinement = false
             self.isCancelling = false
             self.isSending = false
             self.currentAssistantMessageId = nil
