@@ -21,8 +21,8 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 3. Remove the daemon database (conversations, messages, etc.), including legacy paths that the migration would otherwise re-populate:
    ```bash
-   rm -f ~/.vellum/data/db/assistant.db ~/.vellum/data/db/assistant.db-shm ~/.vellum/data/db/assistant.db-wal
-   rm -f ~/.vellum/data/assistant.db ~/.vellum/data/assistant.db-shm ~/.vellum/data/assistant.db-wal
+   rm -f ~/.vellum/workspace/data/db/assistant.db ~/.vellum/workspace/data/db/assistant.db-shm ~/.vellum/workspace/data/db/assistant.db-wal
+   rm -f ~/.vellum/workspace/data/assistant.db ~/.vellum/workspace/data/assistant.db-shm ~/.vellum/workspace/data/assistant.db-wal
    ```
 
 4. Remove caches:
