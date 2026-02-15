@@ -47,7 +47,7 @@ let package = Package(
             name: "VellumAssistantLib",
             dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
             path: "macos/vellum-assistant",
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources/Info.plist", "Resources/bg.png"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/meadow.svg"),
