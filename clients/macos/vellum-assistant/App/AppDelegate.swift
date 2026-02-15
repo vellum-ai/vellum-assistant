@@ -9,10 +9,10 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-/// Writes `~/.vellum/IDENTITY.md` with the assistant's chosen name so the
+/// Writes `~/.vellum/workspace/IDENTITY.md` with the assistant's chosen name so the
 /// daemon's system prompt includes the correct identity.
 func writeVellumIdentityFile(name: String) {
-    let vellumDir = NSHomeDirectory() + "/.vellum"
+    let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
     let identityPath = vellumDir + "/IDENTITY.md"
     let content = """
     # IDENTITY
@@ -839,7 +839,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = onboarding
     }
 
-    /// Writes (or updates) `~/.vellum/IDENTITY.md` with the user-chosen assistant name.
+    /// Writes (or updates) `~/.vellum/workspace/IDENTITY.md` with the user-chosen assistant name.
     ///
     /// If the file already exists, only the `- **Name:** …` line is replaced so that
     /// user customizations (extra persona instructions, changed role/tone, etc.) are preserved.
@@ -848,7 +848,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
 
-        let vellumDir = NSHomeDirectory() + "/.vellum"
+        let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
         let identityPath = vellumDir + "/IDENTITY.md"
 
         do {

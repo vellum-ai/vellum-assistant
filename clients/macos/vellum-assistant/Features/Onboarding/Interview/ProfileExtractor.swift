@@ -32,7 +32,7 @@ private struct ExtractionResponse: Codable {
 
 /// Extracts a structured user profile from an interview transcript by sending
 /// the conversation to a new daemon session with a profile-extraction system prompt.
-/// Merges `personality` and `userBehavior` into `~/.vellum/SOUL.md` and stores the
+/// Merges `personality` and `userBehavior` into `~/.vellum/workspace/SOUL.md` and stores the
 /// profile in UserDefaults for client-side use.
 ///
 /// Designed to run in the background after onboarding completes. Fails silently
@@ -221,7 +221,7 @@ final class ProfileExtractor {
         return jsonString.data(using: .utf8)
     }
 
-    /// Writes the assistant's name to `~/.vellum/IDENTITY.md` so the daemon
+    /// Writes the assistant's name to `~/.vellum/workspace/IDENTITY.md` so the daemon
     /// knows who it is when building the system prompt.
     private func writeIdentityFile(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -232,7 +232,7 @@ final class ProfileExtractor {
         writeVellumIdentityFile(name: trimmed)
     }
 
-    /// Updates `~/.vellum/SOUL.md` by merging personality and user-behavior
+    /// Updates `~/.vellum/workspace/SOUL.md` by merging personality and user-behavior
     /// content into the existing file's `## Personality` and `## User-Specific Behavior`
     /// sections rather than overwriting the whole file (which would nuke Core Principles,
     /// Boundaries, Evolution guardrails, etc.).
@@ -240,7 +240,7 @@ final class ProfileExtractor {
     /// If SOUL.md doesn't exist yet, writes a minimal file with just these two sections;
     /// the daemon's `ensurePromptFiles()` will seed the full template on next startup.
     private func updateSoulFile(personality: String, userBehavior: String) {
-        let vellumDir = NSHomeDirectory() + "/.vellum"
+        let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
         let soulPath = vellumDir + "/SOUL.md"
 
         do {
