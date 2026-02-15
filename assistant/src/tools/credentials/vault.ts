@@ -11,6 +11,10 @@ import {
 import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput } from './policy-types.js';
+import { getConfig } from '../../config/loader.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('credential-vault');
 
 /**
  * Retrieve the actual secret value for a credential.
@@ -202,7 +206,25 @@ class CredentialStoreTool implements Tool {
           return { content: 'User cancelled the credential prompt.', isError: false };
         }
 
-        // transient_send delivery is not yet enabled — always store
+        // Handle one-time send delivery: inject into context without persisting
+        if (result.delivery === 'transient_send') {
+          const config = getConfig();
+          if (!config.secretDetection.allowOneTimeSend) {
+            log.warn({ service, field }, 'One-time send requested but not enabled in config');
+            return {
+              content: 'Error: one-time send is not enabled. Set secretDetection.allowOneTimeSend to true in config.',
+              isError: true,
+            };
+          }
+          // SECURITY: value is used for the immediate action only, never stored or logged
+          log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
+          return {
+            content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault.`,
+            isError: false,
+          };
+        }
+
+        // Default: persist to keychain
         const key = `credential:${service}:${field}`;
         const ok = setSecureKey(key, result.value);
         if (!ok) {

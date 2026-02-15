@@ -100,6 +100,9 @@ export const SecretDetectionConfigSchema = z.object({
     .finite('secretDetection.entropyThreshold must be finite')
     .positive('secretDetection.entropyThreshold must be a positive number')
     .default(4.0),
+  allowOneTimeSend: z
+    .boolean({ error: 'secretDetection.allowOneTimeSend must be a boolean' })
+    .default(false),
 });
 
 export const AuditLogConfigSchema = z.object({
@@ -820,6 +823,7 @@ export const AssistantConfigSchema = z.object({
     enabled: true,
     action: 'block',
     entropyThreshold: 4.0,
+    allowOneTimeSend: false,
   }),
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,

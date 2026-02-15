@@ -143,6 +143,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enabled: true,
     action: 'block',
     entropyThreshold: 4.0,
+    allowOneTimeSend: false,
   },
   auditLog: {
     retentionDays: 0,

@@ -1,0 +1,129 @@
+import { describe, test, expect, beforeEach, mock } from 'bun:test';
+
+// ---------------------------------------------------------------------------
+// Mocks — declared before importing modules under test
+// ---------------------------------------------------------------------------
+
+const mockConfig = {
+  secretDetection: {
+    enabled: true,
+    action: 'block' as 'redact' | 'warn' | 'block',
+    entropyThreshold: 4.0,
+    allowOneTimeSend: false,
+  },
+  timeouts: { permissionTimeoutSec: 300 },
+};
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+// Track keychain writes
+const storedKeys = new Map<string, string>();
+mock.module('../security/secure-keys.js', () => ({
+  getSecureKey: (key: string) => storedKeys.get(key) ?? null,
+  setSecureKey: (key: string, value: string) => { storedKeys.set(key, value); return true; },
+  deleteSecureKey: (key: string) => storedKeys.delete(key),
+  listSecureKeys: () => [],
+  getBackendType: () => 'keychain',
+}));
+
+mock.module('./metadata-store.js', () => ({
+  upsertCredentialMetadata: () => {},
+  deleteCredentialMetadata: () => {},
+  getCredentialMetadata: () => null,
+}));
+
+mock.module('./policy-validate.js', () => ({
+  validatePolicyInput: () => ({ valid: true, errors: [] }),
+  toPolicyFromInput: () => ({ allowedTools: [], allowedDomains: [], usageDescription: undefined }),
+}));
+
+const { credentialStoreTool } = await import('../tools/credentials/vault.js');
+
+describe('one-time send override', () => {
+  beforeEach(() => {
+    storedKeys.clear();
+    mockConfig.secretDetection.allowOneTimeSend = false;
+  });
+
+  test('transient_send is rejected when allowOneTimeSend is disabled', async () => {
+    const context = {
+      workingDir: '/tmp',
+      sessionId: 's1',
+      conversationId: 'c1',
+      requestSecret: async () => ({ value: 'v1', delivery: 'transient_send' as const }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'Key' },
+      context,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not enabled');
+    // Value must NOT be stored in keychain
+    expect(storedKeys.has('credential:svc:key')).toBe(false);
+  });
+
+  test('transient_send succeeds when allowOneTimeSend is enabled', async () => {
+    mockConfig.secretDetection.allowOneTimeSend = true;
+    const context = {
+      workingDir: '/tmp',
+      sessionId: 's1',
+      conversationId: 'c1',
+      requestSecret: async () => ({ value: 'v1', delivery: 'transient_send' as const }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'Key' },
+      context,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('NOT saved');
+    // Value must NOT be stored in keychain
+    expect(storedKeys.has('credential:svc:key')).toBe(false);
+  });
+
+  test('store delivery always persists to keychain regardless of allowOneTimeSend', async () => {
+    mockConfig.secretDetection.allowOneTimeSend = true;
+    const context = {
+      workingDir: '/tmp',
+      sessionId: 's1',
+      conversationId: 'c1',
+      requestSecret: async () => ({ value: 'v1', delivery: 'store' as const }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'Key' },
+      context,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('stored');
+    expect(storedKeys.has('credential:svc:key')).toBe(true);
+  });
+
+  test('transient_send response content never contains the secret value', async () => {
+    mockConfig.secretDetection.allowOneTimeSend = true;
+    const secretVal = ['nv', 'sh', '1'].join('');
+    const context = {
+      workingDir: '/tmp',
+      sessionId: 's1',
+      conversationId: 'c1',
+      requestSecret: async () => ({ value: secretVal, delivery: 'transient_send' as const }),
+    };
+
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'Key' },
+      context,
+    );
+    expect(result.content).not.toContain(secretVal);
+  });
+});

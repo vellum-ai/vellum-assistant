@@ -4,6 +4,8 @@ import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { AssistantError, ErrorCode } from '../util/errors.js';
 
+type SecretRequestMessage = Extract<ServerMessage, { type: 'secret_request' }>;
+
 const log = getLogger('secret-prompter');
 
 export type SecretDelivery = 'store' | 'transient_send';
@@ -58,7 +60,8 @@ export class SecretPrompter {
 
       this.pending.set(requestId, { resolve, reject, timer });
 
-      this.sendToClient({
+      const config = getConfig();
+      const msg: SecretRequestMessage = {
         type: 'secret_request',
         requestId,
         service,
@@ -67,7 +70,9 @@ export class SecretPrompter {
         description,
         placeholder,
         sessionId,
-      });
+        allowOneTimeSend: config.secretDetection.allowOneTimeSend,
+      };
+      this.sendToClient(msg);
     });
   }
 

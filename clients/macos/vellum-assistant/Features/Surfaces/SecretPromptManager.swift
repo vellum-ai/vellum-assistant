@@ -37,6 +37,9 @@ final class SecretPromptManager {
             onSave: { [weak self] value in
                 self?.respond(requestId: message.requestId, value: value, delivery: "store") ?? false
             },
+            onSendOnce: { [weak self] value in
+                self?.respond(requestId: message.requestId, value: value, delivery: "transient_send") ?? false
+            },
             onCancel: { [weak self] in
                 _ = self?.respond(requestId: message.requestId, value: nil)
             }
@@ -126,6 +129,7 @@ struct SecretPromptView: View {
     let allowedDomains: [String]?
     let allowOneTimeSend: Bool
     let onSave: (String) -> Bool
+    let onSendOnce: (String) -> Bool
     let onCancel: () -> Void
 
     @State private var secretValue: String = ""
@@ -215,12 +219,13 @@ struct SecretPromptView: View {
                         HStack(spacing: VSpacing.xs) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 10))
-                                .foregroundColor(VColor.textMuted)
-                            Text("One-time send available (not yet enabled)")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                                .foregroundColor(VColor.warning)
+                            VButton(label: "Send Once (not saved)", style: .ghost) {
+                                guard !secretValue.isEmpty else { return }
+                                _ = onSendOnce(secretValue)
+                            }
+                            .disabled(secretValue.isEmpty)
                         }
-                        .opacity(0.6)
                     }
                 }
             }
