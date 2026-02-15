@@ -289,6 +289,7 @@ public struct IPCGenerationHandoff: Codable, Sendable {
     public let sessionId: String
     public let requestId: String?
     public let queuedCount: Int
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCGetSigningIdentityRequest: Codable, Sendable {
@@ -317,6 +318,7 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let text: String
     public let timestamp: Double
     public let toolCalls: [IPCHistoryResponseToolCall]?
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCHistoryResponseToolCall: Codable, Sendable {
@@ -379,6 +381,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
 public struct IPCMessageComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String?
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCMessageDequeued: Codable, Sendable {
