@@ -12,6 +12,7 @@ struct MainWindowView: View {
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
     @State private var isHoveredThread: UUID?
+    @State private var threadMenuOpenId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
@@ -228,37 +229,63 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        HStack(spacing: 0) {
-            Button(action: { threadManager.selectThread(id: thread.id) }) {
+        let menuOpen = threadMenuOpenId == thread.id
+        return HStack(spacing: 0) {
+            Button(action: {
+                threadMenuOpenId = nil
+                threadManager.selectThread(id: thread.id)
+            }) {
                 Text(thread.title)
                     .font(.custom("Inter", size: 13))
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, VSpacing.xs)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            ThreadEllipsisButton(onArchive: {
-                threadManager.archiveThread(id: thread.id)
-            })
+            Button {
+                withAnimation(VAnimation.fast) {
+                    threadMenuOpenId = menuOpen ? nil : thread.id
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: 24)
             .opacity(isSelected || isHoveredThread == thread.id ? 1 : 0)
         }
         .padding(.horizontal, VSpacing.sm)
-        .background(isSelected ? Color.white.opacity(0.08) : Color.clear)
+        .padding(.vertical, VSpacing.xs)
+        .background(isSelected || isHoveredThread == thread.id ? Color.white.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(alignment: .topTrailing) {
+            if menuOpen {
+                ArchivePopup(onArchive: {
+                    threadMenuOpenId = nil
+                    threadManager.archiveThread(id: thread.id)
+                })
+                .offset(x: -VSpacing.sm, y: -34)
+                .transition(.opacity)
+            }
+        }
+        .zIndex(menuOpen ? 1 : 0)
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             isHoveredThread = hovering ? thread.id : nil
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 
     @ViewBuilder
     private var threadDrawerView: some View {
         VStack(spacing: 0) {
-            NewConversationButton(action: { threadManager.createThread() })
+            NewConversationButton(action: { threadMenuOpenId = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.xl)
@@ -287,7 +314,8 @@ struct MainWindowView: View {
             ParentalControlsMenuButton(
                 onSettings: { windowState.togglePanel(.settings) },
                 onSkills: { windowState.togglePanel(.agent) },
-                onSwitchToTabs: { useThreadDrawer = false }
+                onDebug: { windowState.togglePanel(.debug) },
+                onDoctor: { windowState.togglePanel(.doctor) }
             )
         }
         .frame(width: threadDrawerWidth)
@@ -697,6 +725,7 @@ private struct NewConversationButton: View {
             withAnimation(VAnimation.fast) {
                 isHovered = hovering
             }
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 }
@@ -704,7 +733,8 @@ private struct NewConversationButton: View {
 private struct ParentalControlsMenuButton: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
-    let onSwitchToTabs: () -> Void
+    let onDebug: () -> Void
+    let onDoctor: () -> Void
     @State private var isHovered = false
     @State private var showDrawer = false
 
@@ -736,17 +766,19 @@ private struct ParentalControlsMenuButton: View {
             .padding(.vertical, VSpacing.md)
             .background(isHovered || showDrawer ? Color.white.opacity(0.05) : Color.clear)
             .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
         .overlay(alignment: .bottom) {
             if showDrawer {
                 DrawerMenuView(
                     onSettings: { showDrawer = false; onSettings() },
                     onSkills: { showDrawer = false; onSkills() },
-                    onSwitchToTabs: { showDrawer = false; onSwitchToTabs() }
+                    onDebug: { showDrawer = false; onDebug() },
+                    onDoctor: { showDrawer = false; onDoctor() }
                 )
                 .offset(y: -68)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -758,7 +790,8 @@ private struct ParentalControlsMenuButton: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
-    let onSwitchToTabs: () -> Void
+    let onDebug: () -> Void
+    let onDoctor: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -768,7 +801,8 @@ private struct DrawerMenuView: View {
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "rectangle.3.group", label: "Switch to tabs", action: onSwitchToTabs)
+            DrawerMenuItem(icon: "ladybug", label: "Debug", action: onDebug)
+            DrawerMenuItem(icon: "stethoscope", label: "Vellum Doctor", action: onDoctor)
         }
         .padding(.vertical, VSpacing.sm)
         .frame(maxWidth: .infinity)
@@ -794,8 +828,11 @@ private struct DrawerMenuItem: View {
             HStack(spacing: VSpacing.md) {
                 Image(systemName: icon)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
                     .frame(width: 18)
+                    .rotationEffect(.degrees(isHovered ? -10 : 0))
+                    .scaleEffect(isHovered ? 1.15 : 1.0)
+                    .animation(VAnimation.fast, value: isHovered)
                 Text(label)
                     .font(.custom("Inter", size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -809,44 +846,41 @@ private struct DrawerMenuItem: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 }
 
-private struct ThreadEllipsisButton: View {
+private struct ArchivePopup: View {
     let onArchive: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        Button {
-            showMenu()
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
+        Button(action: onArchive) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Archive")
+                    .font(.custom("Inter", size: 12))
+            }
+            .foregroundColor(VColor.textPrimary)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs + 2)
+            .background(isHovered ? Color.white.opacity(0.12) : VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(width: 24)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
-
-    private func showMenu() {
-        let menu = NSMenu()
-        let item = NSMenuItem(title: "Archive", action: #selector(ThreadMenuTarget.archive), keyEquivalent: "")
-        item.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: "Archive")
-        let target = ThreadMenuTarget(action: onArchive)
-        item.target = target
-        // Prevent target from being deallocated before menu closes
-        objc_setAssociatedObject(menu, "target", target, .OBJC_ASSOCIATION_RETAIN)
-        menu.addItem(item)
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-    }
-}
-
-private class ThreadMenuTarget: NSObject {
-    let action: () -> Void
-    init(action: @escaping () -> Void) { self.action = action }
-    @objc func archive() { action() }
 }
 
 #Preview {
