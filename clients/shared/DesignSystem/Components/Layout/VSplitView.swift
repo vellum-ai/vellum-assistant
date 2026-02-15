@@ -35,6 +35,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 }
             }
             .animation(VAnimation.standard, value: showPanel)
+            .animation(nil, value: panelWidth)
         }
     }
 
