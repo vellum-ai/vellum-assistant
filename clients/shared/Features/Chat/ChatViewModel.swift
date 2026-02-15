@@ -926,7 +926,8 @@ public final class ChatViewModel: ObservableObject {
             let toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
                 inputSummary: summarizeToolInput(msg.input),
-                arrivedBeforeText: !currentAssistantHasText
+                arrivedBeforeText: !currentAssistantHasText,
+                startedAt: Date()
             )
             // Add to existing assistant message or create one
             if let existingId = currentAssistantMessageId,
@@ -954,6 +955,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
+                messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
                 messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
                 messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
             }

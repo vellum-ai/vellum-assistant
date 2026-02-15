@@ -68,6 +68,21 @@ struct ActivityStepView: View {
                     .foregroundColor(VColor.textPrimary)
 
                 Spacer()
+
+                // Duration
+                if toolCall.isComplete, let started = toolCall.startedAt, let completed = toolCall.completedAt {
+                    let duration = completed.timeIntervalSince(started)
+                    Text(formatDuration(duration))
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                } else if !toolCall.isComplete, let started = toolCall.startedAt {
+                    TimelineView(.animation(minimumInterval: 0.5)) { context in
+                        let elapsed = context.date.timeIntervalSince(started)
+                        Text(formatDuration(elapsed))
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
             }
 
             // Input summary
@@ -149,6 +164,15 @@ struct ActivityStepView: View {
         if name.contains("read") || name.contains("edit") || name.contains("write") { return "doc.text" }
         if name.contains("command") || name.contains("bash") || name.contains("shell") { return "terminal" }
         return "terminal"
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        if seconds < 60 {
+            return String(format: "%.1fs", seconds)
+        }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return "\(mins)m \(secs)s"
     }
 
     private var statusColor: Color {

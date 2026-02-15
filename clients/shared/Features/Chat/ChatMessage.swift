@@ -94,6 +94,8 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Whether this tool call arrived before any text content in the message.
     /// Used to render pre-text tool calls above and post-text tool calls below the bubble.
     public var arrivedBeforeText: Bool
+    public var startedAt: Date?
+    public var completedAt: Date?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public var imageData: String?
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
@@ -116,7 +118,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.imageData == rhs.imageData
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
@@ -126,6 +128,8 @@ public struct ToolCallData: Identifiable, Equatable {
         self.arrivedBeforeText = arrivedBeforeText
         self.imageData = imageData
         self.cachedImage = Self.decodeImage(from: imageData)
+        self.startedAt = startedAt
+        self.completedAt = completedAt
     }
 
     /// Decode base64 image data into a platform image. Returns nil if data is absent or invalid.
