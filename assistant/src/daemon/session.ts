@@ -280,6 +280,7 @@ export class Session {
     this.sendToClient = sendToClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
+    this.traceEmitter.updateSender(sendToClient);
   }
 
   setSandboxOverride(enabled: boolean | undefined): void {
