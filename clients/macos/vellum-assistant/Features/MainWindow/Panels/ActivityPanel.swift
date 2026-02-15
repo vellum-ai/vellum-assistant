@@ -137,7 +137,7 @@ struct ActivityStepView: View {
                         .textSelection(.enabled)
 
                     // Show more/less button if text is long
-                    if result.count > 120 || result.split(separator: "\n").count > 3 {
+                    if result.count > 80 || result.components(separatedBy: "\n").count > 3 {
                         Button(action: {
                             withAnimation(VAnimation.fast) {
                                 isResultExpanded.toggle()
