@@ -581,6 +581,7 @@ struct MainWindowView: View {
             switch panel {
             case .generated:
                 EmptyView()
+                    .onAppear { windowState.activePanel = nil }
             case .agent:
                 AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
