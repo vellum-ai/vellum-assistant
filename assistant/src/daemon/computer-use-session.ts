@@ -621,6 +621,12 @@ export class ComputerUseSession {
       parts.push('</ax-tree>');
     }
 
+    const screenshotMetadata = this.formatScreenshotMetadata(obs);
+    if (screenshotMetadata.length > 0) {
+      parts.push('');
+      parts.push(...screenshotMetadata);
+    }
+
     return parts.join('\n').trim() || 'Action executed';
   }
 
@@ -699,10 +705,18 @@ export class ComputerUseSession {
         textParts.push(
           'A screenshot of the FULL SCREEN is also attached above. Use it to see content outside the focused window (e.g., reference documents, PDFs, other apps visible behind the current window).',
         );
+        const screenshotMetadata = this.formatScreenshotMetadata(obs);
+        if (screenshotMetadata.length > 0) {
+          textParts.push(...screenshotMetadata);
+        }
       }
     } else if (obs.screenshot) {
       textParts.push('CURRENT SCREEN STATE:');
       textParts.push('See the screenshot above. No accessibility tree available — estimate coordinates from the image.');
+      const screenshotMetadata = this.formatScreenshotMetadata(obs);
+      if (screenshotMetadata.length > 0) {
+        textParts.push(...screenshotMetadata);
+      }
     } else {
       textParts.push('CURRENT SCREEN STATE:');
       textParts.push('No screen data available.');
@@ -757,5 +771,24 @@ export class ComputerUseSession {
     });
 
     return [{ role: 'user', content: contentBlocks }];
+  }
+
+  private formatScreenshotMetadata(obs: CuObservation): string[] {
+    if (!obs.screenshot) return [];
+
+    const lines: string[] = [];
+    if (obs.screenshotWidthPx != null && obs.screenshotHeightPx != null) {
+      lines.push(`Screenshot metadata: ${obs.screenshotWidthPx}x${obs.screenshotHeightPx} px`);
+    }
+    if (obs.screenWidthPt != null && obs.screenHeightPt != null) {
+      lines.push(`Screen metadata: ${obs.screenWidthPt}x${obs.screenHeightPt} pt`);
+    }
+    if (obs.coordinateOrigin) {
+      lines.push(`Coordinate origin: ${obs.coordinateOrigin}`);
+    }
+    if (obs.captureDisplayId != null) {
+      lines.push(`Capture display ID: ${obs.captureDisplayId}`);
+    }
+    return lines;
   }
 }

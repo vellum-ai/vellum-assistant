@@ -127,6 +127,18 @@ export interface CuObservation {
   axDiff?: string;
   secondaryWindows?: string;
   screenshot?: string;
+  /** Screenshot image width in pixels (`Px`). */
+  screenshotWidthPx?: number;
+  /** Screenshot image height in pixels (`Px`). */
+  screenshotHeightPx?: number;
+  /** Screen width in macOS points (`Pt`) used by native execution. */
+  screenWidthPt?: number;
+  /** Screen height in macOS points (`Pt`) used by native execution. */
+  screenHeightPt?: number;
+  /** Coordinate origin convention used by the observation payload. */
+  coordinateOrigin?: 'top_left';
+  /** Display ID used by screenshot capture for this observation. */
+  captureDisplayId?: number;
   executionResult?: string;
   executionError?: string;
   axTreeBlob?: IpcBlobRef;

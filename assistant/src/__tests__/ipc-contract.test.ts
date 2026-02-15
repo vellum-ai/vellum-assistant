@@ -51,4 +51,24 @@ describe('IPC contract / protocol type compatibility', () => {
     expect(schema.client.type).toBe('ping');
     expect(schema.server.type).toBe('pong');
   });
+
+  test('CuObservation supports optional screenshot metadata fields', () => {
+    const msg: ProtocolClient = {
+      type: 'cu_observation',
+      sessionId: 'cu-sess-001',
+      screenshot: 'base64-data',
+      screenshotWidthPx: 1280,
+      screenshotHeightPx: 720,
+      screenWidthPt: 1920,
+      screenHeightPt: 1080,
+      coordinateOrigin: 'top_left',
+      captureDisplayId: 69734112,
+    };
+    const contractMsg: ContractClient = msg;
+    expect(contractMsg.type).toBe('cu_observation');
+    if (contractMsg.type !== 'cu_observation') throw new Error('Expected cu_observation');
+    expect(contractMsg.coordinateOrigin).toBe('top_left');
+    expect(contractMsg.screenshotWidthPx).toBe(1280);
+    expect(contractMsg.screenHeightPt).toBe(1080);
+  });
 });

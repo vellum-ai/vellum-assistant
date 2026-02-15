@@ -145,8 +145,41 @@ extension IPCCuSessionCreate {
 public typealias CuObservationMessage = IPCCuObservation
 
 extension IPCCuObservation {
-    public init(sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, executionResult: String?, executionError: String?, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil) {
-        self.init(type: "cu_observation", sessionId: sessionId, axTree: axTree, axDiff: axDiff, secondaryWindows: secondaryWindows, screenshot: screenshot, executionResult: executionResult, executionError: executionError, axTreeBlob: axTreeBlob, screenshotBlob: screenshotBlob)
+    public init(
+        sessionId: String,
+        axTree: String?,
+        axDiff: String?,
+        secondaryWindows: String?,
+        screenshot: String?,
+        screenshotWidthPx: Double? = nil,
+        screenshotHeightPx: Double? = nil,
+        screenWidthPt: Double? = nil,
+        screenHeightPt: Double? = nil,
+        coordinateOrigin: String? = nil,
+        captureDisplayId: Double? = nil,
+        executionResult: String?,
+        executionError: String?,
+        axTreeBlob: IPCIpcBlobRef? = nil,
+        screenshotBlob: IPCIpcBlobRef? = nil
+    ) {
+        self.init(
+            type: "cu_observation",
+            sessionId: sessionId,
+            axTree: axTree,
+            axDiff: axDiff,
+            secondaryWindows: secondaryWindows,
+            screenshot: screenshot,
+            screenshotWidthPx: screenshotWidthPx,
+            screenshotHeightPx: screenshotHeightPx,
+            screenWidthPt: screenWidthPt,
+            screenHeightPt: screenHeightPt,
+            coordinateOrigin: coordinateOrigin,
+            captureDisplayId: captureDisplayId,
+            executionResult: executionResult,
+            executionError: executionError,
+            axTreeBlob: axTreeBlob,
+            screenshotBlob: screenshotBlob
+        )
     }
 }
 
