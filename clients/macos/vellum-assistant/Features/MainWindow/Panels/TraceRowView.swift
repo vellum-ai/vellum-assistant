@@ -46,8 +46,12 @@ struct TraceRowView: View {
             return "tray.and.arrow.down"
         case "request_started":
             return "play.circle"
-        case "request_finished":
+        case "message_complete":
             return "checkmark.circle"
+        case "generation_cancelled":
+            return "xmark.circle"
+        case "request_error":
+            return "exclamationmark.circle"
         case "session_started":
             return "bolt.circle"
         case "session_ended":
