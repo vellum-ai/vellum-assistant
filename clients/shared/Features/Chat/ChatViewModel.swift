@@ -1182,6 +1182,11 @@ public final class ChatViewModel: ObservableObject {
         pendingQueuedCount = 0
         pendingMessageIds = []
         requestIdToMessageId = [:]
+        for i in messages.indices {
+            if case .queued = messages[i].status, messages[i].role == .user {
+                messages[i].status = .sent
+            }
+        }
         dismissSessionError()
         regenerateLastMessage()
     }
