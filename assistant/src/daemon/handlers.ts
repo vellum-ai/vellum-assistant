@@ -64,7 +64,7 @@ import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
-import { resolveBlobPath, deleteBlob, isValidBlobId } from './ipc-blob-store.js';
+import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
@@ -1898,11 +1898,33 @@ function handleCuSessionAbort(
   log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 
-function handleCuObservation(
+async function handleCuObservation(
   msg: CuObservation,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
+  // Hydrate blob refs to inline values before any other processing.
+  // Inline fields take precedence only as a fallback when blob hydration fails.
+  if (msg.axTreeBlob && !msg.axTree) {
+    try {
+      const buf = await readBlob(msg.axTreeBlob);
+      msg.axTree = buf.toString('utf8');
+      deleteBlob(msg.axTreeBlob.id);
+    } catch (err) {
+      log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob');
+    }
+  }
+
+  if (msg.screenshotBlob && !msg.screenshot) {
+    try {
+      const buf = await readBlob(msg.screenshotBlob);
+      msg.screenshot = buf.toString('base64');
+      deleteBlob(msg.screenshotBlob.id);
+    } catch (err) {
+      log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob');
+    }
+  }
+
   const receiveTimestampMs = Date.now();
   const previousSequence = cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
   const sequence = previousSequence + 1;
