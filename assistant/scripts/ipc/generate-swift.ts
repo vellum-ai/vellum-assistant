@@ -162,6 +162,7 @@ const INT_PATTERNS = [
   /^maxResponseTokens$/,
   /Messages$/,
   /Calls$/,
+  /^sequence$/,
 ];
 
 function shouldBeInt(propName: string): boolean {
