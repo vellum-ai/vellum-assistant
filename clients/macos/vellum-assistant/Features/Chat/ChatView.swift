@@ -560,7 +560,7 @@ struct ChatView: View {
             return .ignored
         }
         .onKeyPress(.return, phases: .down) { keyPress in
-            if keyPress.modifiers.contains(.shift) {
+            if keyPress.modifiers == .shift {
                 inputText += "\n"
                 return .handled
             }
