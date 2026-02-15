@@ -155,8 +155,12 @@ export class FileSystemOps {
     let content: string;
     try {
       content = readFileSync(filePath, 'utf-8');
-    } catch {
-      return { ok: false, error: Err.notFound(filePath) };
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: false, error: Err.notFound(filePath) };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: Err.ioError(filePath, msg) };
     }
 
     const result = applyEdit(content, input.oldString, input.newString, input.replaceAll);
