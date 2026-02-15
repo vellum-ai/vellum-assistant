@@ -63,6 +63,11 @@ export const claudeCodeTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    // Early abort check
+    if (context.signal?.aborted) {
+      return { content: 'Cancelled', isError: true };
+    }
+
     const prompt = input.prompt as string;
     const workingDir = (input.working_dir as string) || context.workingDir;
     const resumeSessionId = input.resume as string | undefined;

@@ -60,6 +60,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection(baseDir));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
+  parts.push(buildSwarmGuidanceSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
 }
@@ -142,6 +143,14 @@ function buildDynamicUiSection(): string {
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a `dynamic_page` rather than displaying raw tool outputs.',
     '- **Weather**: After `get_weather` returns data, call `ui_show` with `surface_type: "card"` and `data: { title, body, template: "weather_forecast", templateData: <structured data> }` for native weather widget rendering.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished `dynamic_page` with the appropriate component classes.',
+  ].join('\n');
+}
+
+export function buildSwarmGuidanceSection(): string {
+  return [
+    '## Parallel Task Orchestration',
+    '',
+    'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
   ].join('\n');
 }
 

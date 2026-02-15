@@ -117,6 +117,11 @@ export const swarmDelegateTool: Tool = {
       };
     }
 
+    // Early abort check
+    if (context.signal?.aborted) {
+      return { content: 'Cancelled', isError: true };
+    }
+
     // Recursion guard
     if (swarmActive) {
       return {
@@ -149,6 +154,11 @@ export const swarmDelegateTool: Tool = {
         context.onOutput?.(`  - [${task.role}] ${task.id}: ${task.objective.slice(0, 80)}\n`);
       }
       context.onOutput?.('\nExecuting...\n');
+
+      // Check abort before starting execution
+      if (context.signal?.aborted) {
+        return { content: 'Cancelled before execution', isError: true };
+      }
 
       // Execute
       const backend = createClaudeCodeBackend();

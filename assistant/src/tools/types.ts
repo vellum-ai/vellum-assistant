@@ -85,6 +85,8 @@ export interface ToolContext {
   requestId?: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
+  /** Abort signal for cooperative cancellation. Tools should check this periodically. */
+  signal?: AbortSignal;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */

@@ -127,4 +127,15 @@ describe('swarm_delegate tool', () => {
     );
     expect(result.isError).toBeFalsy();
   });
+
+  test('short-circuits when signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const result = await swarmDelegateTool.execute(
+      { objective: 'Should not run' },
+      makeContext({ signal: controller.signal }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe('Cancelled');
+  });
 });

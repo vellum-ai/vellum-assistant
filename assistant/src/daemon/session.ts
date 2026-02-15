@@ -199,6 +199,7 @@ export class Session {
         conversationId: this.conversationId,
         requestId: this.currentRequestId,
         onOutput,
+        signal: this.abortController?.signal,
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
         proxyToolResolver: this.surfaceProxyResolver.bind(this),
