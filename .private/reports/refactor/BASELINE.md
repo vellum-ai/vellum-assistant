@@ -8,28 +8,27 @@
 
 ## Architecture Metrics
 
-### Swift ObservableObject classes (17)
+### Swift ObservableObject classes (16 across 15 files)
 
 ```
 clients/shared/IPC/DaemonClient.swift
 clients/macos/vellum-assistant/ComputerUse/Session.swift
 clients/macos/vellum-assistant/Features/Settings/SkillsSettingsView.swift
+clients/macos/vellum-assistant/Features/Settings/SettingsStore.swift
 clients/macos/vellum-assistant/Features/MainWindow/Panels/SkillsManager.swift
+clients/macos/vellum-assistant/Features/MainWindow/MainWindowState.swift
 clients/shared/Features/Chat/ChatViewModel.swift
 clients/macos/vellum-assistant/Features/Surfaces/SurfaceManager.swift  # SurfaceViewModel + SurfaceManager (2 classes)
 clients/macos/vellum-assistant/Features/MainWindow/ThreadManager.swift
 clients/macos/vellum-assistant/Logging/TraceStore.swift
 clients/macos/vellum-assistant/ComputerUse/TextSession.swift
-clients/macos/vellum-assistant/Features/MainWindow/ZoomManager.swift
 clients/macos/vellum-assistant/Features/Voice/VoiceTranscriptionWindow.swift
-clients/macos/vellum-assistant/Features/Sharing/BundleConfirmationViewModel.swift
 clients/macos/vellum-assistant/Ambient/AmbientAgent.swift
-clients/macos/vellum-assistant/Features/Session/TextResponseWindow.swift
 clients/macos/vellum-assistant/Ambient/KnowledgeStore.swift
 clients/macos/vellum-assistant/Ambient/InsightStore.swift
 ```
 
-### @Observable types (6)
+### @Observable types (9)
 
 ```
 clients/macos/vellum-assistant/Features/Onboarding/Interview/ProfileExtractor.swift
@@ -38,6 +37,9 @@ clients/macos/vellum-assistant/Features/Onboarding/Interview/InterviewViewModel.
 clients/macos/vellum-assistant/Features/Onboarding/FirstMeeting/JITPermissionManager.swift
 clients/macos/vellum-assistant/Features/Onboarding/OnboardingState.swift
 clients/macos/vellum-assistant/Features/Onboarding/Hatch/HatchViewModel.swift
+clients/macos/vellum-assistant/Features/MainWindow/ZoomManager.swift
+clients/macos/vellum-assistant/Features/Sharing/BundleConfirmationViewModel.swift
+clients/macos/vellum-assistant/Features/Session/TextResponseWindow.swift
 ```
 
 ### High-Churn Module Line Counts
@@ -93,6 +95,6 @@ Errors are across test files and one source file — mostly `@typescript-eslint/
 2. **Side-effect tool registration** — memory, credentials, and timer tools register via import side effects, making dead-code analysis unreliable.
 3. **No `typecheck` script in assistant** — validation requires manual `tsc --noEmit` invocation; easy to skip.
 4. **27 pre-existing lint errors** — mostly in test files; lint is not gating CI merges currently.
-5. **`ObservableObject` dominates** — 17 types vs 6 `@Observable`; Observation adoption limited to onboarding flow.
+5. **`ObservableObject` dominates** — 16 types vs 9 `@Observable`; Observation adoption limited to onboarding flow plus a few standalone managers.
 6. **Duplicated settings state** — `SettingsView` and `SettingsPanel` manage settings independently.
 7. **Bun v1.3.9 crash in memory-recall-quality tests** — intermittent runtime-level crash blocks full test suite completion.
