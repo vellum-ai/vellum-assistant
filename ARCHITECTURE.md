@@ -5,6 +5,14 @@
 ```mermaid
 graph TB
     subgraph "macOS Menu Bar App (Swift)"
+        subgraph "AppServices (singleton container)"
+            DC_SWIFT["DaemonClient"]
+            AMBIENT["AmbientAgent"]
+            SURFACE_MGR["SurfaceManager<br/>route by display field"]
+            ZOOM["ZoomManager<br/>(@Observable)"]
+            SETTINGS_STORE["SettingsStore<br/>shared settings state"]
+        end
+
         UI["UI Layer<br/>NSStatusItem + Popover<br/>SessionOverlay / ThinkingIndicator<br/>Onboarding / Settings"]
         TI["TaskInputView<br/>Text + Voice + Attachments"]
         CLS["Classifier<br/>Haiku direct call<br/>+ heuristic fallback"]
@@ -30,7 +38,10 @@ graph TB
             TEXT_WIN["TextResponseWindow"]
         end
 
-        subgraph "Main Window Chat"
+        subgraph "Main Window"
+            MW_STATE["MainWindowState<br/>cross-view UI state"]
+            THREAD_MGR["ThreadManager<br/>thread CRUD + delegate"]
+            THREAD_RESTORER["ThreadSessionRestorer<br/>daemon session restoration"]
             CHAT_VM["ChatViewModel<br/>session bootstrap + streaming"]
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
@@ -41,7 +52,6 @@ graph TB
         end
 
         subgraph "Dynamic Workspace"
-            SURFACE_MGR["SurfaceManager<br/>route by display field"]
             WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
         end
@@ -270,6 +280,50 @@ graph TB
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+---
+
+## macOS App — Service and State Ownership
+
+The macOS app uses a centralized service container (`AppServices`) created once in `AppDelegate` and passed down via dependency injection rather than singletons or ambient state.
+
+### AppServices Container
+
+`AppServices` is the single owner of all long-lived services. `AppDelegate` creates it on launch and passes individual services to windows, views, and managers.
+
+| Service | Type | Purpose |
+|---------|------|---------|
+| `daemonClient` | `DaemonClient` | Unix socket IPC to daemon |
+| `ambientAgent` | `AmbientAgent` | Background ambient observation loop |
+| `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
+| `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
+| `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
+| `zoomManager` | `ZoomManager` | Window zoom level (`@Observable`) |
+| `settingsStore` | `SettingsStore` | Shared settings state for both SettingsView and SettingsPanel |
+
+### Main Window State
+
+The main window has three dedicated state objects:
+
+| Object | Pattern | Scope |
+|--------|---------|-------|
+| `MainWindowState` | `ObservableObject` | Cross-view UI state: active panel, dynamic workspace, API key status |
+| `ThreadManager` | `ObservableObject` | Thread CRUD, tab management, conforms to `ThreadRestorerDelegate` |
+| `ThreadSessionRestorer` | Plain class with delegate | Daemon session restoration (session list responses, history hydration) |
+
+`ThreadManager` owns thread lifecycle. `ThreadSessionRestorer` handles the async daemon communication for restoring sessions on reconnect, delegating state mutations back through the `ThreadRestorerDelegate` protocol for testability.
+
+### Observation Framework Migration
+
+Low-risk types use Swift's `@Observable` macro (Observation framework) instead of `ObservableObject`/`@Published`:
+
+| Type | Consumer pattern |
+|------|-----------------|
+| `ZoomManager` | Plain `var` (read-only in views) |
+| `ConversationInputState` | `@Bindable` (bindings needed for text input) |
+| `BundleConfirmationViewModel` | Plain `var` (read-only in view) |
+
+Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewModel`) remain as `ObservableObject`.
 
 ---
 
