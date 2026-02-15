@@ -121,7 +121,7 @@ function buildDynamicUiSection(): string {
     '### Example — Flight results page',
     '```html',
     '<div style="max-width:500px;margin:0 auto;display:flex;flex-direction:column;gap:12px">',
-    '  <h2 style="color:var(--v-text);margin:0">Flights: IAH → JFK</h2>',
+    '  <h2 style="color:var(--v-text);margin:0">Flights: IAH → LGA</h2>',
     '  <div class="v-flight-card">',
     '    <div class="v-flight-header">',
     '      <span class="v-flight-airline">Spirit</span>',
