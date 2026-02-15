@@ -48,7 +48,7 @@ struct ComposerView: View {
                     composerTextField
                         .frame(height: min(max(editorContentHeight, 28), 200))
 
-                    if editorContentHeight > 60 {
+                    if editorContentHeight > 200, !isScrolledToBottom {
                         LinearGradient(
                             colors: [VColor.surface.opacity(0), VColor.surface],
                             startPoint: .top,
@@ -92,6 +92,11 @@ struct ComposerView: View {
 
     private var isComposerExpanded: Bool {
         editorContentHeight > 28
+    }
+
+    private var isScrolledToBottom: Bool {
+        let maxOffset = editorContentHeight - 200
+        return maxOffset <= 0 || composerScrollOffset >= maxOffset - 5
     }
 
     private var composerTextField: some View {
@@ -141,9 +146,10 @@ struct ComposerView: View {
             .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
             .background(ScrollOffsetReader(offset: $composerScrollOffset))
 
-            // Invisible anchor for auto-scroll
+            // Invisible anchor for auto-scroll; extra height provides breathing room
+            // so the last line isn't clipped by the fade gradient.
             Color.clear
-                .frame(height: 1)
+                .frame(height: editorContentHeight > 200 ? 20 : 1)
                 .id("composer-bottom")
         }
         .overlay(alignment: .topTrailing) {
