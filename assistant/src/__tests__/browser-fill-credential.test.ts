@@ -98,7 +98,15 @@ function resetMockPage() {
 }
 
 function defaultMetadata(service: string, field: string) {
-  return { credentialId: `${service}:${field}`, service, field, createdAt: Date.now() };
+  return {
+    credentialId: `${service}:${field}`,
+    service,
+    field,
+    allowedTools: ['browser_fill_credential'],
+    allowedDomains: [] as string[],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
 }
 
 // ── browser_fill_credential ──────────────────────────────────────────
@@ -234,6 +242,68 @@ describe('executeBrowserFillCredential', () => {
       // Broker checks metadata first, then reads the value
       expect(mockGetCredentialMetadata).toHaveBeenCalledWith('gmail', 'password');
       expect(mockGetSecureKey).toHaveBeenCalledWith('credential:gmail:password');
+    });
+
+    test('returns tool policy denial with actionable message', async () => {
+      mockGetCredentialMetadata = mock((service: string, field: string) => ({
+        ...defaultMetadata(service, field),
+        allowedTools: ['some_other_tool'],
+      }));
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      const result = await executeBrowserFillCredential(
+        { service: 'gmail', field: 'password', element_id: 'e1' },
+        ctx,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Policy denied');
+      expect(result.content).toContain('not allowed to use credential');
+      expect(result.content).toContain('credential_store');
+      expect(mockPage.fill).not.toHaveBeenCalled();
+    });
+
+    test('returns domain policy denial with actionable message', async () => {
+      mockGetCredentialMetadata = mock((service: string, field: string) => ({
+        ...defaultMetadata(service, field),
+        allowedDomains: ['other-site.com'],
+      }));
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      const result = await executeBrowserFillCredential(
+        { service: 'gmail', field: 'password', element_id: 'e1' },
+        ctx,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Domain policy denied');
+      expect(result.content).toContain('Navigate to an allowed domain');
+      expect(mockPage.fill).not.toHaveBeenCalled();
+    });
+
+    test('passes current page domain to broker', async () => {
+      mockGetCredentialMetadata = mock((service: string, field: string) => ({
+        ...defaultMetadata(service, field),
+        allowedDomains: ['example.com'],
+      }));
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      const result = await executeBrowserFillCredential(
+        { service: 'gmail', field: 'password', element_id: 'e1' },
+        ctx,
+      );
+      // Page URL is https://example.com/ which matches allowedDomains
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Filled password for gmail');
+    });
+
+    test('policy denial errors never contain credential values', async () => {
+      mockGetCredentialMetadata = mock((service: string, field: string) => ({
+        ...defaultMetadata(service, field),
+        allowedTools: ['other_tool'],
+      }));
+      snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+      const result = await executeBrowserFillCredential(
+        { service: 'gmail', field: 'password', element_id: 'e1' },
+        ctx,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).not.toContain('super-secret-password');
     });
   });
 });
