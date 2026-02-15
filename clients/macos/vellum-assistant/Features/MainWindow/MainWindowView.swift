@@ -181,8 +181,21 @@ struct MainWindowView: View {
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
-                threadManager.showThread(id: newId)
+                // Use showThread for hidden threads (unhides them), selectThread for visible threads
+                if let thread = threadManager.threads.first(where: { $0.id == newId }), thread.isHidden {
+                    threadManager.showThread(id: newId)
+                } else {
+                    threadManager.selectThread(id: newId)
+                }
             }
+        }
+        .onChange(of: threadManager.activeThreadId) { _, newId in
+            // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
+            selectedThreadId = newId
+        }
+        .onAppear {
+            // Initialize selectedThreadId to match activeThreadId on appear
+            selectedThreadId = threadManager.activeThreadId
         }
     }
 

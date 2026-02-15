@@ -62,6 +62,10 @@ final class ThreadManager: ObservableObject {
         // Mark as hidden instead of removing
         threads[index].isHidden = true
 
+        // Clean up the ChatViewModel to prevent memory leaks
+        // The view model will be recreated if the thread is restored via showThread()
+        chatViewModels.removeValue(forKey: id)
+
         // If the closed thread was active, select an adjacent visible thread
         if activeThreadId == id {
             let remainingVisible = threads.filter { !$0.isHidden }
@@ -77,6 +81,17 @@ final class ThreadManager: ObservableObject {
     func showThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         threads[index].isHidden = false
+
+        // Recreate the ChatViewModel if it was cleaned up when the thread was hidden
+        if chatViewModels[id] == nil {
+            let viewModel = makeViewModel()
+            // Restore sessionId if this thread had one
+            if let sessionId = threads[index].sessionId {
+                viewModel.sessionId = sessionId
+            }
+            chatViewModels[id] = viewModel
+        }
+
         activeThreadId = id
         log.info("Showed thread \(id)")
     }
