@@ -173,6 +173,10 @@ public final class ChatViewModel: ObservableObject {
     /// The macOS layer should cancel the WatchSession and send a cancel to the daemon.
     public var onStopWatch: (() -> Void)?
 
+    /// Called when the daemon assigns a session ID to this chat (via session_info).
+    /// Used by ThreadManager to backfill ThreadModel.sessionId for new threads.
+    public var onSessionCreated: ((String) -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -637,6 +641,7 @@ public final class ChatViewModel: ObservableObject {
 
                 sessionId = info.sessionId
                 bootstrapCorrelationId = nil
+                onSessionCreated?(info.sessionId)
                 log.info("Chat session created: \(info.sessionId)")
 
                 // Send the queued user message

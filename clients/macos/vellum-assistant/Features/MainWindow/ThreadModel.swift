@@ -5,7 +5,8 @@ struct ThreadModel: Identifiable, Hashable {
     let title: String
     let createdAt: Date
     /// Daemon conversation ID for restored threads. Nil for new, unsaved threads.
-    let sessionId: String?
+    /// Mutable so it can be backfilled when the daemon assigns a session to a new thread.
+    var sessionId: String?
     var isArchived: Bool
 
     init(id: UUID = UUID(), title: String = "New Thread", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false) {
