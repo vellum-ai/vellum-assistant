@@ -695,7 +695,7 @@ describe('DockerBackend — preflight: shell resolution', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
-      'Neither "bash" nor "sh" is available',
+      'is not available in Docker image',
     );
   });
 
