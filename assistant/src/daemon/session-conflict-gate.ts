@@ -171,10 +171,10 @@ const MAX_REPLY_WORD_COUNT = 12;
 
 /**
  * Determines whether a user message looks like a deliberate reply to a
- * recently asked conflict clarification (e.g. "keep the new one", "option B").
- * Requires both an action cue and a directional cue, and the message must be
- * short. Questions and longer statements are excluded to prevent accidental
- * resolution from messages like "what's new in Bun?".
+ * recently asked conflict clarification (e.g. "keep the new one", "both",
+ * "option B", "new one"). Requires at least one action or directional cue,
+ * and the message must be short. Questions and longer statements are excluded
+ * to prevent accidental resolution from unrelated messages.
  */
 export function looksLikeClarificationReply(userMessage: string): boolean {
   const trimmed = userMessage.trim();
@@ -186,5 +186,5 @@ export function looksLikeClarificationReply(userMessage: string): boolean {
   const normalized = words.map((w) => w.replace(/[^a-z]/g, ''));
   const hasAction = normalized.some((w) => ACTION_CUES.has(w));
   const hasDirection = normalized.some((w) => DIRECTIONAL_CUES.has(w));
-  return hasAction && hasDirection;
+  return hasAction || hasDirection;
 }

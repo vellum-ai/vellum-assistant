@@ -234,6 +234,7 @@ mock.module('../agent/loop.js', () => ({
 }));
 
 import { Session } from '../daemon/session.js';
+import { looksLikeClarificationReply } from '../daemon/session-conflict-gate.js';
 
 function makeSession(): Session {
   const provider = {
@@ -390,6 +391,46 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
   });
 
+  test('concise directional replies like "both" or "option B" resolve recently asked conflicts', async () => {
+    pendingConflicts = [{
+      id: 'conflict-concise',
+      scopeId: 'default',
+      existingItemId: 'existing-concise',
+      candidateItemId: 'candidate-concise',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    // First turn asks the clarification.
+    await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
+    expect(resolverCallCount).toBe(1);
+    expect(markAskedCalls).toEqual(['conflict-concise']);
+
+    resolverResult = {
+      resolution: 'merge',
+      strategy: 'heuristic',
+      resolvedStatement: 'Support both Postgres and MySQL.',
+      explanation: 'User wants both.',
+    };
+
+    // Short directional reply with no action verb should still resolve.
+    await session.processMessage('both', [], () => {});
+
+    expect(resolverCallCount).toBe(2);
+    expect(runCalls).toHaveLength(1);
+  });
+
   test('unrelated message during cooldown does not accidentally resolve conflict', async () => {
     pendingConflicts = [{
       id: 'conflict-unrelated',
@@ -493,5 +534,42 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
     expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual([]);
+  });
+});
+
+describe('looksLikeClarificationReply', () => {
+  test('accepts action + direction combo', () => {
+    expect(looksLikeClarificationReply('keep the new one')).toBe(true);
+    expect(looksLikeClarificationReply('use the existing')).toBe(true);
+    expect(looksLikeClarificationReply('go with option A')).toBe(true);
+  });
+
+  test('accepts directional-only replies', () => {
+    expect(looksLikeClarificationReply('both')).toBe(true);
+    expect(looksLikeClarificationReply('option B')).toBe(true);
+    expect(looksLikeClarificationReply('new one')).toBe(true);
+    expect(looksLikeClarificationReply('the existing one')).toBe(true);
+    expect(looksLikeClarificationReply('merge them')).toBe(true);
+  });
+
+  test('accepts action-only replies', () => {
+    expect(looksLikeClarificationReply('keep it')).toBe(true);
+    expect(looksLikeClarificationReply('use that')).toBe(true);
+  });
+
+  test('rejects questions', () => {
+    expect(looksLikeClarificationReply("what's new in Bun?")).toBe(false);
+    expect(looksLikeClarificationReply('which option?')).toBe(false);
+  });
+
+  test('rejects long statements', () => {
+    expect(looksLikeClarificationReply(
+      'I was thinking about this and I believe we should keep the new one because it is better',
+    )).toBe(false);
+  });
+
+  test('rejects messages with no cue words', () => {
+    expect(looksLikeClarificationReply('hello world')).toBe(false);
+    expect(looksLikeClarificationReply('sounds good')).toBe(false);
   });
 });
