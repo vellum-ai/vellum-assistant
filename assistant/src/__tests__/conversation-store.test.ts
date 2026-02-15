@@ -30,7 +30,14 @@ import {
   getMessages,
   deleteLastExchange,
   isLastUserMessageToolResult,
+  clearAll,
 } from '../memory/conversation-store.js';
+import {
+  uploadAttachment,
+  linkAttachmentToMessage,
+  getAttachmentsForMessageUnscoped,
+  deleteOrphanAttachments,
+} from '../memory/attachments-store.js';
 
 // Initialize db once before all tests
 initializeDb();
@@ -208,5 +215,69 @@ describe('deleteLastExchange with tool_result messages', () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(0);
+  });
+});
+
+describe('attachment orphan cleanup', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_attachments');
+    db.run('DELETE FROM attachments');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('deleteLastExchange cleans up orphaned attachments', () => {
+    const conv = createConversation('test');
+    addMessage(conv.id, 'user', 'hello');
+    const assistantMsg = addMessage(conv.id, 'assistant', 'Here is a file');
+
+    const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'iVBOR');
+    linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
+
+    // Verify attachment is linked
+    expect(getAttachmentsForMessageUnscoped(assistantMsg.id)).toHaveLength(1);
+
+    // Delete the exchange — should also clean up orphaned attachments
+    deleteLastExchange(conv.id);
+
+    // Attachment row should be gone
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const remaining = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
+    expect(remaining.c).toBe(0);
+  });
+
+  test('deleteLastExchange preserves attachments still linked to other messages', () => {
+    const conv = createConversation('test');
+    const msg1 = addMessage(conv.id, 'assistant', 'first');
+    addMessage(conv.id, 'user', 'question');
+    const msg2 = addMessage(conv.id, 'assistant', 'second');
+
+    const shared = uploadAttachment('ast-1', 'shared.png', 'image/png', 'AAAA');
+    linkAttachmentToMessage(msg1.id, shared.id, 0);
+    linkAttachmentToMessage(msg2.id, shared.id, 0);
+
+    // Delete last exchange (removes msg2 + user question)
+    deleteLastExchange(conv.id);
+
+    // Attachment should survive because msg1 still links to it
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const remaining = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
+    expect(remaining.c).toBe(1);
+  });
+
+  test('clearAll removes all attachments', () => {
+    const conv = createConversation('test');
+    const msg = addMessage(conv.id, 'assistant', 'file');
+    const stored = uploadAttachment('ast-1', 'doc.pdf', 'application/pdf', 'JVBER');
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    clearAll();
+
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const attachmentCount = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
+    const linkCount = raw.query('SELECT COUNT(*) AS c FROM message_attachments').get() as { c: number };
+    expect(attachmentCount.c).toBe(0);
+    expect(linkCount.c).toBe(0);
   });
 });

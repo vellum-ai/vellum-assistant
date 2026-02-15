@@ -5,6 +5,7 @@ import { conversations, messages, messageRuns, channelInboundEvents, memoryItemS
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
+import { deleteOrphanAttachments } from './attachments-store.js';
 
 const log = getLogger('conversation-store');
 
@@ -171,6 +172,8 @@ export function clearAll(): { conversations: number; messages: number } {
   raw.exec('DELETE FROM memory_jobs');
   raw.exec('DELETE FROM memory_checkpoints');
   raw.exec('DELETE FROM llm_usage_events');
+  raw.exec('DELETE FROM message_attachments');
+  raw.exec('DELETE FROM attachments');
   raw.exec('DELETE FROM tool_invocations');
   raw.exec('DELETE FROM messages');
   raw.exec('DELETE FROM conversations');
@@ -239,6 +242,8 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(conversations.id, conversationId))
       .run();
   });
+
+  deleteOrphanAttachments();
 
   return deleted;
 }
@@ -345,6 +350,8 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       }
     }
   });
+
+  deleteOrphanAttachments();
 
   return result;
 }
