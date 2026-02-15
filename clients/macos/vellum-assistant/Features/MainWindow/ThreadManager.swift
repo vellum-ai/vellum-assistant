@@ -76,6 +76,12 @@ final class ThreadManager: ObservableObject {
         log.info("Closed thread \(id)")
     }
 
+    /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.
+    /// Used when switching threads to prevent stale surface context injection.
+    func clearActiveSurface(threadId: UUID) {
+        chatViewModels[threadId]?.activeSurfaceId = nil
+    }
+
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id

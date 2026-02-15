@@ -57,7 +57,7 @@ import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import { applyRuntimeInjections } from './session-runtime-assembly.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -1027,7 +1027,9 @@ export class Session {
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-      this.messages = stripDynamicProfileMessages(recallStripped, dynamicProfile.text);
+      this.messages = stripActiveSurfaceContext(
+        stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+      );
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 

@@ -167,9 +167,14 @@ struct MainWindowView: View {
                 threadManager.selectThread(id: newId)
             }
         }
-        .onChange(of: threadManager.activeThreadId) { _, newId in
+        .onChange(of: threadManager.activeThreadId) { oldId, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
+            // Clear stale activeSurfaceId on the old thread and sync the new one
+            if let oldId {
+                threadManager.clearActiveSurface(threadId: oldId)
+            }
+            threadManager.activeViewModel?.activeSurfaceId = isDynamicExpanded ? activeDynamicSurface?.surfaceId : nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {

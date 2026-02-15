@@ -53,6 +53,23 @@ export function injectActiveSurfaceContext(message: Message, surfaceId: string, 
 }
 
 /**
+ * Strip `<active_dynamic_page>` blocks that were injected by
+ * `injectActiveSurfaceContext`.  Called after the agent run to prevent
+ * the (potentially 100 KB) surface HTML from persisting in session history.
+ */
+export function stripActiveSurfaceContext(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const nextContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !block.text.startsWith('<active_dynamic_page>');
+    });
+    if (nextContent.length === message.content.length) return message;
+    return { ...message, content: nextContent };
+  });
+}
+
+/**
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
