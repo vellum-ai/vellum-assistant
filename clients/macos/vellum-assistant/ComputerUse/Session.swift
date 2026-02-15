@@ -688,6 +688,9 @@ final class ComputerUseSession: ObservableObject {
 
     private func sendRecoverableExecutionError(_ message: String, stepNumber: Int) async {
         log.warning("[\(stepNumber)] Coordinate resolution failed: \(message, privacy: .public)")
+        // Resolution failures are non-blocked turns — reset the consecutive block streak
+        // so they don't contribute to the "3 consecutive blocks" shutdown threshold.
+        verifier.resetBlockCount()
         let obs = await buildObservation(executionResult: nil, executionError: message)
         if let obs {
             try? daemonClient.send(obs)

@@ -859,6 +859,80 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(executor.executedActions[0].toY ?? -1, 165, accuracy: 0.001)
     }
 
+    @MainActor
+    func testStaleElementId_resetsBlockStreak() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Block 1: AppleScript with "do shell script" → blocked
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("do shell script \"echo hi\"")],
+            reasoning: "bad 1",
+            stepNumber: 1
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Block 2: same blocked pattern
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("do shell script \"echo hi\"")],
+            reasoning: "bad 2",
+            stepNumber: 2
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Stale element_id resolution failure — should reset block streak
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["element_id": AnyCodable(999)],
+            reasoning: "stale id",
+            stepNumber: 3
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Block 3: would be the 3rd consecutive block without the reset
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_run_applescript",
+            input: ["script": AnyCodable("do shell script \"echo hi\"")],
+            reasoning: "bad 3",
+            stepNumber: 4
+        )))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Session should NOT have failed — the stale-id turn broke the streak
+        if case .failed(let reason) = session.state {
+            XCTFail("Session should not have failed; stale element_id should reset block streak. Got: \(reason)")
+        }
+
+        // Complete the session normally
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Survived block streak reset",
+            stepCount: 4
+        )))
+
+        await runTask.value
+
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Survived block streak reset")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
+    }
+
     // MARK: - Undo
 
     @MainActor
