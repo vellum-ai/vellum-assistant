@@ -149,7 +149,10 @@ private struct TrustRuleRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(rule.scope == "" || rule.scope == "*" ? "Everywhere" : rule.scope)
+                HStack(spacing: 6) {
+                    Text(rule.scope == "" || rule.scope == "*" ? "everywhere" : rule.scope)
+                    Text("priority \(rule.priority)")
+                }
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
