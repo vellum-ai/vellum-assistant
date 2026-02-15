@@ -620,7 +620,6 @@ private struct ChatBubble: View {
                 if !message.inlineSurfaces.isEmpty {
                     ForEach(message.inlineSurfaces) { surface in
                         InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
 
