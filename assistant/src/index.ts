@@ -53,6 +53,7 @@ import {
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
+  requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from './memory/admin.js';
 import { registerHooksCommand } from './hooks/cli.js';
@@ -543,6 +544,14 @@ memory
     console.log(`Items: ${status.counts.items.toLocaleString()}`);
     console.log(`Summaries: ${status.counts.summaries.toLocaleString()}`);
     console.log(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
+    console.log(`Pending conflicts: ${status.conflicts.pending.toLocaleString()}`);
+    console.log(`Resolved conflicts: ${status.conflicts.resolved.toLocaleString()}`);
+    if (status.conflicts.oldestPendingAgeMs !== null) {
+      const oldestMinutes = Math.floor(status.conflicts.oldestPendingAgeMs / 60_000);
+      console.log(`Oldest pending conflict age: ${oldestMinutes} min`);
+    } else {
+      console.log('Oldest pending conflict age: n/a');
+    }
     console.log('Jobs:');
     for (const [key, value] of Object.entries(status.jobs)) {
       console.log(`  ${key}: ${value}`);
@@ -557,6 +566,18 @@ memory
     initializeDb();
     const jobId = requestMemoryBackfill(Boolean(opts?.force));
     console.log(`Queued backfill job: ${jobId}`);
+  });
+
+memory
+  .command('cleanup')
+  .description('Queue cleanup jobs for resolved conflicts and stale superseded items')
+  .option('--retention-ms <ms>', 'Optional retention threshold in milliseconds')
+  .action((opts: { retentionMs?: string }) => {
+    initializeDb();
+    const retentionMs = opts.retentionMs ? Number.parseInt(opts.retentionMs, 10) : undefined;
+    const jobs = requestMemoryCleanup(Number.isFinite(retentionMs) ? retentionMs : undefined);
+    console.log(`Queued cleanup_resolved_conflicts job: ${jobs.resolvedConflictsJobId}`);
+    console.log(`Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`);
   });
 
 memory

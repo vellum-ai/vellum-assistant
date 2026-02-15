@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { and, asc, desc, eq, gt, gte, isNull, lt, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
@@ -40,6 +40,7 @@ import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getQdrantClient } from './qdrant-client.js';
 import {
   memoryEmbeddings,
+  memoryItemConflicts,
   memoryItems,
   memoryItemSources,
   memorySegments,
@@ -64,6 +65,9 @@ const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_messa
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
 const SUMMARY_MAX_TOKENS = 800;
+const DEFAULT_CONFLICT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_SUPERSEDED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const CLEANUP_BATCH_LIMIT = 250;
 
 const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
   'You are a memory summarization system. Your job is to produce a compact, information-dense summary of a conversation.',
@@ -185,6 +189,12 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       return;
     case 'resolve_pending_conflicts_for_message':
       await resolvePendingConflictsForMessageJob(job, config);
+      return;
+    case 'cleanup_resolved_conflicts':
+      cleanupResolvedConflictsJob(job);
+      return;
+    case 'cleanup_stale_superseded_items':
+      cleanupStaleSupersededItemsJob(job);
       return;
     case 'check_contradictions':
       await checkContradictionsJob(job);
@@ -422,6 +432,74 @@ async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: Assi
     pendingConflicts: pending.length,
     resolvedConflicts: resolvedCount,
   }, 'Processed pending conflict resolution job');
+}
+
+function cleanupResolvedConflictsJob(job: MemoryJob): void {
+  const db = getDb();
+  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? DEFAULT_CONFLICT_RETENTION_MS;
+  const cutoff = Date.now() - retentionMs;
+  const stale = db
+    .select({ id: memoryItemConflicts.id })
+    .from(memoryItemConflicts)
+    .where(and(
+      ne(memoryItemConflicts.status, 'pending_clarification'),
+      lt(memoryItemConflicts.resolvedAt, cutoff),
+    ))
+    .orderBy(asc(memoryItemConflicts.resolvedAt), asc(memoryItemConflicts.id))
+    .limit(CLEANUP_BATCH_LIMIT)
+    .all();
+  if (stale.length === 0) return;
+
+  const ids = stale.map((row) => row.id);
+  db.delete(memoryItemConflicts)
+    .where(inArray(memoryItemConflicts.id, ids))
+    .run();
+  if (stale.length === CLEANUP_BATCH_LIMIT) {
+    enqueueMemoryJob('cleanup_resolved_conflicts', { retentionMs });
+  }
+
+  log.debug({
+    removedConflicts: stale.length,
+    retentionMs,
+    cutoff,
+  }, 'Cleaned up resolved memory conflicts');
+}
+
+function cleanupStaleSupersededItemsJob(job: MemoryJob): void {
+  const db = getDb();
+  const retentionMs = asPositiveMs(job.payload.retentionMs) ?? DEFAULT_SUPERSEDED_RETENTION_MS;
+  const cutoff = Date.now() - retentionMs;
+  const stale = db
+    .select({ id: memoryItems.id })
+    .from(memoryItems)
+    .where(and(
+      eq(memoryItems.status, 'superseded'),
+      lt(memoryItems.invalidAt, cutoff),
+    ))
+    .orderBy(asc(memoryItems.invalidAt), asc(memoryItems.id))
+    .limit(CLEANUP_BATCH_LIMIT)
+    .all();
+  if (stale.length === 0) return;
+
+  const ids = stale.map((row) => row.id);
+  db.delete(memoryEmbeddings)
+    .where(and(
+      eq(memoryEmbeddings.targetType, 'item'),
+      inArray(memoryEmbeddings.targetId, ids),
+    ))
+    .run();
+  db.delete(memoryItems)
+    .where(inArray(memoryItems.id, ids))
+    .run();
+  if (stale.length === CLEANUP_BATCH_LIMIT) {
+    enqueueMemoryJob('cleanup_stale_superseded_items', { retentionMs });
+  }
+
+  log.debug({
+    removedItems: stale.length,
+    retentionMs,
+    cutoff,
+  }, 'Cleaned up stale superseded memory items');
 }
 
 async function buildConversationSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
@@ -838,6 +916,12 @@ async function embedAndUpsert(
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function asPositiveMs(value: unknown): number | null {
+  if (typeof value !== 'number') return null;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }
 
 function truncate(text: string, max: number): string {
