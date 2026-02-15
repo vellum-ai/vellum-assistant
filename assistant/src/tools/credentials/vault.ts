@@ -209,7 +209,12 @@ class CredentialStoreTool implements Tool {
         }
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
-        const result = await context.requestSecret({ service, field, label, description, placeholder });
+        const result = await context.requestSecret({
+          service, field, label, description, placeholder,
+          purpose: promptPolicy.usageDescription,
+          allowedTools: promptPolicy.allowedTools.length > 0 ? promptPolicy.allowedTools : undefined,
+          allowedDomains: promptPolicy.allowedDomains.length > 0 ? promptPolicy.allowedDomains : undefined,
+        });
         if (!result.value) {
           return { content: 'User cancelled the credential prompt.', isError: false };
         }

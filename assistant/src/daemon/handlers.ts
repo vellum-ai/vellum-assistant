@@ -1451,7 +1451,7 @@ async function handleTaskSubmit(
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
       : await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', task: msg.task }, 'Task classified');
+    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)

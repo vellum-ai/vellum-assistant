@@ -228,6 +228,7 @@ export class Session {
             params.service, params.field, params.label,
             params.description, params.placeholder,
             this.conversationId,
+            params.purpose, params.allowedTools, params.allowedDomains,
           );
         },
         requestConfirmation: async (req) => {

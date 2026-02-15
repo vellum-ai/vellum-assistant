@@ -108,6 +108,9 @@ export interface ToolContext {
     label: string;
     description?: string;
     placeholder?: string;
+    purpose?: string;
+    allowedTools?: string[];
+    allowedDomains?: string[];
   }) => Promise<SecretPromptResult>;
 }
 
