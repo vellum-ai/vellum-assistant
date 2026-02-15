@@ -158,7 +158,7 @@ function buildWeatherPageHtml(d: WeatherPageInput): string {
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">` +
       `<div style="font-size:13px;color:var(--v-text-secondary)">${escapeHtml(h.time)}</div>` +
       `<div style="font-size:20px">${e}</div>` +
-      `<div style="font-size:14px;font-weight:500">${h.temp}°</div></div>`;
+      `<div style="font-size:14px;font-weight:500">${h.temp}°${d.unit}</div></div>`;
   }).join('');
 
   const allTemps = d.forecast.flatMap(f => [f.low, f.high]);
@@ -177,10 +177,10 @@ function buildWeatherPageHtml(d: WeatherPageInput): string {
       `<span style="width:44px;font-size:14px;font-weight:500">${escapeHtml(f.day)}</span>` +
       `<span style="font-size:18px;width:28px;text-align:center">${e}</span>` +
       `${precipCell}` +
-      `<span style="font-size:14px;color:var(--v-text-muted);width:36px;text-align:right">${f.low}°</span>` +
+      `<span style="font-size:14px;color:var(--v-text-muted);width:36px;text-align:right">${f.low}°${d.unit}</span>` +
       `<div style="flex:1;height:6px;background:var(--v-surface);border-radius:3px;position:relative;overflow:hidden;min-width:80px">` +
       `<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;height:100%;border-radius:3px;background:linear-gradient(to right,var(--v-emerald-400),var(--v-amber-400))"></div></div>` +
-      `<span style="font-size:14px;font-weight:500;width:36px">${f.high}°</span></div>`;
+      `<span style="font-size:14px;font-weight:500;width:36px">${f.high}°${d.unit}</span></div>`;
   }).join('');
 
   return [
@@ -189,12 +189,12 @@ function buildWeatherPageHtml(d: WeatherPageInput): string {
     `<div style="text-align:center;margin-bottom:24px">`,
     `<div style="font-size:13px;text-transform:uppercase;letter-spacing:2px;color:var(--v-text-secondary);font-weight:600;margin-bottom:16px">${escapeHtml(d.location)}</div>`,
     `<div style="display:flex;align-items:center;justify-content:center;gap:16px">`,
-    `<span style="font-size:72px;font-weight:200;line-height:1;color:var(--v-text)">${d.currentTemp}°</span>`,
+    `<span style="font-size:72px;font-weight:200;line-height:1;color:var(--v-text)">${d.currentTemp}°${d.unit}</span>`,
     `<div style="text-align:left">`,
     `<div style="font-size:32px;line-height:1.2">${condEmoji}</div>`,
     `<div style="font-size:15px;color:var(--v-text);font-weight:500">${escapeHtml(d.condition)}</div>`,
     `</div></div>`,
-    `<div style="font-size:14px;color:var(--v-text-muted);margin-top:8px">Feels like ${d.feelsLike}° &middot; H:${d.todayHigh}° L:${d.todayLow}°</div>`,
+    `<div style="font-size:14px;color:var(--v-text-muted);margin-top:8px">Feels like ${d.feelsLike}°${d.unit} &middot; H:${d.todayHigh}°${d.unit} L:${d.todayLow}°${d.unit}</div>`,
     `<div style="font-size:13px;color:var(--v-text-muted);margin-top:4px">💨 ${d.windSpeed} ${escapeHtml(d.speedUnit)} ${escapeHtml(d.windDirection)} &middot; 💧 ${d.humidity}%</div>`,
     `</div>`,
     // Hourly
