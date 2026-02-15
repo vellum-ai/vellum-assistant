@@ -14,7 +14,7 @@ const TOOL_ID_RE = /[^a-zA-Z0-9_-]/g;
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
   const sanitized = id.replace(TOOL_ID_RE, '_');
-  return sanitized || `fallback_${Date.now()}`;
+  return sanitized || 'fallback_empty_id';
 }
 
 export class AnthropicProvider implements Provider {
