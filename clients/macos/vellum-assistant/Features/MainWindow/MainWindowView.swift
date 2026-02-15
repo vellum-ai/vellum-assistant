@@ -193,7 +193,9 @@ struct MainWindowView: View {
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
                 if activeDynamicSurface?.surfaceId == surfaceId {
                     showSharePicker = false
-                    activePanel = nil
+                    if activePanel == .generated {
+                        activePanel = nil
+                    }
                     isDynamicExpanded = false
                     activeDynamicSurface = nil
                     activeDynamicParsedSurface = nil
@@ -201,7 +203,9 @@ struct MainWindowView: View {
             } else {
                 // Bulk dismiss (dismissAll)
                 showSharePicker = false
-                activePanel = nil
+                if activePanel == .generated {
+                    activePanel = nil
+                }
                 isDynamicExpanded = false
                 activeDynamicSurface = nil
                 activeDynamicParsedSurface = nil
