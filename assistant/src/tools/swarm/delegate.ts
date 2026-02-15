@@ -78,6 +78,11 @@ function createClaudeCodeBackend(): SwarmWorkerBackend {
           }
         }
 
+        // Treat abort as cancellation, not success
+        if (input.signal?.aborted) {
+          return { success: false, output: 'Cancelled (aborted)', failureReason: 'timeout' as const, durationMs: Date.now() - start };
+        }
+
         return { success: true, output: resultText || 'Completed', durationMs: Date.now() - start };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
