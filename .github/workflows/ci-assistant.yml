@@ -12,6 +12,7 @@ jobs:
   checks:
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: assistant
