@@ -144,6 +144,19 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
+## Credential Storage and Secret Security
+
+The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
+
+- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in SQLite.
+- **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
+- **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). If `secretDetection.action` is `block` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead.
+- **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
+- **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
+- **No plaintext read API**: There is no tool-layer function that returns a stored secret as plaintext. Secrets are only consumed by the broker for scoped tool execution.
+
+See [`docs/security/credential-storage.md`](docs/security/credential-storage.md) for the full security model and [`ARCHITECTURE.md`](ARCHITECTURE.md) for data flow diagrams.
+
 ## Dynamic Skill Authoring
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.

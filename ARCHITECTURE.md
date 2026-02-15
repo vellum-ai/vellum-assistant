@@ -333,6 +333,7 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
+        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -1535,11 +1536,114 @@ graph LR
 
 ---
 
+## Credential Storage and Secret Security
+
+The credential system enforces four security invariants:
+
+1. **Secrets never enter LLM context** — secret values are never included in model messages, tool outputs, or lifecycle events.
+2. **No generic plaintext read API** — there is no tool-layer function to read a stored secret as plaintext. Secrets are consumed only by the CredentialBroker for scoped use.
+3. **Secrets never logged in plaintext** — all log statements use metadata-only fields (service, field, requestId); recursive redaction strips sensitive keys from lifecycle event payloads.
+4. **Credentials only used for allowed purpose** — each credential has tool and domain policy; the broker denies requests outside those bounds.
+
+### Secure Prompt Flow
+
+```mermaid
+sequenceDiagram
+    participant Model as LLM
+    participant Vault as credential_store tool
+    participant Prompter as SecretPrompter
+    participant IPC as IPC Socket
+    participant UI as SecretPromptManager (Swift)
+    participant Keychain as macOS Keychain
+
+    Model->>Vault: action: "prompt", service, field, label
+    Vault->>Prompter: requestSecret(service, field, label, ...)
+    Prompter->>IPC: secret_request {requestId, service, field, label, allowOneTimeSend}
+    IPC->>UI: Show SecretPromptView (floating panel)
+    UI->>UI: User enters value in SecureField
+    alt Store (default)
+        UI->>IPC: secret_response {requestId, value, delivery: "store"}
+        IPC->>Prompter: resolve(value, "store")
+        Prompter->>Vault: {value, delivery: "store"}
+        Vault->>Keychain: setSecureKey("credential:svc:field", value)
+        Vault->>Model: "Credential stored securely" (no value in output)
+    else One-Time Send (if enabled)
+        UI->>IPC: secret_response {requestId, value, delivery: "transient_send"}
+        IPC->>Prompter: resolve(value, "transient_send")
+        Prompter->>Vault: {value, delivery: "transient_send"}
+        Vault->>Model: "One-time credential provided" (no value in output)
+    else Cancel
+        UI->>IPC: secret_response {requestId, value: null}
+        IPC->>Prompter: resolve(null)
+        Prompter->>Vault: null
+        Vault->>Model: "User cancelled"
+    end
+```
+
+### Secret Ingress Blocking
+
+```mermaid
+graph TB
+    MSG["Inbound user_message / task_submit"] --> CHECK{"secretDetection.enabled<br/>+ action == 'block'?"}
+    CHECK -->|no| PASS["Pass through to session"]
+    CHECK -->|yes| SCAN["scanText(content)<br/>regex + entropy detection"]
+    SCAN --> MATCH{"Matches found?"}
+    MATCH -->|no| PASS
+    MATCH -->|yes| BLOCK["Block message"]
+    BLOCK --> NOTIFY["Send error to client:<br/>'Message contains sensitive info'"]
+    BLOCK --> LOG["Log warning with<br/>detectedTypes + matchCount<br/>(never the secret itself)"]
+```
+
+### Brokered Credential Use
+
+```mermaid
+graph TB
+    TOOL["Tool (e.g. headless-browser)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
+    BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
+    POLICY -->|denied| REJECT["PolicyDenied error"]
+    POLICY -->|allowed| FETCH["getSecureKey(credential:svc:field)"]
+    FETCH --> INJECT["Inject value into tool execution<br/>(never returned to model)"]
+```
+
+### One-Time Send Override
+
+The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send Once" button in the secret prompt UI. When used:
+
+- The secret value is forwarded to the requesting tool for immediate use
+- The value is **not** persisted to the keychain
+- The tool output confirms delivery without including the secret value
+- The config gate must be explicitly enabled by the operator
+
+### Storage Layout
+
+| Component | Location | What it stores |
+|-----------|----------|----------------|
+| Secret values | macOS Keychain | Encrypted credential values keyed as `credential:{service}:{field}` |
+| Credential metadata | `~/.vellum/data/db/assistant.db` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
+| Config | `~/.vellum/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `assistant/src/tools/credentials/vault.ts` | `credential_store` tool — store, list, delete, prompt actions |
+| `assistant/src/security/secure-keys.ts` | Keychain read/write via `/usr/bin/security` CLI |
+| `assistant/src/tools/credentials/metadata-store.ts` | SQLite metadata CRUD for credential records |
+| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains) |
+| `assistant/src/permissions/secret-prompter.ts` | IPC secret_request/secret_response flow |
+| `assistant/src/security/secret-scanner.ts` | Regex + entropy-based secret detection |
+| `assistant/src/security/secret-ingress.ts` | Inbound message secret blocking |
+| `clients/macos/.../SecretPromptManager.swift` | Floating panel UI for secure credential entry |
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
 |------|-------|--------|-----------|-----------|
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
+| Credential secrets | macOS Keychain | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
+| Credential metadata | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent (until deleted via tool) |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
 | Ambient insights | `~/Library/.../insights.json` | JSON array | Swift Codable | Max 50 entries, FIFO |
