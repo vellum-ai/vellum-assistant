@@ -374,15 +374,35 @@ export class Session {
 
   /**
    * Redirect the user to the secure credential prompt after an ingress block.
-   * The prompt result is fire-and-forget — timeout/cancel is acceptable.
+   * If the user enters a value, it is stored in the vault (or injected as
+   * transient) so the credential is available for later tool use.
    */
   redirectToSecurePrompt(detectedTypes: string[]): void {
+    const service = 'detected';
+    const field = detectedTypes.join(',');
     this.secretPrompter.prompt(
-      'detected', detectedTypes.join(','),
+      service, field,
       'Secure Credential Entry',
       'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
       undefined, this.conversationId,
-    ).catch(() => { /* prompt timeout or cancel is fine */ });
+    ).then((result) => {
+      if (!result.value) return; // user cancelled or timed out
+
+      const { setSecureKey } = require('../security/secure-keys.js');
+      const { upsertCredentialMetadata } = require('../tools/credentials/metadata-store.js');
+
+      if (result.delivery === 'transient_send') {
+        const { credentialBroker } = require('../tools/credentials/broker.js');
+        credentialBroker.injectTransient(service, field, result.value);
+        try { upsertCredentialMetadata(service, field, {}); } catch {}
+        log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
+      } else {
+        const key = `credential:${service}:${field}`;
+        setSecureKey(key, result.value);
+        try { upsertCredentialMetadata(service, field, {}); } catch {}
+        log.info({ service, field }, 'Ingress redirect: credential stored');
+      }
+    }).catch(() => { /* prompt timeout or cancel is fine */ });
   }
 
   isProcessing(): boolean {

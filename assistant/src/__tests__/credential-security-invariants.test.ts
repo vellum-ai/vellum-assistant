@@ -199,19 +199,32 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         expect((redacted.nested as Record<string, unknown>).safe).toBe('this is fine');
       });
     } else if (tc.component === 'ipc_decode') {
-      // PR 24 — Swift-side decode log hygiene (cannot test in TS unit tests)
+      // PR 24 — IPC decode log hygiene: the TS daemon's IPC parser must not
+      // log raw line content (which could contain secrets in malformed messages)
       test(`${tc.label}`, () => {
-        // Swift IPC decode logging is verified by manual audit and Swift tests.
-        // The TS daemon never logs raw IPC line content — it only processes
-        // parsed JSON messages after successful decode.
-        expect(true).toBe(true);
+        const thisDir = dirname(fileURLToPath(import.meta.url));
+        const ipcSrc = readFileSync(
+          resolve(thisDir, '../daemon/ipc-protocol.ts'),
+          'utf-8',
+        );
+        // The parser should not log raw line/chunk/buffer content
+        // (log.info/warn/error with the raw data would leak secrets)
+        const logCalls = ipcSrc.match(/log\.\w+\(.*?(line|chunk|raw|buffer)\b/g) ?? [];
+        expect(logCalls).toEqual([]);
       });
     } else {
-      // PR 25 — secret prompter log hygiene
+      // PR 25 — secret prompter log hygiene: the prompter must never log
+      // the resolved secret value
       test(`${tc.label}`, () => {
-        // The secret prompter (secret-prompter.ts) only logs requestId and
-        // service/field — never the resolved secret value. Verified by source audit.
-        expect(true).toBe(true);
+        const thisDir = dirname(fileURLToPath(import.meta.url));
+        const prompterSrc = readFileSync(
+          resolve(thisDir, '../permissions/secret-prompter.ts'),
+          'utf-8',
+        );
+        // The prompter must not log the 'value' parameter
+        // Look for log calls that reference 'value' as a logged field
+        const valueLogCalls = prompterSrc.match(/log\.\w+\(\{[^}]*\bvalue\b/g) ?? [];
+        expect(valueLogCalls).toEqual([]);
       });
     }
   }
