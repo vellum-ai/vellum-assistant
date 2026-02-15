@@ -52,6 +52,7 @@ struct ChatView: View {
                     messageList
                         .safeAreaInset(edge: .bottom) {
                             Color.clear.frame(height: composerReservedHeight)
+                                .animation(VAnimation.fast, value: editorContentHeight)
                         }
 
                     composerOverlay
