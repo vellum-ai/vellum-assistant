@@ -299,7 +299,8 @@ export async function executeGetWeather(
     forecast: forecastItems,
   };
 
-  lines.push('', '--- Structured Data (for ui_show template "weather_forecast") ---');
+  lines.push('', '--- Render with ui_show ---');
+  lines.push('Call ui_show with: surface_type "card", template "weather_forecast", data: { title: "' + locationDisplay + '", body: "", templateData: <data below> }');
   lines.push(JSON.stringify(structured));
 
   return { content: lines.join('\n'), isError: false };
