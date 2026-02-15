@@ -518,8 +518,8 @@ extension IPCAssistantThinkingDelta {
 public typealias MessageCompleteMessage = IPCMessageComplete
 
 extension IPCMessageComplete {
-    public init(sessionId: String? = nil) {
-        self.init(type: "message_complete", sessionId: sessionId)
+    public init(sessionId: String? = nil, attachments: [IPCUserMessageAttachment]? = nil) {
+        self.init(type: "message_complete", sessionId: sessionId, attachments: attachments)
     }
 }
 
@@ -597,8 +597,8 @@ public struct GenerationCancelledMessage: Decodable, Sendable {
 public typealias GenerationHandoffMessage = IPCGenerationHandoff
 
 extension IPCGenerationHandoff {
-    public init(sessionId: String, requestId: String?, queuedCount: Int) {
-        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount)
+    public init(sessionId: String, requestId: String?, queuedCount: Int, attachments: [IPCUserMessageAttachment]? = nil) {
+        self.init(type: "generation_handoff", sessionId: sessionId, requestId: requestId, queuedCount: queuedCount, attachments: attachments)
     }
 }
 
