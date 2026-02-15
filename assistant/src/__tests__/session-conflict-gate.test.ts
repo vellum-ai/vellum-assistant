@@ -609,6 +609,14 @@ describe('looksLikeClarificationReply', () => {
     expect(looksLikeClarificationReply('where is the new config')).toBe(false);
   });
 
+  test('rejects questions with Unicode smart/curly apostrophes', () => {
+    // U+2019 RIGHT SINGLE QUOTATION MARK (common on macOS/iOS keyboards)
+    expect(looksLikeClarificationReply("what\u2019s new in Bun")).toBe(false);
+    expect(looksLikeClarificationReply("where\u2019s the new config")).toBe(false);
+    // U+2018 LEFT SINGLE QUOTATION MARK
+    expect(looksLikeClarificationReply("who\u2018s option")).toBe(false);
+  });
+
   test('accepts words that share a question-word prefix but are not questions', () => {
     // "whichever" starts with "which", "however" starts with "how", etc.
     // These should NOT be rejected by the question-word gate.
