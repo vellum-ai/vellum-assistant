@@ -161,12 +161,23 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Text(thread.title)
-                .font(VFont.body)
-                .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
-            Spacer()
-
+        Button(action: { threadManager.selectThread(id: thread.id) }) {
+            HStack(spacing: VSpacing.sm) {
+                Text(thread.title)
+                    .font(VFont.body)
+                    .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
+                Spacer()
+                // Reserve space for close button
+                if threadManager.threads.count > 1 {
+                    Spacer().frame(width: 16)
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
             if threadManager.threads.count > 1 {
                 Button(action: { threadManager.closeThread(id: thread.id) }) {
                     Image(systemName: "xmark")
@@ -177,15 +188,11 @@ struct MainWindowView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(thread.title)")
+                .padding(.trailing, VSpacing.lg)
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
         .background(thread.id == threadManager.activeThreadId ? VColor.surface : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .onTapGesture {
-            threadManager.selectThread(id: thread.id)
-        }
     }
 
     @ViewBuilder
