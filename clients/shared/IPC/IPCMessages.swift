@@ -694,14 +694,10 @@ public typealias MissingRequirements = IPCSkillsListResponseSkillMissingRequirem
 /// Backed by generated `IPCSkillsListResponseSkill`.
 public typealias SkillInfo = IPCSkillsListResponseSkill
 
-extension IPCSkillsListResponseSkill: Identifiable {
-    // The generated struct has both `id` and `name` fields from the contract.
-    // Keep Identifiable using the `id` field (auto-synthesized).
-}
+extension IPCSkillsListResponseSkill: Identifiable {}
 
 extension IPCSkillsListResponseSkill {
-    /// Backward-compatible init that mirrors the old hand-written `SkillInfo`.
-    /// `id` defaults to `name` (matching the old computed `id` behavior).
+    /// Backward-compatible init that defaults `id` to `name`.
     public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
         self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub)
     }
