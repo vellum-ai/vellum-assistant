@@ -33,6 +33,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads.filter { !$0.isArchived }
     }
 
+    var archivedThreads: [ThreadModel] {
+        threads.filter { $0.isArchived }
+    }
+
     var activeViewModel: ChatViewModel? {
         guard let activeThreadId else { return nil }
         return chatViewModels[activeThreadId]
@@ -105,6 +109,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
 
         log.info("Archived thread \(id)")
+    }
+
+    func unarchiveThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+
+        threads[index].isArchived = false
+
+        if let sessionId = threads[index].sessionId {
+            var archived = archivedSessionIds
+            archived.remove(sessionId)
+            archivedSessionIds = archived
+        }
+
+        log.info("Unarchived thread \(id)")
     }
 
     func isSessionArchived(_ sessionId: String) -> Bool {

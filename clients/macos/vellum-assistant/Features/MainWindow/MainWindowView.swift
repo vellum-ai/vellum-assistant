@@ -606,7 +606,7 @@ struct MainWindowView: View {
                     }
                 }, daemonClient: daemonClient)
             case .settings:
-                SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient)
+                SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
             case .directory:
                 DirectoryPanel(onClose: { windowState.activePanel = nil })
             case .debug:

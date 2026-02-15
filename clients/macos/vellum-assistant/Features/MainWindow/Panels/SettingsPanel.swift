@@ -6,6 +6,7 @@ struct SettingsPanel: View {
     var onClose: () -> Void
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    @ObservedObject var threadManager: ThreadManager
 
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
@@ -185,6 +186,35 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: Slate._900)
 
+                // ARCHIVED THREADS section
+                if !threadManager.archivedThreads.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("ARCHIVED THREADS")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        ForEach(threadManager.archivedThreads) { thread in
+                            HStack {
+                                Text(thread.title)
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Button(action: { threadManager.unarchiveThread(id: thread.id) }) {
+                                    Text("Unarchive")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.accent)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Unarchive \(thread.title)")
+                            }
+                            .padding(.vertical, VSpacing.xs)
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: Slate._900)
+                }
+
                 // PERMISSIONS section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("PERMISSIONS")
@@ -308,9 +338,10 @@ struct SettingsPanel: View {
 
 #Preview("SettingsPanel") {
     let agent = AmbientAgent()
+    let dc = DaemonClient()
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsPanel(onClose: {}, store: SettingsStore(ambientAgent: agent))
+        SettingsPanel(onClose: {}, store: SettingsStore(ambientAgent: agent), threadManager: ThreadManager(daemonClient: dc))
     }
     .frame(width: 600, height: 700)
 }
