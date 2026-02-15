@@ -320,6 +320,7 @@ export interface HandlerContext {
   socketToSession: Map<net.Socket, string>;
   cuSessions: Map<string, ComputerUseSession>;
   socketToCuSession: Map<net.Socket, Set<string>>;
+  cuObservationParseSequence: Map<string, number>;
   socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];
   debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -1835,6 +1836,7 @@ function removeCuSessionReferences(
   }
   ctx.cuSessions.delete(sessionId);
   cuObservationSequenceBySession.delete(sessionId);
+  ctx.cuObservationParseSequence.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
     if (ids.delete(sessionId) && ids.size === 0) {
       ctx.socketToCuSession.delete(sock);

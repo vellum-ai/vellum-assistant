@@ -519,7 +519,7 @@ final class ComputerUseSession: ObservableObject {
         let axTreeUsedBlob = axTreeBlobRef != nil
         let axDiffBytes = axDiffText?.utf8.count ?? 0
         let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
-        let payloadJSONBytes = (try? JSONEncoder().encode(observation).count) ?? 0
+        let payloadJSONBytes = screenshotBase64Bytes + axTreeBytes + axDiffBytes + secondaryWindowsBytes + 256
         let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
         log.info(
             "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axTreeUsedBlob=\(axTreeUsedBlob) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"

@@ -83,6 +83,7 @@ function createTestContext(sessionId: string): {
     socketToSession: new Map(),
     cuSessions,
     socketToCuSession: new Map(),
+    cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new Map(),
