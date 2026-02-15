@@ -1,11 +1,11 @@
-import pino from "pino";
 import type { GatewayConfig } from "../config.js";
-import type { GatewayInboundEventV1 } from "../types.js";
+import { getLogger } from "../logger.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import { forwardToRuntime } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
+import type { GatewayInboundEventV1 } from "../types.js";
 
-const log = pino({ name: "gateway:handle-inbound" });
+const log = getLogger("handle-inbound");
 
 export type InboundResult = {
   forwarded: boolean;

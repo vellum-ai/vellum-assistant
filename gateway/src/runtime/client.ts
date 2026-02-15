@@ -1,7 +1,7 @@
-import pino from "pino";
 import type { GatewayConfig } from "../config.js";
+import { getLogger } from "../logger.js";
 
-const log = pino({ name: "gateway:runtime-client" });
+const log = getLogger("runtime-client");
 
 export type RuntimeInboundPayload = {
   sourceChannel: string;

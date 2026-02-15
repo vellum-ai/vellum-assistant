@@ -1,9 +1,9 @@
-import pino from "pino";
 import type { GatewayConfig } from "../config.js";
-import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
+import { getLogger } from "../logger.js";
 import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
-const log = pino({ name: "gateway:telegram-send" });
+const log = getLogger("telegram-send");
 
 const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 

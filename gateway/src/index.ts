@@ -1,18 +1,19 @@
-import pino from "pino";
 import { loadConfig } from "./config.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
-import { sendTelegramReply, sendTelegramAttachments } from "./telegram/send.js";
+import { getLogger, initLogger } from "./logger.js";
 import { callTelegramApi } from "./telegram/api.js";
+import { sendTelegramAttachments, sendTelegramReply } from "./telegram/send.js";
 
-const log = pino({ name: "gateway" });
+const log = getLogger("main");
 
 let draining = false;
 
 function main() {
-  log.info("Starting Vellum Gateway...");
-
   const config = loadConfig();
+  initLogger(config.logFile);
+
+  log.info("Starting Vellum Gateway...");
 
   const telegramConfigured = !!(config.telegramBotToken && config.telegramWebhookSecret);
 
