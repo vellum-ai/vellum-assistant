@@ -449,7 +449,7 @@ final class ComputerUseSession: ObservableObject {
         // Encode screenshot as base64
         let screenshotBase64 = screenshot?.base64EncodedString()
 
-        return CuObservationMessage(
+        let observation = CuObservationMessage(
             sessionId: id,
             axTree: axTreeText,
             axDiff: axDiffText,
@@ -458,6 +458,19 @@ final class ComputerUseSession: ObservableObject {
             executionResult: executionResult,
             executionError: executionError
         )
+
+        let screenshotRawBytes = screenshot?.count ?? 0
+        let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
+        let axTreeBytes = axTreeText?.utf8.count ?? 0
+        let axDiffBytes = axDiffText?.utf8.count ?? 0
+        let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
+        let payloadJSONBytes = (try? JSONEncoder().encode(observation).count) ?? 0
+        let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
+        log.info(
+            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
+        )
+
+        return observation
     }
 
     // MARK: - Tool Name Mapping

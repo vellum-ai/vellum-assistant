@@ -71,6 +71,7 @@ const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 const FALLBACK_SCREEN = { width: 1920, height: 1080 };
 let cachedScreenDims: { width: number; height: number } | null = null;
+const cuObservationSequenceBySession = new Map<string, number>();
 
 /**
  * Query the main display dimensions via CoreGraphics.
@@ -1743,6 +1744,7 @@ function removeCuSessionReferences(
     return;
   }
   ctx.cuSessions.delete(sessionId);
+  cuObservationSequenceBySession.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
     if (ids.delete(sessionId) && ids.size === 0) {
       ctx.socketToCuSession.delete(sock);
@@ -1826,6 +1828,28 @@ function handleCuObservation(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  const receiveTimestampMs = Date.now();
+  const previousSequence = cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
+  const sequence = previousSequence + 1;
+  cuObservationSequenceBySession.set(msg.sessionId, sequence);
+  const axTreeBytes = msg.axTree ? Buffer.byteLength(msg.axTree, 'utf8') : 0;
+  const axDiffBytes = msg.axDiff ? Buffer.byteLength(msg.axDiff, 'utf8') : 0;
+  const secondaryWindowsBytes = msg.secondaryWindows ? Buffer.byteLength(msg.secondaryWindows, 'utf8') : 0;
+  const screenshotBase64Bytes = msg.screenshot ? Buffer.byteLength(msg.screenshot, 'utf8') : 0;
+  const screenshotApproxRawBytes = msg.screenshot
+    ? Math.floor((msg.screenshot.length / 4) * 3)
+    : 0;
+  log.info({
+    sessionId: msg.sessionId,
+    sequence,
+    receiveTimestampMs,
+    axTreeBytes,
+    axDiffBytes,
+    secondaryWindowsBytes,
+    screenshotBase64Bytes,
+    screenshotApproxRawBytes,
+  }, 'IPC_METRIC cu_observation_daemon_receive');
+
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
     ctx.send(socket, {
