@@ -33,15 +33,19 @@ mock.module('../util/platform.js', () => ({
 }));
 
 // Mock config loader — return a config with sandbox settings
-let mockSandboxConfig = {
+let mockSandboxConfig: {
+  enabled: boolean;
+  backend: 'native' | 'docker';
+  docker: { image: string; cpus: number; memoryMb: number; pidsLimit: number; network: 'none' | 'bridge' };
+} = {
   enabled: true,
-  backend: 'native' as const,
+  backend: 'native',
   docker: {
     image: 'node:20-slim',
     cpus: 1,
     memoryMb: 512,
     pidsLimit: 256,
-    network: 'none' as const,
+    network: 'none',
   },
 };
 

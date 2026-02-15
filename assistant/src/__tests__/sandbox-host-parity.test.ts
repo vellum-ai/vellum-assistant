@@ -463,6 +463,7 @@ describe('applyEdit engine: deterministic across invocations', () => {
     expect(r1.ok).toBe(false);
     if (r1.ok) return;
     expect(r1.reason).toBe('ambiguous');
+    if (r1.reason !== 'ambiguous') return;
     expect(r1.matchCount).toBe(3);
   });
 
@@ -581,7 +582,7 @@ describe('SandboxResult shape consistency across backends', () => {
   });
 
   test('wrapCommand disabled returns bash with sandboxed=false', () => {
-    const result = wrapCommand('echo hi', '/tmp', { enabled: false });
+    const result = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
 
     expect(result.command).toBe('bash');
     expect(result.args).toEqual(['-c', '--', 'echo hi']);
@@ -589,7 +590,7 @@ describe('SandboxResult shape consistency across backends', () => {
   });
 
   test('wrapCommand disabled result has same shape as enabled result', () => {
-    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false });
+    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
 
     // Both must have: command (string), args (string[]), sandboxed (boolean)
     expect(typeof disabled.command).toBe('string');
@@ -869,7 +870,7 @@ describe('DockerBackend vs NativeBackend: SandboxResult shape parity', () => {
     // Various commands should all be wrapped consistently when disabled
     const commands = ['echo hello', 'ls -la', 'cat /etc/hosts', 'true && false'];
     for (const cmd of commands) {
-      const result = wrapCommand(cmd, '/tmp', { enabled: false });
+      const result = wrapCommand(cmd, '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
       expect(result.command).toBe('bash');
       expect(result.args[0]).toBe('-c');
       expect(result.args[1]).toBe('--');
