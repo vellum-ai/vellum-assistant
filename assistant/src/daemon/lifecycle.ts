@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as Sentry from '@sentry/node';
 import {
+  getInterfacesDir,
   getSocketPath,
   getPidPath,
   ensureDataDir,
@@ -224,6 +225,7 @@ export async function runDaemon(): Promise<void> {
         persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds) =>
           server.persistAndProcessMessage(assistantId, conversationId, content, attachmentIds),
         runOrchestrator: server.createRunOrchestrator(),
+        interfacesDir: getInterfacesDir(),
       });
       try {
         await runtimeHttp.start();

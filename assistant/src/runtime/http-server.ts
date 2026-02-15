@@ -5,8 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
@@ -56,6 +56,8 @@ export interface RuntimeHttpServerOptions {
   persistAndProcessMessage?: NonBlockingMessageProcessor;
   /** Run orchestrator for the approval-flow run endpoints. */
   runOrchestrator?: RunOrchestrator;
+  /** Root directory for interface files on disk. */
+  interfacesDir?: string;
 }
 
 export interface RuntimeAttachmentMetadata {
@@ -90,7 +92,8 @@ export class RuntimeHttpServer {
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
-  private interfaces = new Map<string, string>();
+  private interfacesDir: string | null;
+  private lastReportedMtimes = new Map<string, number>();
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private designSystemCss: string | null = null;
@@ -100,6 +103,7 @@ export class RuntimeHttpServer {
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
+    this.interfacesDir = options.interfacesDir ?? null;
   }
 
   async start(): Promise<void> {
@@ -120,11 +124,20 @@ export class RuntimeHttpServer {
   }
 
   registerInterface(interfacePath: string, source: string): void {
-    this.interfaces.set(interfacePath, source);
+    if (!this.interfacesDir) return;
+    const fullPath = resolve(this.interfacesDir, interfacePath);
+    if (!fullPath.startsWith(this.interfacesDir)) return;
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeFileSync(fullPath, source);
   }
 
   unregisterInterface(interfacePath: string): void {
-    this.interfaces.delete(interfacePath);
+    if (!this.interfacesDir) return;
+    const fullPath = resolve(this.interfacesDir, interfacePath);
+    if (!fullPath.startsWith(this.interfacesDir)) return;
+    if (existsSync(fullPath)) {
+      unlinkSync(fullPath);
+    }
   }
 
   private async handleRequest(req: Request): Promise<Response> {
@@ -342,10 +355,12 @@ export class RuntimeHttpServer {
       };
     });
 
-    const registeredInterfaces = Array.from(this.interfaces.keys());
+    const interfacePaths = this.scanInterfacesDir();
+    const dirtiedInterfaces = this.computeDirtiedInterfaces(interfacePaths);
     return Response.json({
       messages,
-      ...(registeredInterfaces.length > 0 ? { interfaces: registeredInterfaces } : {}),
+      ...(interfacePaths.length > 0 ? { interfaces: interfacePaths } : {}),
+      ...(dirtiedInterfaces.length > 0 ? { dirtiedInterfaces } : {}),
     });
   }
 
@@ -1013,11 +1028,47 @@ ${app.htmlDefinition}
 
   // ── Attachment fetch endpoint ──────────────────────────────────────
 
+  private scanInterfacesDir(): string[] {
+    if (!this.interfacesDir || !existsSync(this.interfacesDir)) return [];
+    const results: string[] = [];
+    const scan = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(fullPath);
+        } else {
+          results.push(relative(this.interfacesDir!, fullPath));
+        }
+      }
+    };
+    scan(this.interfacesDir);
+    return results;
+  }
+
+  private computeDirtiedInterfaces(interfacePaths: string[]): string[] {
+    if (!this.interfacesDir) return [];
+    const dirtied: string[] = [];
+    for (const p of interfacePaths) {
+      const fullPath = join(this.interfacesDir, p);
+      const mtime = statSync(fullPath).mtimeMs;
+      const lastMtime = this.lastReportedMtimes.get(p);
+      if (lastMtime !== undefined && mtime > lastMtime) {
+        dirtied.push(p);
+      }
+      this.lastReportedMtimes.set(p, mtime);
+    }
+    return dirtied;
+  }
+
   private handleGetInterface(interfacePath: string): Response {
-    const source = this.interfaces.get(interfacePath);
-    if (source === undefined) {
+    if (!this.interfacesDir) {
       return Response.json({ error: 'Interface not found' }, { status: 404 });
     }
+    const fullPath = resolve(this.interfacesDir, interfacePath);
+    if (!fullPath.startsWith(this.interfacesDir) || !existsSync(fullPath)) {
+      return Response.json({ error: 'Interface not found' }, { status: 404 });
+    }
+    const source = readFileSync(fullPath, 'utf-8');
     return new Response(source, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });

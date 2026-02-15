@@ -76,6 +76,10 @@ export function getSandboxWorkingDir(): string {
   return join(getSandboxRootDir(), 'fs');
 }
 
+export function getInterfacesDir(): string {
+  return join(getDataDir(), 'interfaces');
+}
+
 export function getSocketPath(): string {
   const override = process.env.VELLUM_DAEMON_SOCKET?.trim();
   if (override) {
@@ -143,6 +147,7 @@ export function ensureDataDir(): void {
     join(data, 'apps'),
     join(data, 'sandbox'),
     join(data, 'sandbox', 'fs'),
+    join(data, 'interfaces'),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
