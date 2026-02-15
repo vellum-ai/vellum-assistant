@@ -255,6 +255,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'secret_response',
     requestId: 'req-secret-001',
     value: 'ghp_test_token_value',
+    delivery: 'store',
   },
   sessions_clear: {
     type: 'sessions_clear',
@@ -872,11 +873,11 @@ describe('IPC message snapshots', () => {
     });
 
     test('secret_response has no audit or provenance fields', () => {
-      // The current secret_response includes: type, requestId, value?.
+      // The current secret_response includes: type, requestId, value?, delivery?.
       // It has NO provenance, audit-id, or encrypted-handle fields.
       const resp = clientMessages.secret_response;
       const keys = Object.keys(resp).sort();
-      expect(keys).toEqual(['requestId', 'type', 'value']);
+      expect(keys).toEqual(['delivery', 'requestId', 'type', 'value']);
     });
 
     test('secret_request round-trips with all optional fields populated', () => {
@@ -902,6 +903,7 @@ describe('IPC message snapshots', () => {
       const cancelled: typeof clientMessages.secret_response = {
         type: 'secret_response',
         requestId: 'req-cancel-001',
+        delivery: 'store',
         // value intentionally omitted — user cancelled the prompt
       };
       const serialized = serialize(cancelled);

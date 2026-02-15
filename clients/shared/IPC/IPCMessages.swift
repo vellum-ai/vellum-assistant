@@ -1101,8 +1101,8 @@ extension IPCConfirmationResponse {
 public typealias SecretResponseMessage = IPCSecretResponse
 
 extension IPCSecretResponse {
-    public init(requestId: String, value: String?) {
-        self.init(type: "secret_response", requestId: requestId, value: value)
+    public init(requestId: String, value: String?, delivery: String? = nil) {
+        self.init(type: "secret_response", requestId: requestId, value: value, delivery: delivery)
     }
 }
 

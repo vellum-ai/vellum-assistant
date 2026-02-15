@@ -383,6 +383,7 @@ exports[`IPC message snapshots ClientMessage types get_signing_identity_response
 
 exports[`IPC message snapshots ClientMessage types secret_response serializes to expected JSON 1`] = `
 {
+  "delivery": "store",
   "requestId": "req-secret-001",
   "type": "secret_response",
   "value": "ghp_test_token_value",

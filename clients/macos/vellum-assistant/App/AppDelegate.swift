@@ -347,10 +347,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onSecretRequest = { [weak self] msg in
             self?.secretPromptManager.showPrompt(msg)
         }
-        secretPromptManager.onResponse = { [weak self] requestId, value in
+        secretPromptManager.onResponse = { [weak self] requestId, value, delivery in
             guard let self else { return false }
             do {
-                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value)
+                try self.daemonClient.sendSecretResponse(requestId: requestId, value: value, delivery: delivery)
                 return true
             } catch {
                 log.error("Failed to send secret response: \(error.localizedDescription)")

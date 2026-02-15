@@ -641,6 +641,8 @@ public struct IPCSecretResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
     public let value: String?
+    /// How the secret should be delivered: 'store' persists to keychain (default), 'transient_send' for one-time use without persisting.
+    public let delivery: String?
 }
 
 public struct IPCSessionCreateRequest: Codable, Sendable {

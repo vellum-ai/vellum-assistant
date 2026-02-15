@@ -474,8 +474,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Secret Response
 
     /// Send a secret response for a credential prompt request.
-    public func sendSecretResponse(requestId: String, value: String?) throws {
-        try send(SecretResponseMessage(requestId: requestId, value: value))
+    public func sendSecretResponse(requestId: String, value: String?, delivery: String? = nil) throws {
+        try send(SecretResponseMessage(requestId: requestId, value: value, delivery: delivery))
     }
 
     // MARK: - Trust Rule Addition

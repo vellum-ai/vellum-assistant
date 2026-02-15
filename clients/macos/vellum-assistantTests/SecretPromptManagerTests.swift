@@ -6,14 +6,14 @@ import XCTest
 final class SecretPromptManagerTests: XCTestCase {
 
     private var manager: SecretPromptManager!
-    private var responses: [(requestId: String, value: String?)] = []
+    private var responses: [(requestId: String, value: String?, delivery: String?)] = []
 
     override func setUp() {
         super.setUp()
         manager = SecretPromptManager()
         responses = []
-        manager.onResponse = { [unowned self] requestId, value in
-            self.responses.append((requestId: requestId, value: value))
+        manager.onResponse = { [unowned self] requestId, value, delivery in
+            self.responses.append((requestId: requestId, value: value, delivery: delivery))
             return true
         }
     }
@@ -114,5 +114,17 @@ final class SecretPromptManagerTests: XCTestCase {
         let panel2 = manager.panelForRequest("r1")
         XCTAssertNotNil(panel2)
         XCTAssertTrue(panel1 !== panel2, "Should create a new panel, not reuse the old one")
+    }
+
+    // MARK: - One-time send affordance
+
+    func testPanelCreatedWithOneTimeSendEnabled() {
+        manager.showPrompt(makeRequest(allowOneTimeSend: true))
+        XCTAssertNotNil(manager.panelForRequest("r1"))
+    }
+
+    func testPanelCreatedWithOneTimeSendDisabled() {
+        manager.showPrompt(makeRequest(allowOneTimeSend: false))
+        XCTAssertNotNil(manager.panelForRequest("r1"))
     }
 }

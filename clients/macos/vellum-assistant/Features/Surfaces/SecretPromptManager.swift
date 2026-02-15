@@ -17,9 +17,10 @@ final class SecretPromptManager {
     private let panelWidth: CGFloat = 400
 
     /// Called when the user responds to a secret prompt.
-    /// Parameters: (requestId, value?) — value is nil if user cancelled.
+    /// Parameters: (requestId, value?, delivery?) — value is nil if user cancelled.
+    /// `delivery` is "store" (default) or "transient_send" for one-time use.
     /// Returns `true` if the IPC send succeeded.
-    var onResponse: ((String, String?) -> Bool)?
+    var onResponse: ((String, String?, String?) -> Bool)?
 
     func showPrompt(_ message: SecretRequestMessage) {
         // Dismiss existing panel for same request, if any
@@ -32,8 +33,9 @@ final class SecretPromptManager {
             purpose: message.purpose,
             allowedTools: message.allowedTools,
             allowedDomains: message.allowedDomains,
+            allowOneTimeSend: message.allowOneTimeSend ?? false,
             onSave: { [weak self] value in
-                self?.respond(requestId: message.requestId, value: value) ?? false
+                self?.respond(requestId: message.requestId, value: value, delivery: "store") ?? false
             },
             onCancel: { [weak self] in
                 _ = self?.respond(requestId: message.requestId, value: nil)
@@ -91,13 +93,13 @@ final class SecretPromptManager {
     func dismissAll() {
         for (requestId, panel) in panels {
             panel.close()
-            _ = onResponse?(requestId, nil)
+            _ = onResponse?(requestId, nil, nil)
         }
         panels.removeAll()
     }
 
-    private func respond(requestId: String, value: String?) -> Bool {
-        let success = onResponse?(requestId, value) ?? true
+    private func respond(requestId: String, value: String?, delivery: String? = nil) -> Bool {
+        let success = onResponse?(requestId, value, delivery) ?? true
         if success && value == nil {
             // Cancel: dismiss immediately
             dismissPrompt(requestId: requestId)
@@ -120,6 +122,7 @@ struct SecretPromptView: View {
     let purpose: String?
     let allowedTools: [String]?
     let allowedDomains: [String]?
+    let allowOneTimeSend: Bool
     let onSave: (String) -> Bool
     let onCancel: () -> Void
 
@@ -203,6 +206,18 @@ struct SecretPromptView: View {
                         }
                     }
                     .disabled(secretValue.isEmpty)
+                }
+
+                if allowOneTimeSend {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.textMuted)
+                        Text("One-time send available (not yet enabled)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .opacity(0.6)
                 }
             }
         }
