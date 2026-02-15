@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const testDir = mkdtempSync(join(tmpdir(), 'memory-v2-regressions-'));
+const testDir = mkdtempSync(join(tmpdir(), 'memory-regressions-'));
 
 mock.module('../util/platform.js', () => ({
   getDataDir: () => testDir,
@@ -86,7 +86,7 @@ import {
   messages,
 } from '../memory/schema.js';
 
-describe('Memory V2 regressions', () => {
+describe('Memory regressions', () => {
   beforeAll(() => {
     initializeDb();
   });
