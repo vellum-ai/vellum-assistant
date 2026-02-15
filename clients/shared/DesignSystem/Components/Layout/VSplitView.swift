@@ -22,7 +22,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .transition(.move(edge: .trailing))
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPanel)
+        .animation(VAnimation.standard, value: showPanel)
     }
 
     public init(

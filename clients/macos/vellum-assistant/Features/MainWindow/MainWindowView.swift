@@ -25,6 +25,14 @@ struct MainWindowView: View {
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
+    // MARK: - Layout Constants
+
+    /// Leading padding to account for macOS traffic light buttons (red/yellow/green).
+    /// Note: This is a fixed value that may not be accurate for all window styles or
+    /// if Apple changes the traffic light spacing. Dynamic measurement would be better
+    /// but requires complex window geometry inspection.
+    private let trafficLightPadding: CGFloat = 78
+
     var body: some View {
         GeometryReader { geometry in
             Group {
@@ -65,7 +73,7 @@ struct MainWindowView: View {
                                     }
                                 }
                             }
-                            .padding(.leading, 78)  // Account for macOS traffic light buttons
+                            .padding(.leading, trafficLightPadding)
                             .padding(.trailing, VSpacing.lg)
                             .frame(height: 36)
                             .background(VColor.background)
@@ -81,6 +89,10 @@ struct MainWindowView: View {
 
                             // Center: Chat + right panel
                             chatContentView(geometry: geometry)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                                .padding(.bottom, VSpacing.sm)
+                                .padding(.horizontal, VSpacing.sm)
                         }
                         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
@@ -283,10 +295,6 @@ struct MainWindowView: View {
             }, panel: {
                 panelContent
             })
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            .padding(.bottom, VSpacing.sm)
-            .padding(.horizontal, VSpacing.sm)
         }
     }
 
