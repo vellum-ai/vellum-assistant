@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { cpSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 
 import { resolve } from 'node:path';
 import * as Sentry from '@sentry/node';
@@ -7,6 +7,7 @@ import {
   getInterfacesDir,
   getSocketPath,
   getPidPath,
+  getRootDir,
   ensureDataDir,
   migrateToDataLayout,
   migrateToWorkspaceLayout,
@@ -93,7 +94,14 @@ export async function startDaemon(): Promise<{
     return { pid: status.pid, alreadyRunning: true };
   }
 
-  ensureDataDir();
+  // Only create the root dir for socket/PID — the daemon process itself
+  // handles migration + full ensureDataDir() in runDaemon(). Calling
+  // ensureDataDir() here would pre-create workspace destination dirs
+  // and cause migration moves to no-op.
+  const rootDir = getRootDir();
+  if (!existsSync(rootDir)) {
+    mkdirSync(rootDir, { recursive: true });
+  }
 
   // Clean up stale socket (only if it's actually a Unix socket)
   const socketPath = getSocketPath();
