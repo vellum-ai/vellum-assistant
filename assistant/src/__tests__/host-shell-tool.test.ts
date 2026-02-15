@@ -2,6 +2,22 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import * as realChildProcess from 'node:child_process';
+
+// Capture the real spawn before mock.module replaces it
+const originalSpawn = realChildProcess.spawn;
+
+// Capture spawn calls to verify the host tool spawns 'bash' directly
+const spawnCalls: { command: string; args: string[] }[] = [];
+const spawnSpy = mock((...args: Parameters<typeof realChildProcess.spawn>) => {
+  spawnCalls.push({ command: args[0] as string, args: args[1] as string[] });
+  return (originalSpawn as Function)(...args);
+});
+
+mock.module('node:child_process', () => ({
+  ...realChildProcess,
+  spawn: spawnSpy,
+}));
 
 const mockConfig = {
   provider: 'anthropic',
@@ -121,14 +137,17 @@ describe('host_bash tool', () => {
     // proving it bypasses the sandbox entirely
     expect(mockConfig.sandbox.enabled).toBe(true);
 
+    spawnCalls.length = 0;
+
     const result = await hostShellTool.execute({
-      command: 'echo $0',
+      command: 'echo hello',
       working_dir: dir,
     }, makeContext());
 
     expect(result.isError).toBe(false);
-    // bash reports its own name — if sandboxed via sandbox-exec or bwrap,
-    // the process tree would be different
-    expect(result.content.trim()).toContain('bash');
+    // Verify spawn was called with 'bash' directly — not 'bwrap' or 'sandbox-exec'
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].args).toEqual(['-c', '--', 'echo hello']);
   });
 });
