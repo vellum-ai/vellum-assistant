@@ -4,7 +4,8 @@ on:
   pull_request:
     paths:
       - 'assistant/**'
-      - 'clients/shared/IPC/Generated/**'
+      - 'clients/shared/IPC/**'
+      - '.githooks/**'
       - '.github/workflows/ci-assistant.yml'
 
 jobs:
@@ -32,6 +33,9 @@ jobs:
 
       - name: Verify IPC contract inventory is up to date
         run: bun run ipc:inventory
+
+      - name: Verify Swift decoder is in sync with contract
+        run: bun run ipc:check-swift-drift
 
       - name: Type check
         run: bunx tsc --noEmit

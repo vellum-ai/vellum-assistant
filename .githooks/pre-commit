@@ -129,8 +129,10 @@ IPC_CONTRACT_FILES=(
     "assistant/src/daemon/ipc-contract-inventory.ts"
     "assistant/scripts/ipc/generate-swift.ts"
     "assistant/scripts/ipc/check-contract-inventory.ts"
+    "assistant/scripts/ipc/check-swift-decoder-drift.ts"
     "assistant/src/daemon/ipc-contract-inventory.json"
     "clients/shared/IPC/Generated/IPCContractGenerated.swift"
+    "clients/shared/IPC/IPCMessages.swift"
 )
 
 IPC_CHANGED=0
@@ -173,6 +175,16 @@ if [ $IPC_CHANGED -eq 1 ]; then
             exit 1
         fi
         echo "✅ IPC contract inventory is up to date"
+
+        if ! (cd assistant && "$BUN" run ipc:check-swift-drift) 2>/dev/null; then
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}Swift decoder is out of sync with the IPC contract!${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "Update IPCMessages.swift decode cases or the drift checker allowlist."
+            exit 1
+        fi
+        echo "✅ Swift decoder is in sync with the contract"
 
         # Verify generated output files are staged (not just regenerated on disk).
         # The checks above compare against the working tree, so if a developer
