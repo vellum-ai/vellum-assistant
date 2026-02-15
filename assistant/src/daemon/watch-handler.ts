@@ -68,18 +68,46 @@ async function generateCommentary(session: WatchSession): Promise<void> {
   try {
     const client = new Anthropic();
     const lastThree = session.observations.slice(-3);
-    const userContent = lastThree
-      .map(
+
+    const previousCommentary = lastCommentaryBySession.get(session.sessionId);
+
+    const userContent = [
+      `Focus area: ${session.focusArea}`,
+      '',
+      previousCommentary
+        ? `Previous commentary: "${previousCommentary}"`
+        : 'No previous commentary yet.',
+      '',
+      ...lastThree.map(
         (obs, i) =>
-          `Observation ${i + 1}:\n- App: ${obs.appName ?? 'unknown'}\n- Text: ${obs.ocrText}`,
-      )
-      .join('\n\n');
+          `Observation ${i + 1}:\n- App: ${obs.appName ?? 'unknown'}\n- Window: ${obs.windowTitle ?? 'unknown'}\n- Screen text: ${obs.ocrText}`,
+      ),
+    ].join('\n\n');
+
+    const systemPrompt = [
+      'You are a casual, friendly observer watching someone work on their computer in real time.',
+      `They asked you to watch them and focus on: "${session.focusArea}".`,
+      '',
+      'Your job is to provide brief, natural live commentary — like a friend glancing over their shoulder.',
+      '',
+      'Guidelines:',
+      '- Write 1-2 sentences max. Be concise and conversational.',
+      '- Comment on what they are doing, patterns you notice, or interesting transitions.',
+      '- Reference specific apps or content you see when relevant.',
+      '- If they seem to be context-switching a lot, gently note it.',
+      '- Do NOT repeat your previous commentary. Say something new or say nothing.',
+      '- If nothing interesting or meaningfully different has happened since the last observations, respond with exactly "SKIP" (no quotes, no extra text).',
+      '',
+      'Example style:',
+      '"I see you\'ve been bouncing between Slack and your doc — looks like you\'re getting pulled into side conversations."',
+      '"You\'ve been heads-down in VS Code for a while now, nice focused stretch."',
+      '"Looks like you just switched to the browser to look something up mid-task."',
+    ].join('\n');
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
-      system:
-        'You are observing someone\'s screen. Give a brief 1-2 sentence commentary on what you see, or respond with SKIP if nothing interesting.',
+      system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
     });
 
@@ -101,12 +129,12 @@ async function generateSummary(session: WatchSession): Promise<void> {
   try {
     const client = new Anthropic();
 
-    // Build observations text with truncation
+    // Build observations text with truncation (keep most recent if >50K chars)
     let observations = session.observations;
-    let totalChars = observations.reduce((sum, obs) => sum + obs.ocrText.length, 0);
+    const totalChars = observations.reduce((sum, obs) => sum + obs.ocrText.length, 0);
+    let wasTruncated = false;
 
     if (totalChars > 50_000) {
-      // Trim older observations, keeping most recent
       const trimmed: WatchObservationEntry[] = [];
       let charCount = 0;
       for (let i = observations.length - 1; i >= 0; i--) {
@@ -114,20 +142,74 @@ async function generateSummary(session: WatchSession): Promise<void> {
         if (charCount > 50_000) break;
         trimmed.unshift(observations[i]);
       }
+      wasTruncated = trimmed.length < observations.length;
       observations = trimmed;
     }
 
-    const userContent = observations
-      .map(
+    const elapsedMinutes = Math.round(
+      (Date.now() - session.startedAt) / 60_000,
+    );
+    const expectedMinutes = Math.round(session.durationSeconds / 60);
+    const wasCancelled = session.status === 'completing' && elapsedMinutes < expectedMinutes - 1;
+
+    const userContent = [
+      `Focus area: ${session.focusArea}`,
+      `Observation period: ${elapsedMinutes} minute(s) (planned: ${expectedMinutes} minute(s))`,
+      `Total observations: ${session.observations.length}`,
+      wasTruncated
+        ? `Note: Older observations were trimmed due to size. Showing the most recent ${observations.length} of ${session.observations.length} total.`
+        : '',
+      wasCancelled
+        ? 'Note: The observation period was ended early by the user. Provide your best analysis based on the data available.'
+        : '',
+      '',
+      '--- Observations ---',
+      '',
+      ...observations.map(
         (obs) =>
-          `[${new Date(obs.timestamp).toISOString()}] App: ${obs.appName ?? 'unknown'}\n${obs.ocrText}`,
-      )
-      .join('\n\n---\n\n');
+          `[${new Date(obs.timestamp).toISOString()}] App: ${obs.appName ?? 'unknown'} | Window: ${obs.windowTitle ?? 'unknown'}\n${obs.ocrText}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const systemPrompt = [
+      'You are a productivity analyst reviewing a series of screen observations captured from a user\'s computer.',
+      `The user asked you to watch their workflow with this focus: "${session.focusArea}".`,
+      '',
+      'Analyze the observations and produce a structured report using exactly these markdown sections:',
+      '',
+      '## Workflow Summary',
+      'A high-level description (2-4 sentences) of what the user did during the observation period.',
+      '',
+      '## App Usage',
+      'List which applications were used and roughly how much time was spent in each. Use the timestamps to estimate durations. Present as a bullet list.',
+      '',
+      '## Context Switching',
+      'Analyze how often the user switched between different apps or tasks. Note any patterns — were switches frequent and disruptive, or natural and purposeful?',
+      '',
+      '## Tasks & Action Items',
+      'Based on what you observed on screen, describe what tasks the user worked on. Note anything that appeared unfinished or in-progress when the session ended.',
+      '',
+      '## Suggestions',
+      'Provide 3-5 specific, actionable things the assistant could help with based on what you observed. These should be concrete offers, not generic advice.',
+      'Examples: "I could draft that email you started in Gmail", "Want me to summarize the Slack thread you were reading?", "I could help outline the document you were working on in Google Docs".',
+      '',
+      'Important:',
+      '- Base your analysis strictly on what you can see in the observations. Do not invent details.',
+      '- Reference specific apps, window titles, and content when possible.',
+      '- Keep the tone helpful and professional, not judgmental.',
+      wasCancelled
+        ? '- The observation period was cut short. Acknowledge this briefly and provide the best analysis you can with the available data.'
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-5-20250929',
       max_tokens: 2000,
-      system: 'Summarize the user\'s workflow based on screen observations.',
+      system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
     });
 
