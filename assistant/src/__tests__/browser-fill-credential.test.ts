@@ -54,9 +54,18 @@ mock.module('../tools/network/url-safety.js', () => ({
 }));
 
 let mockGetCredentialValue: ReturnType<typeof mock>;
+let mockGetCredentialMetadata: ReturnType<typeof mock>;
 
 mock.module('../tools/credentials/vault.js', () => ({
   getCredentialValue: (...args: unknown[]) => mockGetCredentialValue(...args),
+}));
+
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  getCredentialMetadata: (...args: unknown[]) => mockGetCredentialMetadata(...args),
+  getCredentialMetadataById: () => undefined,
+  upsertCredentialMetadata: () => {},
+  deleteCredentialMetadata: () => {},
+  _setMetadataPath: () => {},
 }));
 
 import { executeBrowserFillCredential } from '../tools/browser/headless-browser.js';
@@ -82,6 +91,10 @@ function resetMockPage() {
   };
 }
 
+function defaultMetadata(service: string, field: string) {
+  return { credentialId: `${service}:${field}`, service, field, createdAt: Date.now() };
+}
+
 // ── browser_fill_credential ──────────────────────────────────────────
 
 describe('executeBrowserFillCredential', () => {
@@ -89,6 +102,7 @@ describe('executeBrowserFillCredential', () => {
     resetMockPage();
     snapshotMaps.clear();
     mockGetCredentialValue = mock(() => 'super-secret-password');
+    mockGetCredentialMetadata = mock((service: string, field: string) => defaultMetadata(service, field));
   });
 
   test('fills credential into element by element_id', async () => {
@@ -114,6 +128,19 @@ describe('executeBrowserFillCredential', () => {
   });
 
   test('returns error when credential not found', async () => {
+    mockGetCredentialMetadata = mock(() => undefined);
+    snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+    const result = await executeBrowserFillCredential(
+      { service: 'slack', field: 'api_key', element_id: 'e1' },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No credential stored for slack/api_key');
+    expect(result.content).toContain('credential_store');
+    expect(mockPage.fill).not.toHaveBeenCalled();
+  });
+
+  test('returns error when metadata exists but no stored value', async () => {
     mockGetCredentialValue = mock(() => undefined);
     snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
     const result = await executeBrowserFillCredential(
@@ -178,46 +205,29 @@ describe('executeBrowserFillCredential', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Baseline characterization — freeze current contract before hardening
+  // Broker-mediated credential access — verify broker path is used
   // -----------------------------------------------------------------------
-  describe('baseline characterization', () => {
+  describe('broker integration', () => {
     test('fill succeeds with no domain or tool-policy checks', async () => {
-      // Currently browser_fill_credential does not validate the page URL
-      // against any allowed-domains policy on the credential. It fills
-      // unconditionally as long as the credential exists and the element
-      // resolves. Future PRs will add domain-scoped credential policies.
       snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
       const result = await executeBrowserFillCredential(
-        {
-          service: 'gmail',
-          field: 'password',
-          element_id: 'e1',
-          // No domain or policy fields exist on the input schema today
-        },
+        { service: 'gmail', field: 'password', element_id: 'e1' },
         ctx,
       );
       expect(result.isError).toBe(false);
       expect(result.content).toContain('Filled password for gmail');
-      // The secret value must not appear in the output
       expect(result.content).not.toContain('super-secret-password');
     });
 
-    test('context has no credential access audit trail', async () => {
-      // The ToolContext passed to browser_fill_credential does not include
-      // any audit or logging callback for credential access. Calls to
-      // getCredentialValue are not tracked. Future PRs will add an audit
-      // hook on the context.
+    test('credential access goes through broker (metadata + value checked)', async () => {
       snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
       await executeBrowserFillCredential(
         { service: 'gmail', field: 'password', element_id: 'e1' },
         ctx,
       );
-      // Verify getCredentialValue was called with bare service/field and
-      // no additional context (no domain, no session provenance).
-      expect(mockGetCredentialValue).toHaveBeenCalledTimes(1);
+      // Broker checks metadata first, then reads the value
+      expect(mockGetCredentialMetadata).toHaveBeenCalledWith('gmail', 'password');
       expect(mockGetCredentialValue).toHaveBeenCalledWith('gmail', 'password');
-      // Only 2 arguments — no audit context parameter
-      expect(mockGetCredentialValue.mock.calls[0]).toHaveLength(2);
     });
   });
 });

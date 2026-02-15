@@ -59,6 +59,7 @@ import {
   listSecureKeys,
 } from '../security/secure-keys.js';
 import { getCredentialValue } from '../tools/credentials/vault.js';
+import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
 import {
   executeBrowserNavigate,
   executeBrowserClick,
@@ -90,6 +91,7 @@ beforeAll(async () => {
   _resetBackend();
   mkdirSync(join(testDir, 'browser-profile'), { recursive: true });
   _setStorePath(STORE_PATH);
+  _setMetadataPath(join(testDir, 'metadata.json'));
 
   server = createMockSignupServer();
   ({ url } = await server.start());
@@ -98,6 +100,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await executeBrowserClose({ close_all_pages: true }, ctx);
   await server.stop();
+  _setMetadataPath(null);
   _setStorePath(null);
   _resetBackend();
   _resetDeps();
@@ -123,9 +126,10 @@ beforeEach(() => {
 
 describe('end-to-end signup flow', () => {
   test('happy path: full signup with credential fill', async () => {
-    // Store credential in vault
+    // Store credential in vault with metadata (broker requires metadata)
     const storeOk = setSecureKey(`credential:mockservice:password`, TEST_PASSWORD);
     expect(storeOk).toBe(true);
+    upsertCredentialMetadata('mockservice', 'password');
     expect(getCredentialValue('mockservice', 'password')).toBe(TEST_PASSWORD);
 
     // Navigate to signup
@@ -232,6 +236,7 @@ describe('end-to-end signup flow', () => {
   test('taken username shows validation error', async () => {
     // Store credential so fill works
     setSecureKey(`credential:mockservice:password`, TEST_PASSWORD);
+    upsertCredentialMetadata('mockservice', 'password');
 
     await executeBrowserNavigate(
       { url: `${url}/signup`, allow_private_network: true },
@@ -272,6 +277,7 @@ describe('end-to-end signup flow', () => {
   test('wrong verification code shows error', async () => {
     // Store credential so fill works
     setSecureKey(`credential:mockservice:password`, TEST_PASSWORD);
+    upsertCredentialMetadata('mockservice', 'password');
 
     await executeBrowserNavigate(
       { url: `${url}/signup`, allow_private_network: true },
@@ -319,6 +325,7 @@ describe('end-to-end signup flow', () => {
   test('credential value never leaks into any tool output', async () => {
     const secret = ['MyS3cret', '!Value', '42'].join('');
     setSecureKey(`credential:leak-test:password`, secret);
+    upsertCredentialMetadata('leak-test', 'password');
 
     await executeBrowserNavigate(
       { url: `${url}/signup`, allow_private_network: true },

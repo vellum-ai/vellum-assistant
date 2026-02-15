@@ -14,9 +14,10 @@ import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
 import { detectCaptcha } from './captcha-detector.js';
 import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
-import { getCredentialValue } from '../credentials/vault.js';
+import { CredentialBroker } from '../credentials/broker.js';
 
 const log = getLogger('headless-browser');
+const credentialBroker = new CredentialBroker();
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 
@@ -908,30 +909,35 @@ async function executeBrowserFillCredential(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
-  const value = getCredentialValue(service, field);
-  if (!value) {
-    return {
-      content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
-      isError: true,
-    };
-  }
-
   const pressEnter = input.press_enter === true;
+  const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    await page.fill(selector!, value);
+  const result = await credentialBroker.browserFill({
+    service,
+    field,
+    toolName: 'browser_fill_credential',
+    fill: async (value) => {
+      await page.fill(selector!, value);
+    },
+  });
 
-    if (pressEnter) {
-      await page.press(selector!, 'Enter');
+  if (!result.success) {
+    const reason = result.reason ?? 'unknown error';
+    if (reason.includes('No credential found') || reason.includes('no stored value')) {
+      return {
+        content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
+        isError: true,
+      };
     }
-
-    return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Fill credential failed');
-    return { content: `Error: Fill credential failed: ${msg}`, isError: true };
+    log.error({ selector, reason }, 'Fill credential failed');
+    return { content: `Error: Fill credential failed: ${reason}`, isError: true };
   }
+
+  if (pressEnter) {
+    await page.press(selector!, 'Enter');
+  }
+
+  return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
 }
 
 class BrowserFillCredentialTool implements Tool {
