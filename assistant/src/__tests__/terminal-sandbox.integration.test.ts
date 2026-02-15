@@ -5,7 +5,7 @@
  * when Docker is not available or the sandbox image is not pulled locally.
  * To run them locally:
  *   1. Install Docker Desktop / Docker Engine
- *   2. docker pull node:20-slim
+ *   2. docker pull <configured sandbox image>
  *   3. bun test src/__tests__/terminal-sandbox.integration.test.ts
  */
 
@@ -22,7 +22,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { getSandboxWorkingDir } from '../util/platform.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 // ---------------------------------------------------------------------------
 // Runtime gate: skip entire file if Docker is not usable
@@ -37,7 +38,7 @@ function dockerAvailable(): boolean {
   }
 }
 
-const IMAGE = 'node:20-slim';
+const IMAGE = DEFAULT_CONFIG.sandbox.docker.image;
 
 function imageAvailable(): boolean {
   try {
@@ -61,7 +62,11 @@ let sandboxRoot: string;
 
 beforeAll(() => {
   if (!DOCKER_OK) return;
-  sandboxRoot = realpathSync(mkdtempSync(join(tmpdir(), 'docker-integ-')));
+  const parent = getSandboxWorkingDir();
+  if (!existsSync(parent)) {
+    mkdirSync(parent, { recursive: true });
+  }
+  sandboxRoot = realpathSync(mkdtempSync(join(parent, 'docker-integ-')));
 });
 
 afterAll(() => {
