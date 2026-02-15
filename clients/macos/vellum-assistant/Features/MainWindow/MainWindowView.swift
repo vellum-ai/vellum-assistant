@@ -173,7 +173,8 @@ struct MainWindowView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
-            if let updated = notification.userInfo?["surface"] as? Surface {
+            if let updated = notification.userInfo?["surface"] as? Surface,
+               updated.id == activeDynamicSurface?.surfaceId {
                 activeDynamicParsedSurface = updated
             }
         }
@@ -181,11 +182,15 @@ struct MainWindowView: View {
             // If a specific surfaceId was dismissed, only clear if it matches.
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
                 if activeDynamicSurface?.surfaceId == surfaceId {
+                    activePanel = nil
+                    isDynamicExpanded = false
                     activeDynamicSurface = nil
                     activeDynamicParsedSurface = nil
                 }
             } else {
                 // Bulk dismiss (dismissAll)
+                activePanel = nil
+                isDynamicExpanded = false
                 activeDynamicSurface = nil
                 activeDynamicParsedSurface = nil
             }
