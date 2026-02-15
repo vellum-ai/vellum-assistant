@@ -170,6 +170,29 @@ struct TraceStoreTests {
     }
 
     @Test @MainActor
+    func averageLlmLatencyExcludesMissingAttribute() {
+        let store = TraceStore()
+        store.ingest(makeEvent(
+            eventId: "a", sequence: 1, kind: "llm_call_finished",
+            attributes: ["latencyMs": 100.0]
+        ))
+        store.ingest(makeEvent(
+            eventId: "b", sequence: 2, kind: "llm_call_finished",
+            attributes: ["latencyMs": 200.0]
+        ))
+        // Event without latencyMs should be excluded, not counted as 0.
+        store.ingest(makeEvent(
+            eventId: "c", sequence: 3, kind: "llm_call_finished",
+            attributes: ["inputTokens": 50]
+        ))
+        store.ingest(makeEvent(
+            eventId: "d", sequence: 4, kind: "llm_call_finished"
+        ))
+
+        #expect(store.averageLlmLatencyMs(sessionId: "s1") == 150.0)
+    }
+
+    @Test @MainActor
     func averageLlmLatencyEmpty() {
         let store = TraceStore()
         #expect(store.averageLlmLatencyMs(sessionId: "s1") == 0)

@@ -210,11 +210,11 @@ public final class TraceStore: ObservableObject {
         return 0
     }
 
-    private func doubleAttribute(_ event: StoredEvent, key: String) -> Double {
-        guard let attrs = event.attributes, let val = attrs[key] else { return 0 }
+    private func doubleAttribute(_ event: StoredEvent, key: String) -> Double? {
+        guard let attrs = event.attributes, let val = attrs[key] else { return nil }
         if let d = val.value as? Double { return d }
         if let i = val.value as? Int { return Double(i) }
-        return 0
+        return nil
     }
 }
 
