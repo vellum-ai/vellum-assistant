@@ -217,9 +217,19 @@ export async function runDaemon(): Promise<void> {
   const server = new DaemonServer();
   await server.start();
   const memoryWorker = startMemoryJobsWorker();
-  const scheduler = startScheduler(async (conversationId, message) => {
-    await server.processMessage('schedule', conversationId, message);
-  });
+  const scheduler = startScheduler(
+    async (conversationId, message) => {
+      await server.processMessage('schedule', conversationId, message);
+    },
+    (reminder) => {
+      server.broadcast({
+        type: 'reminder_fired',
+        reminderId: reminder.id,
+        label: reminder.label,
+        message: reminder.message,
+      });
+    },
+  );
 
   rehydrateTimers();
 
