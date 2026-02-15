@@ -346,9 +346,21 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
+            let previousHTML = context.coordinator.currentHTML
             context.coordinator.currentHTML = data.html
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
-            webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+
+            if previousHTML.isEmpty {
+                // First load — no scroll to preserve
+                webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+            } else {
+                // Subsequent update — save scroll, reload, restore scroll after load
+                webView.evaluateJavaScript("JSON.stringify({x: window.scrollX, y: window.scrollY})") { result, _ in
+                    let scrollState = result as? String
+                    context.coordinator.pendingScrollRestore = scrollState
+                    webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+                }
+            }
         }
 
         // Re-apply content insets and fade overlay when they change (e.g. composer expands).
@@ -390,6 +402,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var lastBottomInset: Int = 0
         var desiredTopInset: Int = 0
         var desiredBottomInset: Int = 0
+        /// JSON string with {x, y} scroll position to restore after the next page load.
+        var pendingScrollRestore: String?
         private var hasCapturedSnapshot = false
 
         init(
@@ -588,6 +602,20 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Restore scroll position if this load was a refinement update.
+            if let scrollJSON = pendingScrollRestore {
+                pendingScrollRestore = nil
+                let js = """
+                    (function() {
+                        try {
+                            var s = JSON.parse('\(scrollJSON.replacingOccurrences(of: "'", with: "\\'"))');
+                            window.scrollTo(s.x || 0, s.y || 0);
+                        } catch(e) {}
+                    })();
+                    """
+                webView.evaluateJavaScript(js, completionHandler: nil)
+            }
+
             // Re-inject content insets after page load completes. The WKUserScript from
             // makeNSView has creation-time values baked in, which may be stale if insets
             // changed since then (e.g. composer expanded). Apply the current desired values.
