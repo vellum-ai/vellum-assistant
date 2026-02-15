@@ -1616,8 +1616,8 @@ final class ChatViewModelTests: XCTestCase {
             data: "iVBORw0KGgo=", extractedText: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, attachments: nil),
-            IPCHistoryResponseMessage(role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, attachments: [attachment]),
+            IPCHistoryResponseMessage(role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
+            IPCHistoryResponseMessage(role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1635,7 +1635,7 @@ final class ChatViewModelTests: XCTestCase {
             data: "JVBER", extractedText: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, attachments: [attachment]),
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1649,7 +1649,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, attachments: nil),
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)

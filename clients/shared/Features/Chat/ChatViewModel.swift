@@ -1420,6 +1420,7 @@ public final class ChatViewModel: ObservableObject {
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
             var toolCalls: [ToolCallData] = []
+            let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
                     ToolCallData(
@@ -1428,6 +1429,7 @@ public final class ChatViewModel: ObservableObject {
                         result: tc.result,
                         isError: tc.isError ?? false,
                         isComplete: true,
+                        arrivedBeforeText: toolsBeforeText,
                         imageData: tc.imageData
                     )
                 }

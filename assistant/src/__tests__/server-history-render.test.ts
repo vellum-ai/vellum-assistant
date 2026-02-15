@@ -124,6 +124,7 @@ describe('renderHistoryContent', () => {
     expect(output.toolCalls).toEqual([
       { name: 'web_fetch', input: { url: 'https://example.com' } },
     ]);
+    expect(output.toolCallsBeforeText).toBe(true);
   });
 
   test('pairs tool_result with matching tool_use by id', () => {
@@ -159,6 +160,27 @@ describe('renderHistoryContent', () => {
     expect(output.toolCalls).toHaveLength(1);
     expect(output.toolCalls[0].name).toBe('web_fetch');
     expect(output.toolCalls[0].result).toBe('page content here');
+    expect(output.toolCallsBeforeText).toBe(false);
+  });
+
+  test('sets toolCallsBeforeText true when tool_use precedes text', () => {
+    const output = renderHistoryContent([
+      { type: 'tool_use', id: 'tu_1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'file.txt' },
+      { type: 'text', text: 'Here are the files.' },
+    ]);
+
+    expect(output.toolCallsBeforeText).toBe(true);
+    expect(output.text).toBe('Here are the files.');
+    expect(output.toolCalls).toHaveLength(1);
+  });
+
+  test('sets toolCallsBeforeText false when no tool calls exist', () => {
+    const output = renderHistoryContent([
+      { type: 'text', text: 'Just text.' },
+    ]);
+
+    expect(output.toolCallsBeforeText).toBe(false);
   });
 
   test('handles orphan tool_result without matching tool_use', () => {
@@ -175,16 +197,18 @@ describe('renderHistoryContent', () => {
 describe('mergeToolResults', () => {
   test('merges tool_result user messages into preceding assistant toolCalls', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [] },
+      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [], toolCallsBeforeText: false },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'web_fetch', input: { url: 'https://example.com' } }],
+        toolCallsBeforeText: true,
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'page content', isError: false }],
+        toolCallsBeforeText: false,
       },
-      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [] },
+      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [], toolCallsBeforeText: false },
     ]);
 
     expect(result).toHaveLength(3);
@@ -201,14 +225,16 @@ describe('mergeToolResults', () => {
 
   test('suppresses tool_result-only user messages from visible history', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [] },
+      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [], toolCallsBeforeText: false },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
+        toolCallsBeforeText: true,
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'file.txt', isError: false }],
+        toolCallsBeforeText: false,
       },
     ]);
 
@@ -221,6 +247,7 @@ describe('mergeToolResults', () => {
       {
         role: 'user', text: 'user typed something', timestamp: 1,
         toolCalls: [{ name: 'unknown', input: {}, result: 'data', isError: false }],
+        toolCallsBeforeText: false,
       },
     ]);
 
@@ -236,6 +263,7 @@ describe('mergeToolResults', () => {
           { name: 'bash', input: { command: 'ls' } },
           { name: 'bash', input: { command: 'pwd' } },
         ],
+        toolCallsBeforeText: true,
       },
       {
         role: 'user', text: '', timestamp: 2,
@@ -243,6 +271,7 @@ describe('mergeToolResults', () => {
           { name: 'unknown', input: {}, result: 'file.txt', isError: false },
           { name: 'unknown', input: {}, result: '/home/user', isError: false },
         ],
+        toolCallsBeforeText: false,
       },
     ]);
 
@@ -256,10 +285,12 @@ describe('mergeToolResults', () => {
       {
         role: 'assistant', text: '', timestamp: 1,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
+        toolCallsBeforeText: true,
       },
       {
         role: 'user', text: '', timestamp: 2,
         toolCalls: [{ name: 'unknown', input: {}, result: 'output', isError: false }],
+        toolCallsBeforeText: false,
       },
     ];
 

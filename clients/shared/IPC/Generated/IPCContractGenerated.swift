@@ -352,6 +352,8 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let text: String
     public let timestamp: Double
     public let toolCalls: [IPCHistoryResponseToolCall]?
+    /// True when tool_use blocks appeared before any text block in the original content.
+    public let toolCallsBeforeText: Bool?
     public let attachments: [IPCUserMessageAttachment]?
 }
 
