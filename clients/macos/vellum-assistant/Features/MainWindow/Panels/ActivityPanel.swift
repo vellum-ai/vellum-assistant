@@ -175,7 +175,7 @@ struct ActivityStepView: View {
     private var toolIcon: String {
         let name = toolCall.toolName.lowercased()
         if name.contains("search") { return "magnifyingglass" }
-        if name.contains("navigate") { return "globe" }
+        if name.contains("navigate") || name.contains("fetch") { return "globe" }
         if name.contains("screenshot") { return "camera.viewfinder" }
         if name.contains("click") { return "cursorarrow.click.2" }
         if name.contains("read") || name.contains("edit") || name.contains("write") { return "doc.text" }
