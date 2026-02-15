@@ -7,10 +7,20 @@ struct DebugPanel: View {
     var onClose: () -> Void
 
     var body: some View {
+        // TraceTimelineView owns its own ScrollView + ScrollViewReader for
+        // auto-scroll. To avoid nesting it inside VSidePanel's built-in
+        // ScrollView (which breaks scroll and auto-scroll on macOS), the
+        // timeline is placed in the pinnedContent area (not scroll-wrapped)
+        // and the scrollable content slot gets only the empty states.
         VSidePanel(title: "Debug", onClose: onClose, pinnedContent: {
             if let sessionId = activeSessionId {
                 metricsStrip(sessionId: sessionId)
                 Divider().background(VColor.surfaceBorder)
+
+                let events = traceStore.eventsBySession[sessionId] ?? []
+                if !events.isEmpty {
+                    TraceTimelineView(traceStore: traceStore, sessionId: sessionId)
+                }
             }
         }) {
             if let sessionId = activeSessionId {
@@ -21,8 +31,6 @@ struct DebugPanel: View {
                         subtitle: "Events will appear as the session runs",
                         icon: "waveform.path"
                     )
-                } else {
-                    TraceTimelineView(traceStore: traceStore, sessionId: sessionId)
                 }
             } else {
                 VEmptyState(

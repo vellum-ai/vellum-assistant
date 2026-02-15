@@ -36,7 +36,7 @@ struct TraceTimelineView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
             }
-            .onChange(of: traceStore.eventsBySession[sessionId]?.count) {
+            .onChange(of: traceStore.eventsBySession[sessionId]?.last?.sequence) {
                 if !autoScrollPaused {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("trace-bottom", anchor: .bottom)
