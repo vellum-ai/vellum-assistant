@@ -10,4 +10,11 @@ public final class AppServices {
     let toolConfirmationManager = ToolConfirmationManager()
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
+
+    /// Shared settings state consumed by both SettingsView and SettingsPanel.
+    /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.
+    public lazy var settingsStore: SettingsStore = SettingsStore(
+        ambientAgent: ambientAgent,
+        daemonClient: daemonClient
+    )
 }

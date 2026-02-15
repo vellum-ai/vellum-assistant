@@ -926,7 +926,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: services.ambientAgent, daemonClient: services.daemonClient))
+        let hostingController = NSHostingController(rootView: SettingsView(store: services.settingsStore, ambientAgent: services.ambientAgent, daemonClient: services.daemonClient))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],

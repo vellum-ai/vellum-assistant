@@ -23,15 +23,17 @@ struct MainWindowView: View {
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
+    let settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
+        self.settingsStore = settingsStore
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
@@ -591,7 +593,7 @@ struct MainWindowView: View {
                     }
                 }, daemonClient: daemonClient)
             case .settings:
-                SettingsPanel(onClose: { activePanel = nil }, ambientAgent: ambientAgent, daemonClient: daemonClient)
+                SettingsPanel(onClose: { activePanel = nil }, store: settingsStore, daemonClient: daemonClient)
             case .directory:
                 DirectoryPanel(onClose: { activePanel = nil })
             case .debug:
@@ -627,7 +629,8 @@ private struct ZoomIndicatorView: View {
 
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent())
+    let agent = AmbientAgent()
+    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: agent, settingsStore: SettingsStore(ambientAgent: agent, daemonClient: dc))
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }

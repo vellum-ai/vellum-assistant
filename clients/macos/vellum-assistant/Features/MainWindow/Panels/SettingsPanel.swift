@@ -1,22 +1,14 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 
 @MainActor
 struct SettingsPanel: View {
     var onClose: () -> Void
-    var ambientAgent: AmbientAgent
+    @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
 
     @State private var apiKeyText: String = ""
-    @State private var hasKey: Bool = false
-    @State private var isTrustRulesSheetOpen: Bool = false
-    /// Tracks whether trust rules are open from any surface (synced from DaemonClient).
-    @State private var trustRulesOpenElsewhere: Bool = false
     @State private var braveKeyText: String = ""
-    @State private var hasBraveKey: Bool = false
-    @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
-    @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
@@ -28,15 +20,14 @@ struct SettingsPanel: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    if hasKey {
+                    if store.hasKey {
                         HStack {
                             Text("sk-ant-...configured")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Spacer()
                             VButton(label: "Clear", style: .danger) {
-                                APIKeyManager.deleteKey()
-                                hasKey = false
+                                store.clearAPIKey()
                                 apiKeyText = ""
                             }
                         }
@@ -67,10 +58,7 @@ struct SettingsPanel: View {
                             .foregroundColor(VColor.textMuted)
 
                         VButton(label: "Save", style: .primary) {
-                            let trimmed = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            APIKeyManager.setKey(trimmed)
-                            hasKey = true
+                            store.saveAPIKey(apiKeyText)
                             apiKeyText = ""
                         }
                     }
@@ -84,15 +72,14 @@ struct SettingsPanel: View {
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    if hasBraveKey {
+                    if store.hasBraveKey {
                         HStack {
                             Text("BSA...configured")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Spacer()
                             VButton(label: "Clear", style: .danger) {
-                                APIKeyManager.deleteKey(for: "brave")
-                                hasBraveKey = false
+                                store.clearBraveKey()
                                 braveKeyText = ""
                             }
                         }
@@ -123,10 +110,7 @@ struct SettingsPanel: View {
                             .foregroundColor(VColor.textMuted)
 
                         VButton(label: "Save", style: .primary) {
-                            let trimmed = braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            APIKeyManager.setKey(trimmed, for: "brave")
-                            hasBraveKey = true
+                            store.saveBraveKey(braveKeyText)
                             braveKeyText = ""
                         }
                     }
@@ -148,12 +132,12 @@ struct SettingsPanel: View {
                             .font(.system(size: 12))
                             .foregroundColor(VColor.textMuted)
                         Spacer()
-                        Text("\(Int(maxSteps))")
+                        Text("\(Int(store.maxSteps))")
                             .font(VFont.mono)
                             .foregroundColor(VColor.textSecondary)
                     }
 
-                    VSlider(value: $maxSteps, range: 1...100, step: 10, showTickMarks: true)
+                    VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: Slate._900)
@@ -172,10 +156,7 @@ struct SettingsPanel: View {
                             .font(.system(size: 12))
                             .foregroundColor(VColor.textMuted)
                         Spacer()
-                        VToggle(isOn: $ambientEnabled)
-                    }
-                    .onChange(of: ambientEnabled) { _, newValue in
-                        ambientAgent.isEnabled = newValue
+                        VToggle(isOn: $store.ambientEnabled)
                     }
                 }
                 .padding(VSpacing.lg)
@@ -246,9 +227,9 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
-                                isTrustRulesSheetOpen = true
+                                store.isTrustRulesSheetOpen = true
                             }
-                            .disabled(isTrustRulesSheetOpen || trustRulesOpenElsewhere)
+                            .disabled(store.isTrustRulesDisabled)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -276,19 +257,12 @@ struct SettingsPanel: View {
             }
         }
         .onAppear {
-            refreshAPIKeyState()
+            store.refreshAPIKeyState()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            refreshAPIKeyState()
-        }
-        .sheet(isPresented: $isTrustRulesSheetOpen) {
+        .sheet(isPresented: $store.isTrustRulesSheetOpen) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
-        }
-        .onReceive(daemonClient?.$isTrustRulesSheetOpen.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { isOpen in
-            // Only track whether trust rules opened from another surface, not this one
-            trustRulesOpenElsewhere = isOpen && !isTrustRulesSheetOpen
         }
     }
 
@@ -328,17 +302,13 @@ struct SettingsPanel: View {
         .padding(.vertical, VSpacing.md)
     }
 
-    private func refreshAPIKeyState() {
-        hasKey = APIKeyManager.getKey() != nil
-        hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
-    }
-
 }
 
 #Preview("SettingsPanel") {
+    let agent = AmbientAgent()
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsPanel(onClose: {}, ambientAgent: AmbientAgent())
+        SettingsPanel(onClose: {}, store: SettingsStore(ambientAgent: agent))
     }
     .frame(width: 600, height: 700)
 }
