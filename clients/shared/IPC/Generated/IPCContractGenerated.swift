@@ -331,6 +331,24 @@ public struct IPCFormSurfaceData: Codable, Sendable {
     public let submitLabel: String?
 }
 
+public struct IPCGalleryApp: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let description: String
+    public let icon: String
+    public let category: String
+    public let version: String
+    public let featured: Bool?
+    public let schemaJson: String
+    public let htmlDefinition: String
+}
+
+public struct IPCGalleryCategory: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let icon: String
+}
+
 public struct IPCGalleryInstallRequest: Codable, Sendable {
     public let type: String
     public let galleryAppId: String
@@ -351,6 +369,13 @@ public struct IPCGalleryListRequest: Codable, Sendable {
 public struct IPCGalleryListResponse: Codable, Sendable {
     public let type: String
     public let gallery: IPCGalleryManifest
+}
+
+public struct IPCGalleryManifest: Codable, Sendable {
+    public let version: Double
+    public let updatedAt: String
+    public let categories: [IPCGalleryCategory]
+    public let apps: [IPCGalleryApp]
 }
 
 public struct IPCGenerationCancelled: Codable, Sendable {
@@ -556,6 +581,63 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     public let signerKeyId: String?
     public let signerDisplayName: String?
     public let signerAccount: String?
+}
+
+public struct IPCPartial<CardSurfaceData>: Codable, Sendable {
+    public let title: String?
+    public let subtitle: String?
+    public let body: String?
+    public let metadata: [IPCPartial<CardSurfaceData>Metadata]?
+    /// Optional template name for specialized rendering (e.g. "weather_forecast").
+    public let template: String?
+    /// Arbitrary data consumed by the template renderer. Shape depends on template.
+    public let templateData: [String: AnyCodable]?
+}
+
+public struct IPCPartial<CardSurfaceData>Metadata: Codable, Sendable {
+    public let label: String
+    public let value: String
+}
+
+public struct IPCPartial<ConfirmationSurfaceData>: Codable, Sendable {
+    public let message: String?
+    public let detail: String?
+    public let confirmLabel: String?
+    public let cancelLabel: String?
+    public let destructive: Bool?
+}
+
+public struct IPCPartial<DynamicPageSurfaceData>: Codable, Sendable {
+    public let html: String?
+    public let width: Int?
+    public let height: Int?
+    public let appId: String?
+    public let preview: IPCDynamicPagePreview?
+}
+
+public struct IPCPartial<FileUploadSurfaceData>: Codable, Sendable {
+    public let prompt: String?
+    public let acceptedTypes: [String]?
+    public let maxFiles: Int?
+    public let maxSizeBytes: Int?
+}
+
+public struct IPCPartial<FormSurfaceData>: Codable, Sendable {
+    public let description: String?
+    public let fields: [IPCFormField]?
+    public let submitLabel: String?
+}
+
+public struct IPCPartial<ListSurfaceData>: Codable, Sendable {
+    public let items: [IPCListItem]?
+    public let selectionMode: String?
+}
+
+public struct IPCPartial<TableSurfaceData>: Codable, Sendable {
+    public let columns: [IPCTableColumn]?
+    public let rows: [IPCTableRow]?
+    public let selectionMode: String?
+    public let caption: String?
 }
 
 public struct IPCPingMessage: Codable, Sendable {

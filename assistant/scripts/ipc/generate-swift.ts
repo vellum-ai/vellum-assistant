@@ -121,6 +121,16 @@ function generateSchemas(): Record<string, SchemaDef> {
     }
   }
 
+  // Extract nested definitions from schemas (e.g. imported types referenced via $ref)
+  for (const schema of Object.values(result)) {
+    if (!schema.definitions) continue;
+    for (const [defName, defSchema] of Object.entries(schema.definitions)) {
+      if (!result[defName] && !SKIP_TYPES.has(defName)) {
+        result[defName] = defSchema;
+      }
+    }
+  }
+
   return result;
 }
 
