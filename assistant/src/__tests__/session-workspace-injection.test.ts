@@ -8,6 +8,7 @@ import type { AgentEvent } from '../agent/loop.js';
 
 let runCalls: Message[][] = [];
 let agentLoopScript: (onEvent: (event: AgentEvent) => void) => void = () => {};
+let scanCallCount = 0;
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -105,6 +106,14 @@ mock.module('../memory/profile-compiler.js', () => ({ compileDynamicProfile: () 
 mock.module('../memory/llm-usage-store.js', () => ({ recordUsageEvent: () => ({ id: 'usage-1', createdAt: Date.now() }) }));
 mock.module('../memory/app-store.js', () => ({ getApp: () => null, updateApp: () => {} }));
 
+mock.module('../workspace/top-level-scanner.js', () => ({
+  MAX_TOP_LEVEL_ENTRIES: 120,
+  scanTopLevelDirectories: (rootPath: string) => {
+    scanCallCount++;
+    return { rootPath, directories: ['src', 'tests', 'docs'], truncated: false };
+  },
+}));
+
 mock.module('../agent/loop.js', () => ({
   AgentLoop: class {
     constructor() {}
@@ -146,6 +155,7 @@ describe('Session workspace injection', () => {
   beforeEach(() => {
     runCalls = [];
     agentLoopScript = () => {};
+    scanCallCount = 0;
   });
 
   test('runtime messages include workspace top-level context', async () => {
@@ -212,5 +222,98 @@ describe('Session workspace injection', () => {
       (m) => m.role === 'user' && m.content.length === 0,
     );
     expect(emptyUserMsgs).toHaveLength(0);
+  });
+});
+
+describe('Session workspace dirty-refresh E2E', () => {
+  beforeEach(() => {
+    runCalls = [];
+    agentLoopScript = () => {};
+    scanCallCount = 0;
+  });
+
+  test('first turn computes snapshot', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+
+    expect(scanCallCount).toBe(1);
+    const text = messageText(runCalls[0][runCalls[0].length - 1]);
+    expect(text).toContain('src, tests, docs');
+  });
+
+  test('second turn without mutation reuses cache', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+    const afterFirst = scanCallCount;
+
+    await session.processMessage('Again', [], () => {});
+
+    // Scanner should NOT have been called again
+    expect(scanCallCount).toBe(afterFirst);
+  });
+
+  test('successful file_edit causes refresh next turn', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+    const afterFirst = scanCallCount;
+
+    // Simulate a turn where the agent uses file_edit
+    agentLoopScript = (onEvent) => {
+      onEvent({ type: 'tool_use', id: 'tu-1', name: 'file_edit', input: {} });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-1', content: [{ type: 'text', text: 'done' }], isError: false });
+    };
+    await session.processMessage('Edit a file', [], () => {});
+
+    // file_edit marks dirty, but scanner was not re-called yet (dirty happens mid-turn)
+    // Next turn should trigger a fresh scan
+    agentLoopScript = () => {};
+    await session.processMessage('What happened?', [], () => {});
+
+    expect(scanCallCount).toBeGreaterThan(afterFirst);
+  });
+
+  test('successful bash causes refresh next turn', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+    const afterFirst = scanCallCount;
+
+    agentLoopScript = (onEvent) => {
+      onEvent({ type: 'tool_use', id: 'tu-2', name: 'bash', input: {} });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-2', content: [{ type: 'text', text: 'ok' }], isError: false });
+    };
+    await session.processMessage('Run a command', [], () => {});
+
+    agentLoopScript = () => {};
+    await session.processMessage('What now?', [], () => {});
+
+    expect(scanCallCount).toBeGreaterThan(afterFirst);
+  });
+
+  test('failed tool results do not trigger refresh', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+    const afterFirst = scanCallCount;
+
+    agentLoopScript = (onEvent) => {
+      onEvent({ type: 'tool_use', id: 'tu-3', name: 'file_edit', input: {} });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-3', content: [{ type: 'text', text: 'error' }], isError: true });
+    };
+    await session.processMessage('Try editing', [], () => {});
+
+    agentLoopScript = () => {};
+    await session.processMessage('What happened?', [], () => {});
+
+    // Scanner should NOT have been re-called since the tool failed
+    expect(scanCallCount).toBe(afterFirst);
   });
 });
