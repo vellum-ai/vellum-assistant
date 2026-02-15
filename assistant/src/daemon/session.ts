@@ -51,6 +51,13 @@ import {
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
+import {
+  applyConflictResolution,
+  listPendingConflictDetails,
+  markConflictAsked,
+} from '../memory/conflict-store.js';
+import type { PendingConflictDetail } from '../memory/conflict-store.js';
+import { resolveConflictClarification } from '../memory/clarification-resolver.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -98,6 +105,11 @@ export interface QueuePolicy {
   checkpointHandoffEnabled: boolean;
 }
 
+interface ConflictGateDecision {
+  question: string;
+  relevant: boolean;
+}
+
 export class Session {
   public readonly conversationId: string;
   private provider: Provider;
@@ -120,6 +132,8 @@ export class Session {
   private contextCompactedAt: number | null = null;
   private currentRequestId?: string;
   private assistantId: string | null = null;
+  private conflictTurnCounter = 0;
+  private conflictLastAskedTurn = new Map<string, number>();
   private hasNoClient = false;
   private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
@@ -632,8 +646,40 @@ export class Session {
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
+      const conflictGate = await this.evaluateConflictGate(content, runtimeConfig);
+      if (conflictGate?.relevant) {
+        const clarificationOnlyResponse = [
+          conflictGate.question,
+          '',
+          'I need this clarification before I can give guidance that depends on that preference.',
+        ].join('\n');
+        const assistantMessage = createAssistantMessage(clarificationOnlyResponse);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(assistantMessage.content),
+        );
+        this.messages.push(assistantMessage);
+        onEvent({
+          type: 'assistant_text_delta',
+          text: clarificationOnlyResponse,
+          sessionId: this.conversationId,
+        });
+        this.traceEmitter.emit('message_complete', 'Conflict clarification requested (relevant)', {
+          requestId: reqId,
+          status: 'info',
+          attributes: { conflictGate: 'relevant' },
+        });
+        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        return;
+      }
+      const softConflictInstruction = conflictGate && !conflictGate.relevant
+        ? conflictGate.question
+        : null;
       const recallQuery = buildMemoryQuery(content, this.messages);
-      const recallBudget = runtimeConfig.memory.retrieval.dynamicBudget.enabled
+      const recallInjectionStrategy = runtimeConfig.memory?.retrieval?.injectionStrategy ?? 'prepend_user_block';
+      const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
+      const recallBudget = dynamicBudgetConfig?.enabled
         ? computeRecallBudget({
             estimatedPromptTokens: estimatePromptTokens(
               this.messages,
@@ -641,9 +687,9 @@ export class Session {
               { providerName: this.provider.name },
             ),
             maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
-            targetHeadroomTokens: runtimeConfig.memory.retrieval.dynamicBudget.targetHeadroomTokens,
-            minInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.minInjectTokens,
-            maxInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
+            targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
+            minInjectTokens: dynamicBudgetConfig.minInjectTokens,
+            maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
           })
         : undefined;
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
@@ -664,8 +710,7 @@ export class Session {
       if (recall.injectedText.length > 0) {
         const userTail = this.messages[this.messages.length - 1];
         if (userTail && userTail.role === 'user') {
-          const strategy = runtimeConfig.memory.retrieval.injectionStrategy;
-          if (strategy === 'separate_context_message') {
+          if (recallInjectionStrategy === 'separate_context_message') {
             runMessages = injectMemoryRecallAsSeparateMessage(this.messages, recall.injectedText);
           } else {
             runMessages = [
@@ -692,6 +737,16 @@ export class Session {
             latencyMs: recall.latencyMs,
             topCandidates: recall.topCandidates,
           });
+        }
+      }
+
+      if (softConflictInstruction) {
+        const userTail = runMessages[runMessages.length - 1];
+        if (userTail && userTail.role === 'user') {
+          runMessages = [
+            ...runMessages.slice(0, -1),
+            injectClarificationRequestIntoUserMessage(userTail, softConflictInstruction),
+          ];
         }
       }
 
@@ -972,7 +1027,7 @@ export class Session {
         return { ...msg, content: cleanedContent as ContentBlock[] };
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
-      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
+      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 
@@ -1572,6 +1627,71 @@ export class Session {
     }
   }
 
+  private async evaluateConflictGate(
+    userMessage: string,
+    runtimeConfig: ReturnType<typeof getConfig>,
+  ): Promise<ConflictGateDecision | null> {
+    const conflictConfig = runtimeConfig.memory?.conflicts;
+    if (!conflictConfig?.enabled || conflictConfig.gateMode !== 'soft') return null;
+
+    this.conflictTurnCounter += 1;
+    await this.resolvePendingConflictsFromUserTurn(userMessage, conflictConfig.resolverLlmTimeoutMs);
+
+    const pending = listPendingConflictDetails('default', 50);
+    if (pending.length === 0) return null;
+
+    const threshold = conflictConfig.relevanceThreshold;
+    const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
+    const scored = pending.map((conflict) => ({
+      conflict,
+      relevance: computeConflictRelevance(userMessage, conflict),
+    }));
+    const relevant = scored.filter((entry) => entry.relevance >= threshold);
+    const irrelevant = scored.filter((entry) => entry.relevance < threshold);
+    const ordered = [...relevant, ...irrelevant];
+
+    const askable = ordered.find((entry) => this.shouldAskConflict(entry.conflict.id, cooldownTurns));
+    if (!askable) return null;
+
+    this.conflictLastAskedTurn.set(askable.conflict.id, this.conflictTurnCounter);
+    markConflictAsked(askable.conflict.id);
+    return {
+      question: askable.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(askable.conflict),
+      relevant: askable.relevance >= threshold,
+    };
+  }
+
+  private async resolvePendingConflictsFromUserTurn(
+    userMessage: string,
+    resolverTimeoutMs: number,
+  ): Promise<void> {
+    const pending = listPendingConflictDetails('default', 25);
+    for (const conflict of pending) {
+      const resolution = await resolveConflictClarification(
+        {
+          existingStatement: conflict.existingStatement,
+          candidateStatement: conflict.candidateStatement,
+          userMessage,
+        },
+        { timeoutMs: resolverTimeoutMs },
+      );
+      if (resolution.resolution === 'still_unclear') continue;
+
+      applyConflictResolution({
+        conflictId: conflict.id,
+        resolution: resolution.resolution,
+        mergedStatement: resolution.resolution === 'merge' ? resolution.resolvedStatement : null,
+        resolutionNote: resolution.explanation,
+      });
+    }
+  }
+
+  private shouldAskConflict(conflictId: string, cooldownTurns: number): boolean {
+    const lastAskedTurn = this.conflictLastAskedTurn.get(conflictId);
+    if (lastAskedTurn === undefined) return true;
+    return this.conflictTurnCounter - lastAskedTurn >= cooldownTurns;
+  }
+
   private async surfaceProxyResolver(
     toolName: string,
     input: Record<string, unknown>,
@@ -1843,6 +1963,62 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
     }
   }
   return -1;
+}
+
+function injectClarificationRequestIntoUserMessage(message: Message, question: string): Message {
+  const instruction = [
+    '[Memory clarification request]',
+    `Ask this once in your response: ${question}`,
+    'After asking, continue helping with the current request.',
+  ].join('\n');
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      { type: 'text', text: `\n\n${instruction}` },
+    ],
+  };
+}
+
+function buildFallbackConflictQuestion(conflict: PendingConflictDetail): string {
+  return [
+    'I have two conflicting notes and need your confirmation.',
+    `A) ${conflict.existingStatement}`,
+    `B) ${conflict.candidateStatement}`,
+    'Which one should I keep?',
+  ].join('\n');
+}
+
+function computeConflictRelevance(
+  userMessage: string,
+  conflict: Pick<PendingConflictDetail, 'existingStatement' | 'candidateStatement'>,
+): number {
+  const queryTokens = tokenizeForConflictRelevance(userMessage);
+  if (queryTokens.size === 0) return 0;
+  const existingTokens = tokenizeForConflictRelevance(conflict.existingStatement);
+  const candidateTokens = tokenizeForConflictRelevance(conflict.candidateStatement);
+  return Math.max(
+    overlapRatio(queryTokens, existingTokens),
+    overlapRatio(queryTokens, candidateTokens),
+  );
+}
+
+function tokenizeForConflictRelevance(input: string): Set<string> {
+  const tokens = input
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+  return new Set(tokens);
+}
+
+function overlapRatio(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) return 0;
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) overlap += 1;
+  }
+  return overlap / Math.max(left.size, right.size);
 }
 
 const ORDERING_ERROR_PATTERNS = [

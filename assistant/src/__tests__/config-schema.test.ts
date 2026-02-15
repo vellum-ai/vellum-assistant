@@ -118,6 +118,24 @@ describe('AssistantConfigSchema', () => {
     expect(result.secretDetection.action).toBe('block');
   });
 
+  test('applies memory.conflicts defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.memory.conflicts).toEqual({
+      enabled: false,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    });
+  });
+
+  test('rejects invalid memory.conflicts.relevanceThreshold', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { relevanceThreshold: 2 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
   test('rejects invalid provider', () => {
     const result = AssistantConfigSchema.safeParse({ provider: 'invalid' });
     expect(result.success).toBe(false);

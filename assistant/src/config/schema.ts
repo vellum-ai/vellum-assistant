@@ -434,6 +434,30 @@ export const MemoryEntityConfigSchema = z.object({
   }),
 });
 
+export const MemoryConflictsConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.conflicts.enabled must be a boolean' })
+    .default(false),
+  gateMode: z
+    .enum(['soft'], { error: 'memory.conflicts.gateMode must be "soft"' })
+    .default('soft'),
+  reaskCooldownTurns: z
+    .number({ error: 'memory.conflicts.reaskCooldownTurns must be a number' })
+    .int('memory.conflicts.reaskCooldownTurns must be an integer')
+    .positive('memory.conflicts.reaskCooldownTurns must be a positive integer')
+    .default(3),
+  resolverLlmTimeoutMs: z
+    .number({ error: 'memory.conflicts.resolverLlmTimeoutMs must be a number' })
+    .int('memory.conflicts.resolverLlmTimeoutMs must be an integer')
+    .positive('memory.conflicts.resolverLlmTimeoutMs must be a positive integer')
+    .default(12000),
+  relevanceThreshold: z
+    .number({ error: 'memory.conflicts.relevanceThreshold must be a number' })
+    .min(0, 'memory.conflicts.relevanceThreshold must be >= 0')
+    .max(1, 'memory.conflicts.relevanceThreshold must be <= 1')
+    .default(0.3),
+});
+
 export const MemorySummarizationConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.summarization.useLLM must be a boolean' })
@@ -520,6 +544,13 @@ export const MemoryConfigSchema = z.object({
       maxEdges: 40,
       neighborScoreMultiplier: 0.7,
     },
+  }),
+  conflicts: MemoryConflictsConfigSchema.default({
+    enabled: false,
+    gateMode: 'soft',
+    reaskCooldownTurns: 3,
+    resolverLlmTimeoutMs: 12000,
+    relevanceThreshold: 0.3,
   }),
 });
 
@@ -666,6 +697,13 @@ export const AssistantConfigSchema = z.object({
         neighborScoreMultiplier: 0.7,
       },
     },
+    conflicts: {
+      enabled: false,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    },
   }),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
@@ -750,6 +788,7 @@ export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryExtractionConfig = z.infer<typeof MemoryExtractionConfigSchema>;
 export type MemorySummarizationConfig = z.infer<typeof MemorySummarizationConfigSchema>;
 export type MemoryEntityConfig = z.infer<typeof MemoryEntityConfigSchema>;
+export type MemoryConflictsConfig = z.infer<typeof MemoryConflictsConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type QdrantConfig = z.infer<typeof QdrantConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
