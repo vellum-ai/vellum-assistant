@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
-    @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = false
+    @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
     @Published var threads: [ThreadModel] = []
     @Published var activeThreadId: UUID? {
         didSet {
