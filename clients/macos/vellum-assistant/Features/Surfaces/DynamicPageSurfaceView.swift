@@ -519,7 +519,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             // changed since then (e.g. composer expanded). Apply the current desired values.
             let top = desiredTopInset
             let bottom = desiredBottomInset
-            guard top > 0 || bottom > 0 else { return }
+            guard top > 0 || bottom > 0 || lastTopInset > 0 || lastBottomInset > 0 else { return }
             lastTopInset = top
             lastBottomInset = bottom
             let fadeHeight = bottom + 32
