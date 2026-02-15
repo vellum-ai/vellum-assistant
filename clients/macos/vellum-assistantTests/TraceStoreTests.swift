@@ -202,7 +202,7 @@ struct TraceStoreTests {
     func toolFailureCount() {
         let store = TraceStore()
         store.ingest(makeEvent(eventId: "a", sequence: 1, kind: "tool_failed"))
-        store.ingest(makeEvent(eventId: "b", sequence: 2, kind: "tool_completed"))
+        store.ingest(makeEvent(eventId: "b", sequence: 2, kind: "tool_finished"))
         store.ingest(makeEvent(eventId: "c", sequence: 3, kind: "tool_failed"))
 
         #expect(store.toolFailureCount(sessionId: "s1") == 2)
@@ -279,10 +279,10 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // Populate two sessions with distinct events.
-        store.ingest(makeEvent(eventId: "s1-a", sessionId: "session-A", requestId: "rA", sequence: 1, kind: "request_started", summary: "Start A"))
+        store.ingest(makeEvent(eventId: "s1-a", sessionId: "session-A", requestId: "rA", sequence: 1, kind: "request_received", summary: "Start A"))
         store.ingest(makeEvent(eventId: "s1-b", sessionId: "session-A", requestId: "rA", sequence: 2, kind: "llm_call_finished", summary: "LLM A"))
 
-        store.ingest(makeEvent(eventId: "s2-a", sessionId: "session-B", requestId: "rB", sequence: 1, kind: "request_started", summary: "Start B"))
+        store.ingest(makeEvent(eventId: "s2-a", sessionId: "session-B", requestId: "rB", sequence: 1, kind: "request_received", summary: "Start B"))
         store.ingest(makeEvent(eventId: "s2-b", sessionId: "session-B", requestId: "rB", sequence: 2, kind: "tool_started", summary: "Tool B"))
         store.ingest(makeEvent(eventId: "s2-c", sessionId: "session-B", requestId: "rB", sequence: 3, kind: "tool_failed", summary: "Fail B"))
 
@@ -310,12 +310,12 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // Session 1 events.
-        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", sessionId: "s1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", sessionId: "s1", requestId: "r1", sequence: 2, kind: "llm_call_finished",
                                attributes: ["inputTokens": 100, "outputTokens": 50]))
 
         // Session 2 events.
-        store.ingest(makeEvent(eventId: "e3", sessionId: "s2", requestId: "r2", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e3", sessionId: "s2", requestId: "r2", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e4", sessionId: "s2", requestId: "r2", sequence: 2, kind: "tool_failed"))
 
         // Session 1 must not see session 2's events.
@@ -356,7 +356,7 @@ struct TraceStoreTests {
     func cancellationTerminalEvent() {
         let store = TraceStore()
 
-        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
         store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "generation_cancelled", summary: "Cancelled by user"))
 
@@ -370,7 +370,7 @@ struct TraceStoreTests {
     func errorTerminalEvent() {
         let store = TraceStore()
 
-        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
         store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_error", status: "error", summary: "API error"))
 
@@ -384,7 +384,7 @@ struct TraceStoreTests {
     func completedTerminalEvent() {
         let store = TraceStore()
 
-        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "message_complete"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
@@ -397,7 +397,7 @@ struct TraceStoreTests {
     func activeRequestGroup() {
         let store = TraceStore()
 
-        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
@@ -411,7 +411,7 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         // No terminal kind event, but an event with status "error".
-        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
+        store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_received"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "tool_failed", status: "error", summary: "tool crashed"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
