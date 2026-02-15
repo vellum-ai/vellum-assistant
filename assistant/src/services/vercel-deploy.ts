@@ -19,6 +19,7 @@ export async function deployHtmlToVercel(opts: {
       {
         file: 'index.html',
         data: Buffer.from(opts.html).toString('base64'),
+        encoding: 'base64',
       },
     ],
     projectSettings: { framework: null },
