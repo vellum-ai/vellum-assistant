@@ -226,6 +226,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'schedule_remove',
     id: 'sched-001',
   },
+  reminders_list: {
+    type: 'reminders_list',
+  },
+  reminder_cancel: {
+    type: 'reminder_cancel',
+    id: 'rem-001',
+  },
   bundle_app: {
     type: 'bundle_app',
     appId: 'app-001',
@@ -681,6 +688,21 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         lastRunAt: 1700000000000,
         lastStatus: 'ok',
         description: 'Every weekday at 9:00 AM',
+      },
+    ],
+  },
+  reminders_list_response: {
+    type: 'reminders_list_response',
+    reminders: [
+      {
+        id: 'rem-001',
+        label: 'Call Sidd',
+        message: 'Remember to call Sidd about the project',
+        fireAt: 1700100000000,
+        mode: 'notify',
+        status: 'pending',
+        firedAt: null,
+        createdAt: 1700000000000,
       },
     ],
   },

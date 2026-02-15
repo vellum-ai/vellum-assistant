@@ -913,6 +913,36 @@ extension IPCSchedulesListResponseSchedule: Identifiable {}
 /// Backed by generated `IPCSchedulesListResponse`.
 public typealias SchedulesListResponseMessage = IPCSchedulesListResponse
 
+/// A single reminder item returned from the daemon.
+/// Backed by generated `IPCRemindersListResponseReminder`.
+public typealias ReminderItem = IPCRemindersListResponseReminder
+
+extension IPCRemindersListResponseReminder: Identifiable {}
+
+/// Response containing all reminders.
+/// Backed by generated `IPCRemindersListResponse`.
+public typealias RemindersListResponseMessage = IPCRemindersListResponse
+
+/// Request all reminders from the daemon.
+/// Backed by generated `IPCRemindersList`.
+public typealias RemindersListMessage = IPCRemindersList
+
+extension IPCRemindersList {
+    public init() {
+        self.init(type: "reminders_list")
+    }
+}
+
+/// Cancel a reminder by ID.
+/// Backed by generated `IPCReminderCancel`.
+public typealias ReminderCancelMessage = IPCReminderCancel
+
+extension IPCReminderCancel {
+    public init(id: String) {
+        self.init(type: "reminder_cancel", id: id)
+    }
+}
+
 /// Request all schedules from the daemon.
 /// Backed by generated `IPCSchedulesList`.
 public typealias SchedulesListMessage = IPCSchedulesList
@@ -1285,6 +1315,7 @@ public enum ServerMessage: Decodable, Sendable {
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
@@ -1424,6 +1455,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "reminders_list_response":
+            let message = try RemindersListResponseMessage(from: decoder)
+            self = .remindersListResponse(message)
         case "schedules_list_response":
             let message = try SchedulesListResponseMessage(from: decoder)
             self = .schedulesListResponse(message)

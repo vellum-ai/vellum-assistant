@@ -107,6 +107,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `schedules_list_response` message.
     public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
 
+    /// Called when the daemon sends a `reminders_list_response` message.
+    public var onRemindersListResponse: (([ReminderItem]) -> Void)?
+
     /// Called when the daemon sends a `skills_state_changed` push event.
     public var onSkillStateChanged: ((SkillStateChangedMessage) -> Void)?
 
@@ -546,6 +549,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ScheduleRemoveMessage(id: id))
     }
 
+    // MARK: - Reminders Management
+
+    /// Request the list of all reminders from the daemon.
+    public func sendListReminders() throws {
+        try send(RemindersListMessage())
+    }
+
+    /// Cancel a reminder by its ID.
+    public func sendCancelReminder(id: String) throws {
+        try send(ReminderCancelMessage(id: id))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
@@ -848,6 +863,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTrustRulesListResponse?(msg.rules)
         case .schedulesListResponse(let msg):
             onSchedulesListResponse?(msg.schedules)
+        case .remindersListResponse(let msg):
+            onRemindersListResponse?(msg.reminders)
         case .skillStateChanged(let msg):
             onSkillStateChanged?(msg)
         case .skillsOperationResponse(let msg):
