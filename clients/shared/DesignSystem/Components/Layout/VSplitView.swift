@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct VSplitView<Main: View, Panel: View>: View {
     public let main: Main
@@ -38,6 +41,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
             .fill(Color.clear)
             .frame(width: VSpacing.sm)
             .contentShape(Rectangle())
+            #if os(macOS)
             .onHover { hovering in
                 if hovering {
                     NSCursor.resizeLeftRight.set()
@@ -45,6 +49,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     NSCursor.arrow.set()
                 }
             }
+            #endif
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($dragStartWidth) { _, state, _ in
