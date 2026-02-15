@@ -48,6 +48,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     @Published public var isConnected: Bool = false
 
+    /// Whether blob transport has been verified for this connection.
+    /// Resets to `false` on disconnect/reconnect. Only set to `true` after
+    /// a successful probe round-trip on macOS local-socket connections.
+    @Published public private(set) var isBlobTransportAvailable: Bool = false
+
     /// The runtime HTTP server port, populated via `daemon_status` on connect.
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
@@ -185,6 +190,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Pong timeout task handle.
     private var pongTimeoutTask: Task<Void, Never>?
 
+    /// Blob probe task handle — fire-and-forget after connect on macOS.
+    private var blobProbeTask: Task<Void, Never>?
+
+    /// The probe ID we're currently waiting for a response to.
+    /// Used to match ipc_blob_probe_result to the outstanding probe.
+    private var pendingProbeId: String?
+
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -214,6 +226,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         pingTask?.cancel()
         pongTimeoutTask?.cancel()
+        blobProbeTask?.cancel()
         connection?.cancel()
         for continuation in subscribers.values {
             continuation.finish()
@@ -315,6 +328,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                             self.reconnectDelay = 1.0
                             self.startReceiveLoop()
                             self.startPingTimer()
+                            #if os(macOS)
+                            self.runBlobProbe()
+                            #endif
                             checkedContinuation.resume()
                         }
 
@@ -634,6 +650,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         reconnectTask = nil
         stopPingTimer()
+        blobProbeTask?.cancel()
+        blobProbeTask = nil
+        pendingProbeId = nil
+        isBlobTransportAvailable = false
 
         if let conn = connection {
             conn.stateUpdateHandler = nil
@@ -732,6 +752,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
         }
 
+        // Handle blob probe result internally.
+        if case .ipcBlobProbeResult(let result) = message {
+            handleBlobProbeResult(result)
+        }
+
         // Forward surface messages to registered callbacks.
         switch message {
         case .uiSurfaceShow(let msg):
@@ -806,6 +831,61 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Broadcast to all subscribers.
         for continuation in subscribers.values {
             continuation.yield(message)
+        }
+    }
+
+    // MARK: - Blob Probe (macOS only)
+
+    #if os(macOS)
+    /// Initiate a blob probe after connecting. Writes a nonce file to the shared
+    /// blob directory and sends a probe message to the daemon. The daemon reads
+    /// the file, hashes it, and responds. If the hashes match, blob transport
+    /// is confirmed available for this connection.
+    private func runBlobProbe() {
+        blobProbeTask?.cancel()
+        isBlobTransportAvailable = false
+
+        blobProbeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let store = IpcBlobStore.shared
+            store.ensureDirectory()
+
+            guard let probe = store.writeProbeFile() else {
+                log.warning("Blob probe: failed to write probe file")
+                return
+            }
+
+            self.pendingProbeId = probe.probeId
+
+            do {
+                try self.send(IpcBlobProbeMessage(
+                    probeId: probe.probeId,
+                    nonceSha256: probe.nonceSha256
+                ))
+                log.info("Blob probe sent: \(probe.probeId)")
+            } catch {
+                log.warning("Blob probe: failed to send probe message: \(error.localizedDescription)")
+                self.pendingProbeId = nil
+            }
+        }
+    }
+    #endif
+
+    /// Process a blob probe result from the daemon.
+    private func handleBlobProbeResult(_ result: IpcBlobProbeResultMessage) {
+        guard result.probeId == pendingProbeId else {
+            log.warning("Blob probe: ignoring stale result for \(result.probeId) (expected \(self.pendingProbeId ?? "nil"))")
+            return
+        }
+        pendingProbeId = nil
+
+        if result.ok {
+            isBlobTransportAvailable = true
+            log.info("Blob transport verified for this connection")
+        } else {
+            isBlobTransportAvailable = false
+            log.warning("Blob probe failed: \(result.reason ?? "unknown")")
         }
     }
 

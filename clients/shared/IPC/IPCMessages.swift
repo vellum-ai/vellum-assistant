@@ -545,10 +545,10 @@ extension IPCMemoryRecalled {
         semanticHits: Double,
         recencyHits: Double,
         entityHits: Double,
-        relationSeedEntityCount: Double? = nil,
-        relationTraversedEdgeCount: Double? = nil,
-        relationNeighborEntityCount: Double? = nil,
-        relationExpandedItemCount: Double? = nil,
+        relationSeedEntityCount: Int? = nil,
+        relationTraversedEdgeCount: Int? = nil,
+        relationNeighborEntityCount: Int? = nil,
+        relationExpandedItemCount: Int? = nil,
         mergedCount: Int,
         selectedCount: Int,
         rerankApplied: Bool,
@@ -884,6 +884,16 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Request from daemon to sign a bundle payload.
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
+
+/// Blob probe request sent after connecting to verify filesystem reachability.
+/// Backed by generated `IPCIpcBlobProbe`.
+public typealias IpcBlobProbeMessage = IPCIpcBlobProbe
+
+extension IPCIpcBlobProbe {
+    public init(probeId: String, nonceSha256: String) {
+        self.init(type: "ipc_blob_probe", probeId: probeId, nonceSha256: nonceSha256)
+    }
+}
 
 /// Result from a blob probe verification.
 /// Backed by generated `IPCIpcBlobProbeResult`.
