@@ -13,6 +13,7 @@
     "ipc:inventory:update": "bun run scripts/ipc/check-contract-inventory.ts --update",
     "generate:ipc": "bun run scripts/ipc/generate-swift.ts",
     "check:ipc-generated": "bun run scripts/ipc/generate-swift.ts --check",
+    "ipc:check-swift-drift": "bun run scripts/ipc/check-swift-decoder-drift.ts",
     "lint": "eslint",
     "test": "bash scripts/test.sh",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh"
