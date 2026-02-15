@@ -1106,6 +1106,7 @@ public final class ChatViewModel: ObservableObject {
         guard daemonClient.isConnected else {
             log.warning("Cannot send cancel: daemon not connected")
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             isSending = false
             isThinking = false
             isCancelling = false
@@ -1139,6 +1140,7 @@ public final class ChatViewModel: ObservableObject {
             // messageComplete event will arrive from the daemon. Reset
             // all transient state now to avoid stuck UI.
             isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
             isSending = false
             isThinking = false
             isCancelling = false
