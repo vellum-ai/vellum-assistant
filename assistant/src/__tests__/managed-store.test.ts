@@ -25,6 +25,7 @@ import {
   createManagedSkill,
   deleteManagedSkill,
 } from '../skills/managed-store.js';
+import { loadSkillCatalog } from '../config/skills.js';
 
 beforeEach(() => {
   TEST_DIR = mkdtempSync(join(tmpdir(), 'managed-store-test-'));
@@ -134,6 +135,39 @@ describe('buildSkillMarkdown', () => {
       bodyMarkdown: 'Body.',
     });
     expect(result).toContain('name: "back\\\\slash"');
+  });
+
+  test('round-trips special characters through write and load', () => {
+    // Write a skill with special chars in name/description
+    createManagedSkill({
+      id: 'roundtrip-test',
+      name: 'Say "hello" & back\\slash',
+      description: 'Line1\nLine2\r\nLine3',
+      bodyMarkdown: 'Body content.',
+    });
+
+    // Load it back via loadSkillCatalog (which uses parseFrontmatter)
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, 'skills')]);
+    const skill = catalog.find((s) => s.id === 'roundtrip-test');
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe('Say "hello" & back\\slash');
+    expect(skill!.description).toBe('Line1\nLine2\r\nLine3');
+  });
+
+  test('round-trips backslash-n literal (not a newline) correctly', () => {
+    // A name containing a literal backslash followed by 'n' (not a newline)
+    const nameWithBackslashN = 'path\\name';
+    createManagedSkill({
+      id: 'backslash-n-test',
+      name: nameWithBackslashN,
+      description: 'test',
+      bodyMarkdown: 'Body.',
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, 'skills')]);
+    const skill = catalog.find((s) => s.id === 'backslash-n-test');
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe('path\\name');
   });
 });
 
