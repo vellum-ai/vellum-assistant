@@ -910,59 +910,66 @@ async function executeBrowserFillCredential(
   if (error) return { content: error, isError: true };
 
   const pressEnter = input.press_enter === true;
-  const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
-  // Extract domain from the current page for domain policy enforcement
-  let pageDomain: string | undefined;
   try {
-    const pageUrl = page.url();
-    if (pageUrl && pageUrl !== 'about:blank') {
-      const parsed = new URL(pageUrl);
-      pageDomain = parsed.hostname;
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    // Extract domain from the current page for domain policy enforcement
+    let pageDomain: string | undefined;
+    try {
+      const pageUrl = page.url();
+      if (pageUrl && pageUrl !== 'about:blank') {
+        const parsed = new URL(pageUrl);
+        pageDomain = parsed.hostname;
+      }
+    } catch {
+      // Invalid URL — pageDomain stays undefined, broker will deny if domain policy exists
     }
-  } catch {
-    // Invalid URL — pageDomain stays undefined, broker will deny if domain policy exists
+
+    const result = await credentialBroker.browserFill({
+      service,
+      field,
+      toolName: 'browser_fill_credential',
+      domain: pageDomain,
+      fill: async (value) => {
+        await page.fill(selector!, value);
+      },
+    });
+
+    if (!result.success) {
+      const reason = result.reason ?? 'unknown error';
+      if (reason.includes('No credential found') || reason.includes('no stored value')) {
+        return {
+          content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
+          isError: true,
+        };
+      }
+      if (reason.includes('not allowed to use credential')) {
+        return {
+          content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
+          isError: true,
+        };
+      }
+      if (reason.includes('not allowed for credential') || reason.includes('no page domain was provided')) {
+        return {
+          content: `Domain policy denied: ${reason} Navigate to an allowed domain before filling this credential.`,
+          isError: true,
+        };
+      }
+      log.error({ selector, reason }, 'Fill credential failed');
+      return { content: `Error: Fill credential failed: ${reason}`, isError: true };
+    }
+
+    if (pressEnter) {
+      await page.press(selector!, 'Enter');
+    }
+
+    return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Fill credential failed');
+    return { content: `Error: Fill credential failed: ${msg}`, isError: true };
   }
-
-  const result = await credentialBroker.browserFill({
-    service,
-    field,
-    toolName: 'browser_fill_credential',
-    domain: pageDomain,
-    fill: async (value) => {
-      await page.fill(selector!, value);
-    },
-  });
-
-  if (!result.success) {
-    const reason = result.reason ?? 'unknown error';
-    if (reason.includes('No credential found') || reason.includes('no stored value')) {
-      return {
-        content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
-        isError: true,
-      };
-    }
-    if (reason.includes('not allowed to use credential')) {
-      return {
-        content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
-        isError: true,
-      };
-    }
-    if (reason.includes('not allowed for credential') || reason.includes('no page domain was provided')) {
-      return {
-        content: `Domain policy denied: ${reason} Navigate to an allowed domain before filling this credential.`,
-        isError: true,
-      };
-    }
-    log.error({ selector, reason }, 'Fill credential failed');
-    return { content: `Error: Fill credential failed: ${reason}`, isError: true };
-  }
-
-  if (pressEnter) {
-    await page.press(selector!, 'Enter');
-  }
-
-  return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
 }
 
 class BrowserFillCredentialTool implements Tool {
