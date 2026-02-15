@@ -339,6 +339,10 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
             // Handle openExternal requests from the JS bridge.
             if let type = body["type"] as? String, type == "open_external" {
+                if sandboxMode {
+                    log.warning("open_external: blocked in sandbox mode")
+                    return
+                }
                 guard let urlString = body["url"] as? String,
                       let url = URL(string: urlString),
                       let scheme = url.scheme?.lowercased(),
@@ -369,6 +373,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 let safeId = confirmId
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
                 let js = "window.vellum._resolveConfirm('\(safeId)', \(confirmed))"
                 webView?.evaluateJavaScript(js) { _, error in
                     if let error {
