@@ -102,12 +102,9 @@ struct MainWindowView: View {
                                         }
                                         .id("toolbar-doctor")
                                     }
+                                    .animation(nil, value: columnVisibility)
                                 }
                             }
-                    }
-                    .transaction { transaction in
-                        // Disable toolbar animations during sidebar transitions
-                        transaction.animation = nil
                     }
                 } else {
                     // Tab mode: Traditional layout
