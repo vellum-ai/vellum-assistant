@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { getDataDir } from '../util/platform.js';
+import { join } from 'node:path';
+import { getDataDir, getRootDir } from '../util/platform.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block'] as const;
@@ -23,6 +24,32 @@ export const TimeoutConfigSchema = z.object({
     .finite('timeouts.permissionTimeoutSec must be finite')
     .positive('timeouts.permissionTimeoutSec must be a positive number')
     .default(300),
+});
+
+export const NetworkConfigSchema = z.object({
+  tcpEnabled: z
+    .boolean({ error: 'network.tcpEnabled must be a boolean' })
+    .default(false),
+  tcpHost: z
+    .string({ error: 'network.tcpHost must be a string' })
+    .default('127.0.0.1'),
+  tcpPort: z
+    .number({ error: 'network.tcpPort must be a number' })
+    .int('network.tcpPort must be an integer')
+    .positive('network.tcpPort must be a positive integer')
+    .max(65535, 'network.tcpPort must be <= 65535')
+    .default(8765),
+  tlsEnabled: z
+    .boolean({ error: 'network.tlsEnabled must be a boolean' })
+    .default(true),
+  tlsCertPath: z
+    .string({ error: 'network.tlsCertPath must be a string' })
+    .transform((val) => val || join(getRootDir(), 'certs', 'daemon.crt'))
+    .default(''),
+  tlsKeyPath: z
+    .string({ error: 'network.tlsKeyPath must be a string' })
+    .transform((val) => val || join(getRootDir(), 'certs', 'daemon.key'))
+    .default(''),
 });
 
 export const DockerConfigSchema = z.object({
@@ -570,6 +597,14 @@ export const AssistantConfigSchema = z.object({
     shellDefaultTimeoutSec: 120,
     permissionTimeoutSec: 300,
   }),
+  network: NetworkConfigSchema.default({
+    tcpEnabled: false,
+    tcpHost: '127.0.0.1',
+    tcpPort: 8765,
+    tlsEnabled: true,
+    tlsCertPath: '',
+    tlsKeyPath: '',
+  }),
   sandbox: SandboxConfigSchema.default({
     enabled: true,
     backend: 'docker',
@@ -622,6 +657,7 @@ export const AssistantConfigSchema = z.object({
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
+export type NetworkConfig = z.infer<typeof NetworkConfigSchema>;
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
 export type DockerConfig = z.infer<typeof DockerConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;

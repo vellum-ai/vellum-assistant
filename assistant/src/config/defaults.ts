@@ -85,6 +85,14 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
   },
+  network: {
+    tcpEnabled: false,
+    tcpHost: '127.0.0.1',
+    tcpPort: 8765,
+    tlsEnabled: true,
+    tlsCertPath: '',
+    tlsKeyPath: '',
+  },
   sandbox: {
     enabled: true,
     // SANDBOX M11 cutover: Docker is now the default backend. It provides

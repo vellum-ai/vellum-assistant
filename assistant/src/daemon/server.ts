@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import * as tls from 'node:tls';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { getSocketPath, getRootDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
@@ -23,11 +24,13 @@ import {
 import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { ensureCertificates, readCertificates } from '../security/tls-certs.js';
 
 const log = getLogger('server');
 
 export class DaemonServer {
   private server: net.Server | null = null;
+  private tcpServer: net.Server | tls.Server | null = null;
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
@@ -68,16 +71,26 @@ export class DaemonServer {
 
     this.startFileWatchers();
 
+    // Start Unix socket server (always enabled for backward compatibility)
+    await this.startUnixSocketServer();
+
+    // Start TCP/TLS server if enabled
+    if (config.network.tcpEnabled) {
+      await this.startTcpServer(config.network);
+    }
+  }
+
+  private async startUnixSocketServer(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
-        this.handleConnection(socket);
+        this.handleConnection(socket, 'unix');
       });
 
       const oldUmask = process.umask(0o177);
 
       this.server.once('error', (err) => {
         process.umask(oldUmask);
-        log.error({ err, socketPath: this.socketPath }, 'Server failed to start (is another daemon already running?)');
+        log.error({ err, socketPath: this.socketPath }, 'Unix socket server failed to start (is another daemon already running?)');
         reject(err);
       });
 
@@ -86,13 +99,75 @@ export class DaemonServer {
         // Replace the one-shot startup handler with a permanent one
         this.server!.removeAllListeners('error');
         this.server!.on('error', (err) => {
-          log.error({ err, socketPath: this.socketPath }, 'Server socket error while running');
+          log.error({ err, socketPath: this.socketPath }, 'Unix socket server error while running');
         });
         chmodSync(this.socketPath, 0o600);
-        log.info({ socketPath: this.socketPath }, 'Daemon server listening');
+        log.info({ socketPath: this.socketPath }, 'Daemon Unix socket server listening');
         resolve();
       });
     });
+  }
+
+  private async startTcpServer(networkConfig: { tcpHost: string; tcpPort: number; tlsEnabled: boolean; tlsCertPath: string; tlsKeyPath: string }): Promise<void> {
+    const { tcpHost, tcpPort, tlsEnabled, tlsCertPath, tlsKeyPath } = networkConfig;
+
+    if (tlsEnabled) {
+      // Ensure TLS certificates exist
+      await ensureCertificates(tlsCertPath, tlsKeyPath);
+      const { cert, key } = readCertificates(tlsCertPath, tlsKeyPath);
+
+      return new Promise((resolve, reject) => {
+        this.tcpServer = tls.createServer(
+          {
+            cert,
+            key,
+            // Allow self-signed certificates (for development)
+            requestCert: false,
+            rejectUnauthorized: false,
+          },
+          (socket) => {
+            this.handleConnection(socket, 'tcp-tls');
+          }
+        );
+
+        this.tcpServer.once('error', (err) => {
+          log.error({ err, host: tcpHost, port: tcpPort }, 'TCP/TLS server failed to start');
+          reject(err);
+        });
+
+        this.tcpServer.listen(tcpPort, tcpHost, () => {
+          // Replace the one-shot startup handler with a permanent one
+          this.tcpServer!.removeAllListeners('error');
+          this.tcpServer!.on('error', (err) => {
+            log.error({ err, host: tcpHost, port: tcpPort }, 'TCP/TLS server error while running');
+          });
+          log.info({ host: tcpHost, port: tcpPort, tls: true }, 'Daemon TCP/TLS server listening');
+          resolve();
+        });
+      });
+    } else {
+      // Plain TCP (no TLS)
+      return new Promise((resolve, reject) => {
+        this.tcpServer = net.createServer((socket) => {
+          this.handleConnection(socket, 'tcp');
+        });
+
+        this.tcpServer.once('error', (err) => {
+          log.error({ err, host: tcpHost, port: tcpPort }, 'TCP server failed to start');
+          reject(err);
+        });
+
+        this.tcpServer.listen(tcpPort, tcpHost, () => {
+          // Replace the one-shot startup handler with a permanent one
+          this.tcpServer!.removeAllListeners('error');
+          this.tcpServer!.on('error', (err) => {
+            log.error({ err, host: tcpHost, port: tcpPort }, 'TCP server error while running');
+          });
+          log.info({ host: tcpHost, port: tcpPort, tls: false }, 'Daemon TCP server listening');
+          resolve();
+        });
+      });
+    }
   }
 
   async stop(): Promise<void> {
@@ -110,6 +185,17 @@ export class DaemonServer {
           } catch (err) {
             log.warn({ err, socketPath: this.socketPath }, 'Failed to remove socket file during shutdown');
           }
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+
+    const tcpServerClosed = new Promise<void>((resolve) => {
+      if (this.tcpServer) {
+        this.tcpServer.close(() => {
+          log.info('TCP server closed');
           resolve();
         });
       } else {
@@ -137,7 +223,7 @@ export class DaemonServer {
     this.socketToSession.clear();
     this.socketSandboxOverride.clear();
 
-    await serverClosed;
+    await Promise.all([serverClosed, tcpServerClosed]);
     log.info('Daemon server stopped');
   }
 
@@ -363,8 +449,8 @@ export class DaemonServer {
     log.info({ dir: skillsDir }, 'Watching skills directory with non-recursive fallback');
   }
 
-  private handleConnection(socket: net.Socket): void {
-    log.info('Client connected');
+  private handleConnection(socket: net.Socket, connectionType: 'unix' | 'tcp' | 'tcp-tls'): void {
+    log.info({ connectionType, remoteAddress: socket.remoteAddress }, 'Client connected');
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
@@ -417,11 +503,11 @@ export class DaemonServer {
         }
       }
       this.socketToCuSession.delete(socket);
-      log.info('Client disconnected');
+      log.info({ connectionType }, 'Client disconnected');
     });
 
     socket.on('error', (err) => {
-      log.error({ err, remoteAddress: socket.remoteAddress }, 'Client socket error');
+      log.error({ err, remoteAddress: socket.remoteAddress, connectionType }, 'Client socket error');
     });
   }
 
