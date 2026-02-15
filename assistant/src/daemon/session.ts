@@ -867,9 +867,13 @@ export class Session {
           }
         }
       }
+      // Refresh workspace top-level context before injection
+      this.refreshWorkspaceTopLevelContextIfNeeded();
+
       runMessages = applyRuntimeInjections(runMessages, {
         softConflictInstruction,
         activeSurface,
+        workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
