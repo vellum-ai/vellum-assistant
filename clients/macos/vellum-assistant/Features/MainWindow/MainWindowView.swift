@@ -11,6 +11,8 @@ struct MainWindowView: View {
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
+    @State private var isBundling = false
+    @State private var shareFileURL: URL?
     @State private var isHoveredThread: UUID?
     @State private var threadMenuOpenId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
@@ -52,6 +54,25 @@ struct MainWindowView: View {
     private func pageURL(for appId: String) -> URL? {
         guard let port = daemonClient.httpPort else { return nil }
         return URL(string: "http://localhost:\(port)/pages/\(appId)")
+    }
+
+    private func bundleAndShare(appId: String) {
+        guard !isBundling else { return }
+        isBundling = true
+
+        Task { @MainActor in
+            daemonClient.onBundleAppResponse = { response in
+                self.shareFileURL = URL(fileURLWithPath: response.bundlePath)
+                self.isBundling = false
+                self.showSharePicker = true
+            }
+
+            do {
+                try daemonClient.sendBundleApp(appId: appId)
+            } catch {
+                isBundling = false
+            }
+        }
     }
 
     var body: some View {
@@ -566,38 +587,42 @@ struct MainWindowView: View {
 
                     Spacer()
 
-                    // Share button — floating circle, only when appId + page URL exist
-                    if let appId = data.appId, let shareURL = pageURL(for: appId) {
-                        Menu {
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
-                            } label: {
-                                Label("Copy Link", systemImage: "doc.on.doc")
+                    // Share button — bundle app and share via system share sheet
+                    if let appId = data.appId {
+                        Button(action: {
+                            bundleAndShare(appId: appId)
+                        }) {
+                            Group {
+                                if isBundling {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
                             }
-                            Button {
-                                showSharePicker = true
-                            } label: {
-                                Label("Share\u{2026}", systemImage: "square.and.arrow.up")
-                            }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textPrimary)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Circle()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
+                            .foregroundColor(VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
                         }
-                        .menuStyle(.borderlessButton)
-                        .frame(width: 32)
+                        .buttonStyle(.plain)
+                        .disabled(isBundling)
                         .accessibilityLabel("Share")
                         .background(
                             ShareSheetButton(
-                                items: [shareURL],
-                                isPresented: $showSharePicker
+                                items: shareFileURL != nil ? [shareFileURL!] : [],
+                                isPresented: Binding(
+                                    get: { showSharePicker },
+                                    set: { newValue in
+                                        showSharePicker = newValue
+                                        if !newValue { shareFileURL = nil }
+                                    }
+                                )
                             )
                             .frame(width: 1, height: 1)
                         )
