@@ -46,12 +46,13 @@ mock.module('../config/loader.js', () => ({
 }));
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
+import { getMemoryCheckpoint } from '../memory/checkpoints.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
-import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
+import { claimMemoryJobs, enqueueBackfillEntityRelationsJob, enqueueMemoryJob } from '../memory/jobs-store.js';
 import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
@@ -1098,6 +1099,97 @@ describe('Memory V2 regressions', () => {
     expect(forceRow).not.toBeNull();
     expect(JSON.parse(resumeRow?.payload ?? '{}')).toMatchObject({ force: false });
     expect(JSON.parse(forceRow?.payload ?? '{}')).toMatchObject({ force: true });
+  });
+
+  test('relation backfill enqueue is deduped and force upgrades payload', () => {
+    const db = getDb();
+
+    const firstId = enqueueBackfillEntityRelationsJob();
+    const secondId = enqueueBackfillEntityRelationsJob();
+    expect(secondId).toBe(firstId);
+
+    const upgradedId = enqueueBackfillEntityRelationsJob(true);
+    expect(upgradedId).toBe(firstId);
+
+    const row = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, firstId))
+      .get();
+    expect(row).not.toBeUndefined();
+    expect(JSON.parse(row?.payload ?? '{}')).toMatchObject({ force: true });
+  });
+
+  test('relation backfill advances checkpoints in deterministic batches', async () => {
+    const db = getDb();
+    const now = 1_700_001_000_000;
+    const originalEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    const originalBatchSize = TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = 2;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-rel-backfill',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values([
+        {
+          id: 'msg-rel-backfill-1',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Project Atlas uses Qdrant for memory search.' }]),
+          createdAt: now + 1,
+        },
+        {
+          id: 'msg-rel-backfill-2',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Atlas collaborates with Orion.' }]),
+          createdAt: now + 2,
+        },
+        {
+          id: 'msg-rel-backfill-3',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Orion depends on Redis caching.' }]),
+          createdAt: now + 3,
+        },
+      ]).run();
+
+      enqueueBackfillEntityRelationsJob(true);
+
+      const firstProcessed = await runMemoryJobsOnce();
+      expect(firstProcessed).toBe(1);
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_created_at')).toBe(String(now + 2));
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_message_id')).toBe('msg-rel-backfill-2');
+
+      db.run(`DELETE FROM memory_jobs WHERE type = 'extract_entities' AND status = 'pending'`);
+
+      const secondProcessed = await runMemoryJobsOnce();
+      expect(secondProcessed).toBe(1);
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_created_at')).toBe(String(now + 3));
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_message_id')).toBe('msg-rel-backfill-3');
+
+      const pendingBackfill = db
+        .select()
+        .from(memoryJobs)
+        .where(and(eq(memoryJobs.type, 'backfill_entity_relations'), eq(memoryJobs.status, 'pending')))
+        .all();
+      expect(pendingBackfill).toHaveLength(0);
+    } finally {
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = originalBatchSize;
+    }
   });
 
   test('memory recall token budgeting includes recall marker overhead', async () => {

@@ -392,8 +392,14 @@ export const MemoryEntityConfigSchema = z.object({
     enabled: z
       .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
       .default(false),
+    backfillBatchSize: z
+      .number({ error: 'memory.entity.extractRelations.backfillBatchSize must be a number' })
+      .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
+      .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
+      .default(200),
   }).default({
     enabled: false,
+    backfillBatchSize: 200,
   }),
 });
 
@@ -474,6 +480,7 @@ export const MemoryConfigSchema = z.object({
     model: 'claude-haiku-4-5-20251001',
     extractRelations: {
       enabled: false,
+      backfillBatchSize: 200,
     },
   }),
 });
@@ -611,6 +618,7 @@ export const AssistantConfigSchema = z.object({
       model: 'claude-haiku-4-5-20251001',
       extractRelations: {
         enabled: false,
+        backfillBatchSize: 200,
       },
     },
   }),

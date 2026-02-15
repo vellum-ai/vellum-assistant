@@ -502,6 +502,7 @@ graph TB
         EMBED_SUM["embed_summary<br/>→ memory_embeddings"]
         EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
         EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
+        BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
         WEEKLY["refresh_weekly_summary<br/>→ memory_summaries"]
     end
@@ -543,6 +544,7 @@ graph TB
     WORKER --> EMBED_SUM
     WORKER --> EXTRACT
     WORKER --> EXTRACT_ENTITIES
+    WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM
     WORKER --> WEEKLY
     EXTRACT --> EXTRACT_ENTITIES

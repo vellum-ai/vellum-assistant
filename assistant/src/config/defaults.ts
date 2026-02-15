@@ -85,6 +85,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       model: 'claude-haiku-4-5-20251001',
       extractRelations: {
         enabled: false,
+        backfillBatchSize: 200,
       },
     },
   },
