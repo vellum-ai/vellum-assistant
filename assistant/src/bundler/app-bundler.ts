@@ -9,7 +9,7 @@ import { createWriteStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import archiver from 'archiver';
 import JSZip from 'jszip';
 import { getApp } from '../memory/app-store.js';
@@ -18,6 +18,7 @@ import { serializeManifest } from './manifest.js';
 import { signBundle } from './bundle-signer.js';
 import type { SigningCallback } from './bundle-signer.js';
 import { getLogger } from '../util/logger.js';
+import { computeContentId } from '../util/content-id.js';
 
 const bundlerLog = getLogger('app-bundler');
 
@@ -52,10 +53,7 @@ export async function packageApp(
   // Build manifest
   const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
   const version = app.version ?? '1.0.0';
-  const contentId = createHash('sha256')
-    .update(`${createdBy}:${app.name}`)
-    .digest('hex')
-    .slice(0, 16);
+  const contentId = computeContentId(app.name);
 
   const manifest: AppManifest = {
     format_version: 1,

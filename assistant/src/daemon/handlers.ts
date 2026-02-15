@@ -55,6 +55,7 @@ import type {
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
+import { computeContentId } from '../util/content-id.js';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -1665,10 +1666,7 @@ function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
       type: 'apps_list_response',
       apps: apps.map((a) => {
         const version = a.version ?? '1.0.0';
-        const contentId = createHash('sha256')
-          .update(`vellum-assistant:${a.name}`)
-          .digest('hex')
-          .slice(0, 16);
+        const contentId = computeContentId(a.name);
         return {
           id: a.id,
           name: a.name,
