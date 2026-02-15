@@ -133,3 +133,35 @@ export function linkAttachmentToMessage(
     })
     .run();
 }
+
+/**
+ * Return all attachments linked to a message, ordered by position.
+ */
+export function getAttachmentsForMessage(
+  messageId: string,
+  assistantId: string,
+): Array<StoredAttachment & { dataBase64: string }> {
+  const db = getDb();
+  const links = db
+    .select({ attachmentId: messageAttachments.attachmentId, position: messageAttachments.position })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .orderBy(messageAttachments.position)
+    .all();
+
+  if (links.length === 0) return [];
+
+  const ids = links.map((l) => l.attachmentId).filter((id): id is string => id !== null);
+  return getAttachmentsByIds(assistantId, ids);
+}
+
+/**
+ * Retrieve a single attachment by ID, scoped to an assistant.
+ */
+export function getAttachmentById(
+  assistantId: string,
+  attachmentId: string,
+): (StoredAttachment & { dataBase64: string }) | null {
+  const results = getAttachmentsByIds(assistantId, [attachmentId]);
+  return results[0] ?? null;
+}

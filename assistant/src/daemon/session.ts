@@ -10,6 +10,7 @@ import type { CheckpointDecision } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
@@ -557,6 +558,7 @@ export class Session {
       const accumulatedDirectives: DirectiveRequest[] = [];
       const accumulatedToolContentBlocks: ContentBlock[] = [];
       const directiveWarnings: string[] = [];
+      let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
@@ -709,11 +711,12 @@ export class Session {
             directiveWarnings.push(...msgWarnings);
 
             // Save assistant message with cleaned content (tags stripped)
-            conversationStore.addMessage(
+            const assistantMsg = conversationStore.addMessage(
               this.conversationId,
               'assistant',
               JSON.stringify(cleanedContent),
             );
+            lastAssistantMessageId = assistantMsg.id;
 
             // Emit assistant_message trace with content metrics.
             // Char count only includes text blocks; thinking blocks are
@@ -882,7 +885,23 @@ export class Session {
         assistantAttachments = validated.accepted;
       }
 
-      // Store resolved attachments on the session for PR 6 (persistence)
+      // Persist resolved attachments and link to the last assistant message
+      if (assistantAttachments.length > 0 && lastAssistantMessageId) {
+        const assistantId = getApp()?.id;
+        if (assistantId) {
+          for (let i = 0; i < assistantAttachments.length; i++) {
+            const draft = assistantAttachments[i];
+            const stored = uploadAttachment(
+              assistantId,
+              draft.filename,
+              draft.mimeType,
+              draft.dataBase64,
+            );
+            linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
+          }
+        }
+      }
+
       this.lastAssistantAttachments = assistantAttachments;
       this.lastAttachmentWarnings = directiveWarnings;
 
