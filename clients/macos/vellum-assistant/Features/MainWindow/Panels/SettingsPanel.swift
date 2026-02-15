@@ -9,6 +9,7 @@ struct SettingsPanel: View {
 
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
+    @State private var showingTrustRules = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
@@ -227,9 +228,9 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
-                                store.isTrustRulesSheetOpen = true
+                                showingTrustRules = true
                             }
-                            .disabled(store.isTrustRulesDisabled)
+                            .disabled(store.isAnyTrustRulesSheetOpen)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -259,7 +260,7 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
         }
-        .sheet(isPresented: $store.isTrustRulesSheetOpen) {
+        .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
             }
