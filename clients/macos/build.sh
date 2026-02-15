@@ -351,26 +351,59 @@ if [ "$CMD" = "run" ]; then
     # Watch for file changes and auto-rebuild+relaunch (skip in nested invocations)
     if [ -z "${VELLUM_NO_WATCH:-}" ]; then
         WATCH_MARKER=$(mktemp)
+        WATCH_MANIFEST=$(mktemp)
         touch "$WATCH_MARKER"
-        trap 'rm -f "$WATCH_MARKER"' EXIT
+        trap 'rm -f "$WATCH_MARKER" "$WATCH_MANIFEST"' EXIT
+
+        WATCH_DIRS=("$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app")
+        WATCH_FILES=("$SCRIPT_DIR/../Package.swift")
+
+        # Snapshot current watched files so we can detect deletions
+        snapshot_watched_files() {
+            find "${WATCH_DIRS[@]}" "${WATCH_FILES[@]}" \
+                -not -path '*/.build/*' \
+                -not -path '*/dist/*' \
+                \( -name "*.swift" -o -name "*.xcassets" -o -path "*.xcassets/*" \) \
+                2>/dev/null | sort > "$WATCH_MANIFEST"
+        }
+        snapshot_watched_files
 
         echo ""
         echo "Watching for changes... (Ctrl+C to stop)"
         while true; do
             sleep 2
-            # Look for any .swift or Package.swift changes (stop at first match for speed)
-            CHANGED=$(find "$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app" "$SCRIPT_DIR/Package.swift" \
+
+            CHANGED=""
+
+            # Detect modifications: .swift files, .xcassets dirs, or files inside .xcassets
+            CHANGED=$(find "${WATCH_DIRS[@]}" "${WATCH_FILES[@]}" \
                 -not -path '*/.build/*' \
                 -not -path '*/dist/*' \
-                \( -name "*.swift" -o -name "*.xcassets" \) \
+                \( -name "*.swift" -o -name "*.xcassets" -o -path "*.xcassets/*" \) \
                 -newer "$WATCH_MARKER" \
                 -print -quit 2>/dev/null || true)
+
+            # Detect deletions: compare current file list against previous snapshot
+            if [ -z "$CHANGED" ]; then
+                CURRENT_MANIFEST=$(mktemp)
+                find "${WATCH_DIRS[@]}" "${WATCH_FILES[@]}" \
+                    -not -path '*/.build/*' \
+                    -not -path '*/dist/*' \
+                    \( -name "*.swift" -o -name "*.xcassets" -o -path "*.xcassets/*" \) \
+                    2>/dev/null | sort > "$CURRENT_MANIFEST"
+                if ! diff -q "$WATCH_MANIFEST" "$CURRENT_MANIFEST" > /dev/null 2>&1; then
+                    CHANGED="(file added or removed)"
+                fi
+                rm -f "$CURRENT_MANIFEST"
+            fi
+
             if [ -n "$CHANGED" ]; then
                 echo ""
                 echo "───────────────────────────────────"
                 echo "Change detected, rebuilding..."
                 echo "───────────────────────────────────"
                 touch "$WATCH_MARKER"
+                snapshot_watched_files
                 if VELLUM_NO_WATCH=1 "$0" run; then
                     echo "✓ Rebuilt and relaunched"
                 else
