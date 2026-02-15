@@ -77,8 +77,9 @@ public struct InlineSurfaceRouter: View {
             }
         }
         .vShadow(VShadow.sm)
-        // Dynamic page previews should wrap their content, not stretch to fill
-        .fixedSize(horizontal: isDynamicPreview, vertical: false)
+        // Dynamic page previews should be compact, not stretch to fill.
+        // Use maxWidth instead of fixedSize so narrow parent views still constrain the card.
+        .frame(maxWidth: isDynamicPreview ? 350 : .infinity, alignment: .leading)
     }
 
     @ViewBuilder
