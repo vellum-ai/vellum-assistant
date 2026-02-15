@@ -30,6 +30,10 @@ public final class TraceStore: ObservableObject {
     /// All events per session, in stable order.
     @Published public private(set) var eventsBySession: [String: [StoredEvent]] = [:]
 
+    /// The ID of the most recently ingested event per session. Unlike `eventsBySession[sid]?.count`,
+    /// this always changes on ingestion even when the retention cap holds count constant.
+    @Published public private(set) var latestEventIdBySession: [String: String] = [:]
+
     /// Set of seen eventIds per session for dedup.
     private var seenIds: [String: Set<String>] = [:]
 
@@ -79,6 +83,7 @@ public final class TraceStore: ObservableObject {
         }
 
         eventsBySession[sid] = events
+        latestEventIdBySession[sid] = event.id
     }
 
     // MARK: - Queries
@@ -183,12 +188,14 @@ public final class TraceStore: ObservableObject {
     /// Remove all events for a given session.
     public func resetSession(sessionId: String) {
         eventsBySession.removeValue(forKey: sessionId)
+        latestEventIdBySession.removeValue(forKey: sessionId)
         seenIds.removeValue(forKey: sessionId)
     }
 
     /// Remove all events for all sessions.
     public func resetAll() {
         eventsBySession.removeAll()
+        latestEventIdBySession.removeAll()
         seenIds.removeAll()
         nextInsertionIndex = 0
     }

@@ -11,6 +11,13 @@ struct DebugPanel: View {
             if let sessionId = activeSessionId {
                 metricsStrip(sessionId: sessionId)
                 Divider().background(VColor.surfaceBorder)
+
+                // Render timeline in pinned area so it owns its own ScrollView
+                // without nesting inside VSidePanel's scrollable content slot.
+                let events = traceStore.eventsBySession[sessionId] ?? []
+                if !events.isEmpty {
+                    TraceTimelineView(traceStore: traceStore, sessionId: sessionId)
+                }
             }
         }) {
             if let sessionId = activeSessionId {
@@ -21,8 +28,6 @@ struct DebugPanel: View {
                         subtitle: "Events will appear as the session runs",
                         icon: "waveform.path"
                     )
-                } else {
-                    TraceTimelineView(traceStore: traceStore, sessionId: sessionId)
                 }
             } else {
                 VEmptyState(
