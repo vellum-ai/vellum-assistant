@@ -23,7 +23,7 @@ describe('Hooks Discovery', () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, '.vellum', 'hooks');
+    hooksDir = join(testDir, '.vellum', 'workspace', 'hooks');
     mkdirSync(hooksDir, { recursive: true });
   });
 

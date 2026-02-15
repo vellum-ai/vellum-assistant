@@ -128,7 +128,7 @@ export function getHistoryPath(): string {
 }
 
 export function getHooksDir(): string {
-  return join(getRootDir(), 'hooks');
+  return getWorkspaceHooksDir();
 }
 
 // --- Workspace path primitives ---
