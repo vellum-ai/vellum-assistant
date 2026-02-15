@@ -132,6 +132,8 @@ public final class ChatViewModel: ObservableObject {
     private let daemonClient: DaemonClient
     public var sessionId: String?
     private var pendingUserMessage: String?
+    /// Optional callback for sending notifications when tool-use messages complete
+    public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     private var pendingUserAttachments: [IPCAttachment]?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
@@ -209,8 +211,9 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: DaemonClient) {
+    public init(daemonClient: DaemonClient, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.onToolCallsComplete = onToolCallsComplete
     }
 
     // MARK: - Attachments
@@ -766,9 +769,15 @@ public final class ChatViewModel: ObservableObject {
             if !wasRefinement {
                 ingestAssistantAttachments(complete.attachments)
             }
+            var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                // Check if this message has completed tool calls
+                let toolCalls = messages[index].toolCalls
+                if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
+                    completedToolCalls = toolCalls
+                }
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
@@ -781,6 +790,10 @@ public final class ChatViewModel: ObservableObject {
             // Skip follow-up suggestions for workspace refinements
             if !isSending && !wasRefinement {
                 fetchSuggestion()
+            }
+            // Notify about completed tool calls
+            if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
+                callback(toolCalls)
             }
 
         case .undoComplete(let undoMsg):

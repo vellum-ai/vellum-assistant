@@ -5,11 +5,13 @@ import SwiftUI
 public struct CurrentStepIndicator: View {
     public let toolCalls: [ToolCallData]
     public let isActivityPanelOpen: Bool
+    public let isStreaming: Bool
     public let onTap: () -> Void
 
-    public init(toolCalls: [ToolCallData], isActivityPanelOpen: Bool = false, onTap: @escaping () -> Void) {
+    public init(toolCalls: [ToolCallData], isActivityPanelOpen: Bool = false, isStreaming: Bool = false, onTap: @escaping () -> Void) {
         self.toolCalls = toolCalls
         self.isActivityPanelOpen = isActivityPanelOpen
+        self.isStreaming = isStreaming
         self.onTap = onTap
     }
 
@@ -27,31 +29,53 @@ public struct CurrentStepIndicator: View {
     }
 
     @State private var isHovered = false
+    @State private var pulseOpacity: Double = 1.0
+
+    private var isLoading: Bool {
+        // Show loading state if streaming OR if there are incomplete tools
+        isStreaming || !toolCalls.allSatisfy { $0.isComplete }
+    }
 
     public var body: some View {
-        if let current = currentStep {
+        // Show indicator when streaming OR when there are tool calls
+        if isStreaming || currentStep != nil {
+            let current = currentStep
+
             HStack(spacing: VSpacing.sm) {
                 // Spinner or checkmark
-                if current.isComplete {
+                if let current = current, current.isComplete {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 14))
                         .foregroundColor(VColor.accent)
                 } else {
                     ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 14, height: 14)
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                        .tint(VColor.accent)
                 }
 
-                // Current step text
-                Text(current.toolName)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                // Current step text with loading indicator
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    HStack(spacing: VSpacing.xs) {
+                        // Show tool name if available, otherwise show generic "Thinking..."
+                        Text(current?.toolName ?? "Thinking...")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
 
-                // Progress counter
-                if totalCount > 1 {
-                    Text("(\(completedCount)/\(totalCount))")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        // Progress counter inline with title
+                        if totalCount > 1 {
+                            Text("(\(completedCount)/\(totalCount))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+
+                    if isLoading {
+                        Text("Working...")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.accent)
+                            .opacity(pulseOpacity)
+                    }
                 }
 
                 Spacer()
@@ -69,7 +93,7 @@ public struct CurrentStepIndicator: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    .stroke(isLoading ? VColor.accent.opacity(0.5) : VColor.surfaceBorder, lineWidth: isLoading ? 1.5 : 1)
             )
             .onHover { hovering in
                 withAnimation(VAnimation.fast) {
@@ -82,6 +106,22 @@ public struct CurrentStepIndicator: View {
                 onTap()
             }
             .padding(.top, VSpacing.md)
+            .onAppear {
+                if isLoading {
+                    startPulseAnimation()
+                }
+            }
+            .onChange(of: isLoading) { _, newValue in
+                if newValue {
+                    startPulseAnimation()
+                }
+            }
+        }
+    }
+
+    private func startPulseAnimation() {
+        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+            pulseOpacity = 0.4
         }
     }
 }
@@ -113,6 +153,7 @@ public struct CurrentStepIndicator: View {
                         isComplete: false
                     )
                 ],
+                isStreaming: true,
                 onTap: {}
             )
 
@@ -125,6 +166,7 @@ public struct CurrentStepIndicator: View {
                         isComplete: false
                     )
                 ],
+                isStreaming: true,
                 onTap: {}
             )
 
@@ -142,6 +184,7 @@ public struct CurrentStepIndicator: View {
                         isComplete: true
                     )
                 ],
+                isStreaming: false,
                 onTap: {}
             )
         }
