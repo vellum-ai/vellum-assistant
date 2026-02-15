@@ -2,6 +2,49 @@
 
 This directory contains native client applications for the Vellum Assistant, organized for code reuse between platforms.
 
+## Quick Start
+
+### macOS App
+```bash
+cd macos
+./build.sh
+./build.sh run
+```
+
+### iOS App (Simulator)
+
+**Prerequisites**: Enable TCP/TLS in daemon (see [main README](../README.md#tcptls-network-support-ios-development))
+
+1. **Enable daemon TCP** (`~/.vellum/config.toml`):
+   ```toml
+   [network]
+   tcpEnabled = true
+   tcpHost = "127.0.0.1"
+   tcpPort = 8765
+   ```
+
+2. **Restart daemon**:
+   ```bash
+   vellum daemon restart
+   ```
+
+3. **Build and run iOS simulator**:
+   ```bash
+   cd clients
+   xcodebuild -scheme vellum-assistant-ios \
+     -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+     -configuration Debug \
+     build
+   ```
+
+4. **Launch in Xcode**: Open `Package.swift` in Xcode, select `vellum-assistant-ios` scheme, and run
+
+5. **Configure iOS app** (in Settings tab):
+   - Hostname: `localhost`
+   - Port: `8765`
+
+The iOS simulator shares localhost with your Mac, so this is secure for local development (no network exposure).
+
 ## Structure
 
 ```
