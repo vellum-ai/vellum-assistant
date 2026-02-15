@@ -245,4 +245,55 @@ describe('ContextWindowManager', () => {
     };
     expect(getSummaryFromContextMessage(userMessage)).toBeNull();
   });
+
+  test('skips compaction during cooldown when projected gain is too low', async () => {
+    const provider = createProvider(() => {
+      throw new Error('summarizer should not be called while cooldown skip is active');
+    });
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 260, targetInputTokens: 180, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'c'.repeat(220);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      lastCompactedAt: Date.now() - 30_000,
+    });
+    expect(result.compacted).toBe(false);
+    expect(result.reason).toBe('compaction cooldown active with low projected gain');
+  });
+
+  test('ignores cooldown and compacts under severe token pressure', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- compacted under pressure' }],
+      model: 'mock-model',
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 320, targetInputTokens: 180, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'p'.repeat(340);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+      message('assistant', `a2 ${long}`),
+      message('user', `u3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      lastCompactedAt: Date.now() - 30_000,
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
 });

@@ -117,6 +117,7 @@ export class Session {
   private readonly systemPrompt: string;
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
+  private contextCompactedAt: number | null = null;
   private currentRequestId?: string;
   private assistantId: string | null = null;
   private hasNoClient = false;
@@ -262,6 +263,7 @@ export class Session {
       0,
       Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
     );
+    this.contextCompactedAt = conv?.contextCompactedAt ?? null;
 
     const parsedMessages: Message[] = dbMessages
       .slice(this.contextCompactedMessageCount)
@@ -583,10 +585,12 @@ export class Session {
       const compacted = await this.contextWindowManager.maybeCompact(
         this.messages,
         abortController.signal,
+        { lastCompactedAt: this.contextCompactedAt ?? undefined },
       );
       if (compacted.compacted) {
         this.messages = compacted.messages;
         this.contextCompactedMessageCount += compacted.compactedPersistedMessages;
+        this.contextCompactedAt = Date.now();
         conversationStore.updateConversationContextWindow(
           this.conversationId,
           compacted.summaryText,
