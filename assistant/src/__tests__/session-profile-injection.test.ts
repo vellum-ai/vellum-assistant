@@ -223,6 +223,10 @@ mock.module('../agent/loop.js', () => ({
 }));
 
 import { Session } from '../daemon/session.js';
+import {
+  injectDynamicProfileIntoUserMessage,
+  stripDynamicProfileMessages,
+} from '../daemon/session-dynamic-profile.js';
 
 function makeSession(): Session {
   const provider = {
@@ -278,9 +282,55 @@ describe('Session dynamic profile injection', () => {
       expect(persistedText).not.toContain('[Dynamic profile context start]');
       expect(persistedText).not.toContain('[Dynamic User Profile]');
       expect(persistedText).not.toContain('[Dynamic profile context end]');
+      // No empty text blocks should remain after stripping
+      const emptyBlocks = persistedUser.content.filter(
+        (b) => b.type === 'text' && (b as { text: string }).text === '',
+      );
+      expect(emptyBlocks).toHaveLength(0);
     }
     expect(profileCompilerCalls).toBe(1);
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
+  });
+
+  test('strip removes empty text blocks left by dedicated injection block', () => {
+    const profile = 'timezone: US/Pacific';
+    const userMsg: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+    };
+    const injected = injectDynamicProfileIntoUserMessage(userMsg, profile);
+    // The injected message has 2 content blocks: original + profile
+    expect(injected.content).toHaveLength(2);
+    const stripped = stripDynamicProfileMessages([injected], profile);
+    // After stripping, the dedicated profile block should be removed entirely
+    expect(stripped[0].content).toHaveLength(1);
+    expect(stripped[0].content.every((b) => {
+      return b.type !== 'text' || (b as { text: string }).text.length > 0;
+    })).toBe(true);
+  });
+
+  test('strip only targets the last user message, not earlier ones', () => {
+    const profile = 'timezone: US/Pacific';
+    const profileMarker = '[Dynamic profile context start]';
+    const earlyUser: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: `I pasted: ${profileMarker}\ntimezone: US/Pacific\n[Dynamic profile context end]` }],
+    };
+    const assistant: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+    };
+    const latestUser: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: 'follow up' }],
+    };
+    const injected = injectDynamicProfileIntoUserMessage(latestUser, profile);
+    const msgs = [earlyUser, assistant, injected];
+    const stripped = stripDynamicProfileMessages(msgs, profile);
+    // Earlier user message should be untouched
+    expect(messageText(stripped[0])).toContain(profileMarker);
+    // Latest user message should have profile removed
+    expect(messageText(stripped[2])).not.toContain(profileMarker);
   });
 
   test('skips profile compilation/injection when memory.profile.enabled is false', async () => {
