@@ -116,6 +116,25 @@ mock.module('../context/window-manager.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Usage event capture for request-ID correlation tests.
+// ---------------------------------------------------------------------------
+
+interface CapturedUsageEvent {
+  requestId: string | null;
+  actor: string;
+}
+
+let capturedUsageEvents: CapturedUsageEvent[] = [];
+
+mock.module('../memory/llm-usage-store.js', () => ({
+  recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
+    capturedUsageEvents.push({ requestId: input.requestId, actor: input.actor });
+    return { id: 'mock-id', createdAt: Date.now(), ...input };
+  },
+  listUsageEvents: () => [],
+}));
+
+// ---------------------------------------------------------------------------
 // Controllable AgentLoop mock.
 //
 // Each `run()` call returns a promise that does NOT resolve until the test
@@ -910,5 +929,33 @@ describe('Session checkpoint handoff', () => {
     // Complete retry cleanly
     resolveRun(1);
     await p1;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Usage requestId correlation
+// ---------------------------------------------------------------------------
+
+describe('Session usage requestId correlation', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedUsageEvents = [];
+  });
+
+  test('usage events recorded during a request carry that request ID', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], () => {}, 'req-42');
+    await waitForPendingRun(1);
+
+    // Complete the run — this triggers recordUsage with the request's ID
+    resolveRun(0);
+    await p1;
+
+    // The usage event should carry the request ID, not null
+    const mainAgentUsage = capturedUsageEvents.find((e) => e.actor === 'main_agent');
+    expect(mainAgentUsage).toBeDefined();
+    expect(mainAgentUsage!.requestId).toBe('req-42');
   });
 });
