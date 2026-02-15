@@ -9,6 +9,8 @@ const log = getLogger('docker-sandbox');
 
 export interface DockerConfig {
   image?: string;
+  /** Shell binary used to interpret commands (default: 'sh' for POSIX portability). */
+  shell?: string;
   cpus?: number;
   memoryMb?: number;
   pidsLimit?: number;
@@ -17,6 +19,7 @@ export interface DockerConfig {
 
 const DEFAULTS: Required<DockerConfig> = {
   image: 'ubuntu:22.04',
+  shell: 'sh',
   cpus: 2,
   memoryMb: 512,
   pidsLimit: 256,
@@ -199,7 +202,7 @@ export class DockerBackend implements SandboxBackend {
     const containerWorkDir =
       relPath === '' ? '/workspace' : posix.join('/workspace', relPath);
 
-    const { image, cpus, memoryMb, pidsLimit, network } = this.config;
+    const { image, shell, cpus, memoryMb, pidsLimit, network } = this.config;
 
     // Every flag is a separate argv segment — no shell interpolation occurs.
     const args: string[] = [
@@ -222,7 +225,7 @@ export class DockerBackend implements SandboxBackend {
       '--user',
       `${this.uid}:${this.gid}`,
       image,
-      'bash',
+      shell,
       '-c',
       '--',
       command,
