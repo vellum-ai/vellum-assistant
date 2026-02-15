@@ -7,7 +7,7 @@
 
 import { basename } from 'node:path';
 import { readFileSync, statSync } from 'node:fs';
-import { sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
+import { sandboxPolicy, hostPolicy } from '../tools/shared/filesystem/path-policy.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -299,6 +299,105 @@ export function resolveSandboxDirective(
   return {
     draft: {
       sourceType: 'sandbox_file',
+      filename,
+      mimeType,
+      dataBase64,
+      sizeBytes: data.length,
+      kind: classifyKind(mimeType),
+    },
+    warning: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Host file resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Callback the caller provides to approve host file reads.
+ * Returns `true` to allow, `false` to deny/skip.
+ */
+export type ApproveHostRead = (filePath: string) => Promise<boolean>;
+
+/**
+ * Resolve a host directive to a draft attachment.
+ *
+ * Requires an absolute path. Before reading, calls the `approve` callback
+ * so the session layer can gate access via the user-facing permission prompt.
+ */
+export async function resolveHostDirective(
+  directive: DirectiveRequest,
+  approve: ApproveHostRead,
+): Promise<ResolveResult> {
+  const pathResult = hostPolicy(directive.path);
+  if (!pathResult.ok) {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": ${pathResult.error}`,
+    };
+  }
+
+  const resolved = pathResult.resolved;
+
+  // Gate on user approval before touching the filesystem
+  let approved: boolean;
+  try {
+    approved = await approve(resolved);
+  } catch {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": approval request failed.`,
+    };
+  }
+
+  if (!approved) {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": access denied by user.`,
+    };
+  }
+
+  let stat;
+  try {
+    stat = statSync(resolved);
+  } catch {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": file not found.`,
+    };
+  }
+
+  if (!stat.isFile()) {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": not a regular file.`,
+    };
+  }
+
+  if (stat.size > MAX_ASSISTANT_ATTACHMENT_BYTES) {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": size ${formatBytes(stat.size)} exceeds ${formatBytes(MAX_ASSISTANT_ATTACHMENT_BYTES)} limit.`,
+    };
+  }
+
+  let data: Buffer;
+  try {
+    data = readFileSync(resolved);
+  } catch (err) {
+    return {
+      draft: null,
+      warning: `Skipped host attachment "${directive.path}": read error: ${(err as Error).message}`,
+    };
+  }
+
+  const filename = directive.filename ?? basename(resolved);
+  const mimeType = directive.mimeType ?? inferMimeType(filename);
+  const dataBase64 = data.toString('base64');
+
+  return {
+    draft: {
+      sourceType: 'host_file',
       filename,
       mimeType,
       dataBase64,
