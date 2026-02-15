@@ -1932,13 +1932,9 @@ async function handleCuObservation(
       deleteBlob(msg.axTreeBlob.id);
     } catch (err) {
       log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob, checking inline fallback');
+      deleteBlob(msg.axTreeBlob.id);
       if (!msg.axTree) {
-        ctx.send(socket, {
-          type: 'cu_error',
-          sessionId: msg.sessionId,
-          message: `Failed to hydrate axTreeBlob (id=${msg.axTreeBlob.id}) and no inline fallback available`,
-        });
-        return;
+        log.warn({ blobId: msg.axTreeBlob.id }, 'No inline axTree fallback; continuing with partial observation');
       }
     }
   }
@@ -1951,13 +1947,9 @@ async function handleCuObservation(
       deleteBlob(msg.screenshotBlob.id);
     } catch (err) {
       log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob, checking inline fallback');
+      deleteBlob(msg.screenshotBlob.id);
       if (!msg.screenshot) {
-        ctx.send(socket, {
-          type: 'cu_error',
-          sessionId: msg.sessionId,
-          message: `Failed to hydrate screenshotBlob (id=${msg.screenshotBlob.id}) and no inline fallback available`,
-        });
-        return;
+        log.warn({ blobId: msg.screenshotBlob.id }, 'No inline screenshot fallback; continuing with partial observation');
       }
     }
   }

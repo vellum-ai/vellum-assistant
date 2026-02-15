@@ -212,7 +212,7 @@ describe('handleCuObservation blob hydration', () => {
     expect(observations[0].axTree).toBe(inlineAxTree);
   });
 
-  test('blob failure with no inline fallback: emits cu_error', async () => {
+  test('blob failure with no inline fallback: continues with partial observation', async () => {
     const sessionId = randomUUID();
     // Create a blob ref that points to a non-existent file
     const blobRef: IpcBlobRef = {
@@ -234,15 +234,11 @@ describe('handleCuObservation blob hydration', () => {
     handleMessage(msg, fakeSocket, ctx);
     await new Promise((r) => setTimeout(r, 50));
 
-    // Should NOT forward to session
-    expect(observations).toHaveLength(0);
-    // Should send cu_error
-    expect(sent).toHaveLength(1);
-    expect(sent[0].type).toBe('cu_error');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing union-narrowed property
-    expect((sent[0] as any).message).toContain('Failed to hydrate axTreeBlob');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((sent[0] as any).message).toContain('no inline fallback');
+    // Should still forward to session with partial data (no axTree)
+    expect(observations).toHaveLength(1);
+    expect(observations[0].axTree).toBeUndefined();
+    // Should NOT send cu_error
+    expect(sent).toHaveLength(0);
   });
 
   test('wrong blob kind: fails validation and falls back to inline', async () => {
@@ -267,9 +263,12 @@ describe('handleCuObservation blob hydration', () => {
     expect(observations).toHaveLength(1);
     // Should fall back to inline because kind validation failed
     expect(observations[0].screenshot).toBe(inlineScreenshot);
+
+    // Blob file should still be cleaned up despite validation failure
+    expect(existsSync(join(blobDir, `${blobRef.id}.blob`))).toBe(false);
   });
 
-  test('wrong blob kind with no inline fallback: emits cu_error', async () => {
+  test('wrong blob kind with no inline fallback: continues with partial observation', async () => {
     const sessionId = randomUUID();
     // Create a blob with wrong kind for screenshotBlob field, no inline fallback
     const blobRef = writeBlobFile(Buffer.from([0xFF, 0xD8]), 'ax_tree', 'utf8');
@@ -286,13 +285,14 @@ describe('handleCuObservation blob hydration', () => {
     handleMessage(msg, fakeSocket, ctx);
     await new Promise((r) => setTimeout(r, 50));
 
-    // Should NOT forward to session
-    expect(observations).toHaveLength(0);
-    // Should send cu_error
-    expect(sent).toHaveLength(1);
-    expect(sent[0].type).toBe('cu_error');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing union-narrowed property
-    expect((sent[0] as any).message).toContain('Failed to hydrate screenshotBlob');
+    // Should still forward to session with partial data (no screenshot)
+    expect(observations).toHaveLength(1);
+    expect(observations[0].screenshot).toBeUndefined();
+    // Should NOT send cu_error
+    expect(sent).toHaveLength(0);
+
+    // Blob file should still be cleaned up despite validation failure
+    expect(existsSync(join(blobDir, `${blobRef.id}.blob`))).toBe(false);
   });
 
   test('inline-only unchanged: no blob refs, observation passes through', async () => {
