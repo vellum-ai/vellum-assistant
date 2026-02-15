@@ -6,6 +6,7 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
 let profileEnabled = true;
+let memoryEnabled = true;
 let profileText = '[Dynamic User Profile]\n- timezone: America/Los_Angeles';
 
 const persistedMessages: Array<{ id: string; role: string; content: string; createdAt: number }> = [];
@@ -41,6 +42,7 @@ mock.module('../config/loader.js', () => ({
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
     memory: {
+      enabled: memoryEnabled,
       retrieval: {
         injectionStrategy: 'prepend_user_block',
         dynamicBudget: {
@@ -180,6 +182,13 @@ mock.module('../memory/clarification-resolver.js', () => ({
   }),
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemorySystemStatus: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 mock.module('../memory/profile-compiler.js', () => ({
   compileDynamicProfile: () => {
     profileCompilerCalls += 1;
@@ -243,6 +252,7 @@ describe('Session dynamic profile injection', () => {
     persistedMessages.length = 0;
     profileCompilerCalls = 0;
     profileEnabled = true;
+    memoryEnabled = true;
     profileText = '[Dynamic User Profile]\n- timezone: America/Los_Angeles';
   });
 
@@ -279,6 +289,20 @@ describe('Session dynamic profile injection', () => {
     await session.loadFromDb();
 
     await session.processMessage('Explain rebase strategy', [], () => {});
+
+    expect(runCalls).toHaveLength(1);
+    const runtimeUser = runCalls[0][runCalls[0].length - 1];
+    const runtimeText = messageText(runtimeUser);
+    expect(runtimeText).not.toContain('[Dynamic profile context start]');
+    expect(profileCompilerCalls).toBe(0);
+  });
+
+  test('skips profile injection when top-level memory.enabled is false', async () => {
+    memoryEnabled = false;
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('What is my timezone?', [], () => {});
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];

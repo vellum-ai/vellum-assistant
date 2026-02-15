@@ -6,6 +6,7 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 let runCalls: Message[][] = [];
 let resolverCallCount = 0;
 let markAskedCalls: string[] = [];
+let memoryEnabled = true;
 let pendingConflicts: Array<{
   id: string;
   scopeId: string;
@@ -68,6 +69,7 @@ mock.module('../config/loader.js', () => ({
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
     memory: {
+      enabled: memoryEnabled,
       retrieval: {
         injectionStrategy: 'prepend_user_block',
         dynamicBudget: {
@@ -204,6 +206,13 @@ mock.module('../memory/clarification-resolver.js', () => ({
   },
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemorySystemStatus: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 mock.module('../memory/llm-usage-store.js', () => ({
   recordUsageEvent: () => ({ id: 'usage-1', createdAt: Date.now() }),
 }));
@@ -253,6 +262,7 @@ describe('Session conflict soft gate', () => {
     runCalls = [];
     resolverCallCount = 0;
     markAskedCalls = [];
+    memoryEnabled = true;
     pendingConflicts = [];
     persistedMessages.length = 0;
     resolverResult = {
@@ -410,5 +420,36 @@ describe('Session conflict soft gate', () => {
     expect(firstUserText).toContain('Memory clarification request');
     expect(secondUserText).not.toContain('Memory clarification request');
     expect(markAskedCalls).toEqual(['conflict-cooldown']);
+  });
+
+  test('skips conflict gate when top-level memory.enabled is false', async () => {
+    memoryEnabled = false;
+    pendingConflicts = [{
+      id: 'conflict-disabled',
+      scopeId: 'default',
+      existingItemId: 'existing-d',
+      candidateItemId: 'candidate-d',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Do you want React or Vue for frontend work?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use React for frontend work.',
+      candidateStatement: 'Use Vue for frontend work.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+    await session.processMessage('Should I use React or Vue here?', [], (event) => events.push(event));
+
+    // Agent loop should run normally — conflict gate should be bypassed
+    expect(runCalls).toHaveLength(1);
+    expect(resolverCallCount).toBe(0);
+    expect(markAskedCalls).toEqual([]);
   });
 });
