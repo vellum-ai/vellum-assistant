@@ -1801,26 +1801,39 @@ export class Session {
 
     const data = stored.data as DynamicPageSurfaceData;
 
-    // If app-backed, also revert the persisted app
+    // If app-backed, also revert the persisted app and refresh all surfaces for this app
     if (data.appId) {
       try {
         updateApp(data.appId, { htmlDefinition: previousHtml });
       } catch (err) {
         log.error({ appId: data.appId, err }, 'Failed to revert app during undo');
       }
+
+      // Update ALL surfaces that share this appId (not just the requesting one)
+      for (const [sid, s] of this.surfaceState.entries()) {
+        if (s.surfaceType !== 'dynamic_page') continue;
+        const sData = s.data as DynamicPageSurfaceData;
+        if (sData.appId !== data.appId) continue;
+        const revertedData: DynamicPageSurfaceData = { ...sData, html: previousHtml };
+        s.data = revertedData;
+        this.sendToClient({
+          type: 'ui_surface_update',
+          sessionId: this.conversationId,
+          surfaceId: sid,
+          data: revertedData,
+        });
+      }
+    } else {
+      // Ephemeral surface — update only the requesting surface
+      const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
+      stored.data = revertedData;
+      this.sendToClient({
+        type: 'ui_surface_update',
+        sessionId: this.conversationId,
+        surfaceId,
+        data: revertedData,
+      });
     }
-
-    // Update in-memory state
-    const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
-    stored.data = revertedData;
-
-    // Push reverted HTML to the client
-    this.sendToClient({
-      type: 'ui_surface_update',
-      sessionId: this.conversationId,
-      surfaceId,
-      data: revertedData,
-    });
 
     this.sendToClient({
       type: 'ui_surface_undo_result',
@@ -1957,6 +1970,7 @@ export class Session {
       });
       this.pendingSurfaceActions.delete(surfaceId);
       this.surfaceState.delete(surfaceId);
+      this.surfaceUndoStacks.delete(surfaceId);
       return { content: 'Surface dismissed', isError: false };
     }
 

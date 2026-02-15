@@ -197,7 +197,11 @@ public final class ChatViewModel: ObservableObject {
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
-        didSet { surfaceUndoCount = 0 }
+        didSet {
+            if oldValue != activeSurfaceId {
+                surfaceUndoCount = 0
+            }
+        }
     }
 
     public init(daemonClient: DaemonClient) {
