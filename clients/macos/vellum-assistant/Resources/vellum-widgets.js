@@ -58,7 +58,7 @@
     var pad = opts.strokeWidth;
 
     var points = data.map(function (v, i) {
-      var x = (i / (data.length - 1)) * w;
+      var x = data.length === 1 ? w / 2 : (i / (data.length - 1)) * w;
       var y = h - pad - ((v - min) / range) * (h - 2 * pad);
       return x.toFixed(1) + ',' + y.toFixed(1);
     });
@@ -176,7 +176,7 @@
     }
 
     var points = data.map(function (d, i) {
-      var x = padL + (i / (data.length - 1)) * cw;
+      var x = data.length === 1 ? padL + cw / 2 : padL + (i / (data.length - 1)) * cw;
       var y = padT + (1 - (d.value - min) / range) * ch;
       return { x: x, y: y, label: d.label, value: d.value };
     });
@@ -366,18 +366,19 @@
       rows.forEach(function (row) { tbody.appendChild(row); });
     }
 
-    headers.forEach(function (header, i) {
+    headers.forEach(function (header) {
+      var colIdx = header.cellIndex;
       header.style.cursor = 'pointer';
       header.setAttribute('role', 'columnheader');
-      header.addEventListener('click', function () { sortBy(i, header); });
+      header.addEventListener('click', function () { sortBy(colIdx, header); });
       header.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(i, header); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(colIdx, header); }
       });
       header.setAttribute('tabindex', '0');
     });
 
     if (columnIndex !== undefined && headers[columnIndex]) {
-      sortBy(columnIndex, headers[columnIndex]);
+      sortBy(headers[columnIndex].cellIndex, headers[columnIndex]);
     }
   };
 
@@ -576,12 +577,21 @@
     toast.className = 'v-toast ' + type;
     toast.style.pointerEvents = 'auto';
     toast.setAttribute('role', 'alert');
-    toast.innerHTML =
-      '<span>' + (icons[type] || '') + '</span>' +
-      '<span style="flex:1">' + message + '</span>' +
-      '<button class="v-toast-dismiss" aria-label="Dismiss">\u00D7</button>';
 
-    var dismiss = toast.querySelector('.v-toast-dismiss');
+    var iconSpan = document.createElement('span');
+    iconSpan.textContent = icons[type] || '';
+    toast.appendChild(iconSpan);
+
+    var msgSpan = document.createElement('span');
+    msgSpan.style.flex = '1';
+    msgSpan.textContent = message;
+    toast.appendChild(msgSpan);
+
+    var dismiss = document.createElement('button');
+    dismiss.className = 'v-toast-dismiss';
+    dismiss.setAttribute('aria-label', 'Dismiss');
+    dismiss.textContent = '\u00D7';
+    toast.appendChild(dismiss);
     dismiss.addEventListener('click', function () { remove(); });
 
     function remove() {
@@ -642,7 +652,7 @@
       if (opts.format.indexOf('s') !== -1) parts.push(pad(s));
 
       el.textContent = parts.join(':');
-      requestAnimationFrame(update);
+      setTimeout(update, 1000);
     }
 
     update();
