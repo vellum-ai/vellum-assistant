@@ -1152,6 +1152,42 @@ exports[`IPC message snapshots ServerMessage types ipc_blob_probe_result seriali
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types fork_shared_app serializes to expected JSON 1`] = `
+{
+  "type": "fork_shared_app",
+  "uuid": "abc-123-def",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types gallery_list serializes to expected JSON 1`] = `
+{
+  "type": "gallery_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types gallery_install serializes to expected JSON 1`] = `
+{
+  "galleryAppId": "gallery-pomodoro-timer",
+  "type": "gallery_install",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types share_app_cloud serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "share_app_cloud",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types fork_shared_app_response serializes to expected JSON 1`] = `
+{
+  "appId": "new-app-id",
+  "name": "My App (Fork)",
+  "success": true,
+  "type": "fork_shared_app_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types gallery_list_response serializes to expected JSON 1`] = `
 {
   "gallery": {

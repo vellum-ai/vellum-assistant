@@ -784,13 +784,74 @@ function setState(updates) {
 }
 ```
 
-### 4. Create and Open the App
+### 4. Multi-Page Apps (Optional)
+
+For apps that benefit from separate views (e.g. a main list + a settings page, or a dashboard + a detail view), you can provide additional pages alongside the main `index.html`.
+
+#### When to use multi-page vs single-page
+
+- **Single-page (default)**: Best for most apps. Use JS to show/hide sections or swap views within one HTML document. Simpler state management, no page reloads.
+- **Multi-page**: Best when views are truly independent (e.g. a settings page with its own layout, a separate detail view, a help page). Each page is a standalone HTML file.
+
+#### How it works
+
+- Pass additional pages via the `pages` parameter: `{"settings.html": "<html>...</html>", "detail.html": "<html>..."}`
+- The main app is always `html` (rendered as `index.html`)
+- Navigate between pages with standard links: `<a href="settings.html">Settings</a>`
+- The `vellumapp://` protocol serves relative paths, so links like `<a href="index.html">Home</a>` work naturally
+- Each page is a full HTML document with its own `<style>` and `<script>` tags
+- `localStorage` is shared across all pages, so you can share UI state
+- The `window.vellum.data` bridge is available on every page
+
+#### Navigation patterns
+
+Use a shared navigation bar or tab bar across pages for consistency:
+
+```html
+<!-- Shared nav snippet — include in each page -->
+<nav class="app-nav">
+  <a href="index.html" class="nav-link active">Home</a>
+  <a href="settings.html" class="nav-link">Settings</a>
+  <a href="about.html" class="nav-link">About</a>
+</nav>
+
+<style>
+.app-nav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.nav-link {
+  padding: 6px 14px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 150ms;
+}
+.nav-link:hover { background: var(--border); color: var(--text); }
+.nav-link.active { background: var(--accent); color: white; }
+</style>
+```
+
+Mark the current page's link as `active` in each page's HTML.
+
+For detail pages that go "back", use a simple back link:
+```html
+<a href="index.html" class="back-link">&larr; Back</a>
+```
+
+### 5. Create and Open the App
 
 Call `app_create` with:
 - `name`: A short, descriptive name for the app
 - `description`: A one-sentence summary of what the app does
 - `schema_json`: The JSON schema as a string
 - `html`: The complete HTML document as a string
+- `pages`: (optional) Additional pages as `Record<string, string>` mapping filenames to HTML content
 - `auto_open`: (optional, defaults to `true`) When true, the app opens immediately after creation
 
 Since `auto_open` defaults to `true`, the app will be displayed to the user as soon as it is created. You do **not** need to call `app_open` separately after `app_create` unless `auto_open` was explicitly set to `false`.
@@ -829,10 +890,10 @@ Preview fields:
 
 Always include `preview` when calling `ui_show` with `surface_type: "dynamic_page"`. Choose an icon and title that clearly communicate what the app is at a glance.
 
-### 5. Handle Iteration
+### 6. Handle Iteration
 
 If the user wants changes after seeing the app:
-- Use `app_update` with the `app_id` and the updated fields (`html`, `schema_json`, `name`, or `description`)
+- Use `app_update` with the `app_id` and the updated fields (`html`, `schema_json`, `name`, `description`, or `pages`)
 - Then call `app_open` again to refresh the view with the updated HTML
 - If the schema changes affect existing records, mention this to the user — old records will still have the old shape
 
