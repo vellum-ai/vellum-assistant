@@ -22,8 +22,12 @@ export class TraceEmitter {
 
   constructor(
     private readonly sessionId: string,
-    private readonly sendToClient: (msg: ServerMessage) => void,
+    private sendToClient: (msg: ServerMessage) => void,
   ) {}
+
+  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+    this.sendToClient = sendToClient;
+  }
 
   emit(kind: TraceEventKind, summary: string, opts?: TraceEmitOptions): void {
     const eventId = uuid();

@@ -149,4 +149,25 @@ describe('TraceEmitter', () => {
 
     expect(sent[0].attributes).toBeUndefined();
   });
+
+  it('updateSender redirects subsequent events to the new callback', () => {
+    const { emitter, sent } = createEmitter();
+    emitter.emit('tool_started', 'before');
+    expect(sent).toHaveLength(1);
+
+    const newSent: TraceEvent[] = [];
+    const newSender = mock((msg: ServerMessage) => {
+      newSent.push(msg as TraceEvent);
+    });
+    emitter.updateSender(newSender);
+
+    emitter.emit('tool_finished', 'after');
+    // Old sender should not receive the new event
+    expect(sent).toHaveLength(1);
+    // New sender should receive it
+    expect(newSent).toHaveLength(1);
+    expect(newSent[0].summary).toBe('after');
+    // Sequence continues from where it left off
+    expect(newSent[0].sequence).toBe(1);
+  });
 });
