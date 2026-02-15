@@ -1193,6 +1193,30 @@ export interface OpenUrl {
   title?: string;
 }
 
+// === Assistant-driven dashboard control messages ===
+
+/** Carries a theme/color update from the assistant to the dashboard UI. */
+export interface DashboardThemeUpdate {
+  type: 'dashboard_theme_update';
+  /** Human-readable color name (e.g. "Ocean Blue"). */
+  colorName: string;
+  /** CSS hex color value (e.g. "#1E90FF"). */
+  colorHex: string;
+  /** ISO-8601 timestamp of when the theme was applied. */
+  appliedAt: string;
+  /** Extended token map for downstream theming surfaces (e.g. {"--accent": "#1E90FF"}). */
+  tokenMap?: Record<string, string>;
+}
+
+/** Carries a task kickoff directive from the assistant to the dashboard UI. */
+export interface DashboardTaskKickoff {
+  type: 'dashboard_task_kickoff';
+  /** Identifier for the starter task being kicked off. */
+  taskId: 'make_it_yours' | 'research_topic' | 'research_to_ui';
+  /** Human-readable label for the task (e.g. "Make It Yours"). */
+  displayLabel: string;
+}
+
 export interface ReminderFired {
   type: 'reminder_fired';
   reminderId: string;
@@ -1390,7 +1414,9 @@ export type ServerMessage =
   | OpenUrl
   | AppUpdatePreviewResponse
   | PublishPageResponse
-  | UnpublishPageResponse;
+  | UnpublishPageResponse
+  | DashboardThemeUpdate
+  | DashboardTaskKickoff;
 
 // === Contract schema ===
 

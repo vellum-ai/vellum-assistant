@@ -1280,6 +1280,16 @@ extension IPCOpenBundleResponseManifest {
 }
 
 
+// MARK: - Dashboard Control Messages
+
+/// Assistant-driven theme/color update for the dashboard.
+/// Backed by generated `IPCDashboardThemeUpdate`.
+public typealias DashboardThemeUpdateMessage = IPCDashboardThemeUpdate
+
+/// Assistant-driven task kickoff directive for the dashboard.
+/// Backed by generated `IPCDashboardTaskKickoff`.
+public typealias DashboardTaskKickoffMessage = IPCDashboardTaskKickoff
+
 // MARK: - Publish / Unpublish Page Messages
 
 /// Sent to publish a static page via Vercel.
@@ -1405,6 +1415,8 @@ public enum ServerMessage: Decodable, Sendable {
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
+    case dashboardThemeUpdate(DashboardThemeUpdateMessage)
+    case dashboardTaskKickoff(DashboardTaskKickoffMessage)
     case getSigningIdentity
     case pong
     case unknown(String)
@@ -1580,6 +1592,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
+        case "dashboard_theme_update":
+            let message = try DashboardThemeUpdateMessage(from: decoder)
+            self = .dashboardThemeUpdate(message)
+        case "dashboard_task_kickoff":
+            let message = try DashboardTaskKickoffMessage(from: decoder)
+            self = .dashboardTaskKickoff(message)
         case "get_signing_identity":
             self = .getSigningIdentity
         case "daemon_status":
