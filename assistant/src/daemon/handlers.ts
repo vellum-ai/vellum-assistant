@@ -62,6 +62,8 @@ import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
+import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
+import type { UserMessageAttachment } from './ipc-contract.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -721,7 +723,7 @@ function handleHistoryRequest(
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
     }
-    return { role: m.role, text, timestamp: m.createdAt, toolCalls };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -729,12 +731,27 @@ function handleHistoryRequest(
   // tool_result blocks (internal agent-loop turns).
   const merged = mergeToolResults(parsed);
 
-  const historyMessages = merged.map((m) => ({
-    role: m.role,
-    text: m.text,
-    timestamp: m.timestamp,
-    ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-  }));
+  const historyMessages = merged.map((m) => {
+    let attachments: UserMessageAttachment[] | undefined;
+    if (m.role === 'assistant' && m.id) {
+      const linked = getAttachmentsForMessageUnscoped(m.id);
+      if (linked.length > 0) {
+        attachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }));
+      }
+    }
+    return {
+      role: m.role,
+      text: m.text,
+      timestamp: m.timestamp,
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+      ...(attachments ? { attachments } : {}),
+    };
+  });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 }
 
