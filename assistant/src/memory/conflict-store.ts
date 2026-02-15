@@ -284,7 +284,7 @@ export function applyConflictResolution(input: ApplyConflictResolutionInput): bo
     }
     case 'keep_candidate': {
       db.update(memoryItems)
-        .set({ invalidAt: now })
+        .set({ status: 'superseded', invalidAt: now })
         .where(eq(memoryItems.id, existingItem.id))
         .run();
       db.update(memoryItems)

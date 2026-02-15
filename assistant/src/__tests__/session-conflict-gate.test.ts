@@ -315,6 +315,12 @@ describe('Session conflict soft gate', () => {
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
     }];
+    resolverResult = {
+      resolution: 'keep_existing',
+      strategy: 'heuristic',
+      resolvedStatement: null,
+      explanation: 'Resolved by accident.',
+    };
 
     const session = makeSession();
     await session.loadFromDb();
@@ -328,6 +334,7 @@ describe('Session conflict soft gate', () => {
     const injectedText = extractText(injectedUser);
     expect(injectedText).toContain('Memory clarification request');
     expect(injectedText).toContain('Should I assume Postgres or MySQL?');
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-irrelevant']);
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });

@@ -251,6 +251,7 @@ describe('conflict-store', () => {
     const updatedConflict = getConflictById(conflict.id);
 
     expect(typeof existing?.invalidAt).toBe('number');
+    expect(existing?.status).toBe('superseded');
     expect(candidate?.status).toBe('active');
     expect(updatedConflict?.status).toBe('resolved_keep_candidate');
   });
