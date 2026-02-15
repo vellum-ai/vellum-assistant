@@ -897,6 +897,18 @@ public final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard msg.display == nil || msg.display == "inline" else { break }
             guard let surface = Surface.from(msg) else { break }
+
+            // Route dynamic pages to workspace instead of inline chat
+            if case .dynamicPage = surface.data {
+                isThinking = false
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                    object: nil,
+                    userInfo: ["surfaceMessage": msg]
+                )
+                break
+            }
+
             isThinking = false
             let inlineSurface = InlineSurfaceData(
                 id: surface.id,
