@@ -25,7 +25,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding([.bottom, .leading, .trailing], VSpacing.sm)
+                    .padding([.bottom, .leading, .trailing], VSpacing.xs)
 
                 // Panel slides in from right, pushing content
                 if showPanel, let panel = panel {
@@ -37,7 +37,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         .animation(nil, value: panelWidth)  // Disable animation on width changes
                         .background(VColor.backgroundSubtle)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                        .padding([.bottom, .trailing], VSpacing.sm)
+                        .padding([.bottom, .trailing], VSpacing.xs)
                         .transition(.move(edge: .trailing))
                 }
             }
@@ -49,7 +49,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
     private func dragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
-            .frame(width: VSpacing.sm)
+            .frame(width: VSpacing.xs)
             .contentShape(Rectangle())
             #if os(macOS)
             .onHover { hovering in
@@ -97,7 +97,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
         // Calculate constraints
         let minPanelWidth: CGFloat = 300
         let minMainContentWidth: CGFloat = 300
-        let dividerAndPadding = VSpacing.sm + (VSpacing.sm * 2)
+        let dividerAndPadding = VSpacing.xs + (VSpacing.xs * 2)
         let maxAllowed = initialAvailableWidth - minMainContentWidth - dividerAndPadding
 
         // Update width without animation to prevent jitter
