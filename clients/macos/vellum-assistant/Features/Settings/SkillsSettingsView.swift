@@ -309,7 +309,7 @@ struct SkillsSettingsView: View {
         .sheet(item: $inspectingSkill) { skill in
             SkillInspectSheet(
                 skill: skill,
-                body: viewModel.loadedBodies[skill.id],
+                skillBody: viewModel.loadedBodies[skill.id],
                 onDismiss: { inspectingSkill = nil }
             )
         }
@@ -336,7 +336,7 @@ struct SkillsSettingsView: View {
 
 private struct SkillInspectSheet: View {
     let skill: SkillInfo
-    let body: String?
+    let skillBody: String?
     let onDismiss: () -> Void
 
     var body: some View {
@@ -354,7 +354,7 @@ private struct SkillInspectSheet: View {
 
             Divider()
 
-            if let content = self.body {
+            if let content = skillBody {
                 ScrollView {
                     Text(content)
                         .font(.system(.body, design: .monospaced))
