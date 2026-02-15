@@ -714,6 +714,9 @@ struct MainWindowView: View {
 
                 // Floating composer — fade is handled inside the WebView via CSS
                 if let viewModel = threadManager.activeViewModel {
+                    let placeholder = data.appId != nil
+                        ? "Describe changes to \(surface.title ?? "this app")..."
+                        : "Describe changes to this page..."
                     ComposerView(
                         inputText: Binding(
                             get: { viewModel.inputText },
@@ -731,6 +734,7 @@ struct MainWindowView: View {
                         onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                         onPaste: { viewModel.addAttachmentFromPasteboard() },
                         onMicrophoneToggle: onMicrophoneToggle,
+                        placeholderText: placeholder,
                         editorContentHeight: $workspaceEditorContentHeight,
                         isComposerExpanded: $windowState.workspaceComposerExpanded
                     )

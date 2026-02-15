@@ -15,7 +15,7 @@ struct ComposerView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
-
+    var placeholderText: String = "What would you like to do?"
     /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
     @Binding var editorContentHeight: CGFloat
 
@@ -138,7 +138,7 @@ struct ComposerView: View {
         ScrollView(.vertical, showsIndicators: false) {
             ZStack(alignment: .leading) {
                 TextField(
-                    ghostSuffix != nil ? "" : "What would you like to do?",
+                    ghostSuffix != nil ? "" : placeholderText,
                     text: $inputText,
                     axis: .vertical
                 )
