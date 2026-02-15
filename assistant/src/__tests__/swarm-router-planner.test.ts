@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { generatePlan, parsePlanJSON, makeFallbackPlan } from '../swarm/router-planner.js';
 import { resolveSwarmLimits } from '../swarm/limits.js';
-import type { Provider, ProviderResponse, Message, ToolDefinition, SendMessageOptions } from '../providers/types.js';
+import type { Provider, ProviderResponse } from '../providers/types.js';
 
 const DEFAULT_LIMITS = resolveSwarmLimits({
   maxWorkers: 3,

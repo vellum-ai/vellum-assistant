@@ -36,7 +36,6 @@ import {
   uploadAttachment,
   linkAttachmentToMessage,
   getAttachmentsForMessageUnscoped,
-  deleteOrphanAttachments,
 } from '../memory/attachments-store.js';
 
 // Initialize db once before all tests

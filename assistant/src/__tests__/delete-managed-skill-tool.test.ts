@@ -19,6 +19,7 @@ mock.module('../util/logger.js', () => ({
 import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
 const tool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
 
 function makeContext(): ToolContext {

@@ -20,6 +20,7 @@ import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
 // Use internal class directly to avoid registry side effects
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
 const tool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
 
 function makeContext(): ToolContext {

@@ -238,7 +238,9 @@ describe('handleCuObservation blob hydration', () => {
     // Should send cu_error
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('cu_error');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing union-narrowed property
     expect((sent[0] as any).message).toContain('Failed to hydrate axTreeBlob');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((sent[0] as any).message).toContain('no inline fallback');
   });
 
@@ -288,6 +290,7 @@ describe('handleCuObservation blob hydration', () => {
     // Should send cu_error
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('cu_error');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing union-narrowed property
     expect((sent[0] as any).message).toContain('Failed to hydrate screenshotBlob');
   });
 

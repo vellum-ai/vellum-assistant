@@ -18,8 +18,6 @@ mock.module('../util/logger.js', () => ({
 
 import {
   validateManagedSkillId,
-  getManagedSkillsDir,
-  getManagedSkillDir,
   buildSkillMarkdown,
   upsertSkillsIndexEntry,
   removeSkillsIndexEntry,
