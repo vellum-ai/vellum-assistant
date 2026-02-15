@@ -51,7 +51,7 @@ struct ActivityStepView: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(VColor.error)
                         } else {
-                            Image(systemName: "checkmark")
+                            Image(systemName: toolIcon)
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(VColor.accent)
                         }
@@ -73,7 +73,7 @@ struct ActivityStepView: View {
             // Input summary
             if !toolCall.inputSummary.isEmpty {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "terminal")
+                    Image(systemName: toolIcon)
                         .font(.system(size: 11))
                         .foregroundColor(VColor.textMuted)
 
@@ -138,6 +138,17 @@ struct ActivityStepView: View {
                 .padding(.leading, 32)
             }
         }
+    }
+
+    private var toolIcon: String {
+        let name = toolCall.toolName.lowercased()
+        if name.contains("search") { return "magnifyingglass" }
+        if name.contains("navigate") { return "globe" }
+        if name.contains("screenshot") { return "camera.viewfinder" }
+        if name.contains("click") { return "cursorarrow.click.2" }
+        if name.contains("read") || name.contains("edit") || name.contains("write") { return "doc.text" }
+        if name.contains("command") || name.contains("bash") || name.contains("shell") { return "terminal" }
+        return "terminal"
     }
 
     private var statusColor: Color {
