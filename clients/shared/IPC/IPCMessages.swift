@@ -81,39 +81,23 @@ public struct AnyCodable: Codable, Equatable, @unchecked Sendable {
 
 // MARK: - Client → Server Messages (Encodable)
 
-/// Attachment payload sent inline as base64. Mirrors `UserMessageAttachment` from ipc-protocol.ts.
-public struct IPCAttachment: Codable, Sendable {
-    public let filename: String
-    public let mimeType: String
-    public let data: String
-    public let extractedText: String?
+/// Attachment payload sent inline as base64.
+/// Backed by generated `IPCUserMessageAttachment`.
+public typealias IPCAttachment = IPCUserMessageAttachment
 
+extension IPCUserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
-        self.filename = filename
-        self.mimeType = mimeType
-        self.data = data
-        self.extractedText = extractedText
+        self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText)
     }
 }
 
 /// Sent to create a new computer-use session.
-/// Wire type: `"cu_session_create"`
-public struct CuSessionCreateMessage: Encodable, Sendable {
-    public let type: String = "cu_session_create"
-    public let sessionId: String
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [IPCAttachment]?
-    public let interactionType: String?
+/// Backed by generated `IPCCuSessionCreate`.
+public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
+extension IPCCuSessionCreate {
     public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
-        self.sessionId = sessionId
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.interactionType = interactionType
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
     }
 }
 
@@ -148,47 +132,32 @@ extension IPCSessionCreateRequest {
 }
 
 /// Sent to add a user message to an existing Q&A session.
-/// Wire type: `"user_message"`
-public struct UserMessageMessage: Encodable, Sendable {
-    public let type: String = "user_message"
-    public let sessionId: String
-    public let content: String
-    public let attachments: [IPCAttachment]?
+/// Backed by generated `IPCUserMessage`.
+public typealias UserMessageMessage = IPCUserMessage
 
+extension IPCUserMessage {
     public init(sessionId: String, content: String, attachments: [IPCAttachment]?) {
-        self.sessionId = sessionId
-        self.content = content
-        self.attachments = attachments
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments)
     }
 }
 
 /// Sent to request daemon-side classification and session creation.
-/// Wire type: `"task_submit"`
-public struct TaskSubmitMessage: Encodable, Sendable {
-    public let type: String = "task_submit"
-    public let task: String
-    public let screenWidth: Int
-    public let screenHeight: Int
-    public let attachments: [IPCAttachment]?
-    public let source: String?
+/// Backed by generated `IPCTaskSubmit`.
+public typealias TaskSubmitMessage = IPCTaskSubmit
 
+extension IPCTaskSubmit {
     public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
-        self.task = task
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.attachments = attachments
-        self.source = source
+        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
     }
 }
 
 /// Sent to cancel the active generation.
-/// Wire type: `"cancel"`
-public struct CancelMessage: Encodable, Sendable {
-    public let type: String = "cancel"
-    public let sessionId: String
+/// Backed by generated `IPCCancelRequest`.
+public typealias CancelMessage = IPCCancelRequest
 
+extension IPCCancelRequest {
     public init(sessionId: String) {
-        self.sessionId = sessionId
+        self.init(type: "cancel", sessionId: sessionId)
     }
 }
 
@@ -574,8 +543,8 @@ public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 public typealias UndoCompleteMessage = IPCUndoComplete
 
 /// Confirms generation was cancelled.
-/// NOTE: Kept hand-maintained because the Swift type includes `sessionId`
-/// which the TS contract does not define for this message type.
+/// Kept hand-maintained — the Swift type includes `sessionId` for session
+/// filtering, which the TS contract does not define for this message type.
 public struct GenerationCancelledMessage: Decodable, Sendable {
     public let sessionId: String?
 
