@@ -138,6 +138,94 @@ export function validateDrafts(drafts: AssistantAttachmentDraft[]): ValidatedDra
 }
 
 // ---------------------------------------------------------------------------
+// Directive parser
+// ---------------------------------------------------------------------------
+
+export type DirectiveSource = 'sandbox' | 'host';
+
+export interface DirectiveRequest {
+  source: DirectiveSource;
+  path: string;
+  filename: string | undefined;
+  mimeType: string | undefined;
+}
+
+export interface DirectiveParseResult {
+  cleanText: string;
+  directiveRequests: DirectiveRequest[];
+  parseWarnings: string[];
+}
+
+/**
+ * Match self-closing `<vellum-attachment ... />` tags.
+ *
+ * Captures the attribute string between the tag name and the `/>` close.
+ * Non-greedy so multiple tags on separate lines are matched individually.
+ */
+const DIRECTIVE_RE = /<vellum-attachment\s+([\s\S]*?)\/>/g;
+
+/**
+ * Parse individual attribute key="value" pairs.
+ * Supports both double and single quotes.
+ */
+const ATTR_RE = /(\w+)\s*=\s*"([^"]*)"|(\w+)\s*=\s*'([^']*)'/g;
+
+function parseAttributes(raw: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  let m: RegExpExecArray | null;
+  while ((m = ATTR_RE.exec(raw)) !== null) {
+    const key = m[1] ?? m[3];
+    const value = m[2] ?? m[4];
+    attrs[key] = value;
+  }
+  return attrs;
+}
+
+/**
+ * Scan assistant text for `<vellum-attachment ... />` directives.
+ *
+ * Returns the text with successfully parsed directives stripped,
+ * along with the parsed directive requests and any warnings for
+ * malformed tags.
+ */
+export function parseDirectives(text: string): DirectiveParseResult {
+  const directiveRequests: DirectiveRequest[] = [];
+  const parseWarnings: string[] = [];
+
+  const cleanText = text.replace(DIRECTIVE_RE, (fullMatch, attrStr: string) => {
+    const attrs = parseAttributes(attrStr);
+
+    if (!attrs['path']) {
+      parseWarnings.push('Ignored <vellum-attachment />: missing required "path" attribute.');
+      return fullMatch;
+    }
+
+    const sourceRaw = attrs['source'] ?? 'sandbox';
+    if (sourceRaw !== 'sandbox' && sourceRaw !== 'host') {
+      parseWarnings.push(
+        `Ignored <vellum-attachment />: invalid source="${sourceRaw}". Must be "sandbox" or "host".`,
+      );
+      return fullMatch;
+    }
+
+    directiveRequests.push({
+      source: sourceRaw,
+      path: attrs['path'],
+      filename: attrs['filename'] || undefined,
+      mimeType: attrs['mime_type'] || undefined,
+    });
+
+    return '';
+  });
+
+  return {
+    cleanText: cleanText.replace(/\n{3,}/g, '\n\n').trim(),
+    directiveRequests,
+    parseWarnings,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
