@@ -41,6 +41,18 @@ describe('estimateBase64Bytes', () => {
     // 12 base64 chars, no padding → 9 bytes
     expect(estimateBase64Bytes('SGVsbG8gV29y')).toBe(9);
   });
+
+  test('trims trailing whitespace and newlines before estimating', () => {
+    // "a" → base64 "YQ==" → 1 byte; trailing newline should not affect result
+    expect(estimateBase64Bytes('YQ==\n')).toBe(1);
+    expect(estimateBase64Bytes('YQ==\r\n')).toBe(1);
+    expect(estimateBase64Bytes('  YQ==  ')).toBe(1);
+  });
+
+  test('handles embedded line breaks in base64 (e.g. PEM-style)', () => {
+    // "YWJj" split across lines should still yield 3 bytes
+    expect(estimateBase64Bytes('YW\nJj')).toBe(3);
+  });
 });
 
 // ---------------------------------------------------------------------------
