@@ -857,7 +857,7 @@ graph TB
 
 - **Backend selection**: The `sandbox.backend` config option (`"native"` or `"docker"`) determines how `bash` commands are sandboxed. The default is `"docker"`.
 - **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root, `/tmp`, `/private/tmp`, and `/var/folders` (macOS) or the sandbox root and `/tmp` (Linux).
-- **Docker backend**: Wraps each command in an ephemeral `docker run --rm` container. The sandbox filesystem root is bind-mounted to `/workspace`. Containers run with all capabilities dropped, a read-only root filesystem, no network access, and host UID:GID forwarding. The default image is `ubuntu:22.04`.
+- **Docker backend**: Wraps each command in an ephemeral `docker run --rm` container. The sandbox filesystem root is bind-mounted to `/workspace`. Containers run with all capabilities dropped, a read-only root filesystem, no network access, and host UID:GID forwarding. The default image is `node:20-slim` (pinned with a `sha256` digest).
 - **Fail-closed**: Both backends refuse to execute unsandboxed if their prerequisites are unavailable. The Docker backend runs preflight checks (CLI, daemon, image, mount probe) and throws `ToolError` with actionable messages on failure. Positive preflight results are cached; negative results are rechecked on every call.
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/data/sandbox/fs`.
