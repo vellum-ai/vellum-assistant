@@ -190,6 +190,7 @@ public struct SettingsView: View {
                         }
                         Spacer()
                         Button("Manage Trust Rules...") {
+                            daemonClient.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
                         .disabled(store.isAnyTrustRulesSheetOpen)

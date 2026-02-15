@@ -228,6 +228,7 @@ struct SettingsPanel: View {
                             }
                             Spacer()
                             VButton(label: "Manage...", style: .ghost) {
+                                daemonClient?.isTrustRulesSheetOpen = true
                                 showingTrustRules = true
                             }
                             .disabled(store.isAnyTrustRulesSheetOpen)
