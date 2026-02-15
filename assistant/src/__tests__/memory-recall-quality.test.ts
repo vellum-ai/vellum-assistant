@@ -657,6 +657,130 @@ describe('Memory Recall Quality', () => {
       expect(recall.entityHits).toBeGreaterThan(0);
       expect(recall.injectedText).toContain('Kubernetes horizontal pod autoscaling');
     });
+
+    test('direct preference evidence outranks weak relation-expanded noise', async () => {
+      const db = getDb();
+      const now = 1_700_000_690_000;
+      insertConversation(db, 'conv-rel-rank', now);
+      insertMessage(
+        db,
+        'msg-rel-rank',
+        'conv-rel-rank',
+        'user',
+        'For Project Atlas deployments, we prefer blue-green rollout strategy.',
+        now,
+      );
+      insertSegment(
+        db,
+        'seg-rel-rank',
+        'msg-rel-rank',
+        'conv-rel-rank',
+        'user',
+        'For Project Atlas deployments, we prefer blue-green rollout strategy.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-direct-pref',
+        kind: 'preference',
+        subject: 'deployment preference',
+        statement: 'Project Atlas deployment preference is blue-green rollouts',
+        importance: 0.95,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-direct-pref', 'msg-rel-rank', now);
+
+      db.insert(memoryEntities).values({
+        id: 'entity-atlas-rank',
+        name: 'Project Atlas',
+        type: 'project',
+        aliases: JSON.stringify(['atlas']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      }).run();
+      db.insert(memoryItemEntities).values({
+        memoryItemId: 'item-direct-pref',
+        entityId: 'entity-atlas-rank',
+      }).run();
+
+      for (let index = 1; index <= 8; index++) {
+        const entityId = `entity-noise-${index}`;
+        const itemId = `item-rel-noise-${index}`;
+        db.insert(memoryEntities).values({
+          id: entityId,
+          name: `AtlasTool${index}`,
+          type: 'tool',
+          aliases: JSON.stringify([`atlas-tool-${index}`]),
+          description: null,
+          firstSeenAt: now + index,
+          lastSeenAt: now + index,
+          mentionCount: 1,
+        }).run();
+        db.insert(memoryEntityRelations).values({
+          id: `rel-atlas-noise-${index}`,
+          sourceEntityId: 'entity-atlas-rank',
+          targetEntityId: entityId,
+          relation: 'uses',
+          evidence: `Project Atlas uses AtlasTool${index}`,
+          firstSeenAt: now + index,
+          lastSeenAt: now + index,
+        }).run();
+        insertItem(db, {
+          id: itemId,
+          kind: 'fact',
+          subject: `atlas tool ${index}`,
+          statement: `AtlasTool${index} emits generic observability metrics`,
+          importance: 0.35,
+          firstSeenAt: now + index,
+        });
+        insertItemSource(db, itemId, 'msg-rel-rank', now + index);
+        db.insert(memoryItemEntities).values({
+          memoryItemId: itemId,
+          entityId,
+        }).run();
+      }
+
+      const relationConfig = {
+        ...TEST_CONFIG,
+        memory: {
+          ...TEST_CONFIG.memory,
+          retrieval: {
+            ...TEST_CONFIG.memory.retrieval,
+            semanticTopK: 10,
+          },
+          entity: {
+            ...TEST_CONFIG.memory.entity,
+            relationRetrieval: {
+              ...TEST_CONFIG.memory.entity.relationRetrieval,
+              enabled: true,
+              maxSeedEntities: 6,
+              maxNeighborEntities: 20,
+              maxEdges: 20,
+              neighborScoreMultiplier: 0.7,
+            },
+          },
+        },
+      };
+
+      const recall = await buildMemoryRecall(
+        'atlas deployment preference strategy',
+        'conv-rel-rank',
+        relationConfig,
+      );
+      const orderedKeys = recall.topCandidates.map((candidate) => candidate.key);
+      const directIndex = orderedKeys.indexOf('item:item-direct-pref');
+      const noiseIndices = orderedKeys
+        .map((key, index) => ({ key, index }))
+        .filter(({ key }) => key.startsWith('item:item-rel-noise-'))
+        .map(({ index }) => index);
+
+      expect(directIndex).toBeGreaterThanOrEqual(0);
+      expect(noiseIndices.length).toBeGreaterThan(0);
+      expect(noiseIndices.every((index) => index > directIndex)).toBe(true);
+      expect(noiseIndices.length).toBeLessThanOrEqual(4);
+    });
   });
 
   // -------------------------------------------------------------------------

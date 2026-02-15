@@ -25,11 +25,19 @@ const MEMORY_RECALL_DISCLAIMER =
   'incorrectly recalled.';
 
 type CandidateType = 'segment' | 'item' | 'summary';
+type CandidateSource =
+  | 'lexical'
+  | 'semantic'
+  | 'recency'
+  | 'entity_direct'
+  | 'entity_relation'
+  | 'item_direct';
 
 interface Candidate {
   key: string;
   type: CandidateType;
   id: string;
+  source: CandidateSource;
   text: string;
   kind: string;
   confidence: number;
@@ -336,7 +344,7 @@ export async function buildMemoryRecall(
     relationNeighborEntityCount,
     relationExpandedItemCount,
   } = collected;
-  let merged = collected.merged;
+  let merged = applySourceCaps(collected.merged, config);
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
@@ -629,6 +637,7 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
       key: `segment:${row.segment_id}`,
       type: 'segment' as CandidateType,
       id: row.segment_id,
+      source: 'lexical',
       text: row.text,
       kind: 'segment',
       confidence: 0.55,
@@ -686,6 +695,7 @@ async function semanticSearch(
         key: `item:${payload.target_id}`,
         type: 'item',
         id: payload.target_id,
+        source: 'semantic',
         text: `${item.subject}: ${item.statement}`,
         kind: item.kind,
         confidence: item.confidence,
@@ -705,6 +715,7 @@ async function semanticSearch(
         key: `summary:${payload.target_id}`,
         type: 'summary',
         id: payload.target_id,
+        source: 'semantic',
         text: payload.text.replace(/^\[[^\]]+\]\s*/, ''),
         kind: payload.kind === 'global' ? 'global_summary' : 'conversation_summary',
         confidence: 0.6,
@@ -724,6 +735,7 @@ async function semanticSearch(
         key: `segment:${payload.target_id}`,
         type: 'segment',
         id: payload.target_id,
+        source: 'semantic',
         text: payload.text,
         kind: 'segment',
         confidence: 0.55,
@@ -762,6 +774,7 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
     key: `segment:${row.id}`,
     type: 'segment' as CandidateType,
     id: row.id,
+    source: 'recency',
     text: row.text,
     kind: 'segment',
     confidence: 0.55,
@@ -799,6 +812,7 @@ function entitySearch(
     scopeIds,
     excludedMessageIds,
     confidenceMultiplier: 1,
+    source: 'entity_direct',
   });
 
   if (!relationConfig.enabled) {
@@ -826,6 +840,7 @@ function entitySearch(
     scopeIds,
     excludedMessageIds,
     confidenceMultiplier: relationConfig.neighborScoreMultiplier,
+    source: 'entity_relation',
     excludeItemIds: directItemIds,
   });
   const relationExpandedItemCount = relationCandidates.length;
@@ -958,6 +973,7 @@ function getEntityLinkedItemCandidates(
     scopeIds?: string[];
     excludedMessageIds?: string[];
     confidenceMultiplier: number;
+    source: CandidateSource;
     excludeItemIds?: Set<string>;
   },
 ): Candidate[] {
@@ -1022,6 +1038,7 @@ function getEntityLinkedItemCandidates(
     key: `item:${item.id}`,
     type: 'item' as CandidateType,
     id: item.id,
+    source: opts.source,
     text: `${item.subject}: ${item.statement}`,
     kind: item.kind,
     confidence: item.confidence * confidenceMultiplier,
@@ -1111,7 +1128,8 @@ function mergeCandidates(
     const lastUsedAt = meta?.lastUsedAt ?? null;
     const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight;
+    const sourceWeight = SOURCE_WEIGHTS[row.source] ?? 1.0;
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
   }
 
   rows.sort((a, b) => {
@@ -1122,6 +1140,47 @@ function mergeCandidates(
     return a.key.localeCompare(b.key);
   });
   return rows;
+}
+
+function applySourceCaps(candidates: Candidate[], config: AssistantConfig): Candidate[] {
+  if (candidates.length === 0) return candidates;
+  const sourceCaps = buildSourceCaps(config);
+  const counts: Partial<Record<CandidateSource, number>> = {};
+  const capped: Candidate[] = [];
+
+  for (const candidate of candidates) {
+    const cap = sourceCaps[candidate.source];
+    const current = counts[candidate.source] ?? 0;
+    if (current >= cap) continue;
+    counts[candidate.source] = current + 1;
+    capped.push(candidate);
+  }
+
+  return capped;
+}
+
+function buildSourceCaps(config: AssistantConfig): Record<CandidateSource, number> {
+  const lexicalTopK = Math.max(1, config.memory.retrieval.lexicalTopK);
+  const semanticTopK = Math.max(1, config.memory.retrieval.semanticTopK);
+  const relationLimit = Math.max(
+    3,
+    Math.floor(
+      Math.min(
+        config.memory.entity.relationRetrieval.maxNeighborEntities,
+        config.memory.entity.relationRetrieval.maxEdges,
+        semanticTopK,
+      ) * 0.4,
+    ),
+  );
+
+  return {
+    lexical: Math.max(12, lexicalTopK),
+    semantic: Math.max(8, semanticTopK),
+    recency: Math.max(6, Math.floor(semanticTopK / 2)),
+    entity_direct: Math.max(6, Math.floor(semanticTopK / 2)),
+    item_direct: Math.max(8, Math.floor(lexicalTopK / 2)),
+    entity_relation: relationLimit,
+  };
 }
 
 /** Reciprocal Rank Fusion score: sum of 1/(k+rank) across all lists. */
@@ -1190,6 +1249,15 @@ const TRUST_WEIGHTS: Record<string, number> = {
   assistant_inferred: 0.7,
 };
 const DEFAULT_TRUST_WEIGHT = 0.85;
+
+const SOURCE_WEIGHTS: Record<CandidateSource, number> = {
+  lexical: 1.0,
+  semantic: 1.0,
+  recency: 1.0,
+  entity_direct: 1.0,
+  item_direct: 0.95,
+  entity_relation: 0.72,
+};
 
 const MS_PER_DAY = 86_400_000;
 
@@ -1735,6 +1803,7 @@ function directItemSearch(query: string, limit: number, scopeIds?: string[]): Ca
     key: `item:${row.id}`,
     type: 'item' as CandidateType,
     id: row.id,
+    source: 'item_direct',
     text: `${row.subject}: ${row.statement}`,
     kind: row.kind,
     confidence: row.confidence,
