@@ -111,6 +111,8 @@ final class IpcBlobStoreTests: XCTestCase {
     }
 
     // MARK: - resolveBlobDir
+    // Baseline: blob dir currently resolves under ~/.vellum/data/ipc-blobs.
+    // WILL MOVE to ~/.vellum/workspace/data/ipc-blobs after workspace migration.
 
     func testResolveBlobDirDefaultsToHomeDotVellum() {
         let resolved = resolveBlobDir(environment: [:])
