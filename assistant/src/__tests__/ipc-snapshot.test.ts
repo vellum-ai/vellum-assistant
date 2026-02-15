@@ -289,7 +289,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   gallery_install: {
     type: 'gallery_install',
-    galleryAppId: 'gallery-pomodoro-timer',
+    galleryAppId: 'gallery-focus-timer',
   },
   app_update_preview: {
     type: 'app_update_preview',
@@ -846,7 +846,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'gallery_install_response',
     success: true,
     appId: 'app-new-001',
-    name: 'Pomodoro Timer',
+    name: 'Focus Timer',
   },
   share_app_cloud_response: {
     type: 'share_app_cloud_response',

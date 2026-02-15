@@ -963,7 +963,7 @@ These are the apps you should be building — not just functional, but ones that
 - **Kanban board** — draggable cards across columns with CSS transitions on reorder, color-coded priority borders, glassmorphism column headers, card lift-and-shadow on drag, animated checkmark on task completion
 - **Habit tracker** — contribution-graph heatmap with `color-mix()` intensity scaling, streak counter with animated fire emoji, staggered card reveal on page load, mesh gradient background, progress rings for weekly goals
 - **Expense dashboard** — metric cards with sparkline trends, animated bar chart for category breakdown, gradient accent on the hero total, data table with inline status badges, skeleton shimmer while loading
-- **Pomodoro timer** — SVG circular countdown with animated progress ring, session history timeline, pulsing glow effect during focus mode, satisfying checkmark animation on completion
+- **Focus timer** — SVG circular countdown with animated progress ring, session history timeline, pulsing glow effect during focus mode, satisfying checkmark animation on completion
 - **Writing journal** — rich textarea with word count, mood-colored entry cards using palette scales, calendar heatmap for writing streaks, pullquote widget for favorite passages, dot-grid page background
 - **Flashcard app** — CSS 3D card flip with `transform: rotateY()`, spaced repetition progress bar, staggered deck reveal, success/fail color feedback, progress ring for mastery percentage
 - **Recipe book** — beautiful card grid with hover lift, ingredient scaling with live calculation, step-by-step mode with progress indicator, category-colored gradient headers

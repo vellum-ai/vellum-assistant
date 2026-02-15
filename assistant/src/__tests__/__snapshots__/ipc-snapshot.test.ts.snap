@@ -446,7 +446,7 @@ exports[`IPC message snapshots ClientMessage types gallery_list serializes to ex
 
 exports[`IPC message snapshots ClientMessage types gallery_install serializes to expected JSON 1`] = `
 {
-  "galleryAppId": "gallery-pomodoro-timer",
+  "galleryAppId": "gallery-focus-timer",
   "type": "gallery_install",
 }
 `;
@@ -1319,7 +1319,7 @@ exports[`IPC message snapshots ServerMessage types gallery_list_response seriali
 exports[`IPC message snapshots ServerMessage types gallery_install_response serializes to expected JSON 1`] = `
 {
   "appId": "app-new-001",
-  "name": "Pomodoro Timer",
+  "name": "Focus Timer",
   "success": true,
   "type": "gallery_install_response",
 }
