@@ -9,6 +9,7 @@ let TEST_DIR = '';
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
+  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
 }));
 
 mock.module('../util/logger.js', () => ({

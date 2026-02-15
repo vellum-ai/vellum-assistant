@@ -1,12 +1,11 @@
 import { getLogger } from '../util/logger.js';
-import { getRootDir } from '../util/platform.js';
-import { join } from 'node:path';
+import { getWorkspaceSkillsDir } from '../util/platform.js';
 
 const log = getLogger('clawhub');
 
 // Managed skills directory
 function getManagedSkillsDir(): string {
-  return join(getRootDir(), 'skills');
+  return getWorkspaceSkillsDir();
 }
 
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)

@@ -73,7 +73,7 @@ import { handleWatchObservation } from './watch-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp, updateApp } from '../memory/app-store.js';
 import { defaultGallery } from '../gallery/default-gallery.js';
-import { getRootDir } from '../util/platform.js';
+import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../skills/managed-store.js';
@@ -1180,7 +1180,7 @@ async function handleSkillsUninstall(
       }
     } else {
       // Namespaced slug (org/name) — direct filesystem removal
-      const skillDir = join(getRootDir(), 'skills', msg.name);
+      const skillDir = join(getWorkspaceSkillsDir(), msg.name);
       if (!existsSync(skillDir)) {
         ctx.send(socket, {
           type: 'skills_operation_response',
