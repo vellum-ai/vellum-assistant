@@ -30,8 +30,10 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
+    let onPopOutChat: () -> Void
+    let onDockChat: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}, onPopOutChat: @escaping () -> Void = {}, onDockChat: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
@@ -41,6 +43,8 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.windowState = windowState
         self.onMicrophoneToggle = onMicrophoneToggle
+        self.onPopOutChat = onPopOutChat
+        self.onDockChat = onDockChat
         let savedSidebarOpen = UserDefaults.standard.bool(forKey: "sidebarOpen")
         _columnVisibility = State(initialValue: savedSidebarOpen ? .all : .detailOnly)
     }
@@ -107,12 +111,33 @@ struct MainWindowView: View {
                     VStack(spacing: 0) {
                         // Button bar (matches ThreadTabBar height and style)
                         VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                // Thread drawer toggle
-                                VIconButton(label: "Threads", icon: "sidebar.left", isActive: columnVisibility != .detailOnly, iconOnly: true) {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                        columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
-                                        sidebarOpen = (columnVisibility != .detailOnly)
+                            HStack(spacing: VSpacing.sm) {
+                                // Thread drawer toggle (only in chat mode)
+                                if windowState.contentMode == .chat {
+                                    VIconButton(label: "Threads", icon: "sidebar.left", isActive: columnVisibility != .detailOnly, iconOnly: true) {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
+                                            sidebarOpen = (columnVisibility != .detailOnly)
+                                        }
+                                    }
+                                }
+
+                                // Content mode toggle (dashboard / chat)
+                                ContentModeToggle(contentMode: $windowState.contentMode)
+
+                                // Pop-out / dock button for chat mode
+                                if windowState.contentMode == .chat {
+                                    VIconButton(
+                                        label: windowState.isChatPoppedOut ? "Dock Chat" : "Pop Out Chat",
+                                        icon: windowState.isChatPoppedOut ? "rectangle.center.inset.filled" : "rectangle.portrait.on.rectangle.portrait",
+                                        isActive: windowState.isChatPoppedOut,
+                                        iconOnly: true
+                                    ) {
+                                        if windowState.isChatPoppedOut {
+                                            onDockChat()
+                                        } else {
+                                            onPopOutChat()
+                                        }
                                     }
                                 }
 
@@ -124,22 +149,28 @@ struct MainWindowView: View {
                             .background(VColor.background)
                         }
 
-                        // Content area with left drawer + chat + right panel
-                        HStack(spacing: 0) {
-                            // Left: Thread drawer (conditional)
-                            if columnVisibility != .detailOnly {
-                                threadDrawerView
-                                    .animation(nil, value: threadDrawerWidth)  // Disable animation on width changes
-                                    .transition(.move(edge: .leading))
+                        // Content area
+                        if windowState.contentMode == .dashboard {
+                            // Dashboard mode: placeholder (populated in M7)
+                            DashboardPlaceholderView()
+                        } else {
+                            // Chat mode: left drawer + chat + right panel
+                            HStack(spacing: 0) {
+                                // Left: Thread drawer (conditional)
+                                if columnVisibility != .detailOnly {
+                                    threadDrawerView
+                                        .animation(nil, value: threadDrawerWidth)  // Disable animation on width changes
+                                        .transition(.move(edge: .leading))
 
-                                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                                    drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                                }
+
+                                // Center: Chat + right panel
+                                chatContentView(geometry: geometry)
                             }
-
-                            // Center: Chat + right panel
-                            chatContentView(geometry: geometry)
+                            .coordinateSpace(name: drawerDragCoordinateSpaceName)
+                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                         }
-                        .coordinateSpace(name: drawerDragCoordinateSpaceName)
-                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
                 } else {
                     // Tab mode: Traditional layout
@@ -1090,6 +1121,74 @@ private struct ArchivePopup: View {
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+    }
+}
+
+// MARK: - Dashboard Placeholder
+
+/// Placeholder view for the dashboard tab. Will be populated with cards in M7.
+struct DashboardPlaceholderView: View {
+    var body: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 48, weight: .light))
+                .foregroundColor(VColor.textMuted)
+
+            Text("Dashboard")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Your dashboard will appear here")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.background)
+    }
+}
+
+// MARK: - Content Mode Toggle
+
+/// A segmented toggle for switching between Dashboard and Chat modes.
+struct ContentModeToggle: View {
+    @Binding var contentMode: ContentMode
+
+    var body: some View {
+        HStack(spacing: 0) {
+            modeButton(.dashboard, icon: "square.grid.2x2", label: "Dashboard")
+            modeButton(.chat, icon: "bubble.left.and.bubble.right", label: "Chat")
+        }
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private func modeButton(_ mode: ContentMode, icon: String, label: String) -> some View {
+        Button {
+            withAnimation(VAnimation.fast) {
+                contentMode = mode
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundColor(contentMode == mode ? VColor.textPrimary : VColor.textMuted)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs + 1)
+            .background(contentMode == mode ? VColor.backgroundSubtle : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+        .buttonStyle(.plain)
     }
 }
 

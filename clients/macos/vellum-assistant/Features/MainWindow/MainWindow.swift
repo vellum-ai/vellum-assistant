@@ -12,6 +12,9 @@ final class MainWindow {
     let windowState = MainWindowState()
     var onMicrophoneToggle: (() -> Void)?
 
+    /// The pop-out chat window, created on demand when the user pops out chat.
+    private var chatWindow: ChatWindow?
+
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
     private var daemonClient: DaemonClient { services.daemonClient }
@@ -83,7 +86,7 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}, onPopOutChat: { [weak self] in self?.popOutChat() }, onDockChat: { [weak self] in self?.dockChat() }))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth = min(screenFrame.width * 0.8, 1200)
@@ -148,6 +151,9 @@ final class MainWindow {
     }
 
     func close() {
+        chatWindow?.close()
+        chatWindow = nil
+        windowState.isChatPoppedOut = false
         if let observer = layoutObserver {
             NotificationCenter.default.removeObserver(observer)
             layoutObserver = nil
@@ -155,5 +161,39 @@ final class MainWindow {
         defaultTrafficLightOrigin = nil
         window?.close()
         window = nil
+    }
+
+    // MARK: - Pop-out / Dock Chat
+
+    /// Open the chat in a separate window, switching the main window to
+    /// dashboard mode.
+    private func popOutChat() {
+        guard chatWindow == nil else {
+            chatWindow?.show()
+            return
+        }
+
+        let chatWin = ChatWindow(
+            threadManager: threadManager,
+            windowState: windowState,
+            ambientAgent: ambientAgent,
+            onMicrophoneToggle: onMicrophoneToggle ?? {},
+            onClose: { [weak self] in
+                self?.windowState.isChatPoppedOut = false
+                self?.chatWindow = nil
+            }
+        )
+        chatWin.show()
+        chatWindow = chatWin
+        windowState.isChatPoppedOut = true
+        windowState.contentMode = .dashboard
+    }
+
+    /// Close the pop-out chat window and dock it back into the main window.
+    private func dockChat() {
+        chatWindow?.close()
+        chatWindow = nil
+        windowState.isChatPoppedOut = false
+        windowState.contentMode = .chat
     }
 }
