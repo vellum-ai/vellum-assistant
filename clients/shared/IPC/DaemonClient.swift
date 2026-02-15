@@ -101,6 +101,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a pomodoro timer completes.
     public var onTimerCompleted: ((TimerCompletedMessage) -> Void)?
 
+    /// Called when a reminder fires.
+    public var onReminderFired: ((ReminderFiredMessage) -> Void)?
+
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
@@ -844,6 +847,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTaskRouted?(msg)
         case .timerCompleted(let msg):
             onTimerCompleted?(msg)
+        case .reminderFired(let msg):
+            onReminderFired?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
         case .schedulesListResponse(let msg):

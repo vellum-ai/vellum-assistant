@@ -167,6 +167,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Show macOS notification when a reminder fires
+        daemonClient.onReminderFired = { msg in
+            let content = UNMutableNotificationContent()
+            content.title = "Reminder: \(msg.label)"
+            content.body = msg.message
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "reminder-\(msg.reminderId)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post reminder notification: \(error.localizedDescription)")
+                }
+            }
+        }
+
         // Handle open_bundle_response from the daemon
         daemonClient.onOpenBundleResponse = { [weak self] response in
             guard let self else { return }
