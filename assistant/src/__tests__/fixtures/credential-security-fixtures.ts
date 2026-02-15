@@ -117,7 +117,7 @@ export const logLeakageCases: LogLeakageCase[] = [
 export interface PolicyMisuseCase {
   label: string;
   /** Type of policy violation */
-  violation: 'wrong_tool' | 'wrong_domain' | 'missing_policy' | 'empty_allowlist';
+  violation: 'none' | 'wrong_tool' | 'wrong_domain' | 'missing_policy' | 'empty_allowlist';
   credentialId: string;
   requestingTool: string;
   requestDomain?: string;
@@ -170,7 +170,7 @@ export const policyMisuseCases: PolicyMisuseCase[] = [
   },
   {
     label: 'browser_fill_credential allowed when tool and domain match',
-    violation: 'wrong_tool',
+    violation: 'none',
     credentialId: 'cred-005',
     requestingTool: 'browser_fill_credential',
     requestDomain: 'login.example.com',
