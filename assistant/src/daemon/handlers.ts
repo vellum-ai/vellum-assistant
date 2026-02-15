@@ -59,6 +59,7 @@ import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, lis
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
+import { removeSkillsIndexEntry } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
@@ -1105,6 +1106,9 @@ async function handleSkillsUninstall(
   }
   try {
     rmSync(skillDir, { recursive: true });
+
+    // Clean SKILLS.md index entry (idempotent, safe for non-managed skills)
+    try { removeSkillsIndexEntry(msg.name); } catch { /* best effort */ }
 
     // Clean config entry
     const raw = loadRawConfig();
