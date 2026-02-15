@@ -599,7 +599,27 @@ public extension Surface {
             html: html,
             width: dict["width"] as? Int,
             height: dict["height"] as? Int,
-            appId: dict["appId"] as? String
+            appId: dict["appId"] as? String,
+            preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?])
+        )
+    }
+
+    private static func parseDynamicPagePreview(_ dict: [String: Any?]?) -> DynamicPagePreview? {
+        guard let dict = dict, let title = dict["title"] as? String else { return nil }
+        var metrics: [(label: String, value: String)]?
+        if let metricsArray = dict["metrics"] as? [[String: Any?]] {
+            metrics = metricsArray.compactMap { item in
+                guard let label = item["label"] as? String,
+                      let value = item["value"] as? String else { return nil }
+                return (label: label, value: value)
+            }
+        }
+        return DynamicPagePreview(
+            title: title,
+            subtitle: dict["subtitle"] as? String,
+            description: dict["description"] as? String,
+            icon: dict["icon"] as? String,
+            metrics: metrics
         )
     }
 

@@ -346,11 +346,20 @@ export interface ConfirmationSurfaceData {
   destructive?: boolean;
 }
 
+export interface DynamicPagePreview {
+  title: string;
+  subtitle?: string;
+  description?: string;
+  icon?: string;
+  metrics?: Array<{ label: string; value: string }>;
+}
+
 export interface DynamicPageSurfaceData {
   html: string;
   width?: number;
   height?: number;
   appId?: string;
+  preview?: DynamicPagePreview;
 }
 
 export interface FileUploadSurfaceData {
