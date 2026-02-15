@@ -211,23 +211,36 @@ struct ComposerView: View {
         }
         .onKeyPress(.return, phases: .down) { keyPress in
             if keyPress.modifiers == .shift {
-                let cursorLoc: Int
+                let cursorRange: NSRange
                 if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-                    cursorLoc = textView.selectedRange().location
+                    cursorRange = textView.selectedRange()
                 } else {
-                    cursorLoc = (inputText as NSString).length
+                    let len = (inputText as NSString).length
+                    cursorRange = NSRange(location: len, length: 0)
                 }
                 // Insert through the binding so SwiftUI stays in sync.
+                // Use the full selection range so that selected text is
+                // replaced by the newline instead of inserting alongside it.
                 let ns = inputText as NSString
-                let loc = min(cursorLoc, ns.length)
+                let loc = min(cursorRange.location, ns.length)
+                let selLen = min(cursorRange.length, ns.length - loc)
                 inputText = ns.replacingCharacters(
-                    in: NSRange(location: loc, length: 0),
+                    in: NSRange(location: loc, length: selLen),
                     with: "\n"
                 ) as String
                 // If the text mutation causes a focus loss, the onChange
                 // handler will re-focus and place the cursor here.
                 shouldRefocus = true
                 pendingCursorPosition = loc + 1
+                // Clear the flag on the next run-loop tick if focus was
+                // never actually lost, preventing a stale refocus request
+                // from stealing first responder later.
+                DispatchQueue.main.async {
+                    if isComposerFocused {
+                        shouldRefocus = false
+                        pendingCursorPosition = nil
+                    }
+                }
                 return .handled
             }
             guard keyPress.modifiers.isEmpty else { return .ignored }
