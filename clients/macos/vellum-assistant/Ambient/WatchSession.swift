@@ -117,8 +117,8 @@ public final class WatchSession: ObservableObject {
                 windowTitle: windowTitle,
                 bundleIdentifier: bundleIdentifier,
                 timestamp: Date().timeIntervalSince1970 * 1000,
-                captureIndex: Double(captureCount),
-                totalExpected: Double(totalExpected)
+                captureIndex: captureCount,
+                totalExpected: totalExpected
             )
 
             do {

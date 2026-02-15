@@ -198,7 +198,7 @@ extension IPCAmbientObservation {
 public typealias WatchObservationMessage = IPCWatchObservation
 
 extension IPCWatchObservation {
-    public init(watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Double, totalExpected: Double) {
+    public init(watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Int, totalExpected: Int) {
         self.init(type: "watch_observation", watchId: watchId, sessionId: sessionId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleIdentifier, timestamp: timestamp, captureIndex: captureIndex, totalExpected: totalExpected)
     }
 }
