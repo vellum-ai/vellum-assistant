@@ -214,8 +214,13 @@ export function deleteManagedSkill(
 
   let indexUpdated = false;
   if (removeFromIndex) {
-    removeSkillsIndexEntry(id);
-    indexUpdated = true;
+    try {
+      removeSkillsIndexEntry(id);
+      indexUpdated = true;
+    } catch (err) {
+      // Best-effort: skill dir is already gone, don't fail the whole delete
+      log.warn({ id, err }, 'Failed to update skills index after deleting managed skill');
+    }
   }
 
   return { deleted: true, indexUpdated };

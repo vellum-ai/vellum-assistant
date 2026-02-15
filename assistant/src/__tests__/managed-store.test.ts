@@ -475,4 +475,36 @@ describe('deleteManagedSkill', () => {
     const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
     expect(indexContent).toContain('- keep-index');
   });
+
+  test('succeeds even when index cleanup throws', () => {
+    createManagedSkill({
+      id: 'index-fail',
+      name: 'Index Fail',
+      description: 'Index removal will throw',
+      bodyMarkdown: 'Body.',
+    });
+
+    // Intercept the atomic write (.tmp- file) used by removeSkillsIndexEntry
+    const skillsDir = join(TEST_DIR, 'skills');
+    const originalWrite = fs.writeFileSync;
+    const spy = spyOn(fs, 'writeFileSync').mockImplementation(((
+      path: fs.PathOrFileDescriptor,
+      data: string | NodeJS.ArrayBufferView,
+      options?: fs.WriteFileOptions,
+    ) => {
+      if (typeof path === 'string' && path.startsWith(skillsDir) && path.includes('.tmp-')) {
+        throw new Error('Simulated write failure');
+      }
+      return originalWrite(path, data, options);
+    }) as typeof fs.writeFileSync);
+
+    try {
+      const result = deleteManagedSkill('index-fail');
+      expect(result.deleted).toBe(true);
+      expect(result.indexUpdated).toBe(false);
+      expect(existsSync(join(skillsDir, 'index-fail'))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
