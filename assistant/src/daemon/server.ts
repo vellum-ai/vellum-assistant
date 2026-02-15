@@ -431,7 +431,7 @@ export class DaemonServer {
             chunkReceivedAtMs,
             parsedAtMs,
             parseDurationMs,
-            chunkBytes: Buffer.byteLength(data),
+            messageBytes: Buffer.byteLength(JSON.stringify(msg), 'utf8'),
           }, 'IPC_METRIC cu_observation_parse');
         }
         const result = validateClientMessage(msg);
