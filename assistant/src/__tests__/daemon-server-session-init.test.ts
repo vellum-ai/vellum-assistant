@@ -73,7 +73,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../util/platform.js', () => ({
   getSocketPath: () => '/tmp/test.sock',
   getDataDir: () => '/tmp',
-  getSandboxWorkingDir: () => '/tmp/sandbox/fs',
+  getSandboxWorkingDir: () => '/tmp/workspace',
 }));
 
 mock.module('../providers/registry.js', () => ({
@@ -210,7 +210,7 @@ describe('DaemonServer initial session hydration', () => {
 
     await internal.sendInitialSession(socket);
 
-    expect(lastCreatedWorkingDir).toBe('/tmp/sandbox/fs');
+    expect(lastCreatedWorkingDir).toBe('/tmp/workspace');
   });
 
   test('ignores deprecated sandbox_set runtime override messages', async () => {

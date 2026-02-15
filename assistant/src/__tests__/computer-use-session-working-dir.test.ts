@@ -14,7 +14,7 @@ mock.module('../util/platform.js', () => ({
   getRootDir: () => '/tmp',
   getDataDir: () => '/tmp/data',
   getSandboxRootDir: () => '/tmp/sandbox',
-  getSandboxWorkingDir: () => '/tmp/sandbox/fs',
+  getSandboxWorkingDir: () => '/tmp/workspace',
   getPlatformName: () => 'linux',
   getClipboardCommand: () => null,
   getSocketPath: () => '/tmp/test.sock',
@@ -103,6 +103,6 @@ describe('ComputerUseSession working directory', () => {
 
     await session.handleObservation(observation);
 
-    expect(capturedWorkingDir).toBe('/tmp/sandbox/fs');
+    expect(capturedWorkingDir).toBe('/tmp/workspace');
   });
 });

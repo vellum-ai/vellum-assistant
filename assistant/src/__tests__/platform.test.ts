@@ -57,7 +57,7 @@ describe('baseline path characterization (pre-migration)', () => {
     expect(getIpcBlobDir()).toBe(join(data, 'ipc-blobs'));
     expect(getInterfacesDir()).toBe(join(data, 'interfaces'));
     expect(getSandboxRootDir()).toBe(join(data, 'sandbox'));
-    expect(getSandboxWorkingDir()).toBe(join(data, 'sandbox', 'fs'));
+    expect(getSandboxWorkingDir()).toBe(join(root, 'workspace'));
 
     // WILL MOVE to ~/.vellum/workspace/hooks
     expect(getHooksDir()).toBe(join(root, 'hooks'));
