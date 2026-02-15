@@ -582,7 +582,7 @@ describe('SandboxResult shape consistency across backends', () => {
       // throw system errors (ErrnoException). Both are legitimate — but
       // programming errors like TypeError/ReferenceError should still fail.
       const isToolError = err instanceof ToolError;
-      const isSystemError = err instanceof Error && 'code' in err && typeof (err as NodeJS.ErrnoException).code === 'string';
+      const isSystemError = err instanceof Error && 'syscall' in err && typeof (err as NodeJS.ErrnoException).code === 'string';
       expect(isToolError || isSystemError).toBe(true);
     }
   });
