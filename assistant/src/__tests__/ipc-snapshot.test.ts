@@ -313,6 +313,14 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: 'sess-001',
     surfaceId: 'surface-001',
   },
+  publish_page: {
+    type: 'publish_page',
+    html: '<html><body>Hello</body></html>',
+  },
+  unpublish_page: {
+    type: 'unpublish_page',
+    deploymentId: 'dpl-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -874,6 +882,16 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     surfaceId: 'surface-001',
     success: true,
     remainingUndos: 3,
+  },
+  publish_page_response: {
+    type: 'publish_page_response',
+    success: true,
+    publicUrl: 'https://example.vercel.app',
+    deploymentId: 'dpl-001',
+  },
+  unpublish_page_response: {
+    type: 'unpublish_page_response',
+    success: true,
   },
 };
 

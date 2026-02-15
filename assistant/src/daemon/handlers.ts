@@ -55,6 +55,8 @@ import type {
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
   AppUpdatePreviewRequest,
+  PublishPageRequest,
+  UnpublishPageRequest,
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
@@ -81,6 +83,9 @@ import { packageApp } from '../bundler/app-bundler.js';
 import { createSharedAppLink } from '../memory/shared-app-links-store.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { deployHtmlToVercel, deleteVercelDeployment } from '../services/vercel-deploy.js';
+import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId } from '../memory/published-pages-store.js';
+import { getSecureKey } from '../security/secure-keys.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
@@ -443,6 +448,8 @@ const handlers: DispatchMap = {
   gallery_install: handleGalleryInstall,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  publish_page: handlePublishPage,
+  unpublish_page: handleUnpublishPage,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
   ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
@@ -2080,6 +2087,109 @@ async function handleShareAppCloud(
     log.error({ err, appId: msg.appId }, 'Failed to share app to cloud');
     ctx.send(socket, {
       type: 'share_app_cloud_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+// ─── Publish page handlers ──────────────────────────────────────────────────
+
+async function handlePublishPage(
+  msg: PublishPageRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const token = getSecureKey('credential:vercel:api_token');
+    if (!token) {
+      ctx.send(socket, {
+        type: 'publish_page_response',
+        success: false,
+        error: 'No Vercel API token configured. Use the credential store to add one (service: vercel, field: api_token).',
+      });
+      return;
+    }
+
+    // Hash the HTML for dedup
+    const htmlHash = createHash('sha256').update(msg.html).digest('hex');
+
+    // Check if already published
+    const existing = getPublishedPageByHash(htmlHash);
+    if (existing) {
+      ctx.send(socket, {
+        type: 'publish_page_response',
+        success: true,
+        publicUrl: existing.publicUrl,
+        deploymentId: existing.deploymentId,
+      });
+      return;
+    }
+
+    const name = msg.title
+      ? msg.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+      : `vellum-page-${Date.now()}`;
+
+    const result = await deployHtmlToVercel({ html: msg.html, name, token });
+
+    const id = uuid();
+    createPublishedPage({
+      id,
+      deploymentId: result.deploymentId,
+      publicUrl: result.url,
+      pageTitle: msg.title,
+      htmlHash,
+    });
+
+    ctx.send(socket, {
+      type: 'publish_page_response',
+      success: true,
+      publicUrl: result.url,
+      deploymentId: result.deploymentId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to publish page');
+    ctx.send(socket, {
+      type: 'publish_page_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+async function handleUnpublishPage(
+  msg: UnpublishPageRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const token = getSecureKey('credential:vercel:api_token');
+    if (!token) {
+      ctx.send(socket, {
+        type: 'unpublish_page_response',
+        success: false,
+        error: 'No Vercel API token configured.',
+      });
+      return;
+    }
+
+    await deleteVercelDeployment(msg.deploymentId, token);
+
+    const record = getPublishedPageByDeploymentId(msg.deploymentId);
+    if (record) {
+      markDeleted(record.id);
+    }
+
+    ctx.send(socket, {
+      type: 'unpublish_page_response',
+      success: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, deploymentId: msg.deploymentId }, 'Failed to unpublish page');
+    ctx.send(socket, {
+      type: 'unpublish_page_response',
       success: false,
       error: message,
     });

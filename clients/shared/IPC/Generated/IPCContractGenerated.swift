@@ -604,6 +604,20 @@ public struct IPCPongMessage: Codable, Sendable {
     public let type: String
 }
 
+public struct IPCPublishPageRequest: Codable, Sendable {
+    public let type: String
+    public let html: String
+    public let title: String?
+}
+
+public struct IPCPublishPageResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let publicUrl: String?
+    public let deploymentId: String?
+    public let error: String?
+}
+
 public struct IPCRegenerateRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -1213,7 +1227,7 @@ public struct IPCUiSurfaceShowTable: Codable, Sendable {
     public let display: String?
 }
 
-public struct IPCUiSurfaceUndo: Codable, Sendable {
+public struct IPCUiSurfaceUndoRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
@@ -1224,7 +1238,8 @@ public struct IPCUiSurfaceUndoResult: Codable, Sendable {
     public let sessionId: String
     public let surfaceId: String
     public let success: Bool
-    public let remainingUndos: Int
+    /// Number of remaining undo entries after this undo.
+    public let remainingUndos: Double
 }
 
 public struct IPCUiSurfaceUpdate: Codable, Sendable {
@@ -1243,6 +1258,17 @@ public struct IPCUndoComplete: Codable, Sendable {
 public struct IPCUndoRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+}
+
+public struct IPCUnpublishPageRequest: Codable, Sendable {
+    public let type: String
+    public let deploymentId: String
+}
+
+public struct IPCUnpublishPageResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCUpdateTrustRule: Codable, Sendable {
@@ -1290,6 +1316,7 @@ public struct IPCUserMessage: Codable, Sendable {
     public let content: String?
     public let attachments: [IPCUserMessageAttachment]?
     public let activeSurfaceId: String?
+    /// The page currently displayed in the WebView (e.g. "settings.html").
     public let currentPage: String?
 }
 

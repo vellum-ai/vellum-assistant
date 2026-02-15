@@ -520,6 +520,31 @@ export interface UiSurfaceUndoRequest {
   surfaceId: string;
 }
 
+export interface PublishPageRequest {
+  type: 'publish_page';
+  html: string;
+  title?: string;
+}
+
+export interface PublishPageResponse {
+  type: 'publish_page_response';
+  success: boolean;
+  publicUrl?: string;
+  deploymentId?: string;
+  error?: string;
+}
+
+export interface UnpublishPageRequest {
+  type: 'unpublish_page';
+  deploymentId: string;
+}
+
+export interface UnpublishPageResponse {
+  type: 'unpublish_page_response';
+  success: boolean;
+  error?: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -582,7 +607,9 @@ export type ClientMessage =
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
-  | AppUpdatePreviewRequest;
+  | AppUpdatePreviewRequest
+  | PublishPageRequest
+  | UnpublishPageRequest;
 
 // === Server → Client messages ===
 
@@ -1347,7 +1374,9 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
-  | AppUpdatePreviewResponse;
+  | AppUpdatePreviewResponse
+  | PublishPageResponse
+  | UnpublishPageResponse;
 
 // === Contract schema ===
 
