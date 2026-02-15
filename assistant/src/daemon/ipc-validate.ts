@@ -1,5 +1,5 @@
 import type { ClientMessage } from './ipc-contract.js';
-import inventory from './ipc-contract-inventory.json';
+import inventory from './ipc-contract-inventory.json' with { type: 'json' };
 
 /**
  * All known ClientMessage `type` discriminator values, derived from the
