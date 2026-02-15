@@ -179,6 +179,176 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
+## TCP/TLS Network Support (iOS Development)
+
+The daemon can optionally expose a TCP/TLS server for network connections, primarily to support iOS app development. This allows the iOS simulator or device to connect to the daemon running on your Mac.
+
+**⚠️ IMPORTANT SECURITY NOTES:**
+
+- **Development/Testing Only**: The current implementation uses self-signed certificates with no client authentication. This is suitable for local development and testing only.
+- **Disabled by Default**: TCP server is off by default. The daemon always runs the Unix socket server (macOS app uses this).
+- **Localhost Binding**: By default, TCP binds to `127.0.0.1` (localhost only), making it inaccessible from other devices.
+- **Future Authentication**: Token-based authentication and proper certificate validation are planned for production use.
+
+### Configuration
+
+Edit `~/.vellum/config.toml` to enable TCP/TLS:
+
+```toml
+[network]
+tcpEnabled = true
+tcpHost = "127.0.0.1"  # "0.0.0.0" to allow network access
+tcpPort = 8765
+tlsEnabled = true      # Always use TLS for network connections
+
+# Optional: Custom certificate paths (auto-generated if not specified)
+# tlsCertPath = "/path/to/daemon.crt"
+# tlsKeyPath = "/path/to/daemon.key"
+```
+
+**Configuration options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tcpEnabled` | `false` | Enable TCP/TLS server |
+| `tcpHost` | `"127.0.0.1"` | Bind address (`"0.0.0.0"` for all interfaces) |
+| `tcpPort` | `8765` | TCP port to listen on |
+| `tlsEnabled` | `true` | Use TLS encryption (required for network) |
+| `tlsCertPath` | `~/.vellum/certs/daemon.crt` | TLS certificate path |
+| `tlsKeyPath` | `~/.vellum/certs/daemon.key` | TLS private key path |
+
+### iOS Simulator Testing (Recommended)
+
+For testing the iOS app in Xcode simulator on the same Mac:
+
+1. **Enable TCP with localhost binding** (most secure):
+   ```toml
+   [network]
+   tcpEnabled = true
+   tcpHost = "127.0.0.1"
+   tcpPort = 8765
+   ```
+
+2. **Restart the daemon**:
+   ```bash
+   vellum daemon stop
+   vellum daemon start
+   ```
+
+3. **Configure iOS app** (in iOS Settings view):
+   - Hostname: `localhost`
+   - Port: `8765`
+
+4. **Test connection**:
+   ```bash
+   # Check daemon is listening on TCP
+   lsof -i :8765
+
+   # View daemon logs
+   vellum daemon logs --follow
+   ```
+
+The iOS simulator shares localhost with your Mac, so `127.0.0.1` binding works perfectly.
+
+### iOS Device Testing (Same WiFi Network)
+
+To test on a physical iOS device connected to the same WiFi:
+
+1. **Find your Mac's local IP address**:
+   ```bash
+   ifconfig | grep "inet " | grep -v 127.0.0.1
+   # Example output: inet 192.168.1.100
+   ```
+
+2. **Enable TCP with network binding** (less secure, local network only):
+   ```toml
+   [network]
+   tcpEnabled = true
+   tcpHost = "0.0.0.0"  # Allow connections from network
+   tcpPort = 8765
+   ```
+
+3. **Restart daemon and configure iOS app**:
+   - Hostname: Your Mac's IP (e.g., `192.168.1.100`)
+   - Port: `8765`
+
+4. **Trust the self-signed certificate on iOS**:
+   - iOS will show a certificate error on first connection
+   - This is expected with self-signed certificates
+   - Accept the certificate to proceed (development only)
+
+**Security Warning**: Binding to `0.0.0.0` exposes the daemon to your entire local network. Anyone on your WiFi can connect. Only use this for testing on trusted networks.
+
+### TLS Certificates
+
+The daemon auto-generates self-signed TLS certificates on first startup if they don't exist:
+
+- **Location**: `~/.vellum/certs/daemon.crt` and `daemon.key`
+- **Valid for**: 365 days
+- **Subject**: `CN=vellum-daemon`
+- **Algorithm**: RSA 2048-bit with SHA256
+
+To regenerate certificates (e.g., after expiry):
+```bash
+rm ~/.vellum/certs/daemon.{crt,key}
+vellum daemon restart
+```
+
+**Requires**: OpenSSL must be installed (`brew install openssl` on macOS).
+
+### Debugging
+
+Check if TCP server is running:
+```bash
+# List all listening ports
+lsof -i :8765
+
+# Should show something like:
+# vellum-daemon  1234  user  6u  IPv4  0x... TCP localhost:8765 (LISTEN)
+```
+
+Test TCP connection:
+```bash
+# From same machine (localhost)
+nc -zv localhost 8765
+
+# From network (if bound to 0.0.0.0)
+nc -zv 192.168.1.100 8765
+```
+
+View daemon logs for connection attempts:
+```bash
+vellum daemon logs --follow | grep -E "TCP|connection"
+```
+
+Common issues:
+
+| Symptom | Solution |
+|---------|----------|
+| Port already in use | Another process is using port 8765. Change `tcpPort` or kill the other process. |
+| Connection refused | Check `tcpEnabled` is `true` and daemon restarted. Run `lsof -i :8765`. |
+| Certificate error on iOS | Expected with self-signed certs. Accept the certificate (dev only). |
+| iOS can't connect to Mac IP | Check firewall settings, ensure same WiFi network, verify IP with `ifconfig`. |
+
+### Architecture Notes
+
+- **Unix socket always runs**: The macOS app uses the Unix socket (`~/.vellum/vellum.sock`), unaffected by TCP config.
+- **TCP is additive**: Both Unix socket and TCP can run simultaneously.
+- **Same IPC protocol**: Both transports use the same newline-delimited JSON message format.
+- **Shared state**: All clients (macOS app, iOS app, CLI) share the same SQLite database and conversation history.
+
+### Future Roadmap
+
+Planned improvements for production use:
+
+- [ ] Token-based authentication (bearer tokens, API keys)
+- [ ] Proper certificate validation (CA-signed certificates)
+- [ ] Rate limiting per connection
+- [ ] Connection logging and audit trails
+- [ ] Optional mutual TLS (mTLS) for client certificates
+
+For now, this feature is **development-only** for iOS app testing on local networks.
+
 ## Claude Code Workflow
 
 This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
