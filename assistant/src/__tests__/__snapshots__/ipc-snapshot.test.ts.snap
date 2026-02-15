@@ -491,10 +491,18 @@ exports[`IPC message snapshots ServerMessage types tool_result serializes to exp
 
 exports[`IPC message snapshots ServerMessage types secret_request serializes to expected JSON 1`] = `
 {
+  "allowOneTimeSend": false,
+  "allowedDomains": [
+    "github.com",
+  ],
+  "allowedTools": [
+    "browser_fill_credential",
+  ],
   "description": "Needed to push changes",
   "field": "token",
   "label": "GitHub Personal Access Token",
   "placeholder": "ghp_xxxxxxxxxxxx",
+  "purpose": "Push code changes to GitHub",
   "requestId": "req-secret-001",
   "service": "github",
   "sessionId": "sess-001",

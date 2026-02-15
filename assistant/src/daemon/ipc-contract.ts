@@ -590,6 +590,14 @@ export interface SecretRequest {
   description?: string;
   placeholder?: string;
   sessionId?: string;
+  /** Intended purpose of the credential (displayed to user). */
+  purpose?: string;
+  /** Tools allowed to use this credential. */
+  allowedTools?: string[];
+  /** Domains where this credential may be used. */
+  allowedDomains?: string[];
+  /** Whether one-time send override is available. */
+  allowOneTimeSend?: boolean;
 }
 
 export interface MessageComplete {

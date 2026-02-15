@@ -331,6 +331,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     description: 'Needed to push changes',
     placeholder: 'ghp_xxxxxxxxxxxx',
     sessionId: 'sess-001',
+    purpose: 'Push code changes to GitHub',
+    allowedTools: ['browser_fill_credential'],
+    allowedDomains: ['github.com'],
+    allowOneTimeSend: false,
   },
   confirmation_request: {
     type: 'confirmation_request',
@@ -846,18 +850,20 @@ describe('IPC message snapshots', () => {
   // Baseline characterization — freeze credential IPC contract before hardening
   // -----------------------------------------------------------------------
   describe('credential IPC baselines', () => {
-    test('secret_request has no policy context fields', () => {
-      // The current secret_request includes: type, requestId, service,
-      // field, label, description?, placeholder?, sessionId?.
-      // It has NO access-policy, allowed-domains, or credential-scope
-      // fields. Future PRs will add policy context to the IPC contract.
+    test('secret_request includes policy context fields', () => {
+      // After PR 10: secret_request now includes policy context fields
+      // for purpose, allowedTools, allowedDomains, and allowOneTimeSend.
       const req = serverMessages.secret_request;
       const keys = Object.keys(req).sort();
       expect(keys).toEqual([
+        'allowOneTimeSend',
+        'allowedDomains',
+        'allowedTools',
         'description',
         'field',
         'label',
         'placeholder',
+        'purpose',
         'requestId',
         'service',
         'sessionId',
