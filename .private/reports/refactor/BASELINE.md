@@ -8,7 +8,7 @@
 
 ## Architecture Metrics
 
-### Swift ObservableObject classes (16)
+### Swift ObservableObject classes (17)
 
 ```
 clients/shared/IPC/DaemonClient.swift
@@ -93,6 +93,6 @@ Errors are across test files and one source file — mostly `@typescript-eslint/
 2. **Side-effect tool registration** — memory, credentials, and timer tools register via import side effects, making dead-code analysis unreliable.
 3. **No `typecheck` script in assistant** — validation requires manual `tsc --noEmit` invocation; easy to skip.
 4. **27 pre-existing lint errors** — mostly in test files; lint is not gating CI merges currently.
-5. **`ObservableObject` dominates** — 16 types vs 6 `@Observable`; Observation adoption limited to onboarding flow.
+5. **`ObservableObject` dominates** — 17 types vs 6 `@Observable`; Observation adoption limited to onboarding flow.
 6. **Duplicated settings state** — `SettingsView` and `SettingsPanel` manage settings independently.
 7. **Bun v1.3.9 crash in memory-recall-quality tests** — intermittent runtime-level crash blocks full test suite completion.
