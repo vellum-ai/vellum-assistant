@@ -20,6 +20,7 @@ struct ComposerView: View {
     @Binding var editorContentHeight: CGFloat
 
     @State private var composerScrollOffset: CGFloat = 0
+    @FocusState private var isComposerFocused: Bool
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -89,6 +90,26 @@ struct ComposerView: View {
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: editorContentHeight)
+        .onAppear { isComposerFocused = true }
+        .onChange(of: isComposerFocused) { _, focused in
+            // Re-focus the composer when it loses focus while the window is
+            // still key (e.g. Cmd+Return resignsFirstResponder as a side effect).
+            // Text selection in chat bubbles uses .textSelection(.enabled) which
+            // doesn't steal focus, so this won't fight user interactions.
+            if !focused, NSApp.keyWindow?.isKeyWindow == true {
+                DispatchQueue.main.async {
+                    isComposerFocused = true
+                    // After re-focus, NSTextField selects all text by default.
+                    // Clear the selection and place the cursor at the end.
+                    DispatchQueue.main.async {
+                        if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
+                            let end = textView.string.count
+                            textView.setSelectedRange(NSRange(location: end, length: 0))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var isComposerExpanded: Bool {
@@ -114,6 +135,7 @@ struct ComposerView: View {
                 .lineSpacing(4)
                 .textFieldStyle(.plain)
                 .lineLimit(1...)
+                .focused($isComposerFocused)
                 .disabled(!hasAPIKey)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("Message")
@@ -182,7 +204,7 @@ struct ComposerView: View {
                 }
                 return .handled
             }
-            guard keyPress.modifiers.isEmpty || keyPress.modifiers == .command else { return .ignored }
+            guard keyPress.modifiers.isEmpty else { return .ignored }
             inputText = inputText.replacingOccurrences(
                 of: "\\n$", with: "", options: .regularExpression
             )
