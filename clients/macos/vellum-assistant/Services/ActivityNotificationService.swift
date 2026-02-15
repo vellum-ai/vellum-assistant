@@ -88,36 +88,118 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
     // MARK: - Private Helpers
 
     private func formatTitle(summary: String, steps: Int) -> String {
+        // Use the summary if it's meaningful (not empty and not just "Task completed")
+        let cleanSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanSummary.isEmpty && cleanSummary.lowercased() != "task completed" {
+            return cleanSummary
+        }
+
+        // Fallback to step count
         let stepWord = steps == 1 ? "step" : "steps"
         return "Task completed (\(steps) \(stepWord))"
     }
 
     private func formatBody(toolCalls: [ToolCallData]) -> String {
-        // If no tool calls, show summary
+        // If no tool calls, show simple completion message
         guard !toolCalls.isEmpty else {
-            return "Your task has completed successfully."
+            return "Your task has finished successfully."
         }
 
-        // Show first few tool names with summaries
-        // Example: "Web Search: flights NYC to London, Browser Navigate, Screenshot"
-        let toolDescriptions = toolCalls.prefix(3).compactMap { tc -> String? in
-            // Skip tools without meaningful summaries
-            if tc.inputSummary.isEmpty {
-                return tc.toolName
-            } else {
-                return "\(tc.toolName): \(tc.inputSummary)"
+        // Filter and format tool calls to be user-friendly
+        let friendlyTools = toolCalls.compactMap { tc -> String? in
+            // Skip technical/internal tools that aren't user-facing
+            let toolName = tc.toolName.lowercased()
+            if toolName.contains("bash") || toolName.contains("command") {
+                // For bash commands, try to extract what was done
+                return extractBashAction(from: tc.inputSummary)
+            }
+
+            // Map tool names to friendly descriptions
+            let friendlyName = friendlyToolName(tc.toolName)
+
+            // Include input summary if it's short and meaningful
+            if !tc.inputSummary.isEmpty && tc.inputSummary.count < 50 && !tc.inputSummary.contains("--") {
+                return "\(friendlyName): \(tc.inputSummary)"
+            }
+
+            return friendlyName
+        }
+
+        // Take first 2-3 meaningful actions
+        let displayTools = friendlyTools.prefix(3)
+
+        if displayTools.isEmpty {
+            return "Completed successfully"
+        }
+
+        var body = displayTools.joined(separator: ", ")
+
+        if friendlyTools.count > 3 {
+            let remaining = friendlyTools.count - 3
+            body += " and \(remaining) more action\(remaining == 1 ? "" : "s")"
+        }
+
+        return body
+    }
+
+    /// Extract user-friendly action from bash command
+    private func extractBashAction(from command: String) -> String? {
+        // Try to extract meaningful actions from common patterns
+        if command.contains("osascript") {
+            // AppleScript commands
+            if command.contains("activate") {
+                if let app = extractAppName(from: command) {
+                    return "Opened \(app)"
+                }
+            }
+            return "Ran AppleScript"
+        }
+
+        if command.contains("open ") {
+            if let app = command.components(separatedBy: "open ").last?.components(separatedBy: " ").first {
+                return "Opened \(app)"
+            }
+            return "Opened application"
+        }
+
+        // Skip other bash commands - they're too technical
+        return nil
+    }
+
+    /// Extract application name from AppleScript command
+    private func extractAppName(from command: String) -> String? {
+        // Pattern: 'tell application "AppName"'
+        if let range = command.range(of: #"application \"([^\"]+)\""#, options: .regularExpression) {
+            let match = command[range]
+            if let appRange = match.range(of: #"\"([^\"]+)\""#, options: .regularExpression) {
+                let appWithQuotes = match[appRange]
+                return String(appWithQuotes.dropFirst().dropLast())
             }
         }
+        return nil
+    }
 
-        // Build final body
-        var body = toolDescriptions.joined(separator: ", ")
-
-        if toolCalls.count > 3 {
-            let remainingCount = toolCalls.count - 3
-            let toolWord = remainingCount == 1 ? "tool" : "tools"
-            body += ", and \(remainingCount) more \(toolWord)"
+    /// Map technical tool names to user-friendly names
+    private func friendlyToolName(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case let name where name.contains("write"):
+            return "Created file"
+        case let name where name.contains("edit"):
+            return "Edited file"
+        case let name where name.contains("read"):
+            return "Read file"
+        case let name where name.contains("search") || name.contains("find"):
+            return "Searched"
+        case let name where name.contains("web") || name.contains("fetch"):
+            return "Visited website"
+        case let name where name.contains("screenshot"):
+            return "Took screenshot"
+        case let name where name.contains("click"):
+            return "Clicked"
+        case let name where name.contains("type"):
+            return "Typed text"
+        default:
+            return toolName
         }
-
-        return body.isEmpty ? "Your task has completed successfully." : body
     }
 }
