@@ -187,4 +187,30 @@ describe('Session workspace injection', () => {
     const firstText = (firstBlock as { type: 'text'; text: string }).text;
     expect(firstText).toContain('<workspace_top_level>');
   });
+
+  test('workspace context is stripped from persisted history', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+
+    const persistedMessages = session.getMessages();
+    for (const msg of persistedMessages) {
+      const text = messageText(msg);
+      expect(text).not.toContain('<workspace_top_level>');
+    }
+  });
+
+  test('no empty user messages after stripping workspace context', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('Hello', [], () => {});
+
+    const persistedMessages = session.getMessages();
+    const emptyUserMsgs = persistedMessages.filter(
+      (m) => m.role === 'user' && m.content.length === 0,
+    );
+    expect(emptyUserMsgs).toHaveLength(0);
+  });
 });
