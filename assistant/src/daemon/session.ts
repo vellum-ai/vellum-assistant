@@ -68,7 +68,9 @@ import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext, stripWorkspaceTopLevelContext } from './session-runtime-assembly.js';
+import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
+import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
 import type { ActiveSurfaceContext } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -129,6 +131,8 @@ export class Session {
   private surfaceUndoStacks = new Map<string, string[]>();
   private static readonly MAX_UNDO_DEPTH = 10;
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  private workspaceTopLevelContext: string | null = null;
+  private workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
@@ -1753,6 +1757,31 @@ export class Session {
         'Cleaned up Qdrant vectors after regenerate',
       );
     }
+  }
+
+  // ── Workspace Top-Level Context ──────────────────────────────────
+
+  /** Refresh workspace top-level directory context if needed. */
+  refreshWorkspaceTopLevelContextIfNeeded(): void {
+    if (!this.workspaceTopLevelDirty && this.workspaceTopLevelContext !== null) return;
+    const snapshot = scanTopLevelDirectories(this.workingDir);
+    this.workspaceTopLevelContext = renderWorkspaceTopLevelContext(snapshot);
+    this.workspaceTopLevelDirty = false;
+  }
+
+  /** Mark workspace top-level context for refresh on next turn. */
+  markWorkspaceTopLevelDirty(): void {
+    this.workspaceTopLevelDirty = true;
+  }
+
+  /** Get the current cached workspace context (for testing). */
+  getWorkspaceTopLevelContext(): string | null {
+    return this.workspaceTopLevelContext;
+  }
+
+  /** Check if workspace context is marked dirty (for testing). */
+  isWorkspaceTopLevelDirty(): boolean {
+    return this.workspaceTopLevelDirty;
   }
 
   /**
