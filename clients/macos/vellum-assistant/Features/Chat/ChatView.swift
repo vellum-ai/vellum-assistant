@@ -508,6 +508,21 @@ struct ChatView: View {
                 .disabled(!hasAPIKey)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("Message")
+                .overlay(alignment: .topLeading) {
+                    if let ghostSuffix {
+                        (Text(inputText)
+                            .font(VFont.body)
+                            .foregroundColor(.clear)
+                        + Text(ghostSuffix)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted.opacity(0.5)))
+                            .lineSpacing(4)
+                            .lineLimit(1...)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .background(
                     GeometryReader { geo in
                         Color.clear
@@ -519,22 +534,6 @@ struct ChatView: View {
                             }
                     }
                 )
-
-                if let ghostSuffix {
-                    (Text(inputText)
-                        .font(VFont.body)
-                        .foregroundColor(.clear)
-                    + Text(ghostSuffix)
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted.opacity(0.5)))
-                        .lineSpacing(4)
-                        .lineLimit(1...)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxHeight: min(max(editorContentHeight, 28), 200), alignment: .topLeading)
-                        .clipped()
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
             }
             .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
             .background(ScrollOffsetReader(offset: $composerScrollOffset))
