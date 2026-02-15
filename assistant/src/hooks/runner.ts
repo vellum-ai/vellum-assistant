@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { getRootDir } from '../util/platform.js';
+import { getRootDir, getWorkspaceDir } from '../util/platform.js';
 import { getHookSettings } from './config.js';
 import type { DiscoveredHook, HookEventData } from './types.js';
 
@@ -69,6 +69,7 @@ export async function runHookScript(
         VELLUM_HOOK_EVENT: eventData.event,
         VELLUM_HOOK_NAME: hook.name,
         VELLUM_ROOT_DIR: getRootDir(),
+        VELLUM_WORKSPACE_DIR: getWorkspaceDir(),
         VELLUM_HOOK_SETTINGS: JSON.stringify(getHookSettings(hook.name, hook.manifest)),
       },
       stdio: ['pipe', 'pipe', 'pipe'],

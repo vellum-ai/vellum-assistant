@@ -105,6 +105,35 @@ describe('Hook Runner', () => {
     expect(result.stdout.trim()).toContain('.vellum');
   });
 
+  test('sets VELLUM_WORKSPACE_DIR environment variable', async () => {
+    const hook = createTestHook(hooksDir, 'wsdir-hook', '#!/bin/bash\necho "$VELLUM_WORKSPACE_DIR"');
+    const eventData: HookEventData = { event: 'daemon-start' };
+
+    const result = await runHookScript(hook, eventData);
+    expect(result.exitCode).toBe(0);
+    const wsDir = result.stdout.trim();
+    expect(wsDir).toContain('.vellum');
+    expect(wsDir).toEndWith('workspace');
+  });
+
+  test('sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR', async () => {
+    const hook = createTestHook(
+      hooksDir,
+      'both-dirs-hook',
+      '#!/bin/bash\necho "$VELLUM_ROOT_DIR|$VELLUM_WORKSPACE_DIR"',
+    );
+    const eventData: HookEventData = { event: 'pre-tool-execute' };
+
+    const result = await runHookScript(hook, eventData);
+    expect(result.exitCode).toBe(0);
+    const [rootDir, wsDir] = result.stdout.trim().split('|');
+    expect(rootDir).toContain('.vellum');
+    expect(wsDir).toContain('.vellum');
+    expect(wsDir).toEndWith('workspace');
+    // workspace dir should be a subdirectory of root dir
+    expect(wsDir).toStartWith(rootDir);
+  });
+
   test('[experimental] times out after specified duration', async () => {
     const hook = createTestHook(hooksDir, 'slow-hook', '#!/bin/bash\nsleep 10');
     const eventData: HookEventData = { event: 'pre-tool-execute' };
