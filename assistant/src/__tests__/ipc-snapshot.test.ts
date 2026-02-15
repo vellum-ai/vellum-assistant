@@ -108,6 +108,18 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     windowTitle: 'Google',
     timestamp: 1700000000,
   },
+  watch_observation: {
+    type: 'watch_observation',
+    watchId: 'watch-001',
+    sessionId: 'sess-001',
+    ocrText: 'Screen text captured during watch',
+    appName: 'Xcode',
+    windowTitle: 'Project.swift',
+    bundleIdentifier: 'com.apple.dt.Xcode',
+    timestamp: 1700000000,
+    captureIndex: 0,
+    totalExpected: 10,
+  },
   task_submit: {
     type: 'task_submit',
     task: 'Open Safari and search for weather',
@@ -604,6 +616,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     timerId: 'tmr-001',
     label: 'Focus time',
     durationMinutes: 25,
+  },
+  watch_started: {
+    type: 'watch_started',
+    sessionId: 'sess-001',
+    watchId: 'watch-001',
+    durationSeconds: 300,
+    intervalSeconds: 5,
+  },
+  watch_complete_request: {
+    type: 'watch_complete_request',
+    sessionId: 'sess-001',
+    watchId: 'watch-001',
   },
   trust_rules_list_response: {
     type: 'trust_rules_list_response',

@@ -385,6 +385,7 @@ const handlers: DispatchMap = {
   cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
   ambient_observation: handleAmbientObservation,
+  watch_observation: (_msg, _socket, _ctx) => { /* TODO: handle watch observations */ },
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),

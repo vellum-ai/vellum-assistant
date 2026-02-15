@@ -292,6 +292,19 @@ public struct IPCFileUploadSurfaceData: Codable, Sendable {
     public let maxSizeBytes: Int?
 }
 
+public struct IPCForkSharedAppRequest: Codable, Sendable {
+    public let type: String
+    public let uuid: String
+}
+
+public struct IPCForkSharedAppResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let appId: String?
+    public let name: String?
+    public let error: String?
+}
+
 public struct IPCFormField: Codable, Sendable {
     public let id: String
     public let type: String
@@ -311,6 +324,28 @@ public struct IPCFormSurfaceData: Codable, Sendable {
     public let description: String?
     public let fields: [IPCFormField]
     public let submitLabel: String?
+}
+
+public struct IPCGalleryInstallRequest: Codable, Sendable {
+    public let type: String
+    public let galleryAppId: String
+}
+
+public struct IPCGalleryInstallResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let appId: String?
+    public let name: String?
+    public let error: String?
+}
+
+public struct IPCGalleryListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCGalleryListResponse: Codable, Sendable {
+    public let type: String
+    public let gallery: IPCGalleryManifest
 }
 
 public struct IPCGenerationCancelled: Codable, Sendable {
@@ -612,6 +647,19 @@ public struct IPCSessionsClearResponse: Codable, Sendable {
 public struct IPCSessionSwitchRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+}
+
+public struct IPCShareAppCloudRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+}
+
+public struct IPCShareAppCloudResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let shareToken: String?
+    public let shareUrl: String?
+    public let error: String?
 }
 
 public struct IPCSharedAppDeleteRequest: Codable, Sendable {
@@ -1098,4 +1146,31 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let mimeType: String
     public let data: String
     public let extractedText: String?
+}
+
+public struct IPCWatchCompleteRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let watchId: String
+}
+
+public struct IPCWatchObservation: Codable, Sendable {
+    public let type: String
+    public let watchId: String
+    public let sessionId: String
+    public let ocrText: String
+    public let appName: String?
+    public let windowTitle: String?
+    public let bundleIdentifier: String?
+    public let timestamp: Double
+    public let captureIndex: Double
+    public let totalExpected: Double
+}
+
+public struct IPCWatchStarted: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let watchId: String
+    public let durationSeconds: Double
+    public let intervalSeconds: Double
 }

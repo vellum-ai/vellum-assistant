@@ -193,6 +193,16 @@ extension IPCAmbientObservation {
     }
 }
 
+/// Sent by the watch agent with OCR text from periodic screen captures.
+/// Backed by generated `IPCWatchObservation`.
+public typealias WatchObservationMessage = IPCWatchObservation
+
+extension IPCWatchObservation {
+    public init(watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Double, totalExpected: Double) {
+        self.init(type: "watch_observation", watchId: watchId, sessionId: sessionId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, bundleIdentifier: bundleIdentifier, timestamp: timestamp, captureIndex: captureIndex, totalExpected: totalExpected)
+    }
+}
+
 /// Sent to create a new Q&A session.
 /// Backed by generated `IPCSessionCreateRequest`.
 public typealias SessionCreateMessage = IPCSessionCreateRequest
@@ -1007,6 +1017,14 @@ public struct SessionErrorMessage: Decodable, Sendable {
 /// Backed by generated `IPCTimerCompleted`.
 public typealias TimerCompletedMessage = IPCTimerCompleted
 
+/// Watch session started notification from daemon.
+/// Backed by generated `IPCWatchStarted`.
+public typealias WatchStartedMessage = IPCWatchStarted
+
+/// Watch session complete request from daemon.
+/// Backed by generated `IPCWatchCompleteRequest`.
+public typealias WatchCompleteRequestMessage = IPCWatchCompleteRequest
+
 /// Tool execution started.
 /// Backed by generated `IPCToolUseStart`.
 public typealias ToolUseStartMessage = IPCToolUseStart
@@ -1188,6 +1206,8 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
+    case watchStarted(WatchStartedMessage)
+    case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
@@ -1317,6 +1337,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "timer_completed":
             let message = try TimerCompletedMessage(from: decoder)
             self = .timerCompleted(message)
+        case "watch_started":
+            let message = try WatchStartedMessage(from: decoder)
+            self = .watchStarted(message)
+        case "watch_complete_request":
+            let message = try WatchCompleteRequestMessage(from: decoder)
+            self = .watchCompleteRequest(message)
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
