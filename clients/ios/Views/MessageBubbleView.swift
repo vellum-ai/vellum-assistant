@@ -30,9 +30,10 @@ struct MessageBubbleView: View {
                         }
                     )
                 } else {
-                    // Tool calls render above text to match chronological order
-                    if !message.toolCalls.isEmpty {
-                        ForEach(message.toolCalls) { toolCall in
+                    // Pre-text tool calls render above the bubble
+                    let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
+                    if !preTextCalls.isEmpty {
+                        ForEach(preTextCalls) { toolCall in
                             ToolCallChip(toolCall: toolCall)
                         }
                     }
@@ -49,6 +50,14 @@ struct MessageBubbleView: View {
                                     : VColor.surface
                             )
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    }
+
+                    // Post-text tool calls render below the bubble
+                    let postTextCalls = message.toolCalls.filter { !$0.arrivedBeforeText }
+                    if !postTextCalls.isEmpty {
+                        ForEach(postTextCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
                     }
 
                     // Inline surfaces (cards, tables, interactive widgets)

@@ -126,6 +126,9 @@ public final class ChatViewModel: ObservableObject {
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     private var messageLoopGeneration: UInt64 = 0
     private var currentAssistantMessageId: UUID?
+    /// Tracks whether the current assistant message has received any text content.
+    /// Used to determine `arrivedBeforeText` for each tool call in the message.
+    private var currentAssistantHasText: Bool = false
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
     // Public (rather than private) so tests can simulate the
@@ -649,6 +652,7 @@ public final class ChatViewModel: ObservableObject {
             guard !isCancelling else { return }
             guard !isWorkspaceRefinementInFlight else { return }
             isThinking = false
+            currentAssistantHasText = true
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 // Append to existing streaming message
@@ -687,6 +691,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -707,6 +712,7 @@ public final class ChatViewModel: ObservableObject {
                 messages.removeSubrange((lastUserIndex + 1)...)
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -734,6 +740,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -782,6 +789,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -801,6 +809,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             if !wasCancelling {
                 errorText = err.message
             }
@@ -881,7 +890,8 @@ public final class ChatViewModel: ObservableObject {
             }
             let toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
-                inputSummary: summarizeToolInput(msg.input)
+                inputSummary: summarizeToolInput(msg.input),
+                arrivedBeforeText: !currentAssistantHasText
             )
             // Add to existing assistant message or create one
             if let existingId = currentAssistantMessageId,
@@ -996,6 +1006,7 @@ public final class ChatViewModel: ObservableObject {
                 messages[index].isStreaming = false
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             // When the user intentionally cancelled, suppress both the typed
             // session error and the errorText so no toast appears.
             if !wasCancelling {
@@ -1073,6 +1084,7 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1105,6 +1117,7 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             currentAssistantMessageId = nil
+            currentAssistantHasText = false
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1148,6 +1161,7 @@ public final class ChatViewModel: ObservableObject {
             self.isCancelling = false
             self.isSending = false
             self.currentAssistantMessageId = nil
+            self.currentAssistantHasText = false
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]

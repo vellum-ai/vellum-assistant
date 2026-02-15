@@ -603,18 +603,30 @@ private struct ChatBubble: View {
         return hasText || !message.attachments.isEmpty
     }
 
+    /// Tool calls that arrived before any text content in the message.
+    private var toolCallsBeforeText: [ToolCallData] {
+        message.toolCalls.filter { $0.arrivedBeforeText }
+    }
+
+    /// Tool calls that arrived after text content started streaming.
+    private var toolCallsAfterText: [ToolCallData] {
+        message.toolCalls.filter { !$0.arrivedBeforeText }
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                // Tool calls render above text to match chronological order:
-                // in the agent loop, tools execute before the final text response.
-                toolCallChips
+                // Pre-text tool calls render above the bubble
+                toolCallChips(toolCallsBeforeText)
 
                 if shouldShowBubble {
                     bubbleContent
                 }
+
+                // Post-text tool calls render below the bubble
+                toolCallChips(toolCallsAfterText)
 
                 // Inline surfaces render below the bubble as full-width cards
                 if !message.inlineSurfaces.isEmpty {
@@ -637,10 +649,10 @@ private struct ChatBubble: View {
     /// Tool call chips rendered outside the bubble.
     /// Hidden for user messages, when there are no tool calls, or when inline surfaces are present.
     @ViewBuilder
-    private var toolCallChips: some View {
-        if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
+    private func toolCallChips(_ calls: [ToolCallData]) -> some View {
+        if !isUser && !calls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                ForEach(message.toolCalls) { toolCall in
+                ForEach(calls) { toolCall in
                     ToolCallChip(toolCall: toolCall)
                 }
             }
