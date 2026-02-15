@@ -119,6 +119,8 @@ export class RunOrchestrator {
     session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
       if (msg.type === 'error') {
         lastError = msg.message;
+      } else if (msg.type === 'session_error') {
+        lastError = msg.userMessage;
       }
     }).then(() => {
       if (lastError) {
