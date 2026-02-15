@@ -127,24 +127,6 @@ describe('Memory regressions', () => {
     }
   });
 
-  async function withMockOllamaQueryEmbedding<T>(run: () => Promise<T>): Promise<T> {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => (
-      new Response(
-        JSON.stringify({ data: [{ embedding: [1, 0, 0] }] }),
-        {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        },
-      )
-    )) as unknown as typeof globalThis.fetch;
-    try {
-      return await run();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
-
   function semanticRecallConfig() {
     return {
       ...DEFAULT_CONFIG,
