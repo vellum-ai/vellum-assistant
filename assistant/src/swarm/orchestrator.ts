@@ -73,24 +73,78 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
   }
 
-  // Process tasks with bounded concurrency
-  while (ready.length > 0 || isAnyRunning()) {
-    if (signal?.aborted) break;
+  // Concurrent DAG executor — schedule tasks as soon as their prerequisites
+  // finish, bounded by maxWorkers.  Unlike wave/batch execution, a newly
+  // unblocked task can start immediately when a worker slot opens up rather
+  // than waiting for the entire previous batch to complete.
+  let activeCount = 0;
+  let resolve: (() => void) | null = null;
 
-    // Launch up to maxWorkers tasks
-    const batch = ready.splice(0, limits.maxWorkers);
+  // Resolves whenever a running task completes (or the ready queue is refilled)
+  // so the main loop can re-evaluate whether to launch more work.
+  function signalProgress(): void {
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r();
+    }
+  }
 
-    const promises = batch.map(async (task) => {
-      onStatus?.({ kind: 'task_started', taskId: task.id });
+  function waitForProgress(): Promise<void> {
+    return new Promise<void>((r) => { resolve = r; });
+  }
 
-      const depOutputs = task.dependencies
-        .map((depId) => {
-          const r = results.get(depId);
-          return r ? { taskId: depId, summary: r.summary } : null;
-        })
-        .filter((d): d is { taskId: string; summary: string } => d !== null);
+  function processResult(result: SwarmTaskResult): void {
+    results.set(result.taskId, result);
+    remaining.delete(result.taskId);
 
-      let result = await runWorkerTask({
+    if (result.status === 'completed') {
+      onStatus?.({ kind: 'task_completed', taskId: result.taskId });
+      // Immediately unblock dependents so they enter the ready queue
+      for (const depId of dependents.get(result.taskId) ?? []) {
+        const pending = pendingDeps.get(depId);
+        if (pending) {
+          pending.delete(result.taskId);
+          if (pending.size === 0) {
+            pendingDeps.delete(depId);
+            const task = plan.tasks.find((t) => t.id === depId);
+            if (task && !blocked.has(depId)) {
+              ready.push(task);
+            }
+          }
+        }
+      }
+    } else {
+      onStatus?.({ kind: 'task_failed', taskId: result.taskId });
+      blockDependents(result.taskId, dependents, blocked, onStatus);
+    }
+  }
+
+  async function runTask(task: SwarmTaskNode): Promise<void> {
+    onStatus?.({ kind: 'task_started', taskId: task.id });
+
+    const depOutputs = task.dependencies
+      .map((depId) => {
+        const r = results.get(depId);
+        return r ? { taskId: depId, summary: r.summary } : null;
+      })
+      .filter((d): d is { taskId: string; summary: string } => d !== null);
+
+    let result = await runWorkerTask({
+      task,
+      upstreamContext: plan.objective,
+      dependencyOutputs: depOutputs,
+      backend,
+      workingDir,
+      model,
+      timeoutMs: limits.workerTimeoutSec * 1000,
+      signal,
+    });
+
+    let retries = 0;
+    while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
+      retries++;
+      result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
         dependencyOutputs: depOutputs,
@@ -100,55 +154,30 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         timeoutMs: limits.workerTimeoutSec * 1000,
         signal,
       });
-
-      // Retry loop — skip retries when the swarm is being cancelled
-      let retries = 0;
-      while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
-        retries++;
-        result = await runWorkerTask({
-          task,
-          upstreamContext: plan.objective,
-          dependencyOutputs: depOutputs,
-          backend,
-          workingDir,
-          model,
-          timeoutMs: limits.workerTimeoutSec * 1000,
-          signal,
-        });
-      }
-      result.retryCount = retries;
-
-      return result;
-    });
-
-    const batchResults = await Promise.all(promises);
-
-    for (const result of batchResults) {
-      results.set(result.taskId, result);
-      remaining.delete(result.taskId);
-
-      if (result.status === 'completed') {
-        onStatus?.({ kind: 'task_completed', taskId: result.taskId });
-        // Unblock dependents
-        for (const depId of dependents.get(result.taskId) ?? []) {
-          const pending = pendingDeps.get(depId);
-          if (pending) {
-            pending.delete(result.taskId);
-            if (pending.size === 0) {
-              pendingDeps.delete(depId);
-              const task = plan.tasks.find((t) => t.id === depId);
-              if (task && !blocked.has(depId)) {
-                ready.push(task);
-              }
-            }
-          }
-        }
-      } else {
-        onStatus?.({ kind: 'task_failed', taskId: result.taskId });
-        // Block all transitive dependents
-        blockDependents(result.taskId, dependents, blocked, onStatus);
-      }
     }
+    result.retryCount = retries;
+
+    activeCount--;
+    processResult(result);
+    signalProgress();
+  }
+
+  while (ready.length > 0 || activeCount > 0) {
+    if (signal?.aborted) break;
+
+    // Launch as many ready tasks as worker slots allow
+    while (ready.length > 0 && activeCount < limits.maxWorkers) {
+      const task = ready.shift()!;
+      activeCount++;
+      // Fire-and-forget — completion is handled inside runTask
+      runTask(task);
+    }
+
+    // Nothing left to launch and nothing running — we're done
+    if (activeCount === 0 && ready.length === 0) break;
+
+    // Wait until a running task completes (or a new task becomes ready)
+    await waitForProgress();
   }
 
   // Mark any remaining tasks that were never reached as blocked
@@ -193,12 +222,6 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       totalDurationMs,
     },
   };
-
-  // Placeholder — there's no true async tracking in this sync loop,
-  // but the structure supports it.
-  function isAnyRunning(): boolean {
-    return false;
-  }
 }
 
 function blockDependents(

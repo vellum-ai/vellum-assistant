@@ -267,4 +267,51 @@ describe('executeSwarm', () => {
     expect(summary.stats.completed).toBe(4);
     expect(summary.stats.blocked).toBe(0);
   });
+
+  test('schedules dependents eagerly without waiting for batch peers', async () => {
+    // A (slow) and B (fast) are independent. C depends only on B.
+    // With eager scheduling, C should start while A is still running.
+    const timeline: { taskId: string; event: 'start' | 'end' }[] = [];
+
+    const plan = makePlan({
+      tasks: [
+        { id: 'A', role: 'coder', objective: 'slow', dependencies: [] },
+        { id: 'B', role: 'coder', objective: 'fast', dependencies: [] },
+        { id: 'C', role: 'coder', objective: 'dep-on-B', dependencies: ['B'] },
+      ],
+    });
+
+    const backend = makeBackend({
+      runTask: async (input) => {
+        const id = input.prompt.includes('slow') ? 'A'
+          : input.prompt.includes('fast') ? 'B' : 'C';
+        timeline.push({ taskId: id, event: 'start' });
+        // A is deliberately slower than B so C should start before A finishes
+        if (id === 'A') await new Promise((r) => setTimeout(r, 80));
+        else await new Promise((r) => setTimeout(r, 5));
+        timeline.push({ taskId: id, event: 'end' });
+        return {
+          success: true,
+          output: '```json\n{"summary":"Done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
+          durationMs: 10,
+        };
+      },
+    });
+
+    const summary = await executeSwarm({
+      plan,
+      limits: resolveSwarmLimits({ ...DEFAULT_LIMITS, maxWorkers: 3 }),
+      backend,
+      workingDir: '/tmp',
+    });
+
+    expect(summary.stats.completed).toBe(3);
+
+    // C must start before A ends — proves eager scheduling
+    const cStart = timeline.findIndex((e) => e.taskId === 'C' && e.event === 'start');
+    const aEnd = timeline.findIndex((e) => e.taskId === 'A' && e.event === 'end');
+    expect(cStart).toBeGreaterThan(-1);
+    expect(aEnd).toBeGreaterThan(-1);
+    expect(cStart).toBeLessThan(aEnd);
+  });
 });
