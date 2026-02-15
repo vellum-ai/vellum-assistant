@@ -39,13 +39,15 @@ export class OpenAIProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
-    const maxTokens = (config as Record<string, unknown> | undefined)?.max_tokens as number | undefined;
+    const configObj = config as Record<string, unknown> | undefined;
+    const maxTokens = configObj?.max_tokens as number | undefined;
+    const modelOverride = configObj?.model as string | undefined;
 
     try {
       const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
 
       const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
-        model: this.model,
+        model: modelOverride ?? this.model,
         messages: openaiMessages,
         stream: true as const,
         stream_options: { include_usage: true },
