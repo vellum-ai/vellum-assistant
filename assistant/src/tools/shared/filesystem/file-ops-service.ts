@@ -156,7 +156,13 @@ export class FileSystemOps {
     try {
       content = readFileSync(filePath, 'utf-8');
     } catch (err) {
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      const code = err instanceof Error && 'code' in err
+        ? (err as NodeJS.ErrnoException).code
+        : undefined;
+      if (code === 'EISDIR') {
+        return { ok: false, error: Err.notAFile(filePath) };
+      }
+      if (code === 'ENOENT') {
         return { ok: false, error: Err.notFound(filePath) };
       }
       const msg = err instanceof Error ? err.message : String(err);

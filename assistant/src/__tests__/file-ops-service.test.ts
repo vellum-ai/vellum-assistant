@@ -191,7 +191,7 @@ describe('FileSystemOps.editFileSafe', () => {
     expect(result.error.code).toBe('NOT_FOUND');
   });
 
-  test('returns IO_ERROR (not NOT_FOUND) when path is a directory', () => {
+  test('returns NOT_A_FILE when target is a directory', () => {
     const dir = makeTempDir();
     mkdirSync(join(dir, 'subdir'));
     const ops = new FileSystemOps(sandboxPolicyFor(dir));
@@ -204,8 +204,7 @@ describe('FileSystemOps.editFileSafe', () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.code).toBe('IO_ERROR');
-    expect(result.error.message).toContain('EISDIR');
+    expect(result.error.code).toBe('NOT_A_FILE');
   });
 
   test('returns MATCH_NOT_FOUND when old_string is absent', () => {
