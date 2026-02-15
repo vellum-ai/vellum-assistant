@@ -584,6 +584,41 @@ export const SkillsInstallConfigSchema = z.object({
   }).default('npm'),
 });
 
+export const SwarmConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'swarm.enabled must be a boolean' })
+    .default(true),
+  maxWorkers: z
+    .number({ error: 'swarm.maxWorkers must be a number' })
+    .int('swarm.maxWorkers must be an integer')
+    .positive('swarm.maxWorkers must be a positive integer')
+    .max(6, 'swarm.maxWorkers must be at most 6')
+    .default(3),
+  maxTasks: z
+    .number({ error: 'swarm.maxTasks must be a number' })
+    .int('swarm.maxTasks must be an integer')
+    .positive('swarm.maxTasks must be a positive integer')
+    .max(20, 'swarm.maxTasks must be at most 20')
+    .default(8),
+  maxRetriesPerTask: z
+    .number({ error: 'swarm.maxRetriesPerTask must be a number' })
+    .int('swarm.maxRetriesPerTask must be an integer')
+    .nonnegative('swarm.maxRetriesPerTask must be a non-negative integer')
+    .max(3, 'swarm.maxRetriesPerTask must be at most 3')
+    .default(1),
+  workerTimeoutSec: z
+    .number({ error: 'swarm.workerTimeoutSec must be a number' })
+    .int('swarm.workerTimeoutSec must be an integer')
+    .positive('swarm.workerTimeoutSec must be a positive integer')
+    .default(900),
+  plannerModel: z
+    .string({ error: 'swarm.plannerModel must be a string' })
+    .default('claude-haiku-4-5-20251001'),
+  synthesizerModel: z
+    .string({ error: 'swarm.synthesizerModel must be a string' })
+    .default('claude-sonnet-4-5-20250929'),
+});
+
 export const SkillsConfigSchema = z.object({
   entries: z.record(z.string(), SkillEntryConfigSchema).default({}),
   load: SkillsLoadConfigSchema.default({ extraDirs: [], watch: true, watchDebounceMs: 250 }),
@@ -740,6 +775,15 @@ export const AssistantConfigSchema = z.object({
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
+  swarm: SwarmConfigSchema.default({
+    enabled: true,
+    maxWorkers: 3,
+    maxTasks: 8,
+    maxRetriesPerTask: 1,
+    workerTimeoutSec: 900,
+    plannerModel: 'claude-haiku-4-5-20251001',
+    synthesizerModel: 'claude-sonnet-4-5-20250929',
+  }),
   skills: SkillsConfigSchema.default({
     entries: {},
     load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
@@ -795,4 +839,5 @@ export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
 export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
+export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;

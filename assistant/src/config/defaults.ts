@@ -138,6 +138,15 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retentionDays: 0,
   },
   pricingOverrides: [],
+  swarm: {
+    enabled: true,
+    maxWorkers: 3,
+    maxTasks: 8,
+    maxRetriesPerTask: 1,
+    workerTimeoutSec: 900,
+    plannerModel: 'claude-haiku-4-5-20251001',
+    synthesizerModel: 'claude-sonnet-4-5-20250929',
+  },
   skills: {
     entries: {},
     load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
