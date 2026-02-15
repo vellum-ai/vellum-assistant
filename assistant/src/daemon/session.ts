@@ -58,6 +58,7 @@ import {
 } from '../skills/slash-commands.js';
 import {
   cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
   resolveDirectives,
   contentBlocksToDrafts,
   deduplicateDrafts,
@@ -604,6 +605,7 @@ export class Session {
       const accumulatedDirectives: DirectiveRequest[] = [];
       const accumulatedToolContentBlocks: ContentBlock[] = [];
       const directiveWarnings: string[] = [];
+      let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
@@ -687,11 +689,17 @@ export class Session {
         };
 
         switch (event.type) {
-          case 'text_delta':
+          case 'text_delta': {
             emitLlmCallStartedIfNeeded();
-            onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
-            if (isFirstMessage) firstAssistantText += event.text;
+            pendingDirectiveDisplayBuffer += event.text;
+            const drained = drainDirectiveDisplayBuffer(pendingDirectiveDisplayBuffer);
+            pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
+            if (drained.emitText.length > 0) {
+              onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: this.conversationId });
+              if (isFirstMessage) firstAssistantText += drained.emitText;
+            }
             break;
+          }
           case 'thinking_delta':
             // Thinking content itself is NOT included in traces to avoid leaking
             // extended-thinking data.
@@ -729,6 +737,15 @@ export class Session {
             }
             break;
           case 'message_complete': {
+            if (pendingDirectiveDisplayBuffer.length > 0) {
+              onEvent({
+                type: 'assistant_text_delta',
+                text: pendingDirectiveDisplayBuffer,
+                sessionId: this.conversationId,
+              });
+              if (isFirstMessage) firstAssistantText += pendingDirectiveDisplayBuffer;
+              pendingDirectiveDisplayBuffer = '';
+            }
             // Save pending tool results as a user message before the next assistant message.
             // tool_result blocks belong in user messages per the Anthropic API spec.
             if (pendingToolResults.size > 0) {

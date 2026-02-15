@@ -114,7 +114,7 @@ When the assistant includes attachments in a reply, the gateway downloads each a
 
 - **Images** (`image/*` MIME types) are sent via `sendPhoto` (multipart form upload).
 - **Other files** are sent via `sendDocument` (multipart form upload).
-- **Oversized** attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are silently skipped.
+- **Oversized** attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are skipped and included in the partial-failure notice.
 - **Partial failures** are handled gracefully: each attachment is attempted independently. If any fail, a single summary notice is sent to the chat listing the undelivered filenames.
 - **Concurrency** is controlled by `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` (default 3).
 

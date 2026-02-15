@@ -160,6 +160,11 @@ export interface DirectiveParseResult {
   parseWarnings: string[];
 }
 
+export interface DirectiveDisplayDrainResult {
+  emitText: string;
+  bufferedRemainder: string;
+}
+
 /**
  * Match self-closing `<vellum-attachment ... />` tags.
  *
@@ -227,6 +232,53 @@ export function parseDirectives(text: string): DirectiveParseResult {
     directiveRequests,
     parseWarnings,
   };
+}
+
+/**
+ * Drain streamed assistant text while stripping only valid, complete
+ * self-closing `<vellum-attachment ... />` directives.
+ *
+ * - Valid complete directives are removed from emitted text.
+ * - Invalid directives are preserved as plain text.
+ * - Incomplete directives are retained in `bufferedRemainder` until more
+ *   text arrives.
+ */
+export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDrainResult {
+  let emitText = '';
+  let cursor = 0;
+
+  while (cursor < buffer.length) {
+    const start = buffer.indexOf('<vellum-attachment', cursor);
+    if (start === -1) {
+      emitText += buffer.slice(cursor);
+      return { emitText, bufferedRemainder: '' };
+    }
+
+    emitText += buffer.slice(cursor, start);
+
+    const end = buffer.indexOf('/>', start);
+    if (end === -1) {
+      return {
+        emitText,
+        bufferedRemainder: buffer.slice(start),
+      };
+    }
+
+    const tag = buffer.slice(start, end + 2);
+    const parsed = parseDirectives(tag);
+    const isValidDirective =
+      parsed.directiveRequests.length > 0 &&
+      parsed.parseWarnings.length === 0 &&
+      parsed.cleanText.length === 0;
+
+    if (!isValidDirective) {
+      emitText += tag;
+    }
+
+    cursor = end + 2;
+  }
+
+  return { emitText, bufferedRemainder: '' };
 }
 
 // ---------------------------------------------------------------------------

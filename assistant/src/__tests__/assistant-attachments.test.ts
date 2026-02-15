@@ -5,6 +5,7 @@ import {
   classifyKind,
   validateDrafts,
   cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
   contentBlocksToDrafts,
   deduplicateDrafts,
   MAX_ASSISTANT_ATTACHMENTS,
@@ -212,6 +213,36 @@ describe('cleanAssistantContent', () => {
     expect(result.directives).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
     expect(result.cleanedContent).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drainDirectiveDisplayBuffer
+// ---------------------------------------------------------------------------
+
+describe('drainDirectiveDisplayBuffer', () => {
+  test('strips complete valid directives from streamed text', () => {
+    const input = 'Before <vellum-attachment path="out.png" /> After';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe('Before  After');
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('preserves invalid directives as plain text', () => {
+    const input = 'Bad <vellum-attachment source="bad" path="x.txt" /> tag';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe(input);
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('buffers incomplete directives until completion', () => {
+    const first = drainDirectiveDisplayBuffer('Start <vellum-attachment path="file');
+    expect(first.emitText).toBe('Start ');
+    expect(first.bufferedRemainder).toContain('<vellum-attachment');
+
+    const second = drainDirectiveDisplayBuffer(first.bufferedRemainder + '.png" /> done');
+    expect(second.emitText).toBe(' done');
+    expect(second.bufferedRemainder).toBe('');
   });
 });
 
