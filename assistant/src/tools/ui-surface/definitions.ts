@@ -46,7 +46,10 @@ export const uiShowTool: Tool = {
     '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
     'data shape: { html: string, width?: number, height?: number }\n' +
     '- file_upload: File upload dialog where the user can drag-and-drop or browse for files. ' +
-    'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }',
+    'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }\n\n' +
+    'Action payload conventions:\n' +
+    '- Multi-select tables: use `window.vellum.sendAction(actionId, { selectedIds: [...] })` to send selected row IDs\n' +
+    '- Bulk actions: include `selectedRows` array with full row data for context',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',

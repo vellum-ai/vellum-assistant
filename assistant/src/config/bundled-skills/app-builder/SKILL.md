@@ -520,6 +520,38 @@ Combine widget primitives to build complex UIs efficiently:
 
 **Comparison view:** card grid + stat rows + status badges
 
+**Multi-select table:** checkboxes + sticky action toolbar + bulk actions
+```html
+<table class="v-data-table" id="my-table">
+  <thead><tr>
+    <th><input type="checkbox"></th>
+    <th data-sortable>Name</th>
+    <th data-sortable>Status</th>
+  </tr></thead>
+  <tbody>
+    <tr data-id="1"><td><input type="checkbox"></td><td>Item 1</td><td>Active</td></tr>
+    <tr data-id="2"><td><input type="checkbox"></td><td>Item 2</td><td>Pending</td></tr>
+  </tbody>
+</table>
+<div id="bulk-toolbar" hidden style="position:sticky;bottom:0;">
+  <button onclick="handleBulk('archive')">Archive Selected</button>
+  <button onclick="handleBulk('delete')">Delete Selected</button>
+</div>
+<script>
+  vellum.widgets.multiSelect('my-table');
+  function handleBulk(action) {
+    const selected = document.querySelectorAll('#my-table tbody input:checked');
+    const ids = Array.from(selected).map(cb => cb.closest('tr').dataset.id);
+    vellum.sendAction(action, { selectedIds: ids });
+  }
+</script>
+```
+
+For table-driven workflows (inbox cleanup, flight selection, batch operations):
+1. Add checkboxes per row with a "select all" header checkbox
+2. Show a sticky action toolbar when rows are selected
+3. Fire `vellum.sendAction('action_name', { selectedIds: ['id1', 'id2'] })` on bulk action click
+
 #### When to use widgets vs custom HTML
 
 - **Use widgets** for standard data patterns — tables, metrics, timelines, status displays, notifications. They ensure visual consistency and save time.
