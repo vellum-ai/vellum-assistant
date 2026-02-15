@@ -826,6 +826,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupAutoUpdate()
 
             self?.showMainWindow()
+
+            // Send an automatic greeting after onboarding completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if let viewModel = self?.mainWindow?.activeViewModel {
+                    viewModel.inputText = "Wake up, my friend"
+                    viewModel.sendMessage()
+                }
+            }
         }
         onboarding.show()
         onboardingWindow = onboarding

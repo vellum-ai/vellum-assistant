@@ -83,9 +83,17 @@ final class MainWindow {
         let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let windowWidth = min(screenFrame.width * 0.8, 1200)
+        let windowHeight = min(screenFrame.height * 0.85, 900)
+        let windowRect = NSRect(
+            x: screenFrame.midX - windowWidth / 2,
+            y: screenFrame.midY - windowHeight / 2,
+            width: windowWidth,
+            height: windowHeight
+        )
 
         let window = NSWindow(
-            contentRect: screenFrame,
+            contentRect: windowRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -97,7 +105,7 @@ final class MainWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
-        window.setFrame(screenFrame, display: false)
+        window.setFrame(windowRect, display: false)
 
         configureTrafficLightPadding(window)
 
