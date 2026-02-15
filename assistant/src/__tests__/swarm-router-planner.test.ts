@@ -65,6 +65,21 @@ describe('parsePlanJSON', () => {
   test('returns null for empty string', () => {
     expect(parsePlanJSON('')).toBeNull();
   });
+
+  test('finds plan JSON in second fenced block when first is not valid JSON', () => {
+    const raw = '```\nHere is my thinking about the plan\n```\n\n```json\n{"tasks":[{"id":"a","role":"coder","objective":"do stuff","dependencies":[]}]}\n```';
+    const result = parsePlanJSON(raw);
+    expect(result).not.toBeNull();
+    expect(result!.tasks).toHaveLength(1);
+    expect(result!.tasks[0].id).toBe('a');
+  });
+
+  test('finds plan JSON in second fenced block when first has no tasks array', () => {
+    const raw = '```json\n{"note":"not a plan"}\n```\n\n```json\n{"tasks":[{"id":"b","role":"researcher","objective":"research","dependencies":[]}]}\n```';
+    const result = parsePlanJSON(raw);
+    expect(result).not.toBeNull();
+    expect(result!.tasks[0].id).toBe('b');
+  });
 });
 
 describe('makeFallbackPlan', () => {

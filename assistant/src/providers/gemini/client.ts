@@ -27,7 +27,9 @@ export class GeminiProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
-    const maxTokens = (config as Record<string, unknown> | undefined)?.max_tokens as number | undefined;
+    const configObj = config as Record<string, unknown> | undefined;
+    const maxTokens = configObj?.max_tokens as number | undefined;
+    const modelOverride = configObj?.model as string | undefined;
 
     try {
       const geminiContents = this.toGeminiContents(messages);
@@ -55,7 +57,7 @@ export class GeminiProvider implements Provider {
       }
 
       const stream = await this.client.models.generateContentStream({
-        model: this.model,
+        model: modelOverride ?? this.model,
         contents: geminiContents,
         config: geminiConfig,
       });

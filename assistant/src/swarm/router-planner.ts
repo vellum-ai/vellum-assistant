@@ -55,13 +55,22 @@ export async function generatePlan(opts: {
 
 /**
  * Parse the LLM output as a plan JSON. Handles bare JSON objects and
- * fenced code blocks.
+ * fenced code blocks (tries all fenced blocks, not just the first).
  */
 export function parsePlanJSON(raw: string): { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> } | null {
-  // Try extracting from fenced code block first
-  const fenced = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  const jsonStr = fenced ? fenced[1] : raw;
+  // Try all fenced code blocks — LLMs sometimes emit non-JSON blocks before the plan
+  const fencedRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?```/g;
+  let match;
+  while ((match = fencedRegex.exec(raw)) !== null) {
+    const result = tryParsePlan(match[1]);
+    if (result) return result;
+  }
 
+  // Fall back to parsing the raw string as bare JSON
+  return tryParsePlan(raw);
+}
+
+function tryParsePlan(jsonStr: string): { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> } | null {
   try {
     const parsed = JSON.parse(jsonStr.trim());
     if (parsed && Array.isArray(parsed.tasks)) {
