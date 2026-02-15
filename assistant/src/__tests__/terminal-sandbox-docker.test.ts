@@ -464,8 +464,7 @@ describe('DockerBackend — preflight: Docker daemon check', () => {
 });
 
 describe('DockerBackend — preflight: image availability check', () => {
-  test('throws ToolError with pull hint when image is missing', () => {
-    // Image check now uses execFileSync instead of execSync.
+  test('auto-pulls image when not available locally', () => {
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
         if (
@@ -480,21 +479,51 @@ describe('DockerBackend — preflight: image availability check', () => {
     );
 
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
-    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
-    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
-      `docker pull ${defaultImage}`,
+    // Should succeed — auto-pull kicks in after inspect fails.
+    const result = backend.wrap('ls', sandboxRoot);
+    expect(result.command).toBe('docker');
+
+    // Verify docker pull was called with the image.
+    const pullCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('pull'),
     );
+    expect(pullCalls.length).toBe(1);
+    expect((pullCalls[0]![1] as string[])).toContain(defaultImage);
   });
 
-  test('includes image name in error message', () => {
+  test('throws ToolError when auto-pull also fails', () => {
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
         if (
           file === 'docker' &&
           Array.isArray(args) &&
-          args.includes('inspect')
+          (args.includes('inspect') || args.includes('pull'))
         ) {
-          throw new Error('No such image');
+          throw new Error('No such image / pull failed');
+        }
+        return undefined;
+      },
+    );
+
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
+    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
+      'Failed to pull Docker image',
+    );
+  });
+
+  test('includes image name in error message when pull fails', () => {
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          (args.includes('inspect') || args.includes('pull'))
+        ) {
+          throw new Error('No such image / pull failed');
         }
         return undefined;
       },
@@ -546,6 +575,37 @@ describe('DockerBackend — preflight: image availability check', () => {
         (args[1] as string[]).includes('inspect'),
     );
     expect(inspectCalls.length).toBe(1);
+  });
+
+  test('caches successful auto-pull so subsequent calls skip pull', () => {
+    let inspectCallCount = 0;
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('inspect')
+        ) {
+          inspectCallCount++;
+          if (inspectCallCount <= 1) {
+            throw new Error('No such image');
+          }
+        }
+        return undefined;
+      },
+    );
+
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    backend.wrap('ls', sandboxRoot); // triggers inspect → pull → cache
+    backend.wrap('ls', sandboxRoot); // should use cache, no inspect or pull
+
+    const pullCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('pull'),
+    );
+    expect(pullCalls.length).toBe(1);
   });
 });
 

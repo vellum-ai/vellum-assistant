@@ -82,9 +82,18 @@ function checkImageAvailable(image: string): void {
     // Use execFileSync to avoid shell interpolation of the image name.
     execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore', timeout: 10000 });
     imageAvailableCache.add(image);
+    return;
+  } catch {
+    // Image not available locally — try to pull it.
+  }
+
+  log.info(`Docker image "${image}" not found locally, pulling...`);
+  try {
+    execFileSync('docker', ['pull', image], { stdio: 'ignore', timeout: 120000 });
+    imageAvailableCache.add(image);
   } catch {
     throw new ToolError(
-      `Docker image "${image}" is not available locally. Pull it first: docker pull ${image}`,
+      `Failed to pull Docker image "${image}". Check your network connection or pull it manually: docker pull ${image}`,
       'bash',
     );
   }
