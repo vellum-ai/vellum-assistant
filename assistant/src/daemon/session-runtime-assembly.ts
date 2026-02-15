@@ -7,6 +7,18 @@
 
 import type { Message } from '../providers/types.js';
 
+/** Context about the active workspace surface, passed to applyRuntimeInjections. */
+export interface ActiveSurfaceContext {
+  surfaceId: string;
+  html: string;
+  /** When set, the surface is backed by a persisted app. */
+  appId?: string;
+  appName?: string;
+  appSchemaJson?: string;
+  /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
+  appPages?: Record<string, string>;
+}
+
 /**
  * Append a memory-conflict clarification instruction to the last user message.
  */
@@ -25,30 +37,100 @@ export function injectClarificationRequestIntoUserMessage(message: Message, ques
   };
 }
 
+const MAX_CONTEXT_LENGTH = 100_000;
+
+function truncateHtml(html: string, budget: number): string {
+  if (html.length <= budget) return html;
+  return html.slice(0, budget) + `\n<!-- truncated: original is ${html.length} characters -->`;
+}
+
 /**
- * Prepend the current dynamic-page HTML so the model can refine UI surfaces.
+ * Prepend workspace context so the model can refine UI surfaces.
+ * Adapts the injected rules based on whether the surface is app-backed.
  */
-export function injectActiveSurfaceContext(message: Message, surfaceId: string, html: string): Message {
-  const MAX_HTML_LENGTH = 100_000;
-  const truncatedHtml = html.length > MAX_HTML_LENGTH
-    ? html.slice(0, MAX_HTML_LENGTH) + `\n<!-- truncated: original is ${html.length} characters -->`
-    : html;
-  const block = [
-    '<active_dynamic_page>',
-    `The user is viewing a dynamic page (surface_id: "${surfaceId}") in workspace mode.`,
-    '',
-    'RULES FOR WORKSPACE REFINEMENT — follow these exactly:',
-    `1. ONLY call ui_update with surface_id "${surfaceId}". Provide the complete updated HTML in data.html.`,
-    '2. NEVER call ui_show. The user wants to modify the existing page, not create a new one.',
-    '3. ONLY make the specific changes the user requested. Do NOT add unrequested data, charts, sections, metrics, or visualizations.',
-    '4. When adding new data, present it as new top-level cards/sections that match the existing visual style — not crammed into existing cards.',
-    '5. Preserve all existing content, design tokens, and styling unless the user explicitly asks to change them.',
-    '6. Keep your text response to 1 brief sentence confirming the change.',
-    '',
-    'Current HTML:',
-    truncatedHtml,
-    '</active_dynamic_page>',
-  ].join('\n');
+export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceContext): Message {
+  const lines: string[] = ['<active_workspace>'];
+
+  if (ctx.appId) {
+    // ── App-backed surface ──
+    lines.push(
+      `The user is viewing app "${ctx.appName ?? 'Untitled'}" (app_id: "${ctx.appId}") in workspace mode.`,
+      '',
+      'RULES FOR WORKSPACE MODIFICATION:',
+      `1. Call \`app_update\` with app_id "${ctx.appId}" and the updated \`html\` to apply changes.`,
+      '   The surface refreshes automatically — do NOT call ui_show or ui_update.',
+      '2. You MAY call other tools first to gather data (get_weather, web_search, etc.)',
+      '   before calling app_update.',
+      '3. Make ONLY the changes the user requested. Preserve all existing content,',
+      '   styling, and functionality unless explicitly asked to change them.',
+      '4. When adding new content, match the existing visual style.',
+      '5. Keep your text response to 1 brief sentence confirming what you changed.',
+    );
+
+    // App structure metadata
+    lines.push('', 'App structure:');
+    const pageNames = ctx.appPages ? Object.keys(ctx.appPages) : [];
+    lines.push(`- Main page (index.html): shown below`);
+    if (pageNames.length > 0) {
+      lines.push(`- Additional pages: ${pageNames.join(', ')}`);
+      lines.push('  To modify additional pages, include the `pages` parameter in `app_update`.');
+      lines.push('  To add a new page, include it in `pages` with its HTML content.');
+    } else {
+      lines.push('- Additional pages: none');
+    }
+    const schema = ctx.appSchemaJson;
+    if (schema && schema !== '"{}"' && schema !== '{}') {
+      lines.push(`- Data schema: ${schema}`);
+    } else {
+      lines.push('- Data schema: none (display-only)');
+    }
+
+    // Main page HTML — reserve budget for additional pages
+    let mainBudget = MAX_CONTEXT_LENGTH;
+    const additionalPageBlocks: string[] = [];
+
+    if (ctx.appPages && pageNames.length > 0) {
+      // Try to include additional page content if total fits
+      let additionalSize = 0;
+      for (const [filename, content] of Object.entries(ctx.appPages)) {
+        additionalSize += filename.length + content.length + 30; // overhead for delimiters
+        additionalPageBlocks.push(`--- ${filename} ---`, content);
+      }
+      if (additionalSize + ctx.html.length > MAX_CONTEXT_LENGTH) {
+        // Too large — omit page content, just list names (already done above)
+        additionalPageBlocks.length = 0;
+      } else {
+        mainBudget = MAX_CONTEXT_LENGTH - additionalSize;
+      }
+    }
+
+    lines.push('', 'Current HTML (index.html):', truncateHtml(ctx.html, mainBudget));
+
+    if (additionalPageBlocks.length > 0) {
+      lines.push('', 'Additional page content:', ...additionalPageBlocks);
+    }
+  } else {
+    // ── Ephemeral surface (created via ui_show, no persisted app) ──
+    lines.push(
+      `The user is viewing a dynamic page (surface_id: "${ctx.surfaceId}") in workspace mode.`,
+      '',
+      'RULES FOR WORKSPACE MODIFICATION:',
+      `1. Call \`ui_update\` with surface_id "${ctx.surfaceId}" and data.html containing`,
+      '   the complete updated HTML.',
+      '2. You MAY call other tools first to gather data before calling ui_update.',
+      '3. Do NOT call ui_show — modify the existing page.',
+      '4. Make ONLY the changes the user requested. Preserve all existing content,',
+      '   styling, and functionality unless explicitly asked to change them.',
+      '5. Keep your text response to 1 brief sentence confirming what you changed.',
+      '',
+      'Current HTML:',
+      truncateHtml(ctx.html, MAX_CONTEXT_LENGTH),
+    );
+  }
+
+  lines.push('</active_workspace>');
+
+  const block = lines.join('\n');
   return {
     ...message,
     content: [
@@ -59,16 +141,17 @@ export function injectActiveSurfaceContext(message: Message, surfaceId: string, 
 }
 
 /**
- * Strip `<active_dynamic_page>` blocks that were injected by
- * `injectActiveSurfaceContext`.  Called after the agent run to prevent
- * the (potentially 100 KB) surface HTML from persisting in session history.
+ * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
+ * injected by `injectActiveSurfaceContext`.  Called after the agent run to
+ * prevent the (potentially 100 KB) surface HTML from persisting in session
+ * history.
  */
 export function stripActiveSurfaceContext(messages: Message[]): Message[] {
   return messages.map((message) => {
     if (message.role !== 'user') return message;
     const nextContent = message.content.filter((block) => {
       if (block.type !== 'text') return true;
-      return !block.text.startsWith('<active_dynamic_page>');
+      return !block.text.startsWith('<active_workspace>') && !block.text.startsWith('<active_dynamic_page>');
     });
     if (nextContent.length === message.content.length) return message;
     if (nextContent.length === 0) return null;
@@ -86,7 +169,7 @@ export function applyRuntimeInjections(
   runMessages: Message[],
   options: {
     softConflictInstruction?: string | null;
-    activeSurface?: { surfaceId: string; html: string } | null;
+    activeSurface?: ActiveSurfaceContext | null;
   },
 ): Message[] {
   let result = runMessages;
@@ -106,7 +189,7 @@ export function applyRuntimeInjections(
     if (userTail && userTail.role === 'user') {
       result = [
         ...result.slice(0, -1),
-        injectActiveSurfaceContext(userTail, options.activeSurface.surfaceId, options.activeSurface.html),
+        injectActiveSurfaceContext(userTail, options.activeSurface),
       ];
     }
   }

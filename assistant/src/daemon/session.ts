@@ -69,6 +69,7 @@ import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -209,7 +210,7 @@ export class Session {
       requestComputerControlTool.getDefinition(),
     ];
     const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
-      return this.executor.execute(name, input, {
+      const result = await this.executor.execute(name, input, {
         workingDir: this.workingDir,
         sessionId: this.conversationId,
         conversationId: this.conversationId,
@@ -263,6 +264,16 @@ export class Session {
           };
         },
       });
+
+      // Auto-refresh workspace surfaces when a persisted app is updated
+      if (name === 'app_update' && !result.isError) {
+        const appId = input.app_id as string | undefined;
+        if (appId) {
+          this.refreshSurfacesForApp(appId);
+        }
+      }
+
+      return result;
     };
 
     const config = getConfig();
@@ -789,14 +800,27 @@ export class Session {
       }
 
       // Inject soft-conflict instruction and active surface context
-      let activeSurface: { surfaceId: string; html: string } | null = null;
+      let activeSurface: ActiveSurfaceContext | null = null;
       if (this.currentActiveSurfaceId) {
         const stored = this.surfaceState.get(this.currentActiveSurfaceId);
         if (stored && stored.surfaceType === 'dynamic_page') {
+          const data = stored.data as DynamicPageSurfaceData;
           activeSurface = {
             surfaceId: this.currentActiveSurfaceId,
-            html: (stored.data as DynamicPageSurfaceData).html,
+            html: data.html,
           };
+          // Enrich with app context when the surface is backed by a persisted app
+          if (data.appId) {
+            const app = getApp(data.appId);
+            if (app) {
+              activeSurface.appId = app.id;
+              activeSurface.appName = app.name;
+              activeSurface.appSchemaJson = app.schemaJson;
+              if (app.pages && Object.keys(app.pages).length > 0) {
+                activeSurface.appPages = app.pages;
+              }
+            }
+          }
         }
       }
       runMessages = applyRuntimeInjections(runMessages, {
@@ -1685,6 +1709,35 @@ export class Session {
         { conversationId: this.conversationId, segments: segmentIds.length, items: orphanedItemIds.length },
         'Cleaned up Qdrant vectors after regenerate',
       );
+    }
+  }
+
+  /**
+   * After an app_update, refresh any active surface that displays the updated app.
+   * This makes app_update a single call that both persists AND displays changes.
+   */
+  private refreshSurfacesForApp(appId: string): void {
+    const app = getApp(appId);
+    if (!app) return;
+
+    for (const [surfaceId, stored] of this.surfaceState.entries()) {
+      if (stored.surfaceType !== 'dynamic_page') continue;
+      const data = stored.data as DynamicPageSurfaceData;
+      if (data.appId !== appId) continue;
+
+      // Update in-memory surface state so the next refinement gets fresh HTML
+      const updatedData: DynamicPageSurfaceData = { ...data, html: app.htmlDefinition };
+      stored.data = updatedData;
+
+      // Push the update to the client
+      this.sendToClient({
+        type: 'ui_surface_update',
+        sessionId: this.conversationId,
+        surfaceId,
+        data: updatedData,
+      });
+
+      log.info({ conversationId: this.conversationId, surfaceId, appId }, 'Auto-refreshed surface after app_update');
     }
   }
 
