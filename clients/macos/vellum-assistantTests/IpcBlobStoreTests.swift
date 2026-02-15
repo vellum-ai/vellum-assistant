@@ -114,23 +114,30 @@ final class IpcBlobStoreTests: XCTestCase {
 
     func testResolveBlobDirDefaultsToHomeDotVellum() {
         let resolved = resolveBlobDir(environment: [:])
-        let expected = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        let home = NSHomeDirectory()
+        let expected = URL(filePath: home + "/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
         XCTAssertEqual(resolved, expected)
     }
 
     func testResolveBlobDirHonorsBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "/tmp/custom-root"])
-        let expected = URL(fileURLWithPath: "/tmp/custom-root")
-            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        let expected = URL(filePath: "/tmp/custom-root/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
         XCTAssertEqual(resolved, expected)
     }
 
     func testResolveBlobDirIgnoresEmptyBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "  "])
-        let expected = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+        let home = NSHomeDirectory()
+        let expected = URL(filePath: home + "/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
         XCTAssertEqual(resolved, expected)
+    }
+
+    func testResolveBlobDirDoesNotExpandTildeInBaseDataDir() {
+        // The daemon's getRootDir() keeps BASE_DATA_DIR literal via path.join(),
+        // so the Swift client must NOT expand "~/" either.
+        let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "~/custom"])
+        XCTAssertTrue(resolved.path.contains("~/custom"), "tilde should remain literal, got: \(resolved.path)")
+        XCTAssertFalse(resolved.path.contains(NSHomeDirectory()), "home dir should NOT appear in path")
     }
 
 }

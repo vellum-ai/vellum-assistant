@@ -17,8 +17,12 @@ func resolveBlobDir(environment: [String: String]? = nil) -> URL {
     } else {
         root = NSHomeDirectory()
     }
-    return URL(fileURLWithPath: root)
-        .appendingPathComponent(".vellum/data/ipc-blobs", isDirectory: true)
+    // Build the path as a plain string (mirroring the daemon's path.join()),
+    // then use URL(filePath:) which — unlike URL(fileURLWithPath:) — does NOT
+    // perform implicit tilde expansion. This ensures the client and daemon
+    // resolve to the same directory even when BASE_DATA_DIR contains "~/".
+    let fullPath = root + "/.vellum/data/ipc-blobs"
+    return URL(filePath: fullPath, directoryHint: .isDirectory)
 }
 
 /// Manages local blob files for zero-copy IPC transport.
