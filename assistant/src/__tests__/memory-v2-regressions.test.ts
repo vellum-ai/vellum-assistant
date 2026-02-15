@@ -66,7 +66,9 @@ import {
 import {
   conversations,
   memoryEmbeddings,
+  memoryEntities,
   memoryEntityRelations,
+  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   memoryJobs,
@@ -2054,6 +2056,224 @@ describe('Memory V2 regressions', () => {
     // Only strict-project scope segment should appear
     expect(keys).not.toContain('segment:seg-strict-default');
     expect(keys).toContain('segment:seg-strict-custom');
+  });
+
+  test('relation retrieval respects scope and active-item filters', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-relation-scope';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-relation-scope',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'atlas reliability memo' }]),
+      createdAt: now,
+    }).run();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'item-rel-a-active',
+        kind: 'fact',
+        subject: 'autoscaling policy',
+        statement: 'Use Kubernetes HPA for sustained traffic spikes',
+        status: 'active',
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: 'fp-rel-a-active',
+        verificationState: 'user_confirmed',
+        scopeId: 'project-a',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+      {
+        id: 'item-rel-b-active',
+        kind: 'fact',
+        subject: 'scheduler policy',
+        statement: 'Use Nomad system jobs for batch workloads',
+        status: 'active',
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: 'fp-rel-b-active',
+        verificationState: 'user_confirmed',
+        scopeId: 'project-b',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+      {
+        id: 'item-rel-a-invalid',
+        kind: 'fact',
+        subject: 'deprecated platform',
+        statement: 'Legacy Kubernetes cluster should still be used',
+        status: 'active',
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: 'fp-rel-a-invalid',
+        verificationState: 'user_confirmed',
+        scopeId: 'project-a',
+        firstSeenAt: now,
+        lastSeenAt: now,
+        invalidAt: now + 1,
+      },
+      {
+        id: 'item-rel-a-pending',
+        kind: 'fact',
+        subject: 'pending platform policy',
+        statement: 'Pending clarification platform statement',
+        status: 'pending_clarification',
+        confidence: 0.9,
+        importance: 0.8,
+        fingerprint: 'fp-rel-a-pending',
+        verificationState: 'assistant_inferred',
+        scopeId: 'project-a',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+    ]).run();
+
+    db.insert(memoryItemSources).values([
+      {
+        memoryItemId: 'item-rel-a-active',
+        messageId: 'msg-relation-scope',
+        evidence: 'source a active',
+        createdAt: now,
+      },
+      {
+        memoryItemId: 'item-rel-b-active',
+        messageId: 'msg-relation-scope',
+        evidence: 'source b active',
+        createdAt: now,
+      },
+      {
+        memoryItemId: 'item-rel-a-invalid',
+        messageId: 'msg-relation-scope',
+        evidence: 'source a invalid',
+        createdAt: now,
+      },
+      {
+        memoryItemId: 'item-rel-a-pending',
+        messageId: 'msg-relation-scope',
+        evidence: 'source a pending',
+        createdAt: now,
+      },
+    ]).run();
+
+    db.insert(memoryEntities).values([
+      {
+        id: 'entity-atlas-test',
+        name: 'Project Atlas',
+        type: 'project',
+        aliases: JSON.stringify(['atlas']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      },
+      {
+        id: 'entity-k8s-test',
+        name: 'Kubernetes',
+        type: 'tool',
+        aliases: JSON.stringify(['k8s']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      },
+      {
+        id: 'entity-nomad-test',
+        name: 'Nomad',
+        type: 'tool',
+        aliases: JSON.stringify(['nomad']),
+        description: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        mentionCount: 1,
+      },
+    ]).run();
+
+    db.insert(memoryEntityRelations).values([
+      {
+        id: 'rel-atlas-k8s-test',
+        sourceEntityId: 'entity-atlas-test',
+        targetEntityId: 'entity-k8s-test',
+        relation: 'uses',
+        evidence: 'Atlas uses Kubernetes',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+      {
+        id: 'rel-atlas-nomad-test',
+        sourceEntityId: 'entity-atlas-test',
+        targetEntityId: 'entity-nomad-test',
+        relation: 'uses',
+        evidence: 'Atlas also uses Nomad in a different scope',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      },
+    ]).run();
+
+    db.insert(memoryItemEntities).values([
+      {
+        memoryItemId: 'item-rel-a-active',
+        entityId: 'entity-k8s-test',
+      },
+      {
+        memoryItemId: 'item-rel-a-invalid',
+        entityId: 'entity-k8s-test',
+      },
+      {
+        memoryItemId: 'item-rel-a-pending',
+        entityId: 'entity-k8s-test',
+      },
+      {
+        memoryItemId: 'item-rel-b-active',
+        entityId: 'entity-nomad-test',
+      },
+    ]).run();
+
+    const relationConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        entity: {
+          ...TEST_CONFIG.memory.entity,
+          relationRetrieval: {
+            ...TEST_CONFIG.memory.entity.relationRetrieval,
+            enabled: true,
+            maxSeedEntities: 6,
+            maxNeighborEntities: 6,
+            maxEdges: 10,
+            neighborScoreMultiplier: 0.7,
+          },
+        },
+      },
+    };
+
+    const result = await buildMemoryRecall(
+      'atlas reliability roadmap',
+      convId,
+      relationConfig,
+      { scopeId: 'project-a' },
+    );
+    const keys = result.topCandidates.map((candidate) => candidate.key);
+
+    expect(keys).toContain('item:item-rel-a-active');
+    expect(keys).not.toContain('item:item-rel-b-active');
+    expect(keys).not.toContain('item:item-rel-a-invalid');
+    expect(keys).not.toContain('item:item-rel-a-pending');
   });
 
   test('scope columns: summaries default to scope_id=default', () => {

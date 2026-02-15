@@ -401,6 +401,37 @@ export const MemoryEntityConfigSchema = z.object({
     enabled: false,
     backfillBatchSize: 200,
   }),
+  relationRetrieval: z.object({
+    enabled: z
+      .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
+      .default(false),
+    maxSeedEntities: z
+      .number({ error: 'memory.entity.relationRetrieval.maxSeedEntities must be a number' })
+      .int('memory.entity.relationRetrieval.maxSeedEntities must be an integer')
+      .positive('memory.entity.relationRetrieval.maxSeedEntities must be a positive integer')
+      .default(8),
+    maxNeighborEntities: z
+      .number({ error: 'memory.entity.relationRetrieval.maxNeighborEntities must be a number' })
+      .int('memory.entity.relationRetrieval.maxNeighborEntities must be an integer')
+      .positive('memory.entity.relationRetrieval.maxNeighborEntities must be a positive integer')
+      .default(20),
+    maxEdges: z
+      .number({ error: 'memory.entity.relationRetrieval.maxEdges must be a number' })
+      .int('memory.entity.relationRetrieval.maxEdges must be an integer')
+      .positive('memory.entity.relationRetrieval.maxEdges must be a positive integer')
+      .default(40),
+    neighborScoreMultiplier: z
+      .number({ error: 'memory.entity.relationRetrieval.neighborScoreMultiplier must be a number' })
+      .gt(0, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be > 0')
+      .lte(1, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be <= 1')
+      .default(0.7),
+  }).default({
+    enabled: false,
+    maxSeedEntities: 8,
+    maxNeighborEntities: 20,
+    maxEdges: 40,
+    neighborScoreMultiplier: 0.7,
+  }),
 });
 
 export const MemorySummarizationConfigSchema = z.object({
@@ -481,6 +512,13 @@ export const MemoryConfigSchema = z.object({
     extractRelations: {
       enabled: false,
       backfillBatchSize: 200,
+    },
+    relationRetrieval: {
+      enabled: false,
+      maxSeedEntities: 8,
+      maxNeighborEntities: 20,
+      maxEdges: 40,
+      neighborScoreMultiplier: 0.7,
     },
   }),
 });
@@ -619,6 +657,13 @@ export const AssistantConfigSchema = z.object({
       extractRelations: {
         enabled: false,
         backfillBatchSize: 200,
+      },
+      relationRetrieval: {
+        enabled: false,
+        maxSeedEntities: 8,
+        maxNeighborEntities: 20,
+        maxEdges: 40,
+        neighborScoreMultiplier: 0.7,
       },
     },
   }),

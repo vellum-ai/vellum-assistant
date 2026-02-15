@@ -71,6 +71,7 @@ import { buildMemoryRecall } from '../memory/retriever.js';
 import {
   conversations,
   memoryEntities,
+  memoryEntityRelations,
   memoryItemEntities,
   memoryItems,
   memoryItemSources,
@@ -569,6 +570,92 @@ describe('Memory Recall Quality', () => {
       const recall = await buildMemoryRecall('vscode debug setup', 'conv-entity-alias', TEST_CONFIG);
       expect(recall.entityHits).toBeGreaterThan(0);
       expect(recall.injectedText).toContain('Visual Studio Code');
+    });
+
+    test('relation expansion recalls neighbor-linked items when only seed entity is mentioned', async () => {
+      const db = getDb();
+      const now = 1_700_000_680_000;
+      insertConversation(db, 'conv-entity-rel', now);
+      insertMessage(
+        db,
+        'msg-entity-rel',
+        'conv-entity-rel',
+        'user',
+        'Project Atlas reliability playbook.',
+        now,
+      );
+
+      insertItem(db, {
+        id: 'item-k8s-hpa',
+        kind: 'fact',
+        subject: 'autoscaling strategy',
+        statement: 'Use Kubernetes horizontal pod autoscaling for sustained traffic spikes',
+        importance: 0.75,
+        firstSeenAt: now,
+      });
+      insertItemSource(db, 'item-k8s-hpa', 'msg-entity-rel', now);
+
+      db.insert(memoryEntities).values([
+        {
+          id: 'entity-atlas',
+          name: 'Project Atlas',
+          type: 'project',
+          aliases: JSON.stringify(['atlas']),
+          description: null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        },
+        {
+          id: 'entity-kubernetes',
+          name: 'Kubernetes',
+          type: 'tool',
+          aliases: JSON.stringify(['k8s']),
+          description: null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          mentionCount: 1,
+        },
+      ]).run();
+      db.insert(memoryEntityRelations).values({
+        id: 'rel-atlas-k8s',
+        sourceEntityId: 'entity-atlas',
+        targetEntityId: 'entity-kubernetes',
+        relation: 'uses',
+        evidence: 'Project Atlas runs on Kubernetes',
+        firstSeenAt: now,
+        lastSeenAt: now,
+      }).run();
+      db.insert(memoryItemEntities).values({
+        memoryItemId: 'item-k8s-hpa',
+        entityId: 'entity-kubernetes',
+      }).run();
+
+      const relationConfig = {
+        ...TEST_CONFIG,
+        memory: {
+          ...TEST_CONFIG.memory,
+          entity: {
+            ...TEST_CONFIG.memory.entity,
+            relationRetrieval: {
+              ...TEST_CONFIG.memory.entity.relationRetrieval,
+              enabled: true,
+              maxSeedEntities: 4,
+              maxNeighborEntities: 4,
+              maxEdges: 6,
+              neighborScoreMultiplier: 0.6,
+            },
+          },
+        },
+      };
+
+      const recall = await buildMemoryRecall(
+        'atlas reliability guidance',
+        'conv-entity-rel',
+        relationConfig,
+      );
+      expect(recall.entityHits).toBeGreaterThan(0);
+      expect(recall.injectedText).toContain('Kubernetes horizontal pod autoscaling');
     });
   });
 

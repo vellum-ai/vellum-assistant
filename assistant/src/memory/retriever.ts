@@ -1,13 +1,20 @@
-import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
-import type { AssistantConfig, MemoryRerankingConfig } from '../config/types.js';
+import type { AssistantConfig, MemoryEntityConfig, MemoryRerankingConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryItems, memoryItemSources, memorySegments, memorySummaries } from './schema.js';
+import {
+  memoryEntityRelations,
+  memoryItemEntities,
+  memoryItems,
+  memoryItemSources,
+  memorySegments,
+  memorySummaries,
+} from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_OPEN_TAG = '<memory source="long_term_memory" confidence="approximate">';
@@ -75,7 +82,27 @@ interface CollectedCandidates {
   recency: Candidate[];
   semantic: Candidate[];
   entity: Candidate[];
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
   merged: Candidate[];
+}
+
+interface EntitySearchResult {
+  candidates: Candidate[];
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
+}
+
+interface MatchedEntityRow {
+  id: string;
+  name: string;
+  type: string;
+  aliases: string | null;
+  mention_count: number;
 }
 
 /**
@@ -124,8 +151,22 @@ async function collectAndMergeCandidates(
   }
 
   let entity: Candidate[] = [];
+  let relationSeedEntityCount = 0;
+  let relationTraversedEdgeCount = 0;
+  let relationNeighborEntityCount = 0;
+  let relationExpandedItemCount = 0;
   if (config.memory.entity.enabled) {
-    entity = entitySearch(query, scopeIds);
+    const entitySearchResult = entitySearch(
+      query,
+      config.memory.entity,
+      scopeIds,
+      excludeMessageIds,
+    );
+    entity = entitySearchResult.candidates;
+    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
+    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
+    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
   }
 
   // Direct item search supplements FTS with LIKE-based matching.
@@ -153,7 +194,17 @@ async function collectAndMergeCandidates(
 
   const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
 
-  return { lexical, recency, semantic, entity, merged };
+  return {
+    lexical,
+    recency,
+    semantic,
+    entity,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+    merged,
+  };
 }
 
 /**
@@ -271,7 +322,16 @@ export async function buildMemoryRecall(
     });
   }
 
-  const { lexical: lexicalCandidates, recency: recencyCandidates, semantic: semanticCandidates, entity: entityCandidates } = collected;
+  const {
+    lexical: lexicalCandidates,
+    recency: recencyCandidates,
+    semantic: semanticCandidates,
+    entity: entityCandidates,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+  } = collected;
   let merged = collected.merged;
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
@@ -327,6 +387,10 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
     mergedCount,
     selected: selected.length,
     maxInjectTokens,
@@ -703,16 +767,87 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
 }
 
 /**
- * Entity-based retrieval: extract entity names from the query,
- * fuzzy match against known entities (name + aliases), and return
- * all memory items linked to those entities.
+ * Entity-based retrieval: match seed entities from query text, fetch directly
+ * linked items, and optionally expand one hop across entity relations.
  */
-function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
+function entitySearch(
+  query: string,
+  entityConfig: MemoryEntityConfig,
+  scopeIds?: string[],
+  excludedMessageIds: string[] = [],
+): EntitySearchResult {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return emptyEntitySearchResult();
+
+  const relationConfig = entityConfig.relationRetrieval;
+  const matchedEntities = findMatchedEntities(
+    trimmed,
+    relationConfig.enabled ? relationConfig.maxSeedEntities : 20,
+  );
+  if (matchedEntities.length === 0) return emptyEntitySearchResult();
+
+  const seedEntityIds = matchedEntities.map((row) => row.id);
+  const directCandidates = getEntityLinkedItemCandidates(seedEntityIds, {
+    scopeIds,
+    excludedMessageIds,
+    confidenceMultiplier: 1,
+  });
+
+  if (!relationConfig.enabled) {
+    return {
+      candidates: directCandidates,
+      relationSeedEntityCount: 0,
+      relationTraversedEdgeCount: 0,
+      relationNeighborEntityCount: 0,
+      relationExpandedItemCount: 0,
+    };
+  }
+
+  const relationSeedEntityCount = seedEntityIds.length;
+  const {
+    neighborEntityIds,
+    traversedEdgeCount: relationTraversedEdgeCount,
+  } = findNeighborEntities(
+    seedEntityIds,
+    relationConfig.maxEdges,
+    relationConfig.maxNeighborEntities,
+  );
+  const relationNeighborEntityCount = neighborEntityIds.length;
+  const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));
+  const relationCandidates = getEntityLinkedItemCandidates(neighborEntityIds, {
+    scopeIds,
+    excludedMessageIds,
+    confidenceMultiplier: relationConfig.neighborScoreMultiplier,
+    excludeItemIds: directItemIds,
+  });
+  const relationExpandedItemCount = relationCandidates.length;
+
+  return {
+    candidates: [...directCandidates, ...relationCandidates],
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+  };
+}
+
+function emptyEntitySearchResult(): EntitySearchResult {
+  return {
+    candidates: [],
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
+  };
+}
+
+function findMatchedEntities(query: string, maxMatches: number): MatchedEntityRow[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
   const db = getDb();
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+  const safeLimit = Math.max(1, Math.floor(maxMatches));
 
   // Tokenize query into words for entity matching (min length 3 to reduce false positives)
   const tokens = trimmed
@@ -736,7 +871,7 @@ function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
       SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
       FROM memory_entities me, json_each(me.aliases) je
       WHERE me.aliases IS NOT NULL AND (LOWER(je.value) IN (${namePlaceholders}) OR LOWER(je.value) = ?)
-      LIMIT 20
+      LIMIT ${safeLimit}
     `;
     queryParams = [...tokens, fullQuery, ...tokens, fullQuery];
   } else {
@@ -748,73 +883,132 @@ function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
       SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
       FROM memory_entities me, json_each(me.aliases) je
       WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
-      LIMIT 20
+      LIMIT ${safeLimit}
     `;
     queryParams = [fullQuery, fullQuery];
   }
 
-  let matchedEntities: Array<{
-    id: string;
-    name: string;
-    type: string;
-    aliases: string | null;
-    mention_count: number;
-  }> = [];
+  let matchedEntities: MatchedEntityRow[] = [];
   try {
-    matchedEntities = raw.query(entityQuery).all(...queryParams) as Array<{
-      id: string;
-      name: string;
-      type: string;
-      aliases: string | null;
-      mention_count: number;
-    }>;
+    matchedEntities = raw.query(entityQuery).all(...queryParams) as MatchedEntityRow[];
   } catch (err) {
     log.warn({ err }, 'Entity search query failed');
     return [];
   }
+  return matchedEntities;
+}
 
-  if (matchedEntities.length === 0) return [];
-
-  // Get all entity IDs
-  const entityIds = matchedEntities.map((e) => e.id);
-
-  // Find all memory items linked to these entities
-  const placeholders = entityIds.map(() => '?').join(',');
-  let linkedRows: Array<{
-    memory_item_id: string;
-    entity_id: string;
-  }> = [];
-  try {
-    linkedRows = raw.query(`
-      SELECT memory_item_id, entity_id
-      FROM memory_item_entities
-      WHERE entity_id IN (${placeholders})
-    `).all(...entityIds) as Array<{
-      memory_item_id: string;
-      entity_id: string;
-    }>;
-  } catch (err) {
-    log.warn({ err }, 'Entity item link query failed');
-    return [];
+function findNeighborEntities(
+  seedEntityIds: string[],
+  maxEdges: number,
+  maxNeighborEntities: number,
+): { neighborEntityIds: string[]; traversedEdgeCount: number } {
+  if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0) {
+    return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
+
+  const db = getDb();
+  const rows = db
+    .select({
+      sourceEntityId: memoryEntityRelations.sourceEntityId,
+      targetEntityId: memoryEntityRelations.targetEntityId,
+    })
+    .from(memoryEntityRelations)
+    .where(or(
+      inArray(memoryEntityRelations.sourceEntityId, seedEntityIds),
+      inArray(memoryEntityRelations.targetEntityId, seedEntityIds),
+    ))
+    .orderBy(desc(memoryEntityRelations.lastSeenAt))
+    .limit(Math.max(1, maxEdges))
+    .all();
+
+  const seedSet = new Set(seedEntityIds);
+  const seen = new Set<string>();
+  const neighbors: string[] = [];
+  for (const row of rows) {
+    if (seedSet.has(row.sourceEntityId) && !seedSet.has(row.targetEntityId) && !seen.has(row.targetEntityId)) {
+      neighbors.push(row.targetEntityId);
+      seen.add(row.targetEntityId);
+    }
+    if (neighbors.length >= maxNeighborEntities) break;
+    if (seedSet.has(row.targetEntityId) && !seedSet.has(row.sourceEntityId) && !seen.has(row.sourceEntityId)) {
+      neighbors.push(row.sourceEntityId);
+      seen.add(row.sourceEntityId);
+    }
+    if (neighbors.length >= maxNeighborEntities) break;
+  }
+
+  return {
+    neighborEntityIds: neighbors.slice(0, maxNeighborEntities),
+    traversedEdgeCount: rows.length,
+  };
+}
+
+function getEntityLinkedItemCandidates(
+  entityIds: string[],
+  opts: {
+    scopeIds?: string[];
+    excludedMessageIds?: string[];
+    confidenceMultiplier: number;
+    excludeItemIds?: Set<string>;
+  },
+): Candidate[] {
+  if (entityIds.length === 0) return [];
+  const excludedMessageIds = opts.excludedMessageIds ?? [];
+
+  const db = getDb();
+  const linkedRows = db
+    .select({
+      memoryItemId: memoryItemEntities.memoryItemId,
+    })
+    .from(memoryItemEntities)
+    .where(inArray(memoryItemEntities.entityId, entityIds))
+    .all();
 
   if (linkedRows.length === 0) return [];
 
-  // Fetch the actual memory items
-  const itemIds = [...new Set(linkedRows.map((r) => r.memory_item_id))];
+  const itemIds = [...new Set(linkedRows.map((row) => row.memoryItemId))]
+    .filter((itemId) => !opts.excludeItemIds?.has(itemId));
+  if (itemIds.length === 0) return [];
+
   const itemConditions = [
     inArray(memoryItems.id, itemIds),
     eq(memoryItems.status, 'active'),
     isNull(memoryItems.invalidAt),
   ];
-  if (scopeIds && scopeIds.length > 0) {
-    itemConditions.push(inArray(memoryItems.scopeId, scopeIds));
+  if (opts.scopeIds && opts.scopeIds.length > 0) {
+    itemConditions.push(inArray(memoryItems.scopeId, opts.scopeIds));
   }
-  const items = db
+  let items = db
     .select()
     .from(memoryItems)
     .where(and(...itemConditions))
     .all();
+  if (items.length === 0) return [];
+
+  if (excludedMessageIds.length > 0) {
+    const excludedSet = new Set(excludedMessageIds);
+    const sources = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        messageId: memoryItemSources.messageId,
+      })
+      .from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, items.map((item) => item.id)))
+      .all();
+    const hasAnySource = new Set<string>();
+    const hasNonExcludedSource = new Set<string>();
+    for (const source of sources) {
+      hasAnySource.add(source.memoryItemId);
+      if (!excludedSet.has(source.messageId)) {
+        hasNonExcludedSource.add(source.memoryItemId);
+      }
+    }
+    items = items.filter((item) => !hasAnySource.has(item.id) || hasNonExcludedSource.has(item.id));
+  }
+  if (items.length === 0) return [];
+
+  const confidenceMultiplier = Math.max(0, Math.min(1, opts.confidenceMultiplier));
 
   return items.map((item) => ({
     key: `item:${item.id}`,
@@ -822,7 +1016,7 @@ function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
     id: item.id,
     text: `${item.subject}: ${item.statement}`,
     kind: item.kind,
-    confidence: item.confidence,
+    confidence: item.confidence * confidenceMultiplier,
     importance: item.importance ?? 0.5,
     createdAt: item.lastSeenAt,
     lexical: 0,

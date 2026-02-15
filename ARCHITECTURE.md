@@ -66,7 +66,7 @@ graph TB
         subgraph "Memory System"
             CONV_STORE["ConversationStore<br/>Drizzle ORM CRUD"]
             INDEXER["Memory Indexer<br/>segment + extract"]
-            RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity + RRF<br/>Trust + Freshness + Scope"]
+            RECALL["Memory Recall<br/>FTS5 + Qdrant + Entity Graph + RRF<br/>Trust + Freshness + Scope"]
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
@@ -518,7 +518,8 @@ graph TB
         QUERY["Recall Query"]
         LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
         SEM["Semantic Search<br/>Qdrant cosine similarity"]
-        ENTITY_SEARCH["Entity Search<br/>Name/alias matching"]
+        ENTITY_SEARCH["Entity Search<br/>Seed name/alias matching"]
+        REL_EXPAND["Relation Expansion<br/>1-hop via memory_entity_relations<br/>→ neighbor item links"]
         DIRECT["Direct Item Search<br/>LIKE on subject/statement"]
         SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)"]
         MERGE["RRF Merge<br/>+ Trust Weighting<br/>+ Freshness Decay"]
@@ -559,7 +560,8 @@ graph TB
     QUERY --> DIRECT
     LEX --> SCOPE
     SEM --> SCOPE
-    ENTITY_SEARCH --> SCOPE
+    ENTITY_SEARCH --> REL_EXPAND
+    REL_EXPAND --> SCOPE
     DIRECT --> SCOPE
     SCOPE --> MERGE
     MERGE --> RERANK

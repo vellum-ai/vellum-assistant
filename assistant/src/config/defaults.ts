@@ -87,6 +87,13 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         enabled: false,
         backfillBatchSize: 200,
       },
+      relationRetrieval: {
+        enabled: false,
+        maxSeedEntities: 8,
+        maxNeighborEntities: 20,
+        maxEdges: 40,
+        neighborScoreMultiplier: 0.7,
+      },
     },
   },
   dataDir: getDataDir(),
