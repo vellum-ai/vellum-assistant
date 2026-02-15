@@ -11,10 +11,10 @@ import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
-import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -22,7 +22,6 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
-import { generateScopeOptions } from '../permissions/checker.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
@@ -114,6 +113,7 @@ export class Session {
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
+  private assistantId: string | null = null;
   private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -412,6 +412,54 @@ export class Session {
 
   handleSecretResponse(requestId: string, value?: string): void {
     this.secretPrompter.resolveSecret(requestId, value);
+  }
+
+  /**
+   * Bind a runtime assistant ID to this session.
+   * IPC-only desktop sessions can leave this unset and use a local scope.
+   */
+  setAssistantId(assistantId: string): void {
+    this.assistantId = assistantId;
+  }
+
+  private async approveHostAttachmentRead(filePath: string): Promise<boolean> {
+    const toolName = 'host_file_read';
+    const input = { path: filePath };
+    const decision = await check(toolName, input, this.workingDir);
+
+    if (decision.decision === 'allow') {
+      return true;
+    }
+    if (decision.decision === 'deny') {
+      return false;
+    }
+
+    const response = await this.prompter.prompt(
+      toolName,
+      input,
+      await classifyRisk(toolName, input),
+      generateAllowlistOptions(toolName, input),
+      generateScopeOptions(this.workingDir, toolName),
+      undefined,
+      undefined,
+      this.conversationId,
+      'host',
+    );
+
+    if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope);
+    }
+    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    }
+
+    return response.decision === 'allow' || response.decision === 'always_allow';
+  }
+
+  private formatAttachmentWarnings(warnings: string[]): string | null {
+    if (warnings.length === 0) return null;
+    const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
+    return `\n\n${lines.join('\n')}`;
   }
 
   /**
@@ -867,10 +915,7 @@ export class Session {
       // Resolve accumulated attachment directives and tool content blocks
       let assistantAttachments: AssistantAttachmentDraft[] = [];
       if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
-        const approveHostRead: ApproveHostRead = async (_filePath) => {
-          // TODO(PR-6+): Wire to permission prompter for interactive approval
-          return false;
-        };
+        const approveHostRead: ApproveHostRead = async (filePath) => this.approveHostAttachmentRead(filePath);
 
         const directiveDrafts = accumulatedDirectives.length > 0
           ? await resolveDirectives(accumulatedDirectives, this.workingDir, approveHostRead)
@@ -887,23 +932,26 @@ export class Session {
 
       // Persist resolved attachments and link to the last assistant message
       if (assistantAttachments.length > 0 && lastAssistantMessageId) {
-        const assistantId = getApp()?.id;
-        if (assistantId) {
-          for (let i = 0; i < assistantAttachments.length; i++) {
-            const draft = assistantAttachments[i];
-            const stored = uploadAttachment(
-              assistantId,
-              draft.filename,
-              draft.mimeType,
-              draft.dataBase64,
-            );
-            linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
-          }
+        const attachmentScope = this.assistantId ?? 'local-assistant';
+        for (let i = 0; i < assistantAttachments.length; i++) {
+          const draft = assistantAttachments[i];
+          const stored = uploadAttachment(
+            attachmentScope,
+            draft.filename,
+            draft.mimeType,
+            draft.dataBase64,
+          );
+          linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
         }
       }
 
       this.lastAssistantAttachments = assistantAttachments;
       this.lastAttachmentWarnings = directiveWarnings;
+
+      const warningText = this.formatAttachmentWarnings(directiveWarnings);
+      if (warningText) {
+        onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
+      }
 
       if (yieldedForHandoff) {
         this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {

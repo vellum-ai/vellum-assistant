@@ -591,6 +591,7 @@ export class DaemonServer {
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
+    session.setAssistantId(assistantId);
 
     // Reject concurrent requests upfront. The HTTP path should never use
     // the message queue — it returns 409 to the caller instead.
@@ -633,6 +634,7 @@ export class DaemonServer {
     attachmentIds?: string[],
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
+    session.setAssistantId(assistantId);
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');

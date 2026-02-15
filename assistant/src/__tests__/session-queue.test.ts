@@ -1,4 +1,5 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import { rmSync, writeFileSync } from 'node:fs';
 import type { Message, ProviderResponse } from '../providers/types.js';
 import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
@@ -34,6 +35,7 @@ mock.module('../config/loader.js', () => ({
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    timeouts: { permissionTimeoutSec: 1 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     memory: { retrieval: { injectionStrategy: 'inline' } },
@@ -65,6 +67,8 @@ mock.module('../skills/slash-commands.js', () => ({
 }));
 
 mock.module('../permissions/trust-store.js', () => ({
+  addRule: () => {},
+  findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
@@ -89,6 +93,11 @@ mock.module('../memory/conversation-store.js', () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module('../memory/attachments-store.js', () => ({
+  uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  linkAttachmentToMessage: () => {},
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -203,6 +212,16 @@ async function waitForPendingRun(count: number, timeoutMs = 2000): Promise<void>
   while (pendingRuns.length < count) {
     if (Date.now() - start > timeoutMs) {
       throw new Error(`Timed out waiting for ${count} pending runs (have ${pendingRuns.length})`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
     }
     await new Promise((r) => setTimeout(r, 10));
   }
@@ -1087,6 +1106,109 @@ describe('Surface-action queue-full trace', () => {
 
     // Queue depth should not have increased
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Host attachment approval tests
+// ---------------------------------------------------------------------------
+
+describe('Session host attachment directives', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('host attachment prompts and resolves when user allows', async () => {
+    const hostPath = '/tmp/vellum-host-attachment-allow.txt';
+    writeFileSync(hostPath, 'host attachment content');
+
+    try {
+      const clientEvents: ServerMessage[] = [];
+      const events: ServerMessage[] = [];
+      const session = makeSession((msg) => clientEvents.push(msg));
+      await session.loadFromDb();
+
+      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      await waitForPendingRun(1);
+
+      const run = pendingRuns[0];
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
+          },
+        ],
+      };
+      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.resolve([...run.messages, assistantMsg]);
+
+      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
+      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      expect(confirmation).toBeDefined();
+      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'allow');
+
+      await p1;
+
+      expect(session.lastAssistantAttachments).toHaveLength(1);
+      expect(session.lastAssistantAttachments[0].sourceType).toBe('host_file');
+      expect(session.lastAttachmentWarnings).toHaveLength(0);
+
+      const completion = events.find((e) => e.type === 'message_complete');
+      expect(completion).toBeDefined();
+    } finally {
+      rmSync(hostPath, { force: true });
+    }
+  });
+
+  test('host attachment denial is non-fatal and emits warning text', async () => {
+    const hostPath = '/tmp/vellum-host-attachment-deny.txt';
+    writeFileSync(hostPath, 'host attachment content');
+
+    try {
+      const clientEvents: ServerMessage[] = [];
+      const events: ServerMessage[] = [];
+      const session = makeSession((msg) => clientEvents.push(msg));
+      await session.loadFromDb();
+
+      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      await waitForPendingRun(1);
+
+      const run = pendingRuns[0];
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
+          },
+        ],
+      };
+      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.resolve([...run.messages, assistantMsg]);
+
+      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
+      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      expect(confirmation).toBeDefined();
+      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'deny');
+
+      await p1;
+
+      expect(session.lastAssistantAttachments).toHaveLength(0);
+      expect(session.lastAttachmentWarnings.some((w) => w.includes('access denied by user'))).toBe(true);
+
+      const warningDelta = events.find(
+        (e) => e.type === 'assistant_text_delta' && e.text.includes('Attachment warning:'),
+      );
+      expect(warningDelta).toBeDefined();
+      const completion = events.find((e) => e.type === 'message_complete');
+      expect(completion).toBeDefined();
+    } finally {
+      rmSync(hostPath, { force: true });
+    }
   });
 });
 
