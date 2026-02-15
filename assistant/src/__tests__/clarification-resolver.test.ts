@@ -9,10 +9,16 @@ let llmExplanation = 'Unclear response from user.';
 mock.module('@anthropic-ai/sdk', () => ({
   default: class MockAnthropic {
     messages = {
-      create: async () => {
+      create: async (_body: unknown, opts?: { signal?: AbortSignal }) => {
         llmCallCount += 1;
         if (llmDelayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, llmDelayMs));
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, llmDelayMs);
+            opts?.signal?.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new Error('Request was aborted.'));
+            });
+          });
         }
         return {
           content: [{
@@ -96,6 +102,38 @@ describe('resolveConflictClarification', () => {
     });
 
     expect(result.resolution).toBe('still_unclear');
+    expect(result.strategy).toBe('llm');
+    expect(llmCallCount).toBe(1);
+  });
+
+  test('does not match cue substrings inside unrelated words', async () => {
+    llmResolution = 'keep_candidate';
+    llmExplanation = 'User wants Vue.';
+
+    // "told" contains "old" as a substring but not as a whole word
+    const result = await resolveConflictClarification({
+      existingStatement: 'Use React for frontend work.',
+      candidateStatement: 'Use Vue for frontend work.',
+      userMessage: 'I told you, use Vue.',
+    });
+
+    expect(result.resolution).toBe('keep_candidate');
+    expect(result.strategy).toBe('llm');
+    expect(llmCallCount).toBe(1);
+  });
+
+  test('delegates to LLM when multiple cue categories match', async () => {
+    llmResolution = 'keep_existing';
+    llmExplanation = 'User wants the old one.';
+
+    // "either" is a merge cue, "old" is an existing cue — ambiguous
+    const result = await resolveConflictClarification({
+      existingStatement: 'Use React for frontend work.',
+      candidateStatement: 'Use Vue for frontend work.',
+      userMessage: "I don't want either, keep the old one.",
+    });
+
+    expect(result.resolution).toBe('keep_existing');
     expect(result.strategy).toBe('llm');
     expect(llmCallCount).toBe(1);
   });

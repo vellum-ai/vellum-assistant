@@ -4,7 +4,7 @@ import { getConfig } from '../config/loader.js';
 const DEFAULT_RESOLVER_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_RESOLVER_TIMEOUT_MS = 12_000;
 
-const DIRECTIONAL_EXISTING_CUES = ['existing', 'old', 'previous', 'first', 'earlier', 'original', 'still'];
+const DIRECTIONAL_EXISTING_CUES = ['existing', 'old', 'previous', 'first', 'earlier', 'original'];
 const DIRECTIONAL_CANDIDATE_CUES = ['candidate', 'new', 'latest', 'second', 'updated', 'instead', 'replace'];
 const MERGE_CUES = ['both', 'merge', 'combine', 'together', 'depends', 'either', 'mix'];
 
@@ -95,7 +95,16 @@ function resolveWithHeuristics(input: ClarificationResolverInput): Clarification
   if (!normalizedMessage) return null;
 
   const lowerMessage = normalizedMessage.toLowerCase();
-  if (containsAnyCue(lowerMessage, MERGE_CUES)) {
+
+  const hasExistingCue = containsAnyCue(lowerMessage, DIRECTIONAL_EXISTING_CUES);
+  const hasCandidateCue = containsAnyCue(lowerMessage, DIRECTIONAL_CANDIDATE_CUES);
+  const hasMergeCue = containsAnyCue(lowerMessage, MERGE_CUES);
+
+  // When multiple cue categories match, delegate to LLM to avoid misclassification
+  const matchCount = [hasExistingCue, hasCandidateCue, hasMergeCue].filter(Boolean).length;
+  if (matchCount > 1) return null;
+
+  if (hasMergeCue) {
     return {
       resolution: 'merge',
       strategy: 'heuristic',
@@ -104,10 +113,7 @@ function resolveWithHeuristics(input: ClarificationResolverInput): Clarification
     };
   }
 
-  const hasExistingCue = containsAnyCue(lowerMessage, DIRECTIONAL_EXISTING_CUES);
-  const hasCandidateCue = containsAnyCue(lowerMessage, DIRECTIONAL_CANDIDATE_CUES);
-
-  if (hasExistingCue && !hasCandidateCue) {
+  if (hasExistingCue) {
     return {
       resolution: 'keep_existing',
       strategy: 'heuristic',
@@ -116,7 +122,7 @@ function resolveWithHeuristics(input: ClarificationResolverInput): Clarification
     };
   }
 
-  if (hasCandidateCue && !hasExistingCue) {
+  if (hasCandidateCue) {
     return {
       resolution: 'keep_candidate',
       strategy: 'heuristic',
@@ -172,8 +178,11 @@ async function resolveWithLlm(
     `User clarification: ${input.userMessage}`,
   ].join('\n');
 
-  const response = await Promise.race([
-    client.messages.create({
+  const abortController = new AbortController();
+  const timer = setTimeout(() => abortController.abort(), options.timeoutMs);
+
+  try {
+  const response = await client.messages.create({
       model: options.model,
       max_tokens: 256,
       system: [
@@ -208,37 +217,41 @@ async function resolveWithLlm(
       }],
       tool_choice: { type: 'tool' as const, name: 'resolve_conflict_clarification' },
       messages: [{ role: 'user' as const, content: userPrompt }],
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('clarification_resolver_timeout')), options.timeoutMs),
-    ),
-  ]);
+    }, { signal: abortController.signal });
+    clearTimeout(timer);
 
-  const toolBlock = response.content.find((block) => block.type === 'tool_use');
-  if (!toolBlock || toolBlock.type !== 'tool_use') {
-    throw new Error('No tool_use block in clarification resolver response.');
+    const toolBlock = response.content.find((block) => block.type === 'tool_use');
+    if (!toolBlock || toolBlock.type !== 'tool_use') {
+      throw new Error('No tool_use block in clarification resolver response.');
+    }
+
+    const parsed = toolBlock.input as {
+      resolution?: string;
+      resolved_statement?: string;
+      explanation?: string;
+    };
+
+    if (!isResolution(parsed.resolution)) {
+      throw new Error(`Invalid clarification resolution: ${String(parsed.resolution)}`);
+    }
+
+    const resolvedStatement = parsed.resolution === 'merge'
+      ? normalize(parsed.resolved_statement ?? buildMergedStatement(input)) || buildMergedStatement(input)
+      : null;
+
+    return {
+      resolution: parsed.resolution,
+      strategy: 'llm',
+      resolvedStatement,
+      explanation: normalize(parsed.explanation ?? 'Resolved via LLM fallback.').slice(0, 500),
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    if (abortController.signal.aborted) {
+      throw new Error('clarification_resolver_timeout');
+    }
+    throw err;
   }
-
-  const parsed = toolBlock.input as {
-    resolution?: string;
-    resolved_statement?: string;
-    explanation?: string;
-  };
-
-  if (!isResolution(parsed.resolution)) {
-    throw new Error(`Invalid clarification resolution: ${String(parsed.resolution)}`);
-  }
-
-  const resolvedStatement = parsed.resolution === 'merge'
-    ? normalize(parsed.resolved_statement ?? buildMergedStatement(input)) || buildMergedStatement(input)
-    : null;
-
-  return {
-    resolution: parsed.resolution,
-    strategy: 'llm',
-    resolvedStatement,
-    explanation: normalize(parsed.explanation ?? 'Resolved via LLM fallback.').slice(0, 500),
-  };
 }
 
 function isResolution(value: string | undefined): value is ClarificationResolution {
@@ -249,7 +262,7 @@ function isResolution(value: string | undefined): value is ClarificationResoluti
 }
 
 function containsAnyCue(input: string, cues: readonly string[]): boolean {
-  return cues.some((cue) => input.includes(cue));
+  return cues.some((cue) => new RegExp(`\\b${cue}\\b`).test(input));
 }
 
 function overlapScore(left: Set<string>, right: Set<string>): number {
