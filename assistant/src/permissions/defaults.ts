@@ -24,9 +24,9 @@ const COMPUTER_USE_TOOLS = [
   'cu_wait',
   'cu_open_app',
   'cu_run_applescript',
-  'cu_done',
-  'cu_respond',
   'request_computer_control',
+  // cu_done and cu_respond are terminal signal tools (RiskLevel.Low) — they
+  // don't perform any computer action, so they should NOT get an 'ask' rule.
 ] as const;
 
 /**
