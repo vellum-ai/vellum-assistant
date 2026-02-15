@@ -69,13 +69,13 @@ describe('USER.md template shape', () => {
     });
 
     test('contains all onboarding task entries', () => {
-      for (const task of ['set_name', 'set_locale', 'choose_color', 'first_conversation']) {
+      for (const task of ['set_name', 'set_locale', 'make_it_yours', 'research_topic', 'research_to_ui', 'first_conversation']) {
         expect(rendered).toContain(`**${task}:**`);
       }
     });
 
     test('all tasks default to pending', () => {
-      for (const task of ['set_name', 'set_locale', 'choose_color', 'first_conversation']) {
+      for (const task of ['set_name', 'set_locale', 'make_it_yours', 'research_topic', 'research_to_ui', 'first_conversation']) {
         expect(rendered).toContain(`**${task}:** pending`);
       }
     });
