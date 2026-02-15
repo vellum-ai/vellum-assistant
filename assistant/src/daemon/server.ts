@@ -16,7 +16,6 @@ import { ComputerUseSession } from './computer-use-session.js';
 import {
   serialize,
   createMessageParser,
-  rawByteLength,
   MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
@@ -433,7 +432,7 @@ export class DaemonServer {
             chunkReceivedAtMs,
             parsedAtMs,
             parseDurationMs,
-            messageBytes: rawByteLength(entry),
+            messageBytes: entry.rawByteLength,
           }, 'IPC_METRIC cu_observation_parse');
         }
         const result = validateClientMessage(msg);
