@@ -17,7 +17,13 @@ import {
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
-import { extractEntitiesWithLLM, upsertEntity, linkMemoryItemToEntity } from './entity-extractor.js';
+import {
+  extractEntitiesWithLLM,
+  linkMemoryItemToEntity,
+  resolveEntityName,
+  upsertEntity,
+  upsertEntityRelation,
+} from './entity-extractor.js';
 import { indexMessageNow } from './indexer.js';
 import { checkContradictions } from './contradiction-checker.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
@@ -273,8 +279,10 @@ async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Prom
   const text = extractTextFromStoredMessageContent(message.content);
   if (text.trim().length < 15) return;
 
-  const entities = await extractEntitiesWithLLM(text, config.memory.entity);
-  if (entities.length === 0) return;
+  const extracted = await extractEntitiesWithLLM(text, config.memory.entity);
+  const entities = extracted.entities;
+  const relations = extracted.relations;
+  if (entities.length === 0 && relations.length === 0) return;
 
   // Find all memory items linked to this message via memory_item_sources
   const linkedItems = db
@@ -283,16 +291,63 @@ async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Prom
     .where(eq(memoryItemSources.messageId, messageId))
     .all();
   const itemIds = linkedItems.map((row) => row.memoryItemId);
+  const entityNameToId = new Map<string, string>();
 
   for (const entity of entities) {
     const entityId = upsertEntity(entity);
+    entityNameToId.set(entity.name.toLowerCase(), entityId);
+    for (const alias of entity.aliases) {
+      entityNameToId.set(alias.toLowerCase(), entityId);
+    }
     // Link all memory items from this message to the entity
     for (const itemId of itemIds) {
       linkMemoryItemToEntity(itemId, entityId);
     }
   }
 
-  log.debug({ messageId, entityCount: entities.length, linkedItems: itemIds.length }, 'Extracted entities from message');
+  const relationTelemetry = {
+    attempted: 0,
+    parsed: relations.length,
+    persisted: 0,
+    dropped: 0,
+  };
+
+  if (config.memory.entity.extractRelations.enabled && relations.length > 0) {
+    const seenRelationKeys = new Set<string>();
+    for (const relation of relations) {
+      relationTelemetry.attempted += 1;
+      const sourceLookup = relation.sourceEntityName.toLowerCase();
+      const targetLookup = relation.targetEntityName.toLowerCase();
+      const sourceEntityId = entityNameToId.get(sourceLookup) ?? resolveEntityName(relation.sourceEntityName);
+      const targetEntityId = entityNameToId.get(targetLookup) ?? resolveEntityName(relation.targetEntityName);
+      if (!sourceEntityId || !targetEntityId || sourceEntityId === targetEntityId) {
+        relationTelemetry.dropped += 1;
+        continue;
+      }
+
+      const dedupeKey = `${sourceEntityId}|${targetEntityId}|${relation.relation}`;
+      if (seenRelationKeys.has(dedupeKey)) continue;
+      seenRelationKeys.add(dedupeKey);
+
+      upsertEntityRelation({
+        sourceEntityId,
+        targetEntityId,
+        relation: relation.relation,
+        evidence: relation.evidence,
+      });
+      relationTelemetry.persisted += 1;
+    }
+  }
+
+  log.debug({
+    messageId,
+    entityCount: entities.length,
+    linkedItems: itemIds.length,
+    relationAttempts: relationTelemetry.attempted,
+    relationParsed: relationTelemetry.parsed,
+    relationPersisted: relationTelemetry.persisted,
+    relationDropped: relationTelemetry.dropped,
+  }, 'Extracted entity graph from message');
 }
 
 async function checkContradictionsJob(job: MemoryJob): Promise<void> {

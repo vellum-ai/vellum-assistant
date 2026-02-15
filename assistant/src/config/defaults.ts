@@ -83,6 +83,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     entity: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
+      extractRelations: {
+        enabled: false,
+      },
     },
   },
   dataDir: getDataDir(),
