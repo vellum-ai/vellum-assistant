@@ -303,6 +303,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  link_open_request: {
+    type: 'link_open_request',
+    url: 'https://example.com',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -852,6 +856,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'slack_webhook_config_response',
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
     success: true,
+  },
+  open_url: {
+    type: 'open_url',
+    url: 'https://example.com',
+    title: 'Example',
   },
 };
 
