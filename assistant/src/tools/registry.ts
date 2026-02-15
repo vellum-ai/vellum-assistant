@@ -100,11 +100,16 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { eagerModules, lazyTools } = await import('./tool-manifest.js');
+  const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
   // Import tool modules to trigger registration side effects.
   for (const modulePath of eagerModules) {
     await import(modulePath);
+  }
+
+  // Explicit tool instances — no side-effect import required.
+  for (const tool of explicitTools) {
+    registerTool(tool);
   }
 
   // Host tools are registered explicitly so host access stays opt-in until

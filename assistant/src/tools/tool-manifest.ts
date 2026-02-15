@@ -8,6 +8,8 @@
 
 import { RiskLevel } from '../permissions/types.js';
 import type { LazyToolDescriptor } from './registry.js';
+import type { Tool } from './types.js';
+import { memorySearchTool, memorySaveTool, memoryUpdateTool } from './memory/register.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -23,7 +25,6 @@ export const eagerModules: string[] = [
   './skills/delete-managed.js',
   './browser/headless-browser.js',
   './weather/get-weather.js',
-  './memory/register.js',
   './credentials/vault.js',
   './credentials/account-registry.js',
   './timer/pomodoro.js',
@@ -32,6 +33,16 @@ export const eagerModules: string[] = [
   './schedule/list.js',
   './schedule/update.js',
   './schedule/delete.js',
+];
+
+// ── Explicit tool instances ─────────────────────────────────────────
+// Tools exported as instances — registered by initializeTools() without
+// relying on import side effects.
+
+export const explicitTools: Tool[] = [
+  memorySearchTool,
+  memorySaveTool,
+  memoryUpdateTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
