@@ -1849,13 +1849,15 @@ export class Session {
 
     if (toolName === 'app_open') {
       const appId = input.app_id as string;
+      const preview = input.preview as DynamicPageSurfaceData['preview'];
       const app = getApp(appId);
       if (!app) return { content: `App not found: ${appId}`, isError: true };
 
+      const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, preview };
       const surfaceId = uuid();
       this.surfaceState.set(surfaceId, {
         surfaceType: 'dynamic_page',
-        data: { html: app.htmlDefinition, appId: app.id } as DynamicPageSurfaceData,
+        data: surfaceData,
       });
 
       this.sendToClient({
@@ -1864,7 +1866,7 @@ export class Session {
         surfaceId,
         surfaceType: 'dynamic_page',
         title: app.name,
-        data: { html: app.htmlDefinition, appId: app.id },
+        data: surfaceData,
       } as UiSurfaceShow);
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };

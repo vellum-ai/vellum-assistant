@@ -70,6 +70,31 @@ export const appCreateTool: Tool = {
               'When true, the app is immediately displayed in a dynamic_page surface ' +
               'without needing a separate app_open call.',
           },
+          preview: {
+            type: 'object',
+            description:
+              'Optional inline preview card shown in chat. ' +
+              'Provides a compact summary so the user sees what was built without opening the app.',
+            properties: {
+              title: { type: 'string', description: 'Preview card title' },
+              subtitle: { type: 'string', description: 'Optional subtitle' },
+              description: { type: 'string', description: 'Optional short description' },
+              icon: { type: 'string', description: 'Optional emoji icon' },
+              metrics: {
+                type: 'array',
+                description: 'Optional key-value metrics',
+                items: {
+                  type: 'object',
+                  properties: {
+                    label: { type: 'string' },
+                    value: { type: 'string' },
+                  },
+                  required: ['label', 'value'],
+                },
+              },
+            },
+            required: ['title'],
+          },
         },
         required: ['name', 'schema_json', 'html'],
       },
@@ -83,13 +108,14 @@ export const appCreateTool: Tool = {
     const htmlDefinition = input.html as string;
     const pages = input.pages as Record<string, string> | undefined;
     const autoOpen = input.auto_open !== false; // default true
+    const preview = input.preview as Record<string, unknown> | undefined;
 
     const app = appStore.createApp({ name, description, schemaJson, htmlDefinition, pages });
 
     // Auto-open the app via the proxy resolver if available
     if (autoOpen && context.proxyToolResolver) {
       try {
-        const openResult = await context.proxyToolResolver('app_open', { app_id: app.id });
+        const openResult = await context.proxyToolResolver('app_open', { app_id: app.id, preview });
         return {
           content: JSON.stringify({
             ...app,
