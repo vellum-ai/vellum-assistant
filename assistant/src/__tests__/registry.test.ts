@@ -161,7 +161,7 @@ describe('tool manifest', () => {
     expect(names).toContain('memory_update');
     expect(names).toContain('credential_store');
     expect(names).toContain('account_manage');
-    expect(names).toContain('pomodoro');
+    expect(names).toContain('reminder');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {

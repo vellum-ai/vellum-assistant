@@ -217,21 +217,6 @@ export const memoryCheckpoints = sqliteTable('memory_checkpoints', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-// ── Pomodoro Timers ──────────────────────────────────────────────────
-
-export const pomodoroTimers = sqliteTable('pomodoro_timers', {
-  id: text('id').primaryKey(),
-  sessionId: text('session_id').notNull(),
-  label: text('label').notNull(),
-  durationMinutes: real('duration_minutes').notNull(),
-  startedAt: integer('started_at').notNull(),
-  remainingMs: integer('remaining_ms').notNull(),
-  status: text('status').notNull(),         // running | paused | completed | cancelled
-  completedAt: integer('completed_at'),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
-
 // ── Reminders ────────────────────────────────────────────────────────
 
 export const reminders = sqliteTable('reminders', {
