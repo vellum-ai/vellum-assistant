@@ -23,6 +23,7 @@ import {
 import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 
 const log = getLogger('server');
 
@@ -51,6 +52,7 @@ export class DaemonServer {
   private suppressConfigReload = false;
   private lastConfigFingerprint = '';
   private lastConfigRefreshTime = 0;
+  private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
 
   constructor() {
@@ -67,6 +69,13 @@ export class DaemonServer {
     const config = getConfig();
     initializeProviders(config);
     this.lastConfigFingerprint = this.configFingerprint(config);
+
+    ensureBlobDir();
+    this.blobSweepTimer = setInterval(() => {
+      sweepStaleBlobs(30 * 60 * 1000).catch((err) => {
+        log.warn({ err }, 'Blob sweep failed');
+      });
+    }, 5 * 60 * 1000);
 
     this.startFileWatchers();
 
@@ -98,6 +107,10 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    if (this.blobSweepTimer) {
+      clearInterval(this.blobSweepTimer);
+      this.blobSweepTimer = null;
+    }
     this.stopFileWatchers();
 
     // 1. Stop accepting new connections first. server.close() prevents new
