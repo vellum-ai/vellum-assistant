@@ -45,9 +45,9 @@ mock.module('../config/loader.js', () => ({
   invalidateConfigCache: () => {},
 }));
 import { estimateTextTokens } from '../context/token-estimator.js';
-import { requestMemoryBackfill } from '../memory/admin.js';
+import { getMemorySystemStatus, requestMemoryBackfill, requestMemoryCleanup } from '../memory/admin.js';
 import { getMemoryCheckpoint } from '../memory/checkpoints.js';
-import { createOrUpdatePendingConflict, getConflictById } from '../memory/conflict-store.js';
+import { createOrUpdatePendingConflict, getConflictById, resolveConflict } from '../memory/conflict-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
@@ -56,6 +56,8 @@ import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor
 import {
   claimMemoryJobs,
   enqueueBackfillEntityRelationsJob,
+  enqueueCleanupResolvedConflictsJob,
+  enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
   enqueueResolvePendingConflictsForMessageJob,
 } from '../memory/jobs-store.js';
@@ -75,6 +77,7 @@ import {
   memoryEntities,
   memoryEntityRelations,
   memoryItemEntities,
+  memoryItemConflicts,
   memoryItems,
   memoryItemSources,
   memoryJobs,
@@ -90,6 +93,7 @@ describe('Memory V2 regressions', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.run('DELETE FROM memory_item_conflicts');
     db.run('DELETE FROM memory_item_entities');
     db.run('DELETE FROM memory_entity_relations');
     db.run('DELETE FROM memory_entities');
@@ -1240,6 +1244,323 @@ describe('Memory V2 regressions', () => {
     } finally {
       TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
     }
+  });
+
+  test('cleanup job enqueue is deduped and retention overrides upgrade payload', () => {
+    const db = getDb();
+
+    const resolvedFirst = enqueueCleanupResolvedConflictsJob();
+    const resolvedSecond = enqueueCleanupResolvedConflictsJob();
+    expect(resolvedSecond).toBe(resolvedFirst);
+    const resolvedUpgraded = enqueueCleanupResolvedConflictsJob(12_345);
+    expect(resolvedUpgraded).toBe(resolvedFirst);
+
+    const supersededFirst = enqueueCleanupStaleSupersededItemsJob();
+    const supersededSecond = enqueueCleanupStaleSupersededItemsJob();
+    expect(supersededSecond).toBe(supersededFirst);
+    const supersededUpgraded = enqueueCleanupStaleSupersededItemsJob(67_890);
+    expect(supersededUpgraded).toBe(supersededFirst);
+
+    const resolvedRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, resolvedFirst)).get();
+    const supersededRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, supersededFirst)).get();
+    expect(JSON.parse(resolvedRow?.payload ?? '{}')).toMatchObject({ retentionMs: 12_345 });
+    expect(JSON.parse(supersededRow?.payload ?? '{}')).toMatchObject({ retentionMs: 67_890 });
+  });
+
+  test('cleanup_resolved_conflicts removes stale resolved rows but keeps recent/pending', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'cleanup-conflict-existing-a',
+        kind: 'fact',
+        subject: 'db',
+        statement: 'Use Postgres.',
+        status: 'active',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-existing-a',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+      {
+        id: 'cleanup-conflict-candidate-a',
+        kind: 'fact',
+        subject: 'db',
+        statement: 'Use MySQL.',
+        status: 'pending_clarification',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-candidate-a',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+      {
+        id: 'cleanup-conflict-existing-b',
+        kind: 'fact',
+        subject: 'frontend',
+        statement: 'Use React.',
+        status: 'active',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-existing-b',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+      {
+        id: 'cleanup-conflict-candidate-b',
+        kind: 'fact',
+        subject: 'frontend',
+        statement: 'Use Vue.',
+        status: 'pending_clarification',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-candidate-b',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+      {
+        id: 'cleanup-conflict-existing-c',
+        kind: 'fact',
+        subject: 'orm',
+        statement: 'Use Drizzle.',
+        status: 'active',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-existing-c',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+      {
+        id: 'cleanup-conflict-candidate-c',
+        kind: 'fact',
+        subject: 'orm',
+        statement: 'Use Prisma.',
+        status: 'pending_clarification',
+        confidence: 0.8,
+        fingerprint: 'fp-cleanup-conflict-candidate-c',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 20_000,
+        lastSeenAt: now - 20_000,
+      },
+    ]).run();
+
+    const staleResolved = createOrUpdatePendingConflict({
+      existingItemId: 'cleanup-conflict-existing-a',
+      candidateItemId: 'cleanup-conflict-candidate-a',
+      relationship: 'ambiguous_contradiction',
+    });
+    const pendingConflict = createOrUpdatePendingConflict({
+      existingItemId: 'cleanup-conflict-existing-b',
+      candidateItemId: 'cleanup-conflict-candidate-b',
+      relationship: 'ambiguous_contradiction',
+    });
+    const recentResolved = createOrUpdatePendingConflict({
+      existingItemId: 'cleanup-conflict-existing-c',
+      candidateItemId: 'cleanup-conflict-candidate-c',
+      relationship: 'ambiguous_contradiction',
+      clarificationQuestion: 'Recent resolution row',
+    });
+
+    resolveConflict(staleResolved.id, { status: 'resolved_keep_existing' });
+    resolveConflict(recentResolved.id, { status: 'resolved_keep_candidate' });
+
+    db.run(`
+      UPDATE memory_item_conflicts
+      SET resolved_at = ${now - 100_000}, updated_at = ${now - 100_000}
+      WHERE id = '${staleResolved.id}'
+    `);
+    db.run(`
+      UPDATE memory_item_conflicts
+      SET resolved_at = ${now - 100}, updated_at = ${now - 100}
+      WHERE id = '${recentResolved.id}'
+    `);
+
+    enqueueMemoryJob('cleanup_resolved_conflicts', { retentionMs: 10_000 });
+    const processed = await runMemoryJobsOnce();
+    expect(processed).toBe(1);
+
+    const staleRow = db.select().from(memoryItemConflicts).where(eq(memoryItemConflicts.id, staleResolved.id)).get();
+    const pendingRow = db.select().from(memoryItemConflicts).where(eq(memoryItemConflicts.id, pendingConflict.id)).get();
+    const recentRow = db.select().from(memoryItemConflicts).where(eq(memoryItemConflicts.id, recentResolved.id)).get();
+    expect(staleRow).toBeUndefined();
+    expect(pendingRow?.status).toBe('pending_clarification');
+    expect(recentRow?.status).toBe('resolved_keep_candidate');
+  });
+
+  test('cleanup_stale_superseded_items removes stale superseded rows and embeddings', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'cleanup-stale-item',
+        kind: 'decision',
+        subject: 'deploy strategy',
+        statement: 'Deploy manually every Friday.',
+        status: 'superseded',
+        confidence: 0.7,
+        fingerprint: 'fp-cleanup-stale-item',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 200_000,
+        lastSeenAt: now - 200_000,
+        invalidAt: now - 200_000,
+      },
+      {
+        id: 'cleanup-recent-item',
+        kind: 'decision',
+        subject: 'deploy strategy',
+        statement: 'Deploy continuously via CI.',
+        status: 'superseded',
+        confidence: 0.7,
+        fingerprint: 'fp-cleanup-recent-item',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 200_000,
+        lastSeenAt: now - 200_000,
+        invalidAt: now - 100,
+      },
+    ]).run();
+
+    db.insert(memoryEmbeddings).values([
+      {
+        id: 'cleanup-embed-stale',
+        targetType: 'item',
+        targetId: 'cleanup-stale-item',
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        dimensions: 3,
+        vectorJson: '[0,0,0]',
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+      },
+      {
+        id: 'cleanup-embed-recent',
+        targetType: 'item',
+        targetId: 'cleanup-recent-item',
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        dimensions: 3,
+        vectorJson: '[0,0,0]',
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+      },
+    ]).run();
+
+    enqueueMemoryJob('cleanup_stale_superseded_items', { retentionMs: 10_000 });
+    const processed = await runMemoryJobsOnce();
+    expect(processed).toBe(1);
+
+    const staleItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'cleanup-stale-item')).get();
+    const recentItem = db.select().from(memoryItems).where(eq(memoryItems.id, 'cleanup-recent-item')).get();
+    const staleEmbedding = db.select().from(memoryEmbeddings).where(eq(memoryEmbeddings.id, 'cleanup-embed-stale')).get();
+    const recentEmbedding = db.select().from(memoryEmbeddings).where(eq(memoryEmbeddings.id, 'cleanup-embed-recent')).get();
+
+    expect(staleItem).toBeUndefined();
+    expect(recentItem).toBeDefined();
+    expect(staleEmbedding).toBeUndefined();
+    expect(recentEmbedding).toBeDefined();
+  });
+
+  test('memory admin status reports pending/resolved conflicts and oldest pending age', () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(memoryItems).values([
+      {
+        id: 'status-conflict-existing',
+        kind: 'fact',
+        subject: 'editor',
+        statement: 'Use Neovim.',
+        status: 'active',
+        confidence: 0.8,
+        fingerprint: 'fp-status-existing',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 10_000,
+        lastSeenAt: now - 10_000,
+      },
+      {
+        id: 'status-conflict-candidate',
+        kind: 'fact',
+        subject: 'editor',
+        statement: 'Use VS Code.',
+        status: 'pending_clarification',
+        confidence: 0.8,
+        fingerprint: 'fp-status-candidate',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 10_000,
+        lastSeenAt: now - 10_000,
+      },
+      {
+        id: 'status-conflict-existing-2',
+        kind: 'fact',
+        subject: 'shell',
+        statement: 'Use zsh.',
+        status: 'active',
+        confidence: 0.8,
+        fingerprint: 'fp-status-existing-2',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 10_000,
+        lastSeenAt: now - 10_000,
+      },
+      {
+        id: 'status-conflict-candidate-2',
+        kind: 'fact',
+        subject: 'shell',
+        statement: 'Use fish.',
+        status: 'pending_clarification',
+        confidence: 0.8,
+        fingerprint: 'fp-status-candidate-2',
+        verificationState: 'assistant_inferred',
+        scopeId: 'default',
+        firstSeenAt: now - 10_000,
+        lastSeenAt: now - 10_000,
+      },
+    ]).run();
+
+    const pending = createOrUpdatePendingConflict({
+      existingItemId: 'status-conflict-existing',
+      candidateItemId: 'status-conflict-candidate',
+      relationship: 'ambiguous_contradiction',
+    });
+    const resolved = createOrUpdatePendingConflict({
+      existingItemId: 'status-conflict-existing-2',
+      candidateItemId: 'status-conflict-candidate-2',
+      relationship: 'ambiguous_contradiction',
+      clarificationQuestion: 'resolved-row',
+    });
+    resolveConflict(resolved.id, { status: 'resolved_merge' });
+
+    db.run(`UPDATE memory_item_conflicts SET created_at = ${now - 5_000} WHERE id = '${pending.id}'`);
+
+    const status = getMemorySystemStatus();
+    expect(status.conflicts.pending).toBe(1);
+    expect(status.conflicts.resolved).toBe(1);
+    expect(status.conflicts.oldestPendingAgeMs).not.toBeNull();
+    expect((status.conflicts.oldestPendingAgeMs ?? 0) >= 4_000).toBe(true);
+  });
+
+  test('requestMemoryCleanup queues both cleanup job types', () => {
+    const db = getDb();
+    const queued = requestMemoryCleanup(9_999);
+    expect(queued.resolvedConflictsJobId).toBeTruthy();
+    expect(queued.staleSupersededItemsJobId).toBeTruthy();
+
+    const resolvedRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, queued.resolvedConflictsJobId)).get();
+    const supersededRow = db.select().from(memoryJobs).where(eq(memoryJobs.id, queued.staleSupersededItemsJobId)).get();
+    expect(resolvedRow?.type).toBe('cleanup_resolved_conflicts');
+    expect(supersededRow?.type).toBe('cleanup_stale_superseded_items');
   });
 
   test('relation backfill advances checkpoints in deterministic batches', async () => {

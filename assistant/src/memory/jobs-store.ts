@@ -10,6 +10,8 @@ export type MemoryJobType =
   | 'extract_items'
   | 'extract_entities'
   | 'resolve_pending_conflicts_for_message'
+  | 'cleanup_resolved_conflicts'
+  | 'cleanup_stale_superseded_items'
   | 'backfill_entity_relations'
   | 'check_contradictions'
   | 'refresh_weekly_summary'
@@ -121,6 +123,76 @@ export function enqueueResolvePendingConflictsForMessageJob(
     messageId: normalizedMessageId,
     scopeId: normalizedScopeId,
   });
+}
+
+export function enqueueCleanupResolvedConflictsJob(retentionMs?: number): string {
+  const db = getDb();
+  const now = Date.now();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(eq(memoryJobs.type, 'cleanup_resolved_conflicts'), eq(memoryJobs.status, 'pending')))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionMs !== retentionMs) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionMs }),
+            updatedAt: now,
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload = typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0
+    ? { retentionMs }
+    : {};
+  return enqueueMemoryJob('cleanup_resolved_conflicts', payload);
+}
+
+export function enqueueCleanupStaleSupersededItemsJob(retentionMs?: number): string {
+  const db = getDb();
+  const now = Date.now();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(eq(memoryJobs.type, 'cleanup_stale_superseded_items'), eq(memoryJobs.status, 'pending')))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionMs !== retentionMs) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionMs }),
+            updatedAt: now,
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload = typeof retentionMs === 'number' && Number.isFinite(retentionMs) && retentionMs > 0
+    ? { retentionMs }
+    : {};
+  return enqueueMemoryJob('cleanup_stale_superseded_items', payload);
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {

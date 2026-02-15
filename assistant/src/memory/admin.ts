@@ -3,7 +3,11 @@ import { getLogger } from '../util/logger.js';
 import { getMemoryBackendStatus } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
-import { getMemoryJobCounts } from './jobs-store.js';
+import {
+  enqueueCleanupResolvedConflictsJob,
+  enqueueCleanupStaleSupersededItemsJob,
+  getMemoryJobCounts,
+} from './jobs-store.js';
 import { queryMemoryForCli } from './retriever.js';
 
 const log = getLogger('memory-admin');
@@ -20,6 +24,11 @@ export interface MemorySystemStatus {
     summaries: number;
     embeddings: number;
   };
+  conflicts: {
+    pending: number;
+    resolved: number;
+    oldestPendingAgeMs: number | null;
+  };
   jobs: Record<string, number>;
 }
 
@@ -34,6 +43,22 @@ export function getMemorySystemStatus(): MemorySystemStatus {
     summaries: countTable('memory_summaries'),
     embeddings: countTable('memory_embeddings'),
   };
+  const conflictStats = raw.query(`
+    SELECT
+      SUM(CASE WHEN status = 'pending_clarification' THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN status != 'pending_clarification' THEN 1 ELSE 0 END) AS resolved_count,
+      MIN(CASE WHEN status = 'pending_clarification' THEN created_at END) AS oldest_pending_created_at
+    FROM memory_item_conflicts
+  `).get() as {
+    pending_count: number | null;
+    resolved_count: number | null;
+    oldest_pending_created_at: number | null;
+  } | null;
+  const pending = conflictStats?.pending_count ?? 0;
+  const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
+  const oldestPendingAgeMs = oldestPendingCreatedAt === null
+    ? null
+    : Math.max(0, Date.now() - oldestPendingCreatedAt);
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -41,6 +66,11 @@ export function getMemorySystemStatus(): MemorySystemStatus {
     provider: backend.provider,
     model: backend.model,
     counts,
+    conflicts: {
+      pending,
+      resolved: conflictStats?.resolved_count ?? 0,
+      oldestPendingAgeMs,
+    },
     jobs: getMemoryJobCounts(),
   };
 
@@ -60,6 +90,13 @@ export function requestMemoryRebuildIndex(): string {
   const id = enqueueRebuildIndexJob();
   log.info({ jobId: id }, 'Queued memory index rebuild job');
   return id;
+}
+
+export function requestMemoryCleanup(retentionMs?: number): { resolvedConflictsJobId: string; staleSupersededItemsJobId: string } {
+  const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(retentionMs);
+  const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(retentionMs);
+  log.info({ resolvedConflictsJobId, staleSupersededItemsJobId, retentionMs }, 'Queued memory cleanup jobs');
+  return { resolvedConflictsJobId, staleSupersededItemsJobId };
 }
 
 export async function queryMemory(

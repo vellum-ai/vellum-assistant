@@ -311,7 +311,7 @@ graph LR
         ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
-        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution<br/>Status: pending → running →<br/>completed | failed"]
+        JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
     end
 
@@ -532,6 +532,8 @@ graph TB
         EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
         CHECK_CONTRA["check_contradictions<br/>→ contradiction/update merge OR<br/>pending_clarification + memory_item_conflicts"]
         RESOLVE_PENDING["resolve_pending_conflicts_for_message<br/>message-scoped clarification resolution<br/>→ resolved conflict + item status updates"]
+        CLEAN_CONFLICTS["cleanup_resolved_conflicts<br/>delete resolved conflict rows<br/>older than retention window"]
+        CLEAN_SUPERSEDED["cleanup_stale_superseded_items<br/>delete stale superseded items<br/>and item embedding rows"]
         EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
         BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
@@ -587,6 +589,8 @@ graph TB
     WORKER --> EXTRACT
     WORKER --> CHECK_CONTRA
     WORKER --> RESOLVE_PENDING
+    WORKER --> CLEAN_CONFLICTS
+    WORKER --> CLEAN_SUPERSEDED
     WORKER --> EXTRACT_ENTITIES
     WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM
@@ -659,12 +663,15 @@ graph TB
    - `previousEstimatedInputTokens` vs `estimatedInputTokens`
    - `summaryCalls`, `compactedMessages`
 4. If dynamic budget is enabled, verify `injectedTokens` stays within the configured min/max clamps for `dynamicBudget`.
-5. Before tuning ranking or relation settings, run:
+5. Run `bun run src/index.ts memory status` and confirm cleanup pressure signals:
+   - `Pending conflicts`, `Resolved conflicts`, `Oldest pending conflict age`
+   - job queue counts for `cleanup_resolved_conflicts` / `cleanup_stale_superseded_items`
+6. Before tuning ranking or relation settings, run:
    - `cd assistant && bun test src/__tests__/context-memory-e2e.test.ts`
    - `cd assistant && bun test src/__tests__/memory-context-benchmark.test.ts`
    - `cd assistant && bun test src/__tests__/memory-recall-quality.test.ts`
    - `cd assistant && bun test src/__tests__/memory-v2-regressions.test.ts -t "relation"`
-6. After tuning, rerun the same suite and compare:
+7. After tuning, rerun the same suite and compare:
    - relation counters (coverage)
    - selected count / injected tokens (budget safety)
    - latency and ordering regressions via top candidate snapshots
