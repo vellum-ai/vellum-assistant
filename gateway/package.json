@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",
+    "knip": "^5.83.1",
     "typescript": "^5.7.3"
   }
 }

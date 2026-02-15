@@ -51,6 +51,7 @@
     "drizzle-kit": "^0.30.4",
     "eslint": "^10.0.0",
     "fast-check": "^4.5.3",
+    "knip": "^5.83.1",
     "quicktype-core": "^23.2.6",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.54.0",
