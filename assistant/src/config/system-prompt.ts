@@ -59,6 +59,7 @@ export function buildSystemPrompt(): string {
   if (user) parts.push(user);
   parts.push(buildConfigSection(baseDir));
   parts.push(buildAttachmentSection());
+  parts.push(buildDynamicUiSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
 }
@@ -79,6 +80,21 @@ function buildAttachmentSection(): string {
     '- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).',
     '',
     'Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.',
+  ].join('\n');
+}
+
+function buildDynamicUiSection(): string {
+  return [
+    '## Dynamic UI',
+    '',
+    '### When to use',
+    'Use `ui_show` with `surface_type: "dynamic_page"` when the response involves structured data, visual metrics, comparisons, multi-item results, charts, weather, flights, financial data, dashboards, or anything better presented visually than as plain text. Do NOT use for simple text answers, short factual replies, or casual conversation.',
+    '',
+    '### How it works',
+    'Write a self-contained HTML string (no external resources). The CSS design system (`vellum-design-system.css`) and JS widget library (`vellum-widgets.js`) are auto-injected. Call `ui_show` with `surface_type: "dynamic_page"` and `data: { html: "<your html>", preview: { ... } }`.',
+    '',
+    '### Preview cards',
+    'Always include `preview` in `data`: `{ title, subtitle?, description?, icon? (emoji), metrics?: [{ label, value }] }`. This renders a compact inline card in chat with a "View Output" button. Keep the accompanying chat text to 1-2 sentences summarizing the result.',
   ].join('\n');
 }
 
