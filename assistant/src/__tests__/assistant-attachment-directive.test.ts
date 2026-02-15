@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
-import { parseDirectives, resolveSandboxDirective, type DirectiveRequest } from '../daemon/assistant-attachments.js';
+import { parseDirectives, resolveSandboxDirective, resolveHostDirective, type DirectiveRequest } from '../daemon/assistant-attachments.js';
 
 import { tmpdir } from 'node:os';
 
@@ -269,5 +269,125 @@ describe('resolveSandboxDirective', () => {
     expect(result.draft).not.toBeNull();
     const decoded = Buffer.from(result.draft!.dataBase64, 'base64').toString('utf-8');
     expect(decoded).toBe(content);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveHostDirective
+// ---------------------------------------------------------------------------
+
+describe('resolveHostDirective', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'host-sub'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  function makeHostDirective(overrides: Partial<DirectiveRequest> = {}): DirectiveRequest {
+    return {
+      source: 'host',
+      path: join(TEST_DIR, 'doc.txt'),
+      filename: undefined,
+      mimeType: undefined,
+      ...overrides,
+    };
+  }
+
+  const alwaysApprove = async () => true;
+  const alwaysDeny = async () => false;
+
+  test('resolves an approved host file to a draft', async () => {
+    const filePath = join(TEST_DIR, 'doc.txt');
+    writeFileSync(filePath, 'host content');
+
+    const result = await resolveHostDirective(makeHostDirective(), alwaysApprove);
+
+    expect(result.draft).not.toBeNull();
+    expect(result.warning).toBeNull();
+    expect(result.draft!.sourceType).toBe('host_file');
+    expect(result.draft!.filename).toBe('doc.txt');
+    expect(result.draft!.mimeType).toBe('text/plain');
+    expect(result.draft!.sizeBytes).toBe(12);
+  });
+
+  test('skips when user denies', async () => {
+    writeFileSync(join(TEST_DIR, 'secret.txt'), 'private');
+
+    const result = await resolveHostDirective(
+      makeHostDirective({ path: join(TEST_DIR, 'secret.txt') }),
+      alwaysDeny,
+    );
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('access denied by user');
+  });
+
+  test('rejects relative paths', async () => {
+    const result = await resolveHostDirective(
+      makeHostDirective({ path: 'relative/path.txt' }),
+      alwaysApprove,
+    );
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('must be absolute');
+  });
+
+  test('warns when file does not exist', async () => {
+    const result = await resolveHostDirective(
+      makeHostDirective({ path: join(TEST_DIR, 'nonexistent.txt') }),
+      alwaysApprove,
+    );
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('file not found');
+  });
+
+  test('warns when path is a directory', async () => {
+    const result = await resolveHostDirective(
+      makeHostDirective({ path: join(TEST_DIR, 'host-sub') }),
+      alwaysApprove,
+    );
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('not a regular file');
+  });
+
+  test('uses directive filename and mimeType overrides', async () => {
+    writeFileSync(join(TEST_DIR, 'data.bin'), Buffer.from([1, 2, 3]));
+
+    const result = await resolveHostDirective(
+      makeHostDirective({
+        path: join(TEST_DIR, 'data.bin'),
+        filename: 'custom.dat',
+        mimeType: 'application/x-custom',
+      }),
+      alwaysApprove,
+    );
+
+    expect(result.draft!.filename).toBe('custom.dat');
+    expect(result.draft!.mimeType).toBe('application/x-custom');
+  });
+
+  test('handles approval callback error gracefully', async () => {
+    writeFileSync(join(TEST_DIR, 'doc.txt'), 'content');
+
+    const failApprove = async () => { throw new Error('IPC disconnected'); };
+    const result = await resolveHostDirective(makeHostDirective(), failApprove);
+
+    expect(result.draft).toBeNull();
+    expect(result.warning).toContain('approval request failed');
+  });
+
+  test('calls approve with the resolved absolute path', async () => {
+    writeFileSync(join(TEST_DIR, 'doc.txt'), 'content');
+
+    let approvedPath = '';
+    const captureApprove = async (p: string) => { approvedPath = p; return true; };
+
+    await resolveHostDirective(makeHostDirective(), captureApprove);
+
+    expect(approvedPath).toBe(join(TEST_DIR, 'doc.txt'));
   });
 });
