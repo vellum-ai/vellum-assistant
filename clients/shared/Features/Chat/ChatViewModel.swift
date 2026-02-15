@@ -108,6 +108,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var isRecording: Bool = false
     @Published public var isWorkspaceRefinementInFlight: Bool = false
     @Published public var pendingSkillInvocation: SkillInvocationData?
+    @Published public var isWatchSessionActive: Bool = false
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
@@ -155,6 +156,14 @@ public final class ChatViewModel: ObservableObject {
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
     public var shouldAcceptConfirmation: (() -> Bool)?
+
+    /// Called when the daemon sends a `watch_started` message to begin a watch session.
+    /// The closure receives the WatchStartedMessage and the DaemonClient so the macOS
+    /// layer can create and start a WatchSession.
+    public var onWatchStarted: ((WatchStartedMessage, DaemonClient) -> Void)?
+
+    /// Called when the daemon sends a `watch_complete_request` to stop the active watch session.
+    public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
 
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
@@ -1034,6 +1043,16 @@ public final class ChatViewModel: ObservableObject {
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
             }
+
+        case .watchStarted(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            isWatchSessionActive = true
+            onWatchStarted?(msg, daemonClient)
+
+        case .watchCompleteRequest(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            isWatchSessionActive = false
+            onWatchCompleteRequest?(msg)
 
         default:
             break

@@ -61,6 +61,10 @@ public final class AmbientAgent: ObservableObject {
     private let rejectionRefreshInterval: TimeInterval = 600
     private let rejectionFailureRetryInterval: TimeInterval = 60
 
+    /// When a WatchSession is active, ambient capture cycles are skipped
+    /// to avoid conflicting screen observations.
+    var activeWatchSession: WatchSession?
+
     weak var appDelegate: AppDelegate?
 
     var knowledge: KnowledgeStore { knowledgeStore }
@@ -176,6 +180,12 @@ public final class AmbientAgent: ObservableObject {
     }
 
     private func runCycle() async {
+        // Skip capture when a WatchSession is active to avoid conflicting observations
+        if activeWatchSession != nil {
+            log.debug("Watch session active — skipping ambient cycle")
+            return
+        }
+
         cycleCount += 1
         let cycle = cycleCount
 
