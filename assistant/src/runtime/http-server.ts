@@ -52,12 +52,20 @@ export interface RuntimeHttpServerOptions {
   runOrchestrator?: RunOrchestrator;
 }
 
+export interface RuntimeAttachmentMetadata {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+}
+
 interface RuntimeMessagePayload {
   id: string;
   role: string;
   content: string;
   timestamp: string;
-  attachments: unknown[];
+  attachments: RuntimeAttachmentMetadata[];
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
 }
 
@@ -223,14 +231,29 @@ export class RuntimeHttpServer {
     // internal user messages from the visible history.
     const merged = mergeToolResults(parsed);
 
-    const messages: RuntimeMessagePayload[] = merged.map((m) => ({
-      id: m.id ?? '',
-      role: m.role,
-      content: m.text,
-      timestamp: new Date(m.timestamp).toISOString(),
-      attachments: [],
-      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-    }));
+    const messages: RuntimeMessagePayload[] = merged.map((m) => {
+      let msgAttachments: RuntimeAttachmentMetadata[] = [];
+      if (m.role === 'assistant' && m.id) {
+        const linked = attachmentsStore.getAttachmentsForMessage(m.id, assistantId);
+        if (linked.length > 0) {
+          msgAttachments = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+          }));
+        }
+      }
+      return {
+        id: m.id ?? '',
+        role: m.role,
+        content: m.text,
+        timestamp: new Date(m.timestamp).toISOString(),
+        attachments: msgAttachments,
+        ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+      };
+    });
 
     return Response.json({ messages });
   }
@@ -784,13 +807,24 @@ export class RuntimeHttpServer {
           let parsed: unknown;
           try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
           const rendered = renderHistoryContent(parsed);
-          if (rendered.text) {
+
+          const linked = attachmentsStore.getAttachmentsForMessage(msgs[i].id, assistantId);
+          const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            kind: a.kind,
+          }));
+
+          // Include the reply if it has text or attachments
+          if (rendered.text || replyAttachments.length > 0) {
             assistantMessage = {
               id: msgs[i].id,
               role: 'assistant',
               content: rendered.text,
               timestamp: new Date(msgs[i].createdAt).toISOString(),
-              attachments: [],
+              attachments: replyAttachments,
             };
           }
           break;
