@@ -28,6 +28,8 @@ func resolveBlobDir(environment: [String: String]? = nil) -> String {
 /// Manages local blob files for zero-copy IPC transport.
 /// Blobs are written atomically (temp file + rename) to the directory resolved
 /// by `resolveBlobDir()`, which honors the `BASE_DATA_DIR` environment variable.
+/// All file I/O uses `FileManager` string-path APIs to avoid Foundation's URL
+/// layer expanding tildes in paths derived from `BASE_DATA_DIR`.
 public final class IpcBlobStore: Sendable {
     public static let shared = IpcBlobStore()
 
@@ -65,7 +67,12 @@ public final class IpcBlobStore: Sendable {
         let tempPath = blobDirPath + "/\(id).tmp"
 
         do {
-            try data.write(to: URL(filePath: targetPath), options: .atomic)
+            guard FileManager.default.createFile(atPath: tempPath, contents: data) else {
+                throw NSError(domain: "IpcBlobStore", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "createFile failed for \(tempPath)"
+                ])
+            }
+            try FileManager.default.moveItem(atPath: tempPath, toPath: targetPath)
 
             let sha256 = Self.computeSHA256(data: data)
 
@@ -99,14 +106,12 @@ public final class IpcBlobStore: Sendable {
             return nil
         }
 
-        do {
-            try nonce.write(to: URL(filePath: targetPath))
-            let sha256 = Self.computeSHA256(data: nonce)
-            return (probeId: probeId, nonceSha256: sha256)
-        } catch {
-            log.error("Failed to write probe file \(probeId): \(error.localizedDescription)")
+        guard FileManager.default.createFile(atPath: targetPath, contents: nonce) else {
+            log.error("Failed to write probe file \(probeId)")
             return nil
         }
+        let sha256 = Self.computeSHA256(data: nonce)
+        return (probeId: probeId, nonceSha256: sha256)
     }
 
     private static func computeSHA256(data: Data) -> String {
