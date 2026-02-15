@@ -66,7 +66,7 @@ export class CredentialBroker {
     log.info({ tokenId: token.tokenId, service: request.service, field: request.field, tool: request.toolName },
       'Usage token issued');
 
-    return { authorized: true, token };
+    return { authorized: true, token: { ...token } };
   }
 
   /**
