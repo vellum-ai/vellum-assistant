@@ -159,20 +159,24 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
   }
 
-  // Synthesize final answer
-  onStatus?.({ kind: 'synthesis_started' });
+  // Synthesize final answer (skip if aborted — no point calling the model)
   const allResults = Array.from(results.values());
 
   let finalAnswer: string;
-  if (opts.synthesisProvider) {
-    finalAnswer = await synthesizeResults({
-      objective: plan.objective,
-      results: allResults,
-      provider: opts.synthesisProvider,
-      model: opts.synthesisModel ?? 'claude-sonnet-4-5-20250929',
-    });
+  if (signal?.aborted) {
+    finalAnswer = 'Swarm cancelled before synthesis.';
   } else {
-    finalAnswer = buildMarkdownFallback(plan.objective, allResults);
+    onStatus?.({ kind: 'synthesis_started' });
+    if (opts.synthesisProvider) {
+      finalAnswer = await synthesizeResults({
+        objective: plan.objective,
+        results: allResults,
+        provider: opts.synthesisProvider,
+        model: opts.synthesisModel ?? 'claude-sonnet-4-5-20250929',
+      });
+    } else {
+      finalAnswer = buildMarkdownFallback(plan.objective, allResults);
+    }
   }
 
   const totalDurationMs = Date.now() - startTime;
