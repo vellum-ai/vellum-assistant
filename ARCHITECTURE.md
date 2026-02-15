@@ -602,7 +602,7 @@ graph TB
     end
 
     subgraph "Read Path (Memory Recall)"
-        QUERY["Recall Query Builder<br/>User request + compacted context summary<br/>+ conversation summary + weekly summary"]
+        QUERY["Recall Query Builder<br/>User request + compacted context summary"]
         CONFLICT_GATE["Soft Conflict Gate<br/>resolve pending conflicts from user turn<br/>relevance + cooldown ask-once behavior"]
         PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
         PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
