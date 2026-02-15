@@ -1539,12 +1539,13 @@ final class SessionTests: XCTestCase {
         let reductionPercent = 100 - (blobJSON.count * 100 / inlineJSON.count)
         XCTAssertGreaterThan(reductionPercent, 95, "Blob transport should reduce payload by >95%")
 
-        // p95 scenario: 300KB screenshot, 12KB AX tree (both blob-transported)
+        // Large scenario: 300KB screenshot, 12KB AX tree (both blob-transported
+        // because AX tree exceeds 8KB threshold)
         let largeScreenshotData = Data(repeating: 0xFF, count: 300_000)
         let largeScreenshotBase64 = largeScreenshotData.base64EncodedString()
         let largeAxTree = String(repeating: "a", count: 12_000)
 
-        let inlineP95 = CuObservationMessage(
+        let inlineLarge = CuObservationMessage(
             sessionId: "bench",
             axTree: largeAxTree,
             axDiff: nil,
@@ -1553,7 +1554,7 @@ final class SessionTests: XCTestCase {
             executionResult: nil,
             executionError: nil
         )
-        let inlineP95JSON = try JSONEncoder().encode(inlineP95)
+        let inlineLargeJSON = try JSONEncoder().encode(inlineLarge)
 
         let largeAxBlobRef = IPCIpcBlobRef(
             id: "ax-blob-id",
@@ -1562,7 +1563,7 @@ final class SessionTests: XCTestCase {
             byteLength: 12_000,
             sha256: String(repeating: "b", count: 64)
         )
-        let blobP95 = CuObservationMessage(
+        let blobLarge = CuObservationMessage(
             sessionId: "bench",
             axTree: nil,
             axDiff: nil,
@@ -1573,11 +1574,11 @@ final class SessionTests: XCTestCase {
             axTreeBlob: largeAxBlobRef,
             screenshotBlob: blobRef
         )
-        let blobP95JSON = try JSONEncoder().encode(blobP95)
+        let blobLargeJSON = try JSONEncoder().encode(blobLarge)
 
-        // p95: inline >800KB, blob <1KB
-        XCTAssertGreaterThan(inlineP95JSON.count, 800_000)
-        XCTAssertLessThan(blobP95JSON.count, 1_000)
+        // Large scenario: inline >800KB, blob <1KB (both payloads offloaded)
+        XCTAssertGreaterThan(inlineLargeJSON.count, 800_000)
+        XCTAssertLessThan(blobLargeJSON.count, 1_000)
     }
 }
 
