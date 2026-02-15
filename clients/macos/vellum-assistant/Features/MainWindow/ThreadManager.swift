@@ -104,14 +104,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
         chatViewModels[id]?.stopGenerating()
-        chatViewModels.removeValue(forKey: id)
         threads[index].isArchived = true
 
         if let sessionId = threads[index].sessionId {
             var archived = archivedSessionIds
             archived.insert(sessionId)
             archivedSessionIds = archived
+            // Session ID already known — safe to release the view model.
+            chatViewModels.removeValue(forKey: id)
         }
+        // When sessionId is nil, keep the ChatViewModel alive so the
+        // onSessionCreated callback can still fire and persist the archive state
+        // via backfillSessionId. The view model is cleaned up there.
 
         // If the archived thread was active, select an adjacent visible thread
         // or create a new one if none remain.
@@ -335,11 +339,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
               threads[index].sessionId == nil else { return }
         threads[index].sessionId = sessionId
         // If the thread was archived before the session ID arrived,
-        // persist the archive state now that we have a session ID.
+        // persist the archive state now that we have a session ID and
+        // release the view model that was kept alive for this callback.
         if threads[index].isArchived {
             var archived = archivedSessionIds
             archived.insert(sessionId)
             archivedSessionIds = archived
+            chatViewModels.removeValue(forKey: threadId)
         }
     }
 
