@@ -224,7 +224,7 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        return HStack(spacing: 0) {
+        HStack(spacing: 0) {
             Button(action: { threadManager.selectThread(id: thread.id) }) {
                 Text(thread.title)
                     .font(.custom("Inter", size: 13))
