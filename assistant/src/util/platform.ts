@@ -231,22 +231,25 @@ export function migrateToWorkspaceLayout(): void {
 
 export function ensureDataDir(): void {
   const root = getRootDir();
-  const data = getDataDir();
+  const workspace = getWorkspaceDir();
+  const wsData = join(workspace, 'data');
   const dirs = [
+    // Root-level dirs (runtime / protected)
     root,
-    join(root, 'skills'),
-    join(root, 'hooks'),
     join(root, 'protected'),
-    data,
-    join(data, 'db'),
-    join(data, 'qdrant'),
-    join(data, 'logs'),
-    join(data, 'memory'),
-    join(data, 'memory', 'knowledge'),
-    join(data, 'apps'),
-    join(data, 'sandbox'),
-    join(data, 'sandbox', 'fs'),
-    join(data, 'interfaces'),
+    // Workspace dirs
+    workspace,
+    join(workspace, 'hooks'),
+    join(workspace, 'skills'),
+    // Data sub-dirs under workspace
+    wsData,
+    join(wsData, 'db'),
+    join(wsData, 'qdrant'),
+    join(wsData, 'logs'),
+    join(wsData, 'memory'),
+    join(wsData, 'memory', 'knowledge'),
+    join(wsData, 'apps'),
+    join(wsData, 'interfaces'),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
