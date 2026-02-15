@@ -48,6 +48,7 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
+import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
 import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
@@ -64,6 +65,7 @@ import {
 import {
   conversations,
   memoryEmbeddings,
+  memoryEntityRelations,
   memoryItems,
   memoryItemSources,
   memoryJobs,
@@ -79,6 +81,9 @@ describe('Memory V2 regressions', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.run('DELETE FROM memory_item_entities');
+    db.run('DELETE FROM memory_entity_relations');
+    db.run('DELETE FROM memory_entities');
     db.run('DELETE FROM memory_item_sources');
     db.run('DELETE FROM memory_embeddings');
     db.run('DELETE FROM memory_summaries');
@@ -1978,5 +1983,56 @@ describe('Memory V2 regressions', () => {
     const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, 'summary-scope-test')).get();
     expect(summary).toBeDefined();
     expect(summary!.scopeId).toBe('default');
+  });
+
+  test('entity relations upsert is idempotent under repeated processing', () => {
+    const db = getDb();
+    const sourceEntityId = upsertEntity({
+      name: 'Project Atlas',
+      type: 'project',
+      aliases: ['atlas'],
+    });
+    const targetEntityId = upsertEntity({
+      name: 'Qdrant',
+      type: 'tool',
+      aliases: [],
+    });
+
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: 'Project Atlas uses Qdrant for vector search',
+      seenAt: 1_700_000_000_000,
+    });
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: null,
+      seenAt: 1_700_000_100_000,
+    });
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: 'Atlas currently depends on Qdrant',
+      seenAt: 1_700_000_200_000,
+    });
+
+    const rows = db
+      .select()
+      .from(memoryEntityRelations)
+      .where(and(
+        eq(memoryEntityRelations.sourceEntityId, sourceEntityId),
+        eq(memoryEntityRelations.targetEntityId, targetEntityId),
+        eq(memoryEntityRelations.relation, 'uses'),
+      ))
+      .all();
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].firstSeenAt).toBe(1_700_000_000_000);
+    expect(rows[0].lastSeenAt).toBe(1_700_000_200_000);
+    expect(rows[0].evidence).toBe('Atlas currently depends on Qdrant');
   });
 });

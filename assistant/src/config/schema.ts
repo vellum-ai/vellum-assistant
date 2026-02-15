@@ -388,6 +388,13 @@ export const MemoryEntityConfigSchema = z.object({
   model: z
     .string({ error: 'memory.entity.model must be a string' })
     .default('claude-haiku-4-5-20251001'),
+  extractRelations: z.object({
+    enabled: z
+      .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
+      .default(false),
+  }).default({
+    enabled: false,
+  }),
 });
 
 export const MemorySummarizationConfigSchema = z.object({
@@ -465,6 +472,9 @@ export const MemoryConfigSchema = z.object({
   entity: MemoryEntityConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
+    extractRelations: {
+      enabled: false,
+    },
   }),
 });
 
@@ -599,6 +609,9 @@ export const AssistantConfigSchema = z.object({
     entity: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
+      extractRelations: {
+        enabled: false,
+      },
     },
   }),
   dataDir: z
