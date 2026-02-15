@@ -188,18 +188,20 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
 
     const key = trimmed.slice(0, separatorIndex).trim();
     let value = trimmed.slice(separatorIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith('\'') && value.endsWith('\''))
-    ) {
+    const isDoubleQuoted = value.startsWith('"') && value.endsWith('"');
+    const isSingleQuoted = value.startsWith('\'') && value.endsWith('\'');
+    if (isDoubleQuoted || isSingleQuoted) {
       value = value.slice(1, -1);
-      // Unescape sequences produced by buildSkillMarkdown's esc().
-      // Single-pass to avoid misinterpreting \\n (escaped backslash + n) as a newline.
-      value = value.replace(/\\(["\\nr])/g, (_, ch) => {
-        if (ch === 'n') return '\n';
-        if (ch === 'r') return '\r';
-        return ch; // handles \\ → \ and \" → "
-      });
+      if (isDoubleQuoted) {
+        // Unescape sequences produced by buildSkillMarkdown's esc().
+        // Only for double-quoted values — single-quoted YAML treats backslashes literally.
+        // Single-pass to avoid misinterpreting \\n (escaped backslash + n) as a newline.
+        value = value.replace(/\\(["\\nr])/g, (_, ch) => {
+          if (ch === 'n') return '\n';
+          if (ch === 'r') return '\r';
+          return ch; // handles \\ → \ and \" → "
+        });
+      }
     }
     fields[key] = value;
   }
