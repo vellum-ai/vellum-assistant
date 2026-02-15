@@ -28,12 +28,12 @@ const DEFAULTS: DockerBackendConfig = {
 };
 
 /**
- * Characters that are dangerous if interpolated into shell commands.
- * We validate paths contain none of these before using them in Docker args.
- * Although we pass everything as argv segments (no shell), this provides
- * defense-in-depth against injection if Docker's mount parser has quirks.
+ * Characters that are dangerous in Docker mount arguments or shell commands.
+ * Commas are included because Docker's --mount flag uses them as field
+ * delimiters — a path containing a comma could inject extra key=value pairs
+ * (e.g. overriding dst= or src=) into the mount specification.
  */
-const UNSAFE_PATH_CHARS = /[\x00\n\r]/;
+const UNSAFE_PATH_CHARS = /[\x00\n\r,]/;
 
 /**
  * Cache positive preflight results only, matching the bwrap pattern in native.ts.
@@ -125,7 +125,7 @@ function validatePathSafety(path: string, label: string): void {
   if (UNSAFE_PATH_CHARS.test(path)) {
     throw new ToolError(
       `${label} contains characters that are unsafe for Docker mount arguments. ` +
-      'Refusing to execute. Remove null bytes, newlines, or carriage returns from the path.',
+      'Refusing to execute. Remove null bytes, newlines, carriage returns, or commas from the path.',
       'bash',
     );
   }
