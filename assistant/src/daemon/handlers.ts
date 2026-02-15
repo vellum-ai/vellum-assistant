@@ -44,8 +44,14 @@ import type {
   UpdateTrustRule,
   BundleAppRequest,
   SharedAppDeleteRequest,
+  ForkSharedAppRequest,
+  ShareAppCloudRequest,
   UiSurfaceShow,
+  IpcBlobProbe,
+  GalleryListRequest,
+  GalleryInstallRequest,
 } from './ipc-protocol.js';
+import { createHash } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -55,17 +61,27 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../confi
 import { resolveSkillStates } from '../config/skill-state.js';
 import { handleAmbientObservation } from './ambient-handler.js';
 import { classifyInteraction } from './classifier.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp } from '../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp } from '../memory/app-store.js';
+import { defaultGallery } from '../gallery/default-gallery.js';
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
+import { parseSlashCandidate } from '../skills/slash-commands.js';
+import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
+import { createSharedAppLink } from '../memory/shared-app-links-store.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
+import { estimateBase64Bytes } from './assistant-attachments.js';
+import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
+import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
+import type { UserMessageAttachment } from './ipc-contract.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 const FALLBACK_SCREEN = { width: 1920, height: 1080 };
 let cachedScreenDims: { width: number; height: number } | null = null;
+const cuObservationSequenceBySession = new Map<string, number>();
 
 /**
  * Query the main display dimensions via CoreGraphics.
@@ -158,12 +174,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function estimateBase64Bytes(base64: string): number {
-  const sanitized = base64.trim();
-  const padding = sanitized.endsWith('==') ? 2 : (sanitized.endsWith('=') ? 1 : 0);
-  return Math.max(0, Math.floor((sanitized.length * 3) / 4) - padding);
-}
-
 function formatBytes(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   const kb = sizeBytes / 1024;
@@ -206,11 +216,15 @@ export interface HistoryToolCall {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
+  imageData?: string;
 }
 
 export interface RenderedHistoryContent {
   text: string;
   toolCalls: HistoryToolCall[];
+  /** True when the first tool_use block appeared before any text block. */
+  toolCallsBeforeText: boolean;
 }
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
@@ -223,19 +237,23 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     } else {
       text = String(content);
     }
-    return { text, toolCalls: [] };
+    return { text, toolCalls: [], toolCallsBeforeText: false };
   }
 
   const textParts: string[] = [];
   const attachmentParts: string[] = [];
   const toolCalls: HistoryToolCall[] = [];
   const pendingToolUses = new Map<string, HistoryToolCall>();
+  let seenText = false;
+  let seenToolUse = false;
+  let toolCallsBeforeText = false;
 
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
 
     if (block.type === 'text' && typeof block.text === 'string') {
       textParts.push(block.text);
+      seenText = true;
       continue;
     }
     if (block.type === 'file') {
@@ -253,18 +271,36 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       const entry: HistoryToolCall = { name, input };
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
+      if (!seenToolUse) {
+        seenToolUse = true;
+        if (!seenText) toolCallsBeforeText = true;
+      }
       continue;
     }
     if (block.type === 'tool_result') {
       const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
       const resultContent = typeof block.content === 'string' ? block.content : '';
       const isError = block.is_error === true;
+      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot)
+      let imageData: string | undefined;
+      if (Array.isArray(block.contentBlocks)) {
+        const imgBlock = block.contentBlocks.find(
+          (b: Record<string, unknown>) => isRecord(b) && b.type === 'image',
+        );
+        if (imgBlock && isRecord(imgBlock) && isRecord(imgBlock.source)) {
+          const src = imgBlock.source as Record<string, unknown>;
+          if (typeof src.data === 'string') {
+            imageData = src.data;
+          }
+        }
+      }
       const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        if (imageData) matched.imageData = imageData;
       } else {
-        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError });
+        toolCalls.push({ name: 'unknown', input: {}, result: resultContent, isError, ...(imageData ? { imageData } : {}) });
       }
       continue;
     }
@@ -280,7 +316,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     rendered = `${text}\n${attachmentParts.join('\n')}`;
   }
 
-  return { text: rendered, toolCalls };
+  return { text: rendered, toolCalls, toolCallsBeforeText };
 }
 
 /**
@@ -300,6 +336,7 @@ export interface HandlerContext {
   socketToSession: Map<net.Socket, string>;
   cuSessions: Map<string, ComputerUseSession>;
   socketToCuSession: Map<net.Socket, Set<string>>;
+  cuObservationParseSequence: Map<string, number>;
   socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];
   debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -308,6 +345,7 @@ export interface HandlerContext {
   updateConfigFingerprint(): void;
   send(socket: net.Socket, msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
+  clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
     socket?: net.Socket,
@@ -333,6 +371,7 @@ const handlers: DispatchMap = {
   secret_response: handleSecretResponse,
   session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
   session_create: handleSessionCreate,
+  sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
   session_switch: handleSessionSwitch,
   cancel: handleCancel,
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
@@ -364,12 +403,14 @@ const handlers: DispatchMap = {
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
+  share_app_cloud: handleShareAppCloud,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
+  fork_shared_app: handleForkSharedApp,
   sign_bundle_payload_response: (_msg, _socket, _ctx) => {
     // TODO(signing): Route to pending promise resolution once the daemon-driven
     // IPC signing orchestration is wired up. Currently a no-op placeholder to
@@ -380,7 +421,10 @@ const handlers: DispatchMap = {
     // IPC signing orchestration is wired up. Currently a no-op placeholder to
     // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
   },
+  gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
+  gallery_install: handleGalleryInstall,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+  ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
     if (cuSession) {
@@ -432,19 +476,41 @@ async function handleUserMessage(
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
-    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId);
+    session.traceEmitter.emit('request_received', 'User message received', {
+      requestId,
+      status: 'info',
+      attributes: { source: 'user_message' },
+    });
+
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId);
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
-      ctx.send(socket, { type: 'error', message: 'Message rejected — session queue is full. Please wait and try again.' });
+      session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
+        requestId,
+        status: 'error',
+        attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth() },
+      });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
+        code: 'QUEUE_FULL',
+        userMessage: 'The message queue is full. Please wait and try again.',
+        retryable: true,
+        debugDetails: 'Message rejected — session queue is full',
+      }));
       return;
     }
     if (result.queued) {
-      rlog.info({ position: session.getQueueDepth() }, 'Message queued (session busy)');
+      const position = session.getQueueDepth();
+      rlog.info({ position }, 'Message queued (session busy)');
+      session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
+        requestId,
+        status: 'info',
+        attributes: { position },
+      });
       ctx.send(socket, {
         type: 'message_queued',
         sessionId: msg.sessionId,
         requestId,
-        position: session.getQueueDepth(),
+        position,
       });
       return; // Don't await — message will be processed when current one finishes
     }
@@ -453,15 +519,19 @@ async function handleUserMessage(
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
       ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      const classified = classifySessionError(err, { phase: 'agent_loop' });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
     ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    const classified = classifySessionError(err, { phase: 'handler' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
@@ -510,6 +580,16 @@ function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
   });
 }
 
+function handleSessionsClear(socket: net.Socket, ctx: HandlerContext): void {
+  const cleared = ctx.clearAllSessions();
+  // Also clear DB conversations. When a new IPC connection triggers
+  // sendInitialSession, it auto-creates a conversation if none exist.
+  // Without this DB clear, that auto-created row survives, contradicting
+  // the "clear all conversations" intent.
+  conversationStore.clearAll();
+  ctx.send(socket, { type: 'sessions_clear_response', cleared });
+}
+
 async function handleSessionCreate(
   msg: SessionCreateRequest,
   socket: net.Socket,
@@ -543,7 +623,12 @@ async function handleSessionSwitch(
   }
   ctx.socketToSession.set(socket, msg.sessionId);
   const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-  wireEscalationHandler(session, socket, ctx);
+  // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+  // sets a handler with the client's actual screen dimensions, and overwriting it
+  // here would replace those dimensions with the daemon's defaults.
+  if (!session.hasEscalationHandler()) {
+    wireEscalationHandler(session, socket, ctx);
+  }
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -625,20 +710,13 @@ function handleModelSet(
 
 function handleSandboxSet(
   msg: SandboxSetRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
 ): void {
-  // Per-socket override: store the sandbox preference for this client only.
-  // The override is applied to the session so it doesn't affect other clients.
-  ctx.socketSandboxOverride.set(socket, msg.enabled);
-  const sessionId = ctx.socketToSession.get(socket);
-  if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
-      session.setSandboxOverride(msg.enabled);
-    }
-  }
-  log.info({ enabled: msg.enabled }, 'Sandbox override applied (per-session)');
+  log.warn(
+    { enabled: msg.enabled },
+    'Received deprecated sandbox_set message. Runtime sandbox overrides are ignored.',
+  );
 }
 
 export interface ParsedHistoryMessage {
@@ -647,6 +725,7 @@ export interface ParsedHistoryMessage {
   text: string;
   timestamp: number;
   toolCalls: HistoryToolCall[];
+  toolCallsBeforeText: boolean;
 }
 
 function handleHistoryRequest(
@@ -658,16 +737,18 @@ function handleHistoryRequest(
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
+    let toolCallsBeforeText = false;
     try {
       const content = JSON.parse(m.content);
       const rendered = renderHistoryContent(content);
       text = rendered.text;
       toolCalls = rendered.toolCalls;
+      toolCallsBeforeText = rendered.toolCallsBeforeText;
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
     }
-    return { role: m.role, text, timestamp: m.createdAt, toolCalls };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -675,12 +756,27 @@ function handleHistoryRequest(
   // tool_result blocks (internal agent-loop turns).
   const merged = mergeToolResults(parsed);
 
-  const historyMessages = merged.map((m) => ({
-    role: m.role,
-    text: m.text,
-    timestamp: m.timestamp,
-    ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-  }));
+  const historyMessages = merged.map((m) => {
+    let attachments: UserMessageAttachment[] | undefined;
+    if (m.role === 'assistant' && m.id) {
+      const linked = getAttachmentsForMessageUnscoped(m.id);
+      if (linked.length > 0) {
+        attachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }));
+      }
+    }
+    return {
+      role: m.role,
+      text: m.text,
+      timestamp: m.timestamp,
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
+      ...(attachments ? { attachments } : {}),
+    };
+  });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 }
 
@@ -705,6 +801,7 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
           if (unresolved) {
             unresolved.result = resultEntry.result;
             unresolved.isError = resultEntry.isError;
+            if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
           }
         }
       }
@@ -728,7 +825,7 @@ function handleUndo(
     return;
   }
   const removedCount = session.undo();
-  ctx.send(socket, { type: 'undo_complete', removedCount });
+  ctx.send(socket, { type: 'undo_complete', removedCount, sessionId: msg.sessionId });
 }
 
 async function handleRegenerate(
@@ -743,12 +840,25 @@ async function handleRegenerate(
   }
 
   const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  const requestId = uuid();
+  session.traceEmitter.emit('request_received', 'Regenerate requested', {
+    requestId,
+    status: 'info',
+    attributes: { source: 'regenerate' },
+  });
   try {
-    await session.regenerate(sendEvent);
+    await session.regenerate(sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
+    session.traceEmitter.emit('request_error', message.slice(0, 200), {
+      requestId,
+      status: 'error',
+      attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
+    });
     ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
+    const classified = classifySessionError(err, { phase: 'regenerate' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
@@ -1012,18 +1122,36 @@ async function handleSkillsUninstall(
     });
     return;
   }
-  const skillDir = join(getRootDir(), 'skills', msg.name);
-  if (!existsSync(skillDir)) {
-    ctx.send(socket, {
-      type: 'skills_operation_response',
-      operation: 'uninstall',
-      success: false,
-      error: 'Skill not found',
-    });
-    return;
-  }
+
   try {
-    rmSync(skillDir, { recursive: true });
+    // Use shared managed-store logic for simple managed skill IDs
+    const isManagedId = !validateManagedSkillId(msg.name);
+    if (isManagedId) {
+      const result = deleteManagedSkill(msg.name);
+      if (!result.deleted) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'uninstall',
+          success: false,
+          error: result.error ?? 'Failed to delete managed skill',
+        });
+        return;
+      }
+    } else {
+      // Namespaced slug (org/name) — direct filesystem removal
+      const skillDir = join(getRootDir(), 'skills', msg.name);
+      if (!existsSync(skillDir)) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'uninstall',
+          success: false,
+          error: 'Skill not found',
+        });
+        return;
+      }
+      rmSync(skillDir, { recursive: true });
+      try { removeSkillsIndexEntry(msg.name); } catch { /* best effort */ }
+    }
 
     // Clean config entry
     const raw = loadRawConfig();
@@ -1268,8 +1396,12 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
-    const interactionType = await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, task: msg.task }, 'Task classified');
+    // Slash candidates always route to text_qa — bypass classifier
+    const slashCandidate = parseSlashCandidate(msg.task);
+    const interactionType = slashCandidate.kind === 'candidate'
+      ? 'text_qa' as const
+      : await classifyInteraction(msg.task, msg.source);
+    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', task: msg.task }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
@@ -1312,6 +1444,8 @@ async function handleTaskSubmit(
         const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
         ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, { phase: 'agent_loop' });
+        ctx.send(socket, buildSessionErrorMessage(conversation.id, classified));
       });
     }
   } catch (err) {
@@ -1624,6 +1758,98 @@ function handleSharedAppDelete(
   }
 }
 
+function handleForkSharedApp(
+  msg: ForkSharedAppRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const appUuid = msg.uuid;
+    // Validate UUID to prevent path traversal
+    if (appUuid.includes('/') || appUuid.includes('\\') || appUuid.includes('..') || /\s/.test(appUuid)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Invalid UUID' });
+      return;
+    }
+
+    const dir = getSharedAppsDir();
+    const metaFile = join(dir, `${appUuid}-meta.json`);
+
+    if (!existsSync(metaFile)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app not found' });
+      return;
+    }
+
+    const metaRaw = readFileSync(metaFile, 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    const appName = meta.name ?? 'Untitled';
+    const appDescription = meta.description;
+
+    // Read the HTML from the shared app's entry file
+    const entry = meta.entry ?? 'index.html';
+    const htmlPath = join(dir, appUuid, entry);
+
+    if (!existsSync(htmlPath)) {
+      ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: 'Shared app HTML not found' });
+      return;
+    }
+
+    const htmlContent = readFileSync(htmlPath, 'utf-8');
+
+    // Create a new local app via the app store
+    const newApp = createApp({
+      name: `${appName} (Fork)`,
+      description: appDescription,
+      schemaJson: JSON.stringify({ type: 'object', properties: {} }),
+      htmlDefinition: htmlContent,
+    });
+
+    ctx.send(socket, {
+      type: 'fork_shared_app_response',
+      success: true,
+      appId: newApp.id,
+      name: newApp.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to fork shared app');
+    ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: message });
+  }
+}
+
+// ─── Share app cloud handler ────────────────────────────────────────────────
+
+async function handleShareAppCloud(
+  msg: ShareAppCloudRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const result = await packageApp(msg.appId);
+    const bundleData = readFileSync(result.bundlePath);
+    const { shareToken } = createSharedAppLink(bundleData, result.manifest);
+
+    const port = process.env.RUNTIME_HTTP_PORT
+      ? parseInt(process.env.RUNTIME_HTTP_PORT, 10)
+      : 7821;
+    const shareUrl = `http://localhost:${port}/v1/apps/shared/${shareToken}`;
+
+    ctx.send(socket, {
+      type: 'share_app_cloud_response',
+      success: true,
+      shareToken,
+      shareUrl,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to share app to cloud');
+    ctx.send(socket, {
+      type: 'share_app_cloud_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 // ─── Bundle app handler ─────────────────────────────────────────────────────
 
 async function handleBundleApp(
@@ -1645,6 +1871,119 @@ async function handleBundleApp(
   }
 }
 
+// ─── IPC blob probe handler ─────────────────────────────────────────────────
+
+function handleIpcBlobProbe(
+  msg: IpcBlobProbe,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  if (!isValidBlobId(msg.probeId)) {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'invalid_probe_id',
+    });
+    return;
+  }
+
+  let filePath: string;
+  try {
+    filePath = resolveBlobPath(msg.probeId);
+  } catch {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'invalid_probe_id',
+    });
+    return;
+  }
+
+  let content: Buffer;
+  try {
+    content = readFileSync(filePath);
+  } catch {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      reason: 'missing_probe_file',
+    });
+    return;
+  }
+
+  const observedHash = createHash('sha256').update(content).digest('hex');
+
+  // Best-effort cleanup regardless of match outcome
+  deleteBlob(msg.probeId);
+
+  if (observedHash !== msg.nonceSha256) {
+    ctx.send(socket, {
+      type: 'ipc_blob_probe_result',
+      probeId: msg.probeId,
+      ok: false,
+      observedNonceSha256: observedHash,
+      reason: 'hash_mismatch',
+    });
+    return;
+  }
+
+  ctx.send(socket, {
+    type: 'ipc_blob_probe_result',
+    probeId: msg.probeId,
+    ok: true,
+    observedNonceSha256: observedHash,
+  });
+}
+
+// ─── Gallery handlers ────────────────────────────────────────────────────────
+
+function handleGalleryList(socket: net.Socket, ctx: HandlerContext): void {
+  ctx.send(socket, { type: 'gallery_list_response', gallery: defaultGallery });
+}
+
+function handleGalleryInstall(
+  msg: GalleryInstallRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const galleryApp = defaultGallery.apps.find((a) => a.id === msg.galleryAppId);
+    if (!galleryApp) {
+      ctx.send(socket, {
+        type: 'gallery_install_response',
+        success: false,
+        error: `Gallery app not found: ${msg.galleryAppId}`,
+      });
+      return;
+    }
+
+    const app = createApp({
+      name: galleryApp.name,
+      description: galleryApp.description,
+      schemaJson: galleryApp.schemaJson,
+      htmlDefinition: galleryApp.htmlDefinition,
+    });
+
+    ctx.send(socket, {
+      type: 'gallery_install_response',
+      success: true,
+      appId: app.id,
+      name: app.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, galleryAppId: msg.galleryAppId }, 'Failed to install gallery app');
+    ctx.send(socket, {
+      type: 'gallery_install_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 // ─── Computer-use handlers ──────────────────────────────────────────────────
 
 function removeCuSessionReferences(
@@ -1657,6 +1996,8 @@ function removeCuSessionReferences(
     return;
   }
   ctx.cuSessions.delete(sessionId);
+  cuObservationSequenceBySession.delete(sessionId);
+  ctx.cuObservationParseSequence.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
     if (ids.delete(sessionId) && ids.size === 0) {
       ctx.socketToCuSession.delete(sock);
@@ -1735,11 +2076,66 @@ function handleCuSessionAbort(
   log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 
-function handleCuObservation(
+async function handleCuObservation(
   msg: CuObservation,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
+  const receiveTimestampMs = Date.now();
+
+  // Hydrate blob refs to inline values before any other processing.
+  // Strategy: blob-first, inline-fallback, cu_error if neither available.
+  if (msg.axTreeBlob) {
+    try {
+      validateBlobKindEncoding(msg.axTreeBlob, 'axTreeBlob');
+      const buf = await readBlob(msg.axTreeBlob);
+      msg.axTree = buf.toString('utf8');
+      deleteBlob(msg.axTreeBlob.id);
+    } catch (err) {
+      log.warn({ err, blobId: msg.axTreeBlob.id }, 'Failed to hydrate axTreeBlob, checking inline fallback');
+      deleteBlob(msg.axTreeBlob.id);
+      if (!msg.axTree) {
+        log.warn({ blobId: msg.axTreeBlob.id }, 'No inline axTree fallback; continuing with partial observation');
+      }
+    }
+  }
+
+  if (msg.screenshotBlob) {
+    try {
+      validateBlobKindEncoding(msg.screenshotBlob, 'screenshotBlob');
+      const buf = await readBlob(msg.screenshotBlob);
+      msg.screenshot = buf.toString('base64');
+      deleteBlob(msg.screenshotBlob.id);
+    } catch (err) {
+      log.warn({ err, blobId: msg.screenshotBlob.id }, 'Failed to hydrate screenshotBlob, checking inline fallback');
+      deleteBlob(msg.screenshotBlob.id);
+      if (!msg.screenshot) {
+        log.warn({ blobId: msg.screenshotBlob.id }, 'No inline screenshot fallback; continuing with partial observation');
+      }
+    }
+  }
+
+  const previousSequence = cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
+  const sequence = previousSequence + 1;
+  cuObservationSequenceBySession.set(msg.sessionId, sequence);
+  const axTreeBytes = msg.axTree ? Buffer.byteLength(msg.axTree, 'utf8') : 0;
+  const axDiffBytes = msg.axDiff ? Buffer.byteLength(msg.axDiff, 'utf8') : 0;
+  const secondaryWindowsBytes = msg.secondaryWindows ? Buffer.byteLength(msg.secondaryWindows, 'utf8') : 0;
+  const screenshotBase64Bytes = msg.screenshot ? Buffer.byteLength(msg.screenshot, 'utf8') : 0;
+  const screenshotApproxRawBytes = msg.screenshot
+    ? Math.floor((msg.screenshot.length / 4) * 3)
+    : 0;
+  log.info({
+    sessionId: msg.sessionId,
+    sequence,
+    receiveTimestampMs,
+    axTreeBytes,
+    axDiffBytes,
+    secondaryWindowsBytes,
+    screenshotBase64Bytes,
+    screenshotApproxRawBytes,
+  }, 'IPC_METRIC cu_observation_daemon_receive');
+
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
     ctx.send(socket, {

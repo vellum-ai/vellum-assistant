@@ -1,13 +1,20 @@
-import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import Anthropic from '@anthropic-ai/sdk';
-import type { AssistantConfig, MemoryRerankingConfig } from '../config/types.js';
+import type { AssistantConfig, MemoryEntityConfig, MemoryRerankingConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
-import { memoryItems, memoryItemSources, memorySegments, memorySummaries } from './schema.js';
+import {
+  memoryEntityRelations,
+  memoryItemEntities,
+  memoryItems,
+  memoryItemSources,
+  memorySegments,
+  memorySummaries,
+} from './schema.js';
 
 const log = getLogger('memory-retriever');
 const MEMORY_RECALL_OPEN_TAG = '<memory source="long_term_memory" confidence="approximate">';
@@ -18,11 +25,19 @@ const MEMORY_RECALL_DISCLAIMER =
   'incorrectly recalled.';
 
 type CandidateType = 'segment' | 'item' | 'summary';
+type CandidateSource =
+  | 'lexical'
+  | 'semantic'
+  | 'recency'
+  | 'entity_direct'
+  | 'entity_relation'
+  | 'item_direct';
 
 interface Candidate {
   key: string;
   type: CandidateType;
   id: string;
+  source: CandidateSource;
   text: string;
   kind: string;
   confidence: number;
@@ -54,6 +69,10 @@ export interface MemoryRecallResult {
   semanticHits: number;
   recencyHits: number;
   entityHits: number;
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
   mergedCount: number;
   selectedCount: number;
   rerankApplied: boolean;
@@ -67,6 +86,7 @@ interface MemoryRecallOptions {
   excludeMessageIds?: string[];
   signal?: AbortSignal;
   scopeId?: string;
+  maxInjectTokensOverride?: number;
 }
 
 interface CollectedCandidates {
@@ -74,7 +94,27 @@ interface CollectedCandidates {
   recency: Candidate[];
   semantic: Candidate[];
   entity: Candidate[];
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
   merged: Candidate[];
+}
+
+interface EntitySearchResult {
+  candidates: Candidate[];
+  relationSeedEntityCount: number;
+  relationTraversedEdgeCount: number;
+  relationNeighborEntityCount: number;
+  relationExpandedItemCount: number;
+}
+
+interface MatchedEntityRow {
+  id: string;
+  name: string;
+  type: string;
+  aliases: string | null;
+  mention_count: number;
 }
 
 /**
@@ -123,8 +163,22 @@ async function collectAndMergeCandidates(
   }
 
   let entity: Candidate[] = [];
+  let relationSeedEntityCount = 0;
+  let relationTraversedEdgeCount = 0;
+  let relationNeighborEntityCount = 0;
+  let relationExpandedItemCount = 0;
   if (config.memory.entity.enabled) {
-    entity = entitySearch(query, scopeIds);
+    const entitySearchResult = entitySearch(
+      query,
+      config.memory.entity,
+      scopeIds,
+      excludeMessageIds,
+    );
+    entity = entitySearchResult.candidates;
+    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
+    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
+    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
   }
 
   // Direct item search supplements FTS with LIKE-based matching.
@@ -150,9 +204,22 @@ async function collectAndMergeCandidates(
     directItems = directItems.slice(0, directLimit);
   }
 
-  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness);
+  const relationScoreMultiplier = config.memory.entity.enabled && config.memory.entity.relationRetrieval.enabled
+    ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
+    : undefined;
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness, relationScoreMultiplier);
 
-  return { lexical, recency, semantic, entity, merged };
+  return {
+    lexical,
+    recency,
+    semantic,
+    entity,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+    merged,
+  };
 }
 
 /**
@@ -270,8 +337,17 @@ export async function buildMemoryRecall(
     });
   }
 
-  const { lexical: lexicalCandidates, recency: recencyCandidates, semantic: semanticCandidates, entity: entityCandidates } = collected;
-  let merged = collected.merged;
+  const {
+    lexical: lexicalCandidates,
+    recency: recencyCandidates,
+    semantic: semanticCandidates,
+    entity: entityCandidates,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+  } = collected;
+  let merged = applySourceCaps(collected.merged, config);
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring
   const rerankingConfig = config.memory.retrieval.reranking;
@@ -301,7 +377,11 @@ export async function buildMemoryRecall(
   }
 
   const mergedCount = merged.length;
-  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, config.memory.retrieval.injectionFormat);
+  const maxInjectTokens = Math.max(
+    1,
+    Math.floor(options?.maxInjectTokensOverride ?? config.memory.retrieval.maxInjectTokens),
+  );
+  const selected = trimToTokenBudget(merged, maxInjectTokens, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
@@ -322,8 +402,13 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
     mergedCount,
     selected: selected.length,
+    maxInjectTokens,
     rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     latencyMs,
@@ -339,6 +424,10 @@ export async function buildMemoryRecall(
     semanticHits: semanticCandidates.length,
     recencyHits: recencyCandidates.length,
     entityHits: entityCandidates.length,
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
     mergedCount,
     selectedCount: selected.length,
     rerankApplied,
@@ -551,6 +640,7 @@ function lexicalSearch(query: string, limit: number, excludedMessageIds: string[
       key: `segment:${row.segment_id}`,
       type: 'segment' as CandidateType,
       id: row.segment_id,
+      source: 'lexical',
       text: row.text,
       kind: 'segment',
       confidence: 0.55,
@@ -608,6 +698,7 @@ async function semanticSearch(
         key: `item:${payload.target_id}`,
         type: 'item',
         id: payload.target_id,
+        source: 'semantic',
         text: `${item.subject}: ${item.statement}`,
         kind: item.kind,
         confidence: item.confidence,
@@ -627,6 +718,7 @@ async function semanticSearch(
         key: `summary:${payload.target_id}`,
         type: 'summary',
         id: payload.target_id,
+        source: 'semantic',
         text: payload.text.replace(/^\[[^\]]+\]\s*/, ''),
         kind: payload.kind === 'global' ? 'global_summary' : 'conversation_summary',
         confidence: 0.6,
@@ -646,6 +738,7 @@ async function semanticSearch(
         key: `segment:${payload.target_id}`,
         type: 'segment',
         id: payload.target_id,
+        source: 'semantic',
         text: payload.text,
         kind: 'segment',
         confidence: 0.55,
@@ -684,6 +777,7 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
     key: `segment:${row.id}`,
     type: 'segment' as CandidateType,
     id: row.id,
+    source: 'recency',
     text: row.text,
     kind: 'segment',
     confidence: 0.55,
@@ -697,16 +791,87 @@ function recencySearch(conversationId: string, limit: number, excludedMessageIds
 }
 
 /**
- * Entity-based retrieval: extract entity names from the query,
- * fuzzy match against known entities (name + aliases), and return
- * all memory items linked to those entities.
+ * Entity-based retrieval: match seed entities from query text, fetch directly
+ * linked items, and optionally expand one hop across entity relations.
  */
-function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
+function entitySearch(
+  query: string,
+  entityConfig: MemoryEntityConfig,
+  scopeIds?: string[],
+  excludedMessageIds: string[] = [],
+): EntitySearchResult {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return emptyEntitySearchResult();
+
+  const relationConfig = entityConfig.relationRetrieval;
+  const matchedEntities = findMatchedEntities(
+    trimmed,
+    relationConfig.enabled ? relationConfig.maxSeedEntities : 20,
+  );
+  if (matchedEntities.length === 0) return emptyEntitySearchResult();
+
+  const seedEntityIds = matchedEntities.map((row) => row.id);
+  const directCandidates = getEntityLinkedItemCandidates(seedEntityIds, {
+    scopeIds,
+    excludedMessageIds,
+    source: 'entity_direct',
+  });
+
+  if (!relationConfig.enabled) {
+    return {
+      candidates: directCandidates,
+      relationSeedEntityCount: 0,
+      relationTraversedEdgeCount: 0,
+      relationNeighborEntityCount: 0,
+      relationExpandedItemCount: 0,
+    };
+  }
+
+  const relationSeedEntityCount = seedEntityIds.length;
+  const {
+    neighborEntityIds,
+    traversedEdgeCount: relationTraversedEdgeCount,
+  } = findNeighborEntities(
+    seedEntityIds,
+    relationConfig.maxEdges,
+    relationConfig.maxNeighborEntities,
+  );
+  const relationNeighborEntityCount = neighborEntityIds.length;
+  const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));
+  const relationCandidates = getEntityLinkedItemCandidates(neighborEntityIds, {
+    scopeIds,
+    excludedMessageIds,
+    source: 'entity_relation',
+    excludeItemIds: directItemIds,
+  });
+  const relationExpandedItemCount = relationCandidates.length;
+
+  return {
+    candidates: [...directCandidates, ...relationCandidates],
+    relationSeedEntityCount,
+    relationTraversedEdgeCount,
+    relationNeighborEntityCount,
+    relationExpandedItemCount,
+  };
+}
+
+function emptyEntitySearchResult(): EntitySearchResult {
+  return {
+    candidates: [],
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
+  };
+}
+
+function findMatchedEntities(query: string, maxMatches: number): MatchedEntityRow[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
   const db = getDb();
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+  const safeLimit = Math.max(1, Math.floor(maxMatches));
 
   // Tokenize query into words for entity matching (min length 3 to reduce false positives)
   const tokens = trimmed
@@ -730,7 +895,7 @@ function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
       SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
       FROM memory_entities me, json_each(me.aliases) je
       WHERE me.aliases IS NOT NULL AND (LOWER(je.value) IN (${namePlaceholders}) OR LOWER(je.value) = ?)
-      LIMIT 20
+      LIMIT ${safeLimit}
     `;
     queryParams = [...tokens, fullQuery, ...tokens, fullQuery];
   } else {
@@ -742,78 +907,136 @@ function entitySearch(query: string, scopeIds?: string[]): Candidate[] {
       SELECT DISTINCT me.id, me.name, me.type, me.aliases, me.mention_count
       FROM memory_entities me, json_each(me.aliases) je
       WHERE me.aliases IS NOT NULL AND LOWER(je.value) = ?
-      LIMIT 20
+      LIMIT ${safeLimit}
     `;
     queryParams = [fullQuery, fullQuery];
   }
 
-  let matchedEntities: Array<{
-    id: string;
-    name: string;
-    type: string;
-    aliases: string | null;
-    mention_count: number;
-  }> = [];
+  let matchedEntities: MatchedEntityRow[] = [];
   try {
-    matchedEntities = raw.query(entityQuery).all(...queryParams) as Array<{
-      id: string;
-      name: string;
-      type: string;
-      aliases: string | null;
-      mention_count: number;
-    }>;
+    matchedEntities = raw.query(entityQuery).all(...queryParams) as MatchedEntityRow[];
   } catch (err) {
     log.warn({ err }, 'Entity search query failed');
     return [];
   }
+  return matchedEntities;
+}
 
-  if (matchedEntities.length === 0) return [];
-
-  // Get all entity IDs
-  const entityIds = matchedEntities.map((e) => e.id);
-
-  // Find all memory items linked to these entities
-  const placeholders = entityIds.map(() => '?').join(',');
-  let linkedRows: Array<{
-    memory_item_id: string;
-    entity_id: string;
-  }> = [];
-  try {
-    linkedRows = raw.query(`
-      SELECT memory_item_id, entity_id
-      FROM memory_item_entities
-      WHERE entity_id IN (${placeholders})
-    `).all(...entityIds) as Array<{
-      memory_item_id: string;
-      entity_id: string;
-    }>;
-  } catch (err) {
-    log.warn({ err }, 'Entity item link query failed');
-    return [];
+function findNeighborEntities(
+  seedEntityIds: string[],
+  maxEdges: number,
+  maxNeighborEntities: number,
+): { neighborEntityIds: string[]; traversedEdgeCount: number } {
+  if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0) {
+    return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
+
+  const db = getDb();
+  const rows = db
+    .select({
+      sourceEntityId: memoryEntityRelations.sourceEntityId,
+      targetEntityId: memoryEntityRelations.targetEntityId,
+    })
+    .from(memoryEntityRelations)
+    .where(or(
+      inArray(memoryEntityRelations.sourceEntityId, seedEntityIds),
+      inArray(memoryEntityRelations.targetEntityId, seedEntityIds),
+    ))
+    .orderBy(desc(memoryEntityRelations.lastSeenAt))
+    .limit(Math.max(1, maxEdges))
+    .all();
+
+  const seedSet = new Set(seedEntityIds);
+  const seen = new Set<string>();
+  const neighbors: string[] = [];
+  for (const row of rows) {
+    if (seedSet.has(row.sourceEntityId) && !seedSet.has(row.targetEntityId) && !seen.has(row.targetEntityId)) {
+      neighbors.push(row.targetEntityId);
+      seen.add(row.targetEntityId);
+    }
+    if (neighbors.length >= maxNeighborEntities) break;
+    if (seedSet.has(row.targetEntityId) && !seedSet.has(row.sourceEntityId) && !seen.has(row.sourceEntityId)) {
+      neighbors.push(row.sourceEntityId);
+      seen.add(row.sourceEntityId);
+    }
+    if (neighbors.length >= maxNeighborEntities) break;
+  }
+
+  return {
+    neighborEntityIds: neighbors.slice(0, maxNeighborEntities),
+    traversedEdgeCount: rows.length,
+  };
+}
+
+function getEntityLinkedItemCandidates(
+  entityIds: string[],
+  opts: {
+    scopeIds?: string[];
+    excludedMessageIds?: string[];
+    source: CandidateSource;
+    excludeItemIds?: Set<string>;
+  },
+): Candidate[] {
+  if (entityIds.length === 0) return [];
+  const excludedMessageIds = opts.excludedMessageIds ?? [];
+
+  const db = getDb();
+  const linkedRows = db
+    .select({
+      memoryItemId: memoryItemEntities.memoryItemId,
+    })
+    .from(memoryItemEntities)
+    .where(inArray(memoryItemEntities.entityId, entityIds))
+    .all();
 
   if (linkedRows.length === 0) return [];
 
-  // Fetch the actual memory items
-  const itemIds = [...new Set(linkedRows.map((r) => r.memory_item_id))];
+  const itemIds = [...new Set(linkedRows.map((row) => row.memoryItemId))]
+    .filter((itemId) => !opts.excludeItemIds?.has(itemId));
+  if (itemIds.length === 0) return [];
+
   const itemConditions = [
     inArray(memoryItems.id, itemIds),
     eq(memoryItems.status, 'active'),
     isNull(memoryItems.invalidAt),
   ];
-  if (scopeIds && scopeIds.length > 0) {
-    itemConditions.push(inArray(memoryItems.scopeId, scopeIds));
+  if (opts.scopeIds && opts.scopeIds.length > 0) {
+    itemConditions.push(inArray(memoryItems.scopeId, opts.scopeIds));
   }
-  const items = db
+  let items = db
     .select()
     .from(memoryItems)
     .where(and(...itemConditions))
     .all();
+  if (items.length === 0) return [];
+
+  if (excludedMessageIds.length > 0) {
+    const excludedSet = new Set(excludedMessageIds);
+    const sources = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        messageId: memoryItemSources.messageId,
+      })
+      .from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, items.map((item) => item.id)))
+      .all();
+    const hasAnySource = new Set<string>();
+    const hasNonExcludedSource = new Set<string>();
+    for (const source of sources) {
+      hasAnySource.add(source.memoryItemId);
+      if (!excludedSet.has(source.messageId)) {
+        hasNonExcludedSource.add(source.memoryItemId);
+      }
+    }
+    items = items.filter((item) => !hasAnySource.has(item.id) || hasNonExcludedSource.has(item.id));
+  }
+  if (items.length === 0) return [];
 
   return items.map((item) => ({
     key: `item:${item.id}`,
     type: 'item' as CandidateType,
     id: item.id,
+    source: opts.source,
     text: `${item.subject}: ${item.statement}`,
     kind: item.kind,
     confidence: item.confidence,
@@ -848,7 +1071,19 @@ function mergeCandidates(
   recency: Candidate[],
   entity: Candidate[] = [],
   freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
+  relationScoreMultiplier?: number,
 ): Candidate[] {
+  // Build effective weight map that reflects the actual scoring weight for
+  // each source.  For entity_relation the static SOURCE_WEIGHTS entry is 1.0
+  // (a neutral placeholder) but the real multiplier comes from the config
+  // (relationScoreMultiplier).  Using the effective weight in the dedup
+  // upgrade comparison ensures item_direct (0.95) correctly outranks
+  // entity_relation (e.g. 0.7) when both sources return the same candidate.
+  const effectiveWeights: Record<string, number> = { ...SOURCE_WEIGHTS };
+  if (relationScoreMultiplier != null) {
+    effectiveWeights['entity_relation'] = relationScoreMultiplier;
+  }
+
   // Build merged candidate map (dedup by key, keep best metadata)
   const merged = new Map<string, Candidate>();
   for (const candidate of [...lexical, ...semantic, ...recency, ...entity]) {
@@ -864,6 +1099,13 @@ function mergeCandidates(
     existing.importance = Math.max(existing.importance, candidate.importance);
     if (candidate.text.length > existing.text.length) {
       existing.text = candidate.text;
+    }
+    // Upgrade source to whichever has the higher effective weight so scoring
+    // and caps reflect the strongest retrieval signal for this candidate.
+    const existingWeight = effectiveWeights[existing.source] ?? 1.0;
+    const candidateWeight = effectiveWeights[candidate.source] ?? 1.0;
+    if (candidateWeight > existingWeight) {
+      existing.source = candidate.source;
     }
   }
 
@@ -903,7 +1145,8 @@ function mergeCandidates(
     const lastUsedAt = meta?.lastUsedAt ?? null;
     const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
-    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight;
+    const sourceWeight = effectiveWeights[row.source] ?? 1.0;
+    row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
   }
 
   rows.sort((a, b) => {
@@ -914,6 +1157,47 @@ function mergeCandidates(
     return a.key.localeCompare(b.key);
   });
   return rows;
+}
+
+function applySourceCaps(candidates: Candidate[], config: AssistantConfig): Candidate[] {
+  if (candidates.length === 0) return candidates;
+  const sourceCaps = buildSourceCaps(config);
+  const counts: Partial<Record<CandidateSource, number>> = {};
+  const capped: Candidate[] = [];
+
+  for (const candidate of candidates) {
+    const cap = sourceCaps[candidate.source];
+    const current = counts[candidate.source] ?? 0;
+    if (current >= cap) continue;
+    counts[candidate.source] = current + 1;
+    capped.push(candidate);
+  }
+
+  return capped;
+}
+
+function buildSourceCaps(config: AssistantConfig): Record<CandidateSource, number> {
+  const lexicalTopK = Math.max(1, config.memory.retrieval.lexicalTopK);
+  const semanticTopK = Math.max(1, config.memory.retrieval.semanticTopK);
+  const relationLimit = Math.max(
+    3,
+    Math.floor(
+      Math.min(
+        config.memory.entity.relationRetrieval.maxNeighborEntities,
+        config.memory.entity.relationRetrieval.maxEdges,
+        semanticTopK,
+      ) * 0.4,
+    ),
+  );
+
+  return {
+    lexical: Math.max(12, lexicalTopK),
+    semantic: Math.max(8, semanticTopK),
+    recency: Math.max(6, Math.floor(semanticTopK / 2)),
+    entity_direct: Math.max(6, Math.floor(semanticTopK / 2)),
+    item_direct: Math.max(8, Math.floor(lexicalTopK / 2)),
+    entity_relation: relationLimit,
+  };
 }
 
 /** Reciprocal Rank Fusion score: sum of 1/(k+rank) across all lists. */
@@ -982,6 +1266,15 @@ const TRUST_WEIGHTS: Record<string, number> = {
   assistant_inferred: 0.7,
 };
 const DEFAULT_TRUST_WEIGHT = 0.85;
+
+const SOURCE_WEIGHTS: Record<CandidateSource, number> = {
+  lexical: 1.0,
+  semantic: 1.0,
+  recency: 1.0,
+  entity_direct: 1.0,
+  item_direct: 0.95,
+  entity_relation: 1.0,
+};
 
 const MS_PER_DAY = 86_400_000;
 
@@ -1367,6 +1660,10 @@ function emptyResult(
     semanticHits: 0,
     recencyHits: 0,
     entityHits: 0,
+    relationSeedEntityCount: 0,
+    relationTraversedEdgeCount: 0,
+    relationNeighborEntityCount: 0,
+    relationExpandedItemCount: 0,
     mergedCount: 0,
     selectedCount: 0,
     rerankApplied: false,
@@ -1523,6 +1820,7 @@ function directItemSearch(query: string, limit: number, scopeIds?: string[]): Ca
     key: `item:${row.id}`,
     type: 'item' as CandidateType,
     id: row.id,
+    source: 'item_direct',
     text: `${row.subject}: ${row.statement}`,
     kind: row.kind,
     confidence: row.confidence,

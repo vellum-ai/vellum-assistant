@@ -44,9 +44,13 @@ export const uiShowTool: Tool = {
     '- confirmation: Yes/no confirmation dialog. ' +
     'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
     '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
-    'data shape: { html: string, width?: number, height?: number }\n' +
+    'data shape: { html: string, width?: number, height?: number, preview?: { title: string, subtitle?: string, description?: string, icon?: string (emoji), metrics?: Array<{ label: string, value: string }> } }. ' +
+    'When preview is provided, a compact preview card is shown inline in chat with the title, subtitle, description, metric pills, and a "View Output" button that opens the full page.\n' +
     '- file_upload: File upload dialog where the user can drag-and-drop or browse for files. ' +
-    'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }',
+    'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }\n\n' +
+    'Action payload conventions:\n' +
+    '- Multi-select tables: use `window.vellum.sendAction(actionId, { selectedIds: [...] })` to send selected row IDs\n' +
+    '- Bulk actions: include `selectedRows` array with full row data for context',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',

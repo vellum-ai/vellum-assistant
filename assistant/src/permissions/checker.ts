@@ -124,7 +124,7 @@ function escapeMinimatchLiteral(value: string): string {
 }
 
 function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): string[] {
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     return [getStringField(input, 'command')];
   }
 
@@ -141,6 +141,11 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
       targets.push(rawSelector);
     }
     return [...new Set(targets)].map((target) => `${toolName}:${target}`);
+  }
+
+  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
+    const skillId = getStringField(input, 'skill_id').trim();
+    return [`${toolName}:${skillId}`];
   }
 
   if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
@@ -165,6 +170,15 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   }
 
   const fileTarget = getStringField(input, 'path', 'file_path');
+  if (toolName === 'host_file_read' || toolName === 'host_file_write' || toolName === 'host_file_edit') {
+    const normalized = fileTarget ? resolve(fileTarget) : fileTarget;
+    const candidates = [`${toolName}:${normalized}`];
+    if (normalized !== fileTarget) {
+      candidates.push(`${toolName}:${fileTarget}`);
+    }
+    return candidates;
+  }
+
   const resolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
@@ -194,7 +208,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'browser_extract') return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
@@ -307,6 +321,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   file_read: 'file reads',
   file_write: 'file writes',
   file_edit: 'file edits',
+  host_file_read: 'host file reads',
+  host_file_write: 'host file writes',
+  host_file_edit: 'host file edits',
   web_fetch: 'URL fetches',
   browser_navigate: 'browser navigations',
 };
@@ -321,7 +338,7 @@ function friendlyHostname(url: URL): string {
 }
 
 export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
-  if (toolName === 'bash') {
+  if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     const parts = command.split(/\s+/);
     const program = parts[0] ?? command;
@@ -354,7 +371,10 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     });
   }
 
-  if (toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit') {
+  if (
+    toolName === 'file_write' || toolName === 'file_read' || toolName === 'file_edit'
+    || toolName === 'host_file_write' || toolName === 'host_file_read' || toolName === 'host_file_edit'
+  ) {
     const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
     const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
     const options: AllowlistOption[] = [];
@@ -402,10 +422,29 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     });
   }
 
+  if (toolName === 'scaffold_managed_skill' || toolName === 'delete_managed_skill') {
+    const skillId = getStringField(input, 'skill_id').trim();
+    const toolLabel = toolName === 'scaffold_managed_skill' ? 'scaffold' : 'delete';
+    const options: AllowlistOption[] = [];
+    if (skillId) {
+      options.push({
+        label: skillId,
+        description: `This skill only`,
+        pattern: `${toolName}:${skillId}`,
+      });
+    }
+    options.push({
+      label: `${toolName}:*`,
+      description: `All managed skill ${toolLabel}s`,
+      pattern: `${toolName}:*`,
+    });
+    return options;
+  }
+
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
 
-export function generateScopeOptions(workingDir: string): ScopeOption[] {
+export function generateScopeOptions(workingDir: string, toolName?: string): ScopeOption[] {
   const home = homedir();
   const options: ScopeOption[] = [];
 
@@ -427,5 +466,11 @@ export function generateScopeOptions(workingDir: string): ScopeOption[] {
   // Everywhere
   options.push({ label: 'everywhere', scope: 'everywhere' });
 
-  return options;
+  if (!toolName?.startsWith('host_')) {
+    return options;
+  }
+
+  const everywhere = options.find((option) => option.scope === 'everywhere');
+  const scoped = options.filter((option) => option.scope !== 'everywhere');
+  return everywhere ? [everywhere, ...scoped] : options;
 }

@@ -8,7 +8,7 @@ const mockConfig = {
   maxTokens: 4096,
   dataDir: '/tmp',
   timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600, permissionTimeoutSec: 300 },
-  sandbox: { enabled: false },
+  sandbox: { enabled: false, backend: 'native' as const, docker: { image: 'node:20-slim', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' as const } },
   rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
   secretDetection: { enabled: false, action: 'warn' as const, entropyThreshold: 4.0 },
 };
@@ -68,8 +68,9 @@ mock.module('../tools/registry.js', () => ({
   },
 }));
 
-mock.module('../tools/filesystem/path-guard.js', () => ({
-  validateFilePath: () => ({ ok: false }),
+mock.module('../tools/shared/filesystem/path-policy.js', () => ({
+  sandboxPolicy: () => ({ ok: false }),
+  hostPolicy: () => ({ ok: false }),
 }));
 
 mock.module('../tools/terminal/sandbox.js', () => ({
@@ -122,12 +123,14 @@ describe('ToolExecutor lifecycle events', () => {
     expect(events[0]).toMatchObject({
       type: 'start',
       toolName: 'file_read',
+      executionTarget: 'sandbox',
       conversationId: 'conversation-1',
       sessionId: 'session-1',
       workingDir: '/tmp/project',
     });
     const executed = events[1];
     if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('sandbox');
     expect(executed.riskLevel).toBe('low');
     expect(executed.result).toEqual({ content: 'ok', isError: false });
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
@@ -154,6 +157,7 @@ describe('ToolExecutor lifecycle events', () => {
 
     const promptEvent = events[1];
     if (promptEvent.type !== 'permission_prompt') throw new Error('Expected permission_prompt event');
+    expect(promptEvent.executionTarget).toBe('sandbox');
     expect(promptEvent.riskLevel).toBe('medium');
     expect(promptEvent.reason).toBe('medium risk: requires approval');
     expect(promptEvent.sandboxed).toBe(true);
@@ -162,8 +166,25 @@ describe('ToolExecutor lifecycle events', () => {
 
     const deniedEvent = events[2];
     if (deniedEvent.type !== 'permission_denied') throw new Error('Expected permission_denied event');
+    expect(deniedEvent.executionTarget).toBe('sandbox');
     expect(deniedEvent.decision).toBe('deny');
     expect(deniedEvent.reason).toBe('Permission denied by user');
+  });
+
+  test('emits host executionTarget for host tools', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute('host_file_read', { path: '/tmp/file.txt' }, makeContext(events));
+
+    expect(result).toEqual({ content: 'ok', isError: false });
+    expect(events.map((event) => event.type)).toEqual(['start', 'executed']);
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('host');
+    const executed = events[1];
+    if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('host');
   });
 
   test('emits permission_denied when blocked by deny rule', async () => {
@@ -234,6 +255,32 @@ describe('ToolExecutor lifecycle events', () => {
     expect(errorEvent.errorMessage).toContain('Unknown tool: unknown_tool');
     expect(errorEvent.decision).toBe('error');
     expect(errorEvent.isExpected).toBe(true);
+  });
+
+  test('bash tool resolves to sandbox executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('bash', { command: 'echo hello' }, makeContext(events));
+
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('sandbox');
+    const executedEvent = events.find((e) => e.type === 'executed' || e.type === 'error');
+    expect(executedEvent?.executionTarget).toBe('sandbox');
+  });
+
+  test('host_bash tool resolves to host executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('host_bash', { command: 'echo hello' }, makeContext(events));
+
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('host');
+    const executedEvent = events.find((e) => e.type === 'executed' || e.type === 'error');
+    expect(executedEvent?.executionTarget).toBe('host');
   });
 
   test('does not block tool execution on unresolved lifecycle callbacks', async () => {

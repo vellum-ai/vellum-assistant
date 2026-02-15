@@ -50,6 +50,13 @@ mock.module('../security/secret-allowlist.js', () => ({
   resetAllowlist: () => {},
 }));
 
+mock.module('../memory/admin.js', () => ({
+  getMemoryConflictAndCleanupStats: () => ({
+    conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
+    cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
+  }),
+}));
+
 // Mock conversation store
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
@@ -87,7 +94,7 @@ mock.module('../agent/loop.js', () => ({
     async run(messages: Message[], onEvent: (event: Record<string, unknown>) => void): Promise<Message[]> {
       capturedRunMessages = messages;
       // Emit usage event so processMessage doesn't error
-      onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock' });
+      onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
       // Return messages with an assistant response appended
       return [
         ...messages,

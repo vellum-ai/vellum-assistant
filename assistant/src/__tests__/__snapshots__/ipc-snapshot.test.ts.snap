@@ -120,8 +120,14 @@ exports[`IPC message snapshots ClientMessage types cu_observation serializes to 
 {
   "axDiff": "+ new element",
   "axTree": "<ax-tree>...</ax-tree>",
+  "captureDisplayId": 69734112,
+  "coordinateOrigin": "top_left",
   "executionResult": "click completed",
+  "screenHeightPt": 1080,
+  "screenWidthPt": 1920,
   "screenshot": "base64-screenshot-data",
+  "screenshotHeightPx": 720,
+  "screenshotWidthPx": 1280,
   "secondaryWindows": "Finder, Terminal",
   "sessionId": "cu-sess-001",
   "type": "cu_observation",
@@ -361,6 +367,20 @@ exports[`IPC message snapshots ClientMessage types secret_response serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types sessions_clear serializes to expected JSON 1`] = `
+{
+  "type": "sessions_clear",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
+{
+  "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "type": "ipc_blob_probe",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types assistant_text_delta serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -441,6 +461,7 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
     "newContent": "new",
     "oldContent": "old",
   },
+  "executionTarget": "sandbox",
   "input": {
     "command": "rm -rf /tmp/test",
   },
@@ -461,6 +482,13 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
 
 exports[`IPC message snapshots ServerMessage types message_complete serializes to expected JSON 1`] = `
 {
+  "attachments": [
+    {
+      "data": "iVBORw0K",
+      "filename": "chart.png",
+      "mimeType": "image/png",
+    },
+  ],
   "sessionId": "sess-001",
   "type": "message_complete",
 }
@@ -493,6 +521,13 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types sessions_clear_response serializes to expected JSON 1`] = `
+{
+  "cleared": 3,
+  "type": "sessions_clear_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types error serializes to expected JSON 1`] = `
 {
   "message": "Something went wrong",
@@ -506,6 +541,13 @@ exports[`IPC message snapshots ServerMessage types pong serializes to expected J
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types daemon_status serializes to expected JSON 1`] = `
+{
+  "httpPort": 7821,
+  "type": "daemon_status",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types generation_cancelled serializes to expected JSON 1`] = `
 {
   "type": "generation_cancelled",
@@ -514,6 +556,13 @@ exports[`IPC message snapshots ServerMessage types generation_cancelled serializ
 
 exports[`IPC message snapshots ServerMessage types generation_handoff serializes to expected JSON 1`] = `
 {
+  "attachments": [
+    {
+      "data": "JVBER",
+      "filename": "report.pdf",
+      "mimeType": "application/pdf",
+    },
+  ],
   "queuedCount": 2,
   "requestId": "req-handoff-001",
   "sessionId": "sess-001",
@@ -538,6 +587,13 @@ exports[`IPC message snapshots ServerMessage types history_response serializes t
       "timestamp": 1700000000,
     },
     {
+      "attachments": [
+        {
+          "data": "iVBORw0K",
+          "filename": "result.png",
+          "mimeType": "image/png",
+        },
+      ],
       "role": "assistant",
       "text": "Hi there!",
       "timestamp": 1700000001,
@@ -551,6 +607,7 @@ exports[`IPC message snapshots ServerMessage types history_response serializes t
 exports[`IPC message snapshots ServerMessage types undo_complete serializes to expected JSON 1`] = `
 {
   "removedCount": 2,
+  "sessionId": "session-abc",
   "type": "undo_complete",
 }
 `;
@@ -616,6 +673,10 @@ exports[`IPC message snapshots ServerMessage types memory_recalled serializes to
   "model": "text-embedding-3-small",
   "provider": "openai",
   "recencyHits": 6,
+  "relationExpandedItemCount": 4,
+  "relationNeighborEntityCount": 3,
+  "relationSeedEntityCount": 2,
+  "relationTraversedEdgeCount": 5,
   "rerankApplied": false,
   "selectedCount": 10,
   "semanticHits": 8,
@@ -645,9 +706,16 @@ exports[`IPC message snapshots ServerMessage types memory_recalled serializes to
 
 exports[`IPC message snapshots ServerMessage types memory_status serializes to expected JSON 1`] = `
 {
+  "cleanupResolvedJobsCompleted24h": 12,
+  "cleanupResolvedJobsPending": 1,
+  "cleanupSupersededJobsCompleted24h": 8,
+  "cleanupSupersededJobsPending": 0,
+  "conflictsPending": 2,
+  "conflictsResolved": 7,
   "degraded": false,
   "enabled": true,
   "model": "text-embedding-3-small",
+  "oldestPendingConflictAgeMs": 90000,
   "provider": "openai",
   "type": "memory_status",
 }
@@ -998,5 +1066,45 @@ exports[`IPC message snapshots ServerMessage types sign_bundle_payload serialize
 exports[`IPC message snapshots ServerMessage types get_signing_identity serializes to expected JSON 1`] = `
 {
   "type": "get_signing_identity",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types session_error serializes to expected JSON 1`] = `
+{
+  "code": "PROVIDER_NETWORK",
+  "debugDetails": "ETIMEDOUT after 30000ms",
+  "retryable": true,
+  "sessionId": "sess-001",
+  "type": "session_error",
+  "userMessage": "Unable to reach the AI provider. Please try again.",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types trace_event serializes to expected JSON 1`] = `
+{
+  "attributes": {
+    "command": "ls -la",
+    "riskLevel": "low",
+    "sandboxed": true,
+    "toolName": "bash",
+  },
+  "eventId": "evt-001",
+  "kind": "tool_started",
+  "requestId": "req-001",
+  "sequence": 1,
+  "sessionId": "sess-001",
+  "status": "info",
+  "summary": "Running bash: ls -la",
+  "timestampMs": 1700000000000,
+  "type": "trace_event",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ipc_blob_probe_result serializes to expected JSON 1`] = `
+{
+  "observedNonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "ok": true,
+  "probeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "type": "ipc_blob_probe_result",
 }
 `;

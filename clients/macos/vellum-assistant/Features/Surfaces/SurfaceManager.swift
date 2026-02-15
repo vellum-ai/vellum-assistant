@@ -15,6 +15,7 @@ final class SurfaceViewModel: ObservableObject {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
+    let sandboxMode: Bool
 
     init(
         surface: Surface,
@@ -22,7 +23,8 @@ final class SurfaceViewModel: ObservableObject {
         onDismiss: @escaping () -> Void,
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
-        onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil
+        onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil,
+        sandboxMode: Bool = false
     ) {
         self.surface = surface
         self.onAction = onAction
@@ -30,6 +32,7 @@ final class SurfaceViewModel: ObservableObject {
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.sandboxMode = sandboxMode
     }
 }
 
@@ -62,6 +65,10 @@ final class SurfaceManager: ObservableObject {
     /// Prevents duplicate actions (e.g. submit followed by dismiss) from racing.
     private var respondedSurfaces: Set<String> = []
 
+    /// Surfaces routed to the workspace instead of floating NSPanels.
+    /// Tracked so that update/dismiss messages can be forwarded via notifications.
+    private var workspaceRoutedSurfaces: Set<String> = []
+
     private var closeObservers: [String: Any] = [:]
 
     private let panelWidth: CGFloat = 380
@@ -78,6 +85,10 @@ final class SurfaceManager: ObservableObject {
     /// Parameters: surfaceId, callId, method, appId, recordId, data.
     var onDataRequest: ((String, String, String, String, String?, [String: Any]?) -> Void)?
 
+    /// When set, dynamic pages with `display != "inline"` route to the full-window
+    /// workspace instead of opening as floating NSPanels.
+    var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
+
     // MARK: - Show
 
     func showSurface(_ message: UiSurfaceShowMessage) {
@@ -87,7 +98,7 @@ final class SurfaceManager: ObservableObject {
         }
 
         // Dismiss any existing surface with the same ID first.
-        if panels[surface.id] != nil {
+        if panels[surface.id] != nil || workspaceRoutedSurfaces.contains(surface.id) {
             dismissSurfaceById(surface.id)
         }
 
@@ -104,7 +115,19 @@ final class SurfaceManager: ObservableObject {
             log.warning("dynamic_page surface has no appId — data bridge will not be injected. Keys in data: [\(keys)]")
         }
 
+        // Route dynamic pages to workspace if callback is set.
+        // Registration above ensures update/dismiss messages still work.
+        if case .dynamicPage = surface.data,
+           message.display != "inline",
+           let onDynamicPageShow {
+            workspaceRoutedSurfaces.insert(surface.id)
+            onDynamicPageShow(message)
+            log.info("Routed surface to workspace: id=\(surface.id, privacy: .public)")
+            return
+        }
+
         let appId = surfaceAppIds[surface.id]
+        let isSandboxed = message.sessionId == "shared-app"
 
         let viewModel = SurfaceViewModel(
             surface: surface,
@@ -129,7 +152,8 @@ final class SurfaceManager: ObservableObject {
             } : nil,
             onCoordinatorReady: appId != nil ? { [weak self] coordinator in
                 self?.surfaceCoordinators[surface.id] = coordinator
-            } : nil
+            } : nil,
+            sandboxMode: isSandboxed
         )
         viewModels[surface.id] = viewModel
 
@@ -166,8 +190,11 @@ final class SurfaceManager: ObservableObject {
         panel.contentViewController = hostingController
 
         // Re-measure fittingSize for non-dynamic panels now that the view is attached to a window.
+        // For dynamic pages, restore the intended size because setting contentViewController
+        // resizes the panel to the hosting controller's fittingSize, which is nearly zero
+        // for a WKWebView that hasn't loaded content yet.
         if case .dynamicPage = surface.data {
-            // Dynamic pages handle their own sizing via webView didFinish.
+            panel.setContentSize(NSSize(width: surfacePanelWidth, height: surfacePanelHeight))
         } else if let fittingSize = panel.contentView?.fittingSize {
             let maxH = (NSScreen.main?.visibleFrame.height ?? 800) - 40
             let newHeight = min(max(fittingSize.height, 150), maxH)
@@ -245,8 +272,17 @@ final class SurfaceManager: ObservableObject {
 
         activeSurfaces[message.surfaceId] = updated
 
-        // Update the existing view model so child views preserve their @State.
-        viewModels[message.surfaceId]?.surface = updated
+        if workspaceRoutedSurfaces.contains(message.surfaceId) {
+            // Notify the workspace view so it can re-render with updated data.
+            NotificationCenter.default.post(
+                name: .updateDynamicWorkspace,
+                object: nil,
+                userInfo: ["surface": updated]
+            )
+        } else {
+            // Update the existing view model so child views preserve their @State.
+            viewModels[message.surfaceId]?.surface = updated
+        }
 
         log.info("Updated surface: id=\(message.surfaceId)")
     }
@@ -262,6 +298,9 @@ final class SurfaceManager: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         closeObservers.removeAll()
+
+        let hadWorkspaceRouted = !workspaceRoutedSurfaces.isEmpty
+
         let ids = Array(panels.keys)
         for id in ids {
             panels[id]?.close()
@@ -270,13 +309,31 @@ final class SurfaceManager: ObservableObject {
             activeSurfaces.removeValue(forKey: id)
             log.info("Dismissed surface: id=\(id)")
         }
+
+        // Also clean up workspace-routed surfaces (no NSPanel to close).
+        for id in workspaceRoutedSurfaces {
+            activeSurfaces.removeValue(forKey: id)
+            log.info("Dismissed workspace-routed surface: id=\(id)")
+        }
+        workspaceRoutedSurfaces.removeAll()
+
         surfaceOrder.removeAll()
         surfaceAppIds.removeAll()
         surfaceCoordinators.removeAll()
         respondedSurfaces.removeAll()
+
+        if hadWorkspaceRouted {
+            NotificationCenter.default.post(
+                name: .dismissDynamicWorkspace,
+                object: nil,
+                userInfo: nil
+            )
+        }
     }
 
     private func dismissSurfaceById(_ surfaceId: String) {
+        let wasWorkspaceRouted = workspaceRoutedSurfaces.remove(surfaceId) != nil
+
         if let observer = closeObservers.removeValue(forKey: surfaceId) {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -289,6 +346,15 @@ final class SurfaceManager: ObservableObject {
         respondedSurfaces.remove(surfaceId)
         surfaceOrder.removeAll { $0 == surfaceId }
         repositionAllPanels()
+
+        if wasWorkspaceRouted {
+            NotificationCenter.default.post(
+                name: .dismissDynamicWorkspace,
+                object: nil,
+                userInfo: ["surfaceId": surfaceId]
+            )
+        }
+
         log.info("Dismissed surface: id=\(surfaceId)")
     }
 

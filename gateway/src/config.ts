@@ -72,10 +72,9 @@ export function loadConfig(): GatewayConfig {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
-  const assistantRuntimeBaseUrl = process.env.ASSISTANT_RUNTIME_BASE_URL;
-  if (!assistantRuntimeBaseUrl) {
-    throw new Error("ASSISTANT_RUNTIME_BASE_URL is required");
-  }
+  const runtimePort = process.env.RUNTIME_HTTP_PORT || "7821";
+  const assistantRuntimeBaseUrl =
+    process.env.ASSISTANT_RUNTIME_BASE_URL || `http://localhost:${runtimePort}`;
 
   const routingJson = process.env.GATEWAY_ASSISTANT_ROUTING_JSON || "{}";
   const routingEntries = parseRoutingJson(routingJson);

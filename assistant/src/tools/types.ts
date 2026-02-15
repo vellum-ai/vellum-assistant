@@ -1,6 +1,8 @@
 import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 
+export type ExecutionTarget = 'sandbox' | 'host';
+
 interface ToolLifecycleEventBase {
   toolName: string;
   input: Record<string, unknown>;
@@ -8,6 +10,7 @@ interface ToolLifecycleEventBase {
   sessionId: string;
   conversationId: string;
   requestId?: string;
+  executionTarget?: ExecutionTarget;
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
@@ -82,6 +85,8 @@ export interface ToolContext {
   requestId?: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
+  /** Abort signal for cooperative cancellation. Tools should check this periodically. */
+  signal?: AbortSignal;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
   sandboxOverride?: boolean;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error/secret_detected). */
@@ -93,6 +98,7 @@ export interface ToolContext {
     toolName: string;
     input: Record<string, unknown>;
     riskLevel: string;
+    executionTarget?: ExecutionTarget;
   }) => Promise<{ decision: 'allow' | 'deny' }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {

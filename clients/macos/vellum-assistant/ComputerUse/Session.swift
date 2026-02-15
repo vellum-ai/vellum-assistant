@@ -179,6 +179,11 @@ final class ComputerUseSession: ObservableObject {
                     self.logger.finishSession(result: "failed: \(error.message)")
                     return
 
+                case .sessionError(let error) where error.sessionId == self.id:
+                    self.state = .failed(reason: error.userMessage)
+                    self.logger.finishSession(result: "failed: \(error.userMessage)")
+                    return
+
                 default:
                     break // ignore messages for other sessions
                 }
@@ -205,8 +210,13 @@ final class ComputerUseSession: ObservableObject {
     // MARK: - Action Handler
 
     private func handleAction(_ action: CuActionMessage) async {
-        let agentAction = mapToAgentAction(action)
+        var agentAction = mapToAgentAction(action)
         currentStepNumber = action.stepNumber
+
+        guard let resolved = await resolveCoordinatesIfNeeded(for: agentAction, stepNumber: action.stepNumber) else {
+            return
+        }
+        agentAction = resolved
 
         // Update state for UI
         state = .running(
@@ -338,7 +348,8 @@ final class ComputerUseSession: ObservableObject {
         var axTreeText: String?
         var elements: [AXElement]?
         var flatElements: [AXElement]?
-        var screenshot: Data?
+        var screenshotData: Data?
+        var screenshotMetadata: ScreenCaptureMetadata?
         var axDiffText: String?
         var secondaryWindowsText: String?
         var primaryPID: pid_t?
@@ -349,8 +360,8 @@ final class ComputerUseSession: ObservableObject {
         // This runs in parallel with AX tree enumeration below
         // Use Task.detached so it doesn't inherit @MainActor isolation and can truly run concurrently
         let screenCap = self.screenCapture
-        let screenshotPromise: Task<Data?, Never> = Task.detached {
-            try? await screenCap.captureScreen()
+        let screenshotPromise: Task<ScreenCaptureResult?, Never> = Task.detached {
+            try? await screenCap.captureScreenWithMetadata(maxWidth: 1280, maxHeight: 720)
         }
 
         if let result = enumerator.enumerateCurrentWindow() {
@@ -414,17 +425,21 @@ final class ComputerUseSession: ObservableObject {
 
             // Await the pre-started screenshot if we need it; cancel otherwise
             if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: nil) {
-                screenshot = await screenshotPromise.value
-                log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
+                let screenshotResult = await screenshotPromise.value
+                screenshotData = screenshotResult?.jpegData
+                screenshotMetadata = screenshotResult?.metadata
+                log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshotData?.count ?? 0) bytes)")
             } else {
                 screenshotPromise.cancel()
             }
         } else {
             // No focused window — await pre-started screenshot as last resort
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            screenshot = await screenshotPromise.value
-            if screenshot != nil {
-                log.info("[\(stepNumber)] Screenshot captured (\(screenshot?.count ?? 0) bytes)")
+            let screenshotResult = await screenshotPromise.value
+            screenshotData = screenshotResult?.jpegData
+            screenshotMetadata = screenshotResult?.metadata
+            if screenshotData != nil {
+                log.info("[\(stepNumber)] Screenshot captured (\(screenshotData?.count ?? 0) bytes)")
             } else {
                 log.error("[\(stepNumber)] Screen capture failed")
                 return nil
@@ -436,18 +451,81 @@ final class ComputerUseSession: ObservableObject {
         previousElements = elements
         previousFlatElements = flatElements
 
-        // Encode screenshot as base64
-        let screenshotBase64 = screenshot?.base64EncodedString()
+        // Transport screenshot via blob or inline base64
+        var screenshotBase64: String?
+        var screenshotBlobRef: IPCIpcBlobRef?
 
-        return CuObservationMessage(
+        if let screenshotBytes = screenshotData {
+            if daemonClient.isBlobTransportAvailable {
+                if let ref = IpcBlobStore.shared.writeBlob(data: screenshotBytes, kind: "screenshot_jpeg", encoding: "binary") {
+                    screenshotBlobRef = ref
+                    log.info("[\(stepNumber)] Screenshot written as blob (\(screenshotBytes.count) bytes, id=\(ref.id))")
+                } else {
+                    log.warning("[\(stepNumber)] Blob write failed for screenshot, falling back to inline base64")
+                    screenshotBase64 = screenshotBytes.base64EncodedString()
+                }
+            } else {
+                screenshotBase64 = screenshotBytes.base64EncodedString()
+            }
+        }
+
+        let screenSizePt = screenshotData != nil ? screenCapture.screenSize() : nil
+
+        // Transport AX tree via blob when large (>8KB) and blob transport available.
+        // Cap at 2MB to match the daemon's MAX_AX_BLOB_SIZE — trees above that limit
+        // would be rejected on hydration, losing the data entirely since inline was cleared.
+        var axTreeInline = axTreeText
+        var axTreeBlobRef: IPCIpcBlobRef?
+        let axTreeBlobThreshold = 8 * 1024 // 8KB
+        let axTreeBlobMaxSize = 2 * 1024 * 1024 // 2MB — must match daemon's MAX_AX_BLOB_SIZE
+
+        if let tree = axTreeText, daemonClient.isBlobTransportAvailable {
+            let treeData = Data(tree.utf8)
+            if treeData.count > axTreeBlobThreshold && treeData.count <= axTreeBlobMaxSize {
+                if let ref = IpcBlobStore.shared.writeBlob(data: treeData, kind: "ax_tree", encoding: "utf8") {
+                    axTreeBlobRef = ref
+                    axTreeInline = nil
+                    log.info("[\(stepNumber)] AX tree written as blob (\(treeData.count) bytes, id=\(ref.id))")
+                } else {
+                    log.warning("[\(stepNumber)] Blob write failed for AX tree, keeping inline")
+                }
+            } else if treeData.count > axTreeBlobMaxSize {
+                log.info("[\(stepNumber)] AX tree exceeds blob max size (\(treeData.count) bytes > \(axTreeBlobMaxSize)), keeping inline")
+            }
+        }
+
+        let observation = CuObservationMessage(
             sessionId: id,
-            axTree: axTreeText,
+            axTree: axTreeInline,
             axDiff: axDiffText,
             secondaryWindows: secondaryWindowsText,
             screenshot: screenshotBase64,
+            screenshotWidthPx: screenshotMetadata.map { Double($0.screenshotWidthPx) },
+            screenshotHeightPx: screenshotMetadata.map { Double($0.screenshotHeightPx) },
+            screenWidthPt: screenSizePt.map { Double($0.width) },
+            screenHeightPt: screenSizePt.map { Double($0.height) },
+            coordinateOrigin: screenSizePt != nil ? "top_left" : nil,
+            captureDisplayId: screenshotMetadata.map { Double($0.captureDisplayId) },
             executionResult: executionResult,
-            executionError: executionError
+            executionError: executionError,
+            axTreeBlob: axTreeBlobRef,
+            screenshotBlob: screenshotBlobRef
         )
+
+        let screenshotRawBytes = screenshotData?.count ?? 0
+        let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
+        let screenshotUsedBlob = screenshotBlobRef != nil
+        let axTreeBytes = axTreeText?.utf8.count ?? 0
+        let axTreeUsedBlob = axTreeBlobRef != nil
+        let axDiffBytes = axDiffText?.utf8.count ?? 0
+        let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
+        let payloadJSONBytes = screenshotBase64Bytes + (axTreeUsedBlob ? 0 : axTreeBytes) + axDiffBytes + secondaryWindowsBytes + 256
+        let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
+        log.info(
+            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axTreeUsedBlob=\(axTreeUsedBlob) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
+        )
+
+        return observation
     }
 
     // MARK: - Tool Name Mapping
@@ -493,6 +571,8 @@ final class ComputerUseSession: ObservableObject {
         let script = msg.input["script"]?.value as? String
         let elementId = extractInt(from: msg.input, key: "element_id")
             ?? extractInt(from: msg.input, key: "elementId")
+        let toElementId = extractInt(from: msg.input, key: "to_element_id")
+            ?? extractInt(from: msg.input, key: "toElementId")
         let elementDescription = msg.input["element_description"]?.value as? String
             ?? msg.input["elementDescription"]?.value as? String
 
@@ -512,8 +592,115 @@ final class ComputerUseSession: ObservableObject {
             appName: appName,
             script: script,
             resolvedFromElementId: elementId,
+            resolvedToElementId: toElementId,
             elementDescription: elementDescription
         )
+    }
+
+    private func resolveCoordinatesIfNeeded(for action: AgentAction, stepNumber: Int) async -> AgentAction? {
+        var resolved = action
+
+        switch resolved.type {
+        case .click, .doubleClick, .rightClick:
+            if resolved.x == nil || resolved.y == nil {
+                guard let sourceId = resolved.resolvedFromElementId else {
+                    await sendRecoverableExecutionError(
+                        "Action requires either x/y coordinates or element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                guard let center = elementCenter(for: sourceId) else {
+                    await sendRecoverableExecutionError(
+                        "Could not resolve element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide x/y coordinates.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                resolved.x = center.x
+                resolved.y = center.y
+            }
+
+        case .scroll:
+            if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
+                guard let center = elementCenter(for: sourceId) else {
+                    await sendRecoverableExecutionError(
+                        "Could not resolve element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide x/y coordinates.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+                resolved.x = center.x
+                resolved.y = center.y
+            }
+
+        case .drag:
+            if resolved.x == nil || resolved.y == nil {
+                if let sourceId = resolved.resolvedFromElementId {
+                    guard let center = elementCenter(for: sourceId) else {
+                        await sendRecoverableExecutionError(
+                            "Could not resolve source element_id [\(sourceId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide source x/y coordinates.",
+                            stepNumber: stepNumber
+                        )
+                        return nil
+                    }
+                    resolved.x = center.x
+                    resolved.y = center.y
+                } else {
+                    await sendRecoverableExecutionError(
+                        "Drag action requires source coordinates (x/y) or element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+            }
+
+            if resolved.toX == nil || resolved.toY == nil {
+                if let destinationId = resolved.resolvedToElementId {
+                    guard let center = elementCenter(for: destinationId) else {
+                        await sendRecoverableExecutionError(
+                            "Could not resolve destination to_element_id [\(destinationId)] in the focused window. Use an ID from CURRENT SCREEN STATE or provide to_x/to_y coordinates.",
+                            stepNumber: stepNumber
+                        )
+                        return nil
+                    }
+                    resolved.toX = center.x
+                    resolved.toY = center.y
+                } else {
+                    await sendRecoverableExecutionError(
+                        "Drag action requires destination coordinates (to_x/to_y) or to_element_id.",
+                        stepNumber: stepNumber
+                    )
+                    return nil
+                }
+            }
+
+        default:
+            break
+        }
+
+        return resolved
+    }
+
+    private func elementCenter(for elementId: Int) -> CGPoint? {
+        guard let flatElements = previousFlatElements,
+              let element = flatElements.first(where: { $0.id == elementId }),
+              !element.frame.isEmpty else {
+            return nil
+        }
+        return CGPoint(x: element.frame.midX, y: element.frame.midY)
+    }
+
+    private func sendRecoverableExecutionError(_ message: String, stepNumber: Int) async {
+        log.warning("[\(stepNumber)] Coordinate resolution failed: \(message, privacy: .public)")
+        // Resolution failures are non-blocked turns — reset the consecutive block streak
+        // so they don't contribute to the "3 consecutive blocks" shutdown threshold.
+        verifier.resetBlockCount()
+        let obs = await buildObservation(executionResult: nil, executionError: message)
+        if let obs {
+            try? daemonClient.send(obs)
+        }
+        state = .thinking(step: stepNumber + 1, maxSteps: maxSteps)
     }
 
     private func extractCGFloat(from input: [String: AnyCodable], key: String) -> CGFloat? {

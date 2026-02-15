@@ -2,6 +2,58 @@
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
 
+## iOS Target
+
+This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to a network-accessible daemon via TCP.
+
+**Status:** Basic structure in place (PR 4 of 13). The iOS target requires xcodebuild with iOS SDK to build - it cannot be built with `swift build` on macOS due to UIKit dependencies.
+
+**Code organization:**
+- `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)
+- `clients/macos/` — macOS-specific code (accessibility, CGEvent, computer-use)
+- `clients/ios/` — iOS-specific code (UIKit app structure, SwiftUI views)
+
+### Testing the iOS App
+
+The iOS app can be tested in three ways:
+
+**1. Xcode Simulator (Recommended for development)**
+```bash
+# Open the iOS target in Xcode
+open clients/Package.swift
+
+# In Xcode:
+# - Select the vellum-assistant-ios scheme
+# - Choose an iOS Simulator (iPhone 15, iPad Pro, etc.)
+# - Click Run (⌘R)
+```
+
+**Pros:** No signing needed, fast iteration, free
+**Cons:** No push notifications, camera, or some hardware features
+**Use for:** Chat interface, settings, basic UI testing
+
+**2. Physical Device (For hardware features)**
+
+Requires either:
+- Free personal Apple ID (7-day code signing)
+- Paid Apple Developer account ($99/year, 1-year signing)
+
+```bash
+# In Xcode:
+# - Connect your iPhone/iPad via USB
+# - Select your device in the destination menu
+# - Xcode will prompt for Apple ID and handle signing
+# - Click Run (⌘R)
+```
+
+**Use for:** Voice input, camera/photo picker, push notifications
+
+**3. TestFlight (For beta testing)**
+
+Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13 (deployment).
+
+**Daemon Connection Note:** The iOS app connects to the daemon via TCP (default: localhost:8765). For Simulator testing, the daemon should run on your Mac. For device testing, configure the daemon hostname to your Mac's IP address in Settings.
+
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
@@ -245,10 +297,15 @@ Inference/            AI action selection
   AnthropicClient     Shared HTTP client with retry logic (used by KnowledgeCron)
   ToolDefinitions     Tool schemas for function calling
 IPC/                  Daemon communication
-  DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong)
-  IPCMessages         Codable structs mirroring ipc-protocol.ts
-                      Includes: message_queued, message_dequeued,
-                      generation_handoff (sessionId, requestId?, queuedCount)
+  DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong,
+                      blob probe for zero-copy transport)
+  IpcBlobStore        Local blob file writer for zero-copy IPC payloads
+  Generated/
+    IPCContractGenerated  Auto-generated Codable DTOs from the TS IPC contract
+  IPCMessages         Typealiases to generated types, convenience inits,
+                      ServerMessage routing enum, and a few hand-maintained
+                      types that require Swift-specific logic (SessionErrorCode
+                      enum, polymorphic surface data, typed ClaWHub wrappers)
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
@@ -260,14 +317,24 @@ Features/Chat/        Main window chat interface
   ChatMessage         Message model (role, text, streaming state)
   ChatView            Presentational view (bubbles, composer, thinking, error banner)
   ChatViewModel       Session bootstrap, streaming, cancel via daemon IPC
+Features/MainWindow/Panels/
+  DebugPanel          Real-time trace viewer (metrics strip + timeline)
+  TraceTimelineView   Events grouped by requestId with status indicators
+  TraceRowView        Individual trace event display
 UI/                   SwiftUI views + overlay windows
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
-Logging/              Session recording to JSON
+Logging/
+  TraceStore          In-memory trace event store (per-session, dedup, retention cap)
+  Session recording   JSON logs to ~/Library/App Support/
 ```
 
 ## Remote Daemon
 
 The app supports connecting to a remote daemon via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
+
+### Zero-Copy Blob Transport
+
+On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
 
 ## Safety
 

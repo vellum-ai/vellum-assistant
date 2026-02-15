@@ -27,7 +27,9 @@ export class GeminiProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
-    const maxTokens = (config as Record<string, unknown> | undefined)?.max_tokens as number | undefined;
+    const configObj = config as Record<string, unknown> | undefined;
+    const maxTokens = configObj?.max_tokens as number | undefined;
+    const modelOverride = configObj?.model as string | undefined;
 
     try {
       const geminiContents = this.toGeminiContents(messages);
@@ -55,7 +57,7 @@ export class GeminiProvider implements Provider {
       }
 
       const stream = await this.client.models.generateContentStream({
-        model: this.model,
+        model: modelOverride ?? this.model,
         contents: geminiContents,
         config: geminiConfig,
       });
@@ -66,7 +68,7 @@ export class GeminiProvider implements Provider {
       let finishReason = 'unknown';
       let promptTokens = 0;
       let outputTokens = 0;
-      let responseModel = this.model;
+      let responseModel = modelOverride ?? this.model;
 
       for await (const chunk of stream) {
         // Extract text delta
@@ -158,21 +160,28 @@ export class GeminiProvider implements Provider {
 
     for (const msg of messages) {
       const role = msg.role === 'assistant' ? 'model' : 'user';
-      const parts = this.toGeminiParts(msg.content, toolCallNames);
+      const { parts, toolResultImageParts } = this.toGeminiParts(msg.content, toolCallNames);
       if (parts.length > 0) {
         result.push({ role, parts });
+      }
+      // Gemini requires that a Content with functionResponse parts must not
+      // contain non-functionResponse parts. Emit tool-result images in a
+      // separate user Content entry.
+      if (toolResultImageParts.length > 0) {
+        result.push({ role: 'user', parts: toolResultImageParts });
       }
     }
 
     return result;
   }
 
-  /** Convert ContentBlock[] to Gemini Part[]. */
+  /** Convert ContentBlock[] to Gemini Part[] and any tool-result image parts. */
   private toGeminiParts(
     blocks: ContentBlock[],
     toolCallNames: Map<string, string>,
-  ): genai.Part[] {
+  ): { parts: genai.Part[]; toolResultImageParts: genai.Part[] } {
     const parts: genai.Part[] = [];
+    const toolResultImageParts: genai.Part[] = [];
 
     for (const block of blocks) {
       switch (block.type) {
@@ -220,12 +229,11 @@ export class GeminiProvider implements Provider {
             if (extraText.length > 0) {
               outputText = outputText + '\n' + extraText.join('\n');
             }
-            // Include images as inline data parts alongside the function response
-            // (Gemini function responses only support text, but images can be
-            // added as sibling parts in the same user message).
+            // Collect images separately — Gemini rejects mixing inlineData
+            // with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
               if (cb.type === 'image') {
-                parts.push({
+                toolResultImageParts.push({
                   inlineData: {
                     mimeType: cb.source.media_type,
                     data: cb.source.data,
@@ -247,7 +255,7 @@ export class GeminiProvider implements Provider {
       }
     }
 
-    return parts;
+    return { parts, toolResultImageParts };
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {

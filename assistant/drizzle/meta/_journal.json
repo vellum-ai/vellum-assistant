@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1771173839136,
+      "tag": "0000_dizzy_maggott",
+      "breakpoints": true
+    }
+  ]
+}
