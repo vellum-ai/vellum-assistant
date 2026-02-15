@@ -15,6 +15,7 @@ final class MainWindow {
 
     /// Tracks daemon reconnects so trace state can be reset on stream restart.
     private var connectionCancellable: AnyCancellable?
+    private var layoutObserver: NSObjectProtocol?
     private var hasConnectedOnce = false
 
     /// Whether the main window is currently visible on screen.
@@ -99,10 +100,36 @@ final class MainWindow {
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)
 
+        configureTrafficLightPadding(window)
+
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
+    }
+
+    // MARK: - Traffic Light Positioning
+
+    private func configureTrafficLightPadding(_ window: NSWindow) {
+        repositionTrafficLights(window)
+        layoutObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.repositionTrafficLights(window)
+            }
+        }
+    }
+
+    private func repositionTrafficLights(_ window: NSWindow) {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let containerView = closeButton.superview else { return }
+        containerView.setFrameOrigin(NSPoint(
+            x: containerView.frame.origin.x + 6,
+            y: containerView.frame.origin.y - 8
+        ))
     }
 
     func close() {
