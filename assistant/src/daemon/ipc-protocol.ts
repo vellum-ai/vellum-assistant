@@ -20,7 +20,8 @@ export function serialize(msg: ClientMessage | ServerMessage): string {
 
 export interface ParsedMessage<T = ClientMessage | ServerMessage> {
   msg: T;
-  rawByteLength: number;
+  /** Lazily computed — only scans the string when accessed. */
+  readonly rawByteLength: number;
 }
 
 export function createMessageParser(options?: { maxLineSize?: number }) {
@@ -36,9 +37,14 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
       const trimmed = line.trim();
       if (trimmed) {
         try {
+          const msg = JSON.parse(trimmed);
+          let cachedByteLength: number | undefined;
           results.push({
-            msg: JSON.parse(trimmed),
-            rawByteLength: Buffer.byteLength(trimmed, 'utf8'),
+            msg,
+            get rawByteLength() {
+              cachedByteLength ??= Buffer.byteLength(trimmed, 'utf8');
+              return cachedByteLength;
+            },
           });
         } catch {
           // Skip malformed messages
