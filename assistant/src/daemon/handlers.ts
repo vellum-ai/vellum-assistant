@@ -504,7 +504,7 @@ async function handleUserMessage(
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
-    // Block inbound messages that contain secrets before they enter model context
+    // Block inbound messages that contain secrets and redirect to secure prompt
     const ingressCheck = checkIngressForSecrets(msg.content ?? '');
     if (ingressCheck.blocked) {
       rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
@@ -512,6 +512,8 @@ async function handleUserMessage(
         type: 'error',
         message: ingressCheck.userNotice!,
       });
+      // Redirect: trigger a secure prompt so the user can enter the secret safely
+      session.redirectToSecurePrompt(ingressCheck.detectedTypes);
       return;
     }
 
@@ -1435,13 +1437,22 @@ async function handleTaskSubmit(
   const rlog = log.child({ requestId });
 
   try {
-    // Block inbound tasks that contain secrets before they enter model context
+    // Block inbound tasks that contain secrets and redirect to secure prompt
     const taskIngressCheck = checkIngressForSecrets(msg.task);
     if (taskIngressCheck.blocked) {
       rlog.warn({ detectedTypes: taskIngressCheck.detectedTypes }, 'Blocked task_submit containing secrets');
       ctx.send(socket, {
         type: 'error',
         message: taskIngressCheck.userNotice!,
+      });
+      // Redirect: send a secret_request directly (no session exists yet)
+      ctx.send(socket, {
+        type: 'secret_request',
+        requestId,
+        service: 'detected',
+        field: taskIngressCheck.detectedTypes.join(','),
+        label: 'Secure Credential Entry',
+        description: 'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
       });
       return;
     }

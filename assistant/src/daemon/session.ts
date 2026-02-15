@@ -371,6 +371,19 @@ export class Session {
     return this.onEscalateToComputerUse !== undefined;
   }
 
+  /**
+   * Redirect the user to the secure credential prompt after an ingress block.
+   * The prompt result is fire-and-forget — timeout/cancel is acceptable.
+   */
+  redirectToSecurePrompt(detectedTypes: string[]): void {
+    this.secretPrompter.prompt(
+      'detected', detectedTypes.join(','),
+      'Secure Credential Entry',
+      'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
+      undefined, this.conversationId,
+    ).catch(() => { /* prompt timeout or cancel is fine */ });
+  }
+
   isProcessing(): boolean {
     return this.processing;
   }
