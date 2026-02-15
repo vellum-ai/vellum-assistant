@@ -11,6 +11,7 @@ struct MainWindowView: View {
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
+    @State private var isHoveredThread: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
@@ -218,7 +219,8 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
-        HStack(spacing: 0) {
+        let isSelected = thread.id == threadManager.activeThreadId
+        return HStack(spacing: 0) {
             Button(action: { threadManager.selectThread(id: thread.id) }) {
                 Text(thread.title)
                     .font(.custom("Inter", size: 13))
@@ -231,27 +233,18 @@ struct MainWindowView: View {
             }
             .buttonStyle(.plain)
 
-            if threadManager.threads.count > 1 {
-                Menu {
-                    Button(role: .destructive, action: { threadManager.closeThread(id: thread.id) }) {
-                        Label("Delete", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 24)
-            }
+            ThreadEllipsisButton(onArchive: {
+                threadManager.archiveThread(id: thread.id)
+            })
+            .opacity(isSelected || isHoveredThread == thread.id ? 1 : 0)
         }
         .padding(.horizontal, VSpacing.sm)
-        .background(thread.id == threadManager.activeThreadId ? Color.white.opacity(0.08) : Color.clear)
+        .background(isSelected ? Color.white.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .padding(.horizontal, VSpacing.sm)
+        .onHover { hovering in
+            isHoveredThread = hovering ? thread.id : nil
+        }
     }
 
     @ViewBuilder
@@ -265,17 +258,20 @@ struct MainWindowView: View {
             Text("Recents")
                 .font(.custom("Inter", size: 11))
                 .foregroundColor(VColor.textMuted)
-                .padding(.bottom, VSpacing.sm)
+                .padding(.bottom, VSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, VSpacing.lg)
 
             ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(threadManager.visibleThreads.filter { threadManager.threadHasMessages($0.id) }) { thread in
+                VStack(spacing: VSpacing.xs) {
+                    ForEach(threadManager.visibleThreads.filter { $0.sessionId != nil || threadManager.threadHasMessages($0.id) }) { thread in
                         threadItem(thread)
                     }
                 }
             }
+            .scrollClipDisabled()
+
+            Spacer()
 
             // Parental Controls
             VColor.surfaceBorder.frame(height: 1)
@@ -778,6 +774,42 @@ private struct DrawerMenuItem: View {
             isHovered = hovering
         }
     }
+}
+
+private struct ThreadEllipsisButton: View {
+    let onArchive: () -> Void
+
+    var body: some View {
+        Button {
+            showMenu()
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 24)
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Archive", action: #selector(ThreadMenuTarget.archive), keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: "Archive")
+        let target = ThreadMenuTarget(action: onArchive)
+        item.target = target
+        // Prevent target from being deallocated before menu closes
+        objc_setAssociatedObject(menu, "target", target, .OBJC_ASSOCIATION_RETAIN)
+        menu.addItem(item)
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+}
+
+private class ThreadMenuTarget: NSObject {
+    let action: () -> Void
+    init(action: @escaping () -> Void) { self.action = action }
+    @objc func archive() { action() }
 }
 
 #Preview {

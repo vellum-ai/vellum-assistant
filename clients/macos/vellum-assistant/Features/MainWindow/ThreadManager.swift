@@ -305,13 +305,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let result = try await client.sendToolUseRequest(
                 model: "claude-haiku-4-5-20251001",
                 maxTokens: 60,
-                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Be specific and concise. Do not use quotes.",
+                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Be specific and concise. Do not use quotes or markdown formatting.",
                 tools: [tool],
                 toolChoice: ["type": "any"],
                 messages: [["role": "user", "content": userMessage]],
                 timeout: 10
             )
-            if let title = result.input["title"] as? String, !title.isEmpty {
+            if let raw = result.input["title"] as? String, !raw.isEmpty {
+                let title = raw.replacingOccurrences(of: "*", with: "")
+                    .replacingOccurrences(of: "#", with: "")
+                    .replacingOccurrences(of: "_", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 updateThreadTitle(id: threadId, title: title)
             }
         } catch {
