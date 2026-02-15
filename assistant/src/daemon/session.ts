@@ -53,7 +53,7 @@ import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import { getApp } from '../memory/app-store.js';
 import { compileDynamicProfile } from '../memory/profile-compiler.js';
-import { getMemorySystemStatus } from '../memory/admin.js';
+import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
@@ -682,7 +682,7 @@ export class Session {
         signal: abortController.signal,
         maxInjectTokensOverride: recallBudget,
       });
-      const memoryStatus = getMemorySystemStatus();
+      const memoryStatus = getMemoryConflictAndCleanupStats();
 
       onEvent({
         type: 'memory_status',

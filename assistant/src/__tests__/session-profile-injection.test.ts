@@ -183,7 +183,7 @@ mock.module('../memory/clarification-resolver.js', () => ({
 }));
 
 mock.module('../memory/admin.js', () => ({
-  getMemorySystemStatus: () => ({
+  getMemoryConflictAndCleanupStats: () => ({
     conflicts: { pending: 0, resolved: 0, oldestPendingAgeMs: null },
     cleanup: { resolvedBacklog: 0, supersededBacklog: 0, resolvedCompleted24h: 0, supersededCompleted24h: 0 },
   }),

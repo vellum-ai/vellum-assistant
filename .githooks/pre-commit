@@ -200,7 +200,15 @@ while IFS= read -r -d '' FILE; do
                 fi
                 CONTENT="${line#*:}"
                 if matches_safe_line_pattern "$CONTENT"; then
-                    continue
+                    # Strip safe-line portions and re-check: a real secret
+                    # on the same line (e.g. minified JSON) must not be masked.
+                    STRIPPED="$CONTENT"
+                    for sp in "${SAFE_LINE_PATTERNS[@]}"; do
+                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s/$sp//g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                    done
+                    if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
+                        continue
+                    fi
                 fi
                 FILTERED_MATCHES="${FILTERED_MATCHES}${line}"$'\n'
             done <<< "$MATCHES"
