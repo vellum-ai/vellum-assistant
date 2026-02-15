@@ -5,7 +5,7 @@ struct ThreadModel: Identifiable, Hashable {
     let title: String
     let createdAt: Date
     /// Daemon conversation ID for restored threads. Nil for new, unsaved threads.
-    var sessionId: String?
+    let sessionId: String?
 
     init(id: UUID = UUID(), title: String = "New Thread", createdAt: Date = Date(), sessionId: String? = nil) {
         self.id = id

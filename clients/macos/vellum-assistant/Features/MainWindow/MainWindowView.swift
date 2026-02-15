@@ -65,7 +65,7 @@ struct MainWindowView: View {
                                     }
                                 }
                             }
-                            .padding(.leading, 78)
+                            .padding(.leading, 78)  // Account for macOS traffic light buttons
                             .padding(.trailing, VSpacing.lg)
                             .frame(height: 36)
                             .background(VColor.background)
@@ -84,7 +84,6 @@ struct MainWindowView: View {
                         }
                         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
-                    .ignoresSafeArea(edges: .top)
                 } else {
                     // Tab mode: Traditional layout
                     VStack(spacing: 0) {
@@ -122,6 +121,7 @@ struct MainWindowView: View {
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
         .onAppear {
             refreshAPIKeyState()
+            selectedThreadId = threadManager.activeThreadId
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             refreshAPIKeyState()
@@ -156,10 +156,6 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { _, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
-        }
-        .onAppear {
-            // Initialize selectedThreadId to match activeThreadId on appear
-            selectedThreadId = threadManager.activeThreadId
         }
     }
 
