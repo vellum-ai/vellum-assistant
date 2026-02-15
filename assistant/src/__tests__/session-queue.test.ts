@@ -1037,6 +1037,60 @@ describe('Terminal trace events on rejection/failure', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Surface-action queue-full trace emission
+// ---------------------------------------------------------------------------
+
+describe('Surface-action queue-full trace', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('surface-action queue-full rejection emits request_error trace', async () => {
+    const traceEvents: ServerMessage[] = [];
+    const session = makeSession((msg) => {
+      if ('type' in msg && msg.type === 'trace_event') traceEvents.push(msg);
+    });
+    await session.loadFromDb();
+
+    // Start processing to make the session busy
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Fill the queue to MAX_QUEUE_DEPTH
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      const result = session.enqueueMessage(`queued-${i}`, [], () => {}, `req-q-${i}`);
+      expect(result.queued).toBe(true);
+    }
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+
+    // Register a pending surface action so handleSurfaceAction doesn't bail early
+    (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
+
+    // Trigger the surface action — queue is full, should be rejected
+    session.handleSurfaceAction('surf-1', 'confirm');
+
+    // Should have a request_received trace followed by a request_error trace
+    const receivedTrace = traceEvents.find(
+      (e) => 'kind' in e && e.kind === 'request_received',
+    );
+    expect(receivedTrace).toBeDefined();
+
+    const errorTrace = traceEvents.find(
+      (e) => 'kind' in e && e.kind === 'request_error',
+    );
+    expect(errorTrace).toBeDefined();
+    if (errorTrace && 'attributes' in errorTrace) {
+      const attrs = (errorTrace as any).attributes;
+      expect(attrs.reason).toBe('queue_full');
+      expect(attrs.source).toBe('surface_action');
+    }
+
+    // Queue depth should not have increased
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Regression: cancel semantics + session/global error channel split
 // ---------------------------------------------------------------------------
 
