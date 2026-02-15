@@ -154,7 +154,7 @@ Attachments are sent inline (base64) in `message_complete`, `generation_handoff`
 
 ### Runtime HTTP API
 
-The `GET /v1/assistants/:id/messages` endpoint returns attachment metadata on each message:
+The `GET /v1/assistants/:id/messages?conversationKey=<key>` endpoint returns attachment metadata on each message (the `conversationKey` query parameter is required):
 
 ```json
 {
