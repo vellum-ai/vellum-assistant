@@ -715,7 +715,7 @@ The daemon emits two distinct error message types over IPC:
 | `session_error` | Session-scoped | Typed, actionable failures during chat/session runtime (e.g., provider network error, rate limit, API failure) | `sessionId`, `code` (typed enum), `userMessage`, `retryable`, `debugDetails?` |
 | `error` | Global | Generic, non-session failures (e.g., daemon startup errors, unknown message types) | `message` (string) |
 
-**Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/copy-debug/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
+**Design rationale:** `session_error` carries structured metadata (error code, retryable flag, debug details) so the client can present actionable UI — a toast with retry/dismiss buttons — rather than a generic error banner. The older `error` type is retained for backward compatibility with non-session contexts.
 
 ### Session Error Codes
 
@@ -750,16 +750,13 @@ sequenceDiagram
     VM->>VM: set sessionError property<br/>clear isThinking / isCancelling
     VM-->>UI: @Published sessionError observed
 
-    UI->>UI: show sessionErrorToast<br/>[Retry] [Copy Debug] [Dismiss]
+    UI->>UI: show sessionErrorToast<br/>[Retry] [Dismiss]
 
     alt User taps Retry (retryable == true)
         UI->>VM: retryAfterSessionError()
         VM->>VM: dismissSessionError()<br/>+ regenerateLastMessage()
         VM->>DC: regenerate {sessionId}
         DC->>Daemon: IPC
-    else User taps Copy Debug
-        UI->>VM: copySessionErrorDebugDetails()
-        Note over VM: Copies error details<br/>to system clipboard
     else User taps Dismiss
         UI->>VM: dismissSessionError()
         VM->>VM: clear sessionError + errorText
@@ -770,9 +767,8 @@ sequenceDiagram
 2. **ChatViewModel** receives the error via the `onSessionError` callback, sets the `sessionError` property, and transitions out of the streaming/loading state so the UI is interactive.
 3. **ChatView** observes the published `sessionError` and displays an actionable toast with a category-specific icon and accent color:
    - **Retry** (shown when `retryable` is true): calls `retryAfterSessionError()`, which clears the error and sends a `regenerate` message to the daemon.
-   - **Copy Debug**: calls `copySessionErrorDebugDetails()` to copy error details to the clipboard.
    - **Dismiss (X)**: calls `dismissSessionError()` to clear the error without retrying.
-4. If the error is not retryable, the Retry button is hidden and the user can only dismiss or copy debug info.
+4. If the error is not retryable, the Retry button is hidden and the user can only dismiss.
 
 ---
 
