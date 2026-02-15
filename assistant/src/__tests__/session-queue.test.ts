@@ -1213,6 +1213,99 @@ describe('Session host attachment directives', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Attachment payload emission tests
+// ---------------------------------------------------------------------------
+
+describe('Session attachment event payloads', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('message_complete includes assistant attachments', async () => {
+    const events: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    const run = pendingRuns[0];
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Here is your chart.' }],
+    };
+    run.onEvent({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+      contentBlocks: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+      ],
+    });
+    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.resolve([...run.messages, assistantMsg]);
+
+    await p1;
+
+    const completion = events.find((e) => e.type === 'message_complete' && Array.isArray(e.attachments));
+    expect(completion).toBeDefined();
+    const attachments = (completion as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe('image/png');
+    expect(attachments[0].data).toBe('iVBORw0K');
+    expect(attachments[0].id).toBeDefined();
+  });
+
+  test('generation_handoff includes assistant attachments', async () => {
+    const events1: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Queue a second message so the first run yields via checkpoint handoff.
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+
+    const run = pendingRuns[0];
+    expect(run.onCheckpoint).toBeDefined();
+    expect(run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Handing off with attachment.' }],
+    };
+    run.onEvent({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+      contentBlocks: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+      ],
+    });
+    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.resolve([...run.messages, assistantMsg]);
+
+    await p1;
+
+    const handoff = events1.find((e) => e.type === 'generation_handoff' && Array.isArray(e.attachments));
+    expect(handoff).toBeDefined();
+    const attachments = (handoff as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe('image/png');
+    expect(attachments[0].data).toBe('iVBORw0K');
+
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Regression: cancel semantics + session/global error channel split
 // ---------------------------------------------------------------------------
 

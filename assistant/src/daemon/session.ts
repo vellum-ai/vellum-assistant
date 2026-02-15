@@ -914,6 +914,7 @@ export class Session {
 
       // Resolve accumulated attachment directives and tool content blocks
       let assistantAttachments: AssistantAttachmentDraft[] = [];
+      const emittedAttachments: UserMessageAttachment[] = [];
       if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
         const approveHostRead: ApproveHostRead = async (filePath) => this.approveHostAttachmentRead(filePath);
 
@@ -942,6 +943,20 @@ export class Session {
             draft.dataBase64,
           );
           linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
+          emittedAttachments.push({
+            id: stored.id,
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
+        }
+      } else if (assistantAttachments.length > 0) {
+        for (const draft of assistantAttachments) {
+          emittedAttachments.push({
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
         }
       }
 
@@ -964,6 +979,7 @@ export class Session {
           sessionId: this.conversationId,
           requestId: reqId,
           queuedCount: this.getQueueDepth(),
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
         });
       } else if (abortController.signal.aborted) {
         this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
@@ -976,7 +992,11 @@ export class Session {
           requestId: reqId,
           status: 'success',
         });
-        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        onEvent({
+          type: 'message_complete',
+          sessionId: this.conversationId,
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
+        });
       }
 
       // Auto-generate conversation title after first exchange
