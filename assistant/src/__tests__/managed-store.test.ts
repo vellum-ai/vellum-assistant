@@ -169,6 +169,25 @@ describe('buildSkillMarkdown', () => {
     expect(skill).toBeDefined();
     expect(skill!.name).toBe('path\\name');
   });
+
+  test('single-quoted frontmatter preserves backslashes literally', () => {
+    // Single-quoted YAML values treat backslashes as literal characters.
+    // Manually write a SKILL.md with single-quoted frontmatter to simulate
+    // a hand-authored skill file.
+    const skillDir = join(TEST_DIR, 'skills', 'single-quote-test');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      "---\nname: 'path\\\\name'\ndescription: 'has \\n in it'\n---\n\nBody.\n",
+    );
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, 'skills')]);
+    const skill = catalog.find((s) => s.id === 'single-quote-test');
+    expect(skill).toBeDefined();
+    // Backslashes should be preserved literally, not interpreted as escape sequences
+    expect(skill!.name).toBe('path\\\\name');
+    expect(skill!.description).toBe('has \\n in it');
+  });
 });
 
 describe('SKILLS.md index management', () => {
