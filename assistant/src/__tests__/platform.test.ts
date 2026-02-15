@@ -70,6 +70,8 @@ describe('baseline path characterization (pre-migration)', () => {
     const base = join(tmpdir(), `platform-test-${randomBytes(4).toString('hex')}`);
     process.env.BASE_DATA_DIR = base;
     const rootDir = getRootDir();
+    const ws = getWorkspaceDir();
+    const wsData = join(ws, 'data');
 
     if (existsSync(rootDir)) {
       rmSync(rootDir, { recursive: true, force: true });
@@ -77,23 +79,30 @@ describe('baseline path characterization (pre-migration)', () => {
 
     ensureDataDir();
 
-    // Root-level dirs
+    // Root-level dirs (runtime / protected)
     expect(existsSync(getRootDir())).toBe(true);
-    expect(existsSync(join(getRootDir(), 'skills'))).toBe(true);
-    expect(existsSync(join(getRootDir(), 'hooks'))).toBe(true);
     expect(existsSync(join(getRootDir(), 'protected'))).toBe(true);
 
-    // Data sub-dirs
-    expect(existsSync(getDataDir())).toBe(true);
-    expect(existsSync(join(getDataDir(), 'db'))).toBe(true);
-    expect(existsSync(join(getDataDir(), 'qdrant'))).toBe(true);
-    expect(existsSync(join(getDataDir(), 'logs'))).toBe(true);
-    expect(existsSync(join(getDataDir(), 'memory'))).toBe(true);
-    expect(existsSync(join(getDataDir(), 'memory', 'knowledge'))).toBe(true);
-    expect(existsSync(join(getDataDir(), 'apps'))).toBe(true);
-    expect(existsSync(getSandboxRootDir())).toBe(true);
-    expect(existsSync(getSandboxWorkingDir())).toBe(true);
-    expect(existsSync(getInterfacesDir())).toBe(true);
+    // Workspace dirs
+    expect(existsSync(ws)).toBe(true);
+    expect(existsSync(join(ws, 'hooks'))).toBe(true);
+    expect(existsSync(join(ws, 'skills'))).toBe(true);
+
+    // Data sub-dirs under workspace
+    expect(existsSync(wsData)).toBe(true);
+    expect(existsSync(join(wsData, 'db'))).toBe(true);
+    expect(existsSync(join(wsData, 'qdrant'))).toBe(true);
+    expect(existsSync(join(wsData, 'logs'))).toBe(true);
+    expect(existsSync(join(wsData, 'memory'))).toBe(true);
+    expect(existsSync(join(wsData, 'memory', 'knowledge'))).toBe(true);
+    expect(existsSync(join(wsData, 'apps'))).toBe(true);
+    expect(existsSync(join(wsData, 'interfaces'))).toBe(true);
+
+    // Legacy dirs should NOT be created
+    expect(existsSync(join(getRootDir(), 'skills'))).toBe(false);
+    expect(existsSync(join(getRootDir(), 'hooks'))).toBe(false);
+    expect(existsSync(join(getRootDir(), 'data', 'sandbox'))).toBe(false);
+    expect(existsSync(join(getRootDir(), 'data', 'sandbox', 'fs'))).toBe(false);
 
     rmSync(rootDir, { recursive: true, force: true });
   });
