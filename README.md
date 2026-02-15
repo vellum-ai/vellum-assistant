@@ -91,18 +91,18 @@ When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bas
 
 - Docker installed and the `docker` CLI available in `PATH`.
 - Docker daemon running (Docker Desktop on macOS/Windows, or `systemd` service on Linux).
-- The configured image pulled locally. The default image is pinned with a `sha256` digest for reproducibility:
+- The configured image pulled locally. The default image is `ubuntu:22.04`:
   ```
-  node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9
+  docker pull ubuntu:22.04
   ```
-  Pull it with: `docker pull node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9`
+- The `ubuntu:22.04` image must also be available locally — the preflight mount probe uses it regardless of `sandbox.docker.image`. In air-gapped or offline environments, ensure both `ubuntu:22.04` and your configured image (if different) are pulled.
 
 **Docker configuration options** (all under `sandbox.docker`):
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `image` | `node:20-slim@sha256:...` | Container image (pinned with sha256 digest) |
-| `cpus` | `1` | CPU limit per container |
+| `image` | `ubuntu:22.04` | Container image |
+| `cpus` | `2` | CPU limit per container |
 | `memoryMb` | `512` | Memory limit in MB |
 | `pidsLimit` | `256` | Maximum number of processes |
 | `network` | `"none"` | Network mode (`"none"` or `"bridge"`) |
