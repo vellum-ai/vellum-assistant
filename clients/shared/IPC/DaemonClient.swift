@@ -791,9 +791,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 let message = try decoder.decode(ServerMessage.self, from: Data(lineData))
                 handleServerMessage(message)
             } catch {
-                let lineString = String(data: Data(lineData), encoding: .utf8) ?? "<binary>"
-                let prefix = lineString.count > 200 ? String(lineString.prefix(200)) + "..." : lineString
-                log.error("Failed to decode server message: \(error.localizedDescription), line: \(prefix)")
+                // Log a safe summary — never include raw line content which may contain secrets.
+                let byteCount = lineData.count
+                let typeHint = extractMessageType(from: Data(lineData))
+                log.error("Failed to decode server message: \(error.localizedDescription), bytes: \(byteCount), type: \(typeHint)")
             }
         }
     }
@@ -1028,6 +1029,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         pongTimeoutTask?.cancel()
         pongTimeoutTask = nil
         awaitingPong = false
+    }
+
+    /// Extract the "type" field from raw JSON data for safe logging.
+    /// Returns the type string if parseable, otherwise "<unknown>".
+    /// This avoids logging the entire line which may contain sensitive values.
+    private func extractMessageType(from data: Data) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            return "<unknown>"
+        }
+        return type
     }
 
     private func sendPing() {
