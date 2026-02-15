@@ -54,6 +54,7 @@ yarn-error.log*
 *.xcactivitylog
 DerivedData/
 **/Library/Logs/CoreSimulator/
+.build-ios/
 
 # drizzle
 web/drizzle/
