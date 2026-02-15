@@ -113,6 +113,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
           workingDir,
           model,
           timeoutMs: limits.workerTimeoutSec * 1000,
+          signal,
         });
       }
       result.retryCount = retries;
