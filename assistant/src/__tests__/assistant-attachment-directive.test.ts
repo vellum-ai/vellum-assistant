@@ -116,6 +116,14 @@ describe('parseDirectives', () => {
     expect(result.parseWarnings).toHaveLength(0);
   });
 
+  test('preserves whitespace when no directives are present', () => {
+    const text = '\n  Leading space\n\n\n\nTrailing space  \n';
+    const result = parseDirectives(text);
+
+    expect(result.cleanText).toBe(text);
+    expect(result.directiveRequests).toHaveLength(0);
+  });
+
   test('preserves non-self-closing tags as plain text', () => {
     const text = '<vellum-attachment path="file.txt">content</vellum-attachment>';
     const result = parseDirectives(text);
