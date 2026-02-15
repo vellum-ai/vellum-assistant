@@ -210,12 +210,15 @@ export class EvaluateTypescriptTool implements Tool {
         let truncated = false;
 
         // Extract structured result from raw stdout before truncation.
-        // Use lastIndexOf to find the marker directly, so extraction cost
-        // is bounded regardless of output size and works for any result length.
+        // Scan backward from the end for the marker; if the last occurrence
+        // is on a malformed line, keep searching earlier occurrences so a
+        // valid result is not missed due to trailing marker-like log output.
         let result: unknown = undefined;
         if (code === 0) {
-          const markerIdx = stdout.lastIndexOf('__eval_result');
-          if (markerIdx !== -1) {
+          let searchFrom = stdout.length;
+          while (searchFrom > 0) {
+            const markerIdx = stdout.lastIndexOf('__eval_result', searchFrom - 1);
+            if (markerIdx === -1) break;
             const lineStart = stdout.lastIndexOf('\n', markerIdx) + 1;
             const lineEnd = stdout.indexOf('\n', markerIdx);
             const line = stdout.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
@@ -223,10 +226,12 @@ export class EvaluateTypescriptTool implements Tool {
               const parsed = JSON.parse(line);
               if (parsed && typeof parsed === 'object' && '__eval_result' in parsed) {
                 result = parsed.__eval_result;
+                break;
               }
             } catch {
-              // malformed result line
+              // malformed line — continue scanning earlier occurrences
             }
+            searchFrom = lineStart;
           }
         }
 
