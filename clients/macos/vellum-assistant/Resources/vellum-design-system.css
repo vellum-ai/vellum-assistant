@@ -183,6 +183,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+@media (prefers-color-scheme: dark) {
+  body {
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--v-slate-900) 0%, transparent 50%),
+      var(--v-bg);
+  }
+}
+
 h1, h2, h3, h4, h5, h6 {
   line-height: 1.2;
   margin: 0 0 var(--v-spacing-md) 0;
