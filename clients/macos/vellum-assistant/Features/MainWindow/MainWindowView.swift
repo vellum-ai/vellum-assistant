@@ -225,9 +225,7 @@ struct MainWindowView: View {
                     .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
                 Spacer()
                 // Reserve space for archive button
-                if threadManager.visibleThreads.count > 1 {
-                    Spacer().frame(width: 16)
-                }
+                Spacer().frame(width: 16)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.xs)
@@ -235,18 +233,16 @@ struct MainWindowView: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            if threadManager.visibleThreads.count > 1 {
-                Button(action: { threadManager.archiveThread(id: thread.id) }) {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Archive \(thread.title)")
-                .padding(.trailing, VSpacing.lg)
+            Button(action: { threadManager.archiveThread(id: thread.id) }) {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Archive \(thread.title)")
+            .padding(.trailing, VSpacing.lg)
         }
         .background(thread.id == threadManager.activeThreadId ? VColor.surface : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))

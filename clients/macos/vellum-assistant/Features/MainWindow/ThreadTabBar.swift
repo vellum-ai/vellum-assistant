@@ -23,7 +23,7 @@ struct ThreadTabBar: View {
                         label: thread.title,
                         icon: "flame",
                         isSelected: thread.id == activeThreadId,
-                        isCloseable: threads.count > 1,
+                        isCloseable: true,
                         onSelect: { onSelect(thread.id) },
                         onClose: { onClose(thread.id) }
                     )
