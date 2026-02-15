@@ -17,6 +17,7 @@ export type {
   MemoryExtractionConfig,
   MemorySummarizationConfig,
   MemoryEntityConfig,
+  MemoryConflictsConfig,
   MemoryConfig,
   ModelPricingOverride,
   QdrantConfig,

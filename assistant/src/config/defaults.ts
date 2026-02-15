@@ -95,6 +95,13 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         neighborScoreMultiplier: 0.7,
       },
     },
+    conflicts: {
+      enabled: false,
+      gateMode: 'soft',
+      reaskCooldownTurns: 3,
+      resolverLlmTimeoutMs: 12000,
+      relevanceThreshold: 0.3,
+    },
   },
   dataDir: getDataDir(),
   timeouts: {

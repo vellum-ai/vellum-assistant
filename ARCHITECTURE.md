@@ -525,6 +525,7 @@ graph TB
 
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query Builder<br/>User request + compacted context summary<br/>+ conversation summary + weekly summary"]
+        CONFLICT_GATE["Soft Conflict Gate<br/>resolve pending conflicts from user turn<br/>relevance + cooldown ask-once behavior"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
         LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
         SEM["Semantic Search<br/>Qdrant cosine similarity"]
@@ -570,10 +571,11 @@ graph TB
     EMBED_SEG --> GEM_EMB
     EMBED_SEG --> OLL_EMB
 
-    QUERY --> LEX
-    QUERY --> SEM
-    QUERY --> ENTITY_SEARCH
-    QUERY --> DIRECT
+    QUERY --> CONFLICT_GATE
+    CONFLICT_GATE --> LEX
+    CONFLICT_GATE --> SEM
+    CONFLICT_GATE --> ENTITY_SEARCH
+    CONFLICT_GATE --> DIRECT
     LEX --> SCOPE
     SEM --> SCOPE
     ENTITY_SEARCH --> REL_EXPAND
@@ -608,6 +610,10 @@ graph TB
 | `memory.entity.relationRetrieval.maxNeighborEntities` | `20` | Maximum unique neighbor entities expanded from relation edges. |
 | `memory.entity.relationRetrieval.maxEdges` | `40` | Maximum relation edges traversed during expansion. |
 | `memory.entity.relationRetrieval.neighborScoreMultiplier` | `0.7` | Downweight multiplier for relation-expanded candidates vs direct entity hits. |
+| `memory.conflicts.enabled` | `false` | Enable soft conflict gate for unresolved `memory_item_conflicts`. |
+| `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
+| `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
+| `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
 
 ### Memory Recall Debugging Playbook
 

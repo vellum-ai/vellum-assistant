@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 
 const testDir = mkdtempSync(join(tmpdir(), 'conflict-store-test-'));
 
@@ -26,9 +27,11 @@ mock.module('../util/logger.js', () => ({
 import { initializeDb, getDb } from '../memory/db.js';
 import { memoryItems } from '../memory/schema.js';
 import {
+  applyConflictResolution,
   createOrUpdatePendingConflict,
   getConflictById,
   getPendingConflictByPair,
+  listPendingConflictDetails,
   listPendingConflicts,
   markConflictAsked,
   resolveConflict,
@@ -210,6 +213,72 @@ describe('conflict-store', () => {
     const updated = getConflictById(conflict.id);
     expect(updated?.lastAskedAt).toBe(askedAt);
     expect(updated?.updatedAt).toBe(askedAt);
+  });
+
+  test('listPendingConflictDetails joins current statements', () => {
+    const pair = insertItemPair('details', 'workspace-a');
+    createOrUpdatePendingConflict({
+      scopeId: 'workspace-a',
+      existingItemId: pair.existingItemId,
+      candidateItemId: pair.candidateItemId,
+      relationship: 'ambiguous_contradiction',
+      clarificationQuestion: 'Which framework should I keep?',
+    });
+
+    const details = listPendingConflictDetails('workspace-a');
+    expect(details).toHaveLength(1);
+    expect(details[0].existingStatement).toBe('Existing statement details');
+    expect(details[0].candidateStatement).toBe('Candidate statement details');
+  });
+
+  test('applyConflictResolution keeps candidate and resolves conflict row', () => {
+    const pair = insertItemPair('apply-candidate');
+    const conflict = createOrUpdatePendingConflict({
+      existingItemId: pair.existingItemId,
+      candidateItemId: pair.candidateItemId,
+      relationship: 'ambiguous_contradiction',
+    });
+
+    expect(applyConflictResolution({
+      conflictId: conflict.id,
+      resolution: 'keep_candidate',
+      resolutionNote: 'User confirmed candidate statement.',
+    })).toBe(true);
+
+    const db = getDb();
+    const existing = db.select().from(memoryItems).where(eq(memoryItems.id, pair.existingItemId)).get();
+    const candidate = db.select().from(memoryItems).where(eq(memoryItems.id, pair.candidateItemId)).get();
+    const updatedConflict = getConflictById(conflict.id);
+
+    expect(typeof existing?.invalidAt).toBe('number');
+    expect(candidate?.status).toBe('active');
+    expect(updatedConflict?.status).toBe('resolved_keep_candidate');
+  });
+
+  test('applyConflictResolution merge updates existing item statement', () => {
+    const pair = insertItemPair('apply-merge');
+    const conflict = createOrUpdatePendingConflict({
+      existingItemId: pair.existingItemId,
+      candidateItemId: pair.candidateItemId,
+      relationship: 'ambiguous_contradiction',
+    });
+
+    const merged = 'Use React for dashboard pages and Vue for marketing pages.';
+    expect(applyConflictResolution({
+      conflictId: conflict.id,
+      resolution: 'merge',
+      mergedStatement: merged,
+      resolutionNote: 'User clarified both apply in different contexts.',
+    })).toBe(true);
+
+    const db = getDb();
+    const existing = db.select().from(memoryItems).where(eq(memoryItems.id, pair.existingItemId)).get();
+    const candidate = db.select().from(memoryItems).where(eq(memoryItems.id, pair.candidateItemId)).get();
+    const updatedConflict = getConflictById(conflict.id);
+
+    expect(existing?.statement).toBe(merged);
+    expect(candidate?.status).toBe('superseded');
+    expect(updatedConflict?.status).toBe('resolved_merge');
   });
 
   test('enforces pending-pair uniqueness with a partial index', () => {
