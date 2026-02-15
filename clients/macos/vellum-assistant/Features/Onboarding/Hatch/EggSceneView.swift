@@ -20,8 +20,8 @@ struct EggSceneView: View {
                 if progress > 0 {
                     scene.setCrackProgress(progress, animated: false)
                 }
-                // Resume full hatch if restored at step 7 (Alive)
-                if state.currentStep == 7 {
+                // Resume full hatch if restored at step 5 (Alive)
+                if state.currentStep == 5 {
                     scene.triggerFullHatch()
                 }
             }
@@ -29,9 +29,9 @@ struct EggSceneView: View {
                 scene.setCrackProgress(newValue, animated: true)
             }
             .onChange(of: state.currentStep) { old, new in
-                if (4...6).contains(new) && new > old {
+                if (3...4).contains(new) && new > old {
                     scene.triggerDramaticCrack(for: new)
-                } else if new == 7 {
+                } else if new == 5 {
                     scene.triggerFullHatch()
                 }
             }
