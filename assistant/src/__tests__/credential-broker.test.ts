@@ -33,8 +33,8 @@ describe('CredentialBroker', () => {
       }
     });
 
-    test('authorizes when credential metadata exists', () => {
-      upsertCredentialMetadata('github', 'token');
+    test('authorizes when tool is in allowedTools', () => {
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
       const result = broker.authorize({
         service: 'github',
         field: 'token',
@@ -50,8 +50,38 @@ describe('CredentialBroker', () => {
       }
     });
 
-    test('issues unique token IDs', () => {
+    test('denies when tool is not in allowedTools', () => {
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['other_tool'] });
+      const result = broker.authorize({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+      });
+      expect(result.authorized).toBe(false);
+      if (!result.authorized) {
+        expect(result.reason).toContain('not allowed');
+        expect(result.reason).toContain('browser_fill_credential');
+        expect(result.reason).toContain('Allowed tools: other_tool');
+      }
+    });
+
+    test('denies when allowedTools is empty (fail-closed)', () => {
       upsertCredentialMetadata('github', 'token');
+      const result = broker.authorize({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+      });
+      expect(result.authorized).toBe(false);
+      if (!result.authorized) {
+        expect(result.reason).toContain('not allowed');
+        expect(result.reason).toContain('No tools are currently allowed');
+        expect(result.reason).toContain('credential_store');
+      }
+    });
+
+    test('issues unique token IDs', () => {
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['tool1', 'tool2'] });
       const r1 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
       const r2 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
       expect(r1.authorized).toBe(true);
@@ -64,7 +94,7 @@ describe('CredentialBroker', () => {
 
   describe('consume', () => {
     test('returns storage key on first consumption', () => {
-      upsertCredentialMetadata('github', 'token');
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
       const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
       expect(auth.authorized).toBe(true);
       if (!auth.authorized) return;
@@ -75,7 +105,7 @@ describe('CredentialBroker', () => {
     });
 
     test('rejects double consumption', () => {
-      upsertCredentialMetadata('github', 'token');
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
       const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
       if (!auth.authorized) return;
 
@@ -94,7 +124,7 @@ describe('CredentialBroker', () => {
 
   describe('revoke', () => {
     test('revokes existing token', () => {
-      upsertCredentialMetadata('github', 'token');
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
       const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
       if (!auth.authorized) return;
 
@@ -111,7 +141,7 @@ describe('CredentialBroker', () => {
 
   describe('revokeAll', () => {
     test('clears all active tokens', () => {
-      upsertCredentialMetadata('github', 'token');
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['tool1', 'tool2'] });
       broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
       broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
       expect(broker.activeTokenCount).toBe(2);
@@ -123,7 +153,7 @@ describe('CredentialBroker', () => {
 
   describe('activeTokenCount', () => {
     test('counts only unconsumed tokens', () => {
-      upsertCredentialMetadata('github', 'token');
+      upsertCredentialMetadata('github', 'token', { allowedTools: ['tool1', 'tool2'] });
       const auth1 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
       broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
       expect(broker.activeTokenCount).toBe(2);

@@ -8,6 +8,7 @@ import type {
   UsageToken,
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
+import { isToolAllowed } from './tool-policy.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -21,7 +22,7 @@ const log = getLogger('credential-broker');
  * 2. Issues a single-use token for the authorized usage
  * 3. On consumption, returns the storage key so the caller can read the secret internally
  *
- * Policy checks (tool policy, domain policy) are stubs in this PR — full enforcement comes later.
+ * Tool policy is enforced at authorize/fill time; domain policy enforcement comes in PR 20.
  */
 export class CredentialBroker {
   private tokens = new Map<string, UsageToken>();
@@ -39,8 +40,16 @@ export class CredentialBroker {
       };
     }
 
-    // Policy check stubs — full enforcement in PRs 19-20
-    // For now, always authorize if metadata exists.
+    // Tool policy enforcement — deny if tool is not in the credential's allowed list
+    if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
+      return {
+        authorized: false,
+        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+          (metadata.allowedTools.length === 0
+            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
+            : `Allowed tools: ${metadata.allowedTools.join(', ')}.`),
+      };
+    }
 
     const token: UsageToken = {
       tokenId: uuid(),
@@ -116,8 +125,16 @@ export class CredentialBroker {
       };
     }
 
-    // Policy check stubs — full enforcement in PRs 19-20
-    // For now, always allow if metadata exists.
+    // Tool policy enforcement — deny if tool is not in the credential's allowed list
+    if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
+      return {
+        success: false,
+        reason: `Tool "${request.toolName}" is not allowed to use credential ${request.service}/${request.field}. ` +
+          (metadata.allowedTools.length === 0
+            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
+            : `Allowed tools: ${metadata.allowedTools.join(', ')}.`),
+      };
+    }
 
     const value = getSecureKey(`credential:${request.service}:${request.field}`);
     if (!value) {
