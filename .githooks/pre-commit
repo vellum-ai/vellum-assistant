@@ -44,7 +44,7 @@ declare -a PATTERNS=(
 
     # Generic secret patterns
     "['\"]?[a-z0-9_]*secret[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
-    "['\"]?[a-z0-9_]*(api|access|private|secret|client)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
+    "['\"]?[a-z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-z0-9_]*key[a-z0-9_]*['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-]{16,}['\"]"
 
     # Slack tokens
     "xox[baprs]-[0-9a-zA-Z]{10,}"
@@ -89,6 +89,19 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_HASH_FIXTURE_LINE='"nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"'
     REAL_SECRET_LINE='api_key="sk_live_12345678901234567890"'
 
+    # Additional real-secret lines that the widened qualifier list must catch
+    ENCRYPTION_KEY_LINE='encryption_key="ABCDEFGHIJKLMNOPQRSTUVWX"'
+    JWT_KEY_LINE='jwt_key="supersecretjwtkey1234567890abcdef"'
+    SIGNING_KEY_LINE='signing_key="ab2c3d4e5f6g7h8i9j0klmnopqrst"'
+    AUTH_KEY_LINE='auth_key="myAuthKeyValue12345678"'
+    HMAC_KEY_LINE='hmac_key="hmac_secret_value_1234567890ab"'
+    MASTER_KEY_LINE='master_key="master_12345678901234567890"'
+    SERVICE_KEY_LINE='service_key="svc_key_abcdefghij1234567890"'
+    DATABASE_KEY_LINE='database_key="db_secret_key_1234567890abcde"'
+
+    # False-positive line that must NOT match (plain identifier, not a secret)
+    SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
+
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
         exit 1
@@ -103,6 +116,42 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if ! matches_secret_pattern "$REAL_SECRET_LINE"; then
         echo -e "${RED}Self-test failed:${NC} real secret seed did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$ENCRYPTION_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} encryption_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$JWT_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} jwt_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SIGNING_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} signing_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$AUTH_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} auth_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$HMAC_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} hmac_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$MASTER_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} master_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$SERVICE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} service_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$DATABASE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} database_key secret did not match"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} cache key identifier false positive"
         exit 1
     fi
 
