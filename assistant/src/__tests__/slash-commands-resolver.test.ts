@@ -3,6 +3,7 @@ import {
   buildInvocableSlashCatalog,
   formatUnknownSlashSkillMessage,
   resolveSlashSkillCommand,
+  type InvocableSlashSkill,
 } from '../skills/slash-commands.js';
 import type { SkillSummary } from '../config/skills.js';
 import type { ResolvedSkill } from '../config/skill-state.js';
@@ -28,7 +29,7 @@ function makeResolved(skill: SkillSummary, state: ResolvedSkill['state']): Resol
   };
 }
 
-function buildCatalog(skills: SkillSummary[]): Map<string, any> {
+function buildCatalog(skills: SkillSummary[]): Map<string, InvocableSlashSkill> {
   const resolved = skills.map((s) => makeResolved(s, 'enabled'));
   return buildInvocableSlashCatalog(skills, resolved);
 }

@@ -835,6 +835,7 @@ describe('Regression: edge cases in shared FileSystemOps', () => {
 
     const linkPath = join(dir, 'link.txt');
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('node:fs').symlinkSync(targetFile, linkPath);
     } catch {
       // Symlink creation may fail on some systems — skip gracefully
