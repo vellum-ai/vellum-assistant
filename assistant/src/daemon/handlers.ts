@@ -2226,34 +2226,13 @@ function handleGalleryInstall(
 
 // ─── Slack handlers ─────────────────────────────────────────────────────────
 
-function getVellumConfigPath(): string {
-  return join(homedir(), '.vellum', 'config.json');
-}
-
-function readVellumConfig(): Record<string, unknown> {
-  const configPath = getVellumConfigPath();
-  if (!existsSync(configPath)) return {};
-  try {
-    return JSON.parse(readFileSync(configPath, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function writeVellumConfig(config: Record<string, unknown>): void {
-  const configPath = getVellumConfigPath();
-  const dir = join(configPath, '..');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
-}
-
 async function handleShareToSlack(
   msg: ShareToSlackRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const config = readVellumConfig();
+    const config = loadRawConfig();
     const webhookUrl = config.slackWebhookUrl as string | undefined;
     if (!webhookUrl) {
       ctx.send(socket, {
@@ -2299,7 +2278,7 @@ function handleSlackWebhookConfig(
   ctx: HandlerContext,
 ): void {
   try {
-    const config = readVellumConfig();
+    const config = loadRawConfig();
     if (msg.action === 'get') {
       ctx.send(socket, {
         type: 'slack_webhook_config_response',
@@ -2308,7 +2287,7 @@ function handleSlackWebhookConfig(
       });
     } else {
       config.slackWebhookUrl = msg.webhookUrl ?? '';
-      writeVellumConfig(config);
+      saveRawConfig(config);
       ctx.send(socket, {
         type: 'slack_webhook_config_response',
         success: true,
