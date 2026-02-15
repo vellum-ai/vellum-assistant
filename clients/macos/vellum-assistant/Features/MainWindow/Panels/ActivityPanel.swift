@@ -97,15 +97,17 @@ struct ActivityStepView: View {
 
             // Result
             if let result = toolCall.result, !result.isEmpty {
+                let accentColor = toolCall.isError ? VColor.error : VColor.accent
+
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(result)
                         .font(VFont.monoSmall)
                         .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
-                        .lineLimit(isResultExpanded ? nil : 6)
+                        .lineLimit(isResultExpanded ? nil : 3)
                         .textSelection(.enabled)
 
                     // Show more/less button if text is long
-                    if result.count > 200 || result.split(separator: "\n").count > 6 {
+                    if result.count > 120 || result.split(separator: "\n").count > 3 {
                         Button(action: {
                             withAnimation(VAnimation.fast) {
                                 isResultExpanded.toggle()
@@ -126,10 +128,13 @@ struct ActivityStepView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.surface)
-                )
+                .background(Slate._900)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(accentColor)
+                        .frame(width: 2)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                 .padding(.leading, 32)
             }
         }
