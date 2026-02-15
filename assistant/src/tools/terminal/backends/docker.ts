@@ -8,23 +8,17 @@ import type { SandboxBackend, SandboxResult } from './types.js';
 
 const log = getLogger('docker-sandbox');
 
-/** DockerBackend-specific config extends the schema type with shell selection. */
-interface DockerBackendConfig extends DockerConfig {
-  /** Shell binary used to interpret commands (default: 'sh' for POSIX portability). */
-  shell: string;
-}
-
 /**
  * Fallback defaults when DockerBackend is constructed without explicit config.
  * Must stay in sync with DockerConfigSchema defaults in config/schema.ts.
  */
-const DEFAULTS: DockerBackendConfig = {
+const DEFAULTS: Required<DockerConfig> = {
   image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
+  shell: 'sh',
   cpus: 1,
   memoryMb: 512,
   pidsLimit: 256,
   network: 'none',
-  shell: 'sh',
 };
 
 /**
@@ -143,13 +137,13 @@ function validatePathSafety(path: string, label: string): void {
  */
 export class DockerBackend implements SandboxBackend {
   private readonly sandboxRoot: string;
-  private readonly config: DockerBackendConfig;
+  private readonly config: Required<DockerConfig>;
   private readonly uid: number;
   private readonly gid: number;
 
   constructor(
     sandboxRoot: string,
-    config?: Partial<DockerBackendConfig>,
+    config?: Partial<Required<DockerConfig>>,
     uid?: number,
     gid?: number,
   ) {
@@ -236,7 +230,6 @@ export class DockerBackend implements SandboxBackend {
       image,
       shell,
       '-c',
-      '--',
       command,
     ];
 

@@ -111,13 +111,13 @@ describe('DockerBackend — argument construction', () => {
     expect(result.args).toContain(defaultImage);
   });
 
-  test('wraps command with sh -c -- by default', () => {
+  test('wraps command with sh -c by default', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const cmd = 'cat /etc/passwd | wc -l';
     const result = backend.wrap(cmd, sandboxRoot);
     const shIdx = result.args.indexOf('sh');
     expect(shIdx).toBeGreaterThan(0);
-    expect(result.args.slice(shIdx)).toEqual(['sh', '-c', '--', cmd]);
+    expect(result.args.slice(shIdx)).toEqual(['sh', '-c', cmd]);
   });
 });
 
@@ -281,10 +281,10 @@ describe('DockerBackend — argv segment safety', () => {
   test('all args are discrete strings — no shell metacharacters are interpreted', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const result = backend.wrap('echo $(whoami)', sandboxRoot);
-    // The command is passed as a single argv element after '--'
-    const dashDashIdx = result.args.indexOf('--');
-    expect(dashDashIdx).toBeGreaterThan(0);
-    expect(result.args[dashDashIdx + 1]).toBe('echo $(whoami)');
+    // The command is passed as a single argv element after 'sh -c'
+    const cIdx = result.args.indexOf('-c');
+    expect(cIdx).toBeGreaterThan(0);
+    expect(result.args[cIdx + 1]).toBe('echo $(whoami)');
     // The command itself is a single string, not split by the shell
     expect(result.args.filter((a: string) => a === '$(whoami)').length).toBe(0);
   });
@@ -373,7 +373,7 @@ describe('DockerBackend — custom config', () => {
     const result = backend.wrap('echo hi', sandboxRoot);
     const bashIdx = result.args.indexOf('bash');
     expect(bashIdx).toBeGreaterThan(0);
-    expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', '--', 'echo hi']);
+    expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', 'echo hi']);
   });
 
   test('accepts custom network mode', () => {
