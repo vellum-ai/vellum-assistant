@@ -159,24 +159,22 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
   }
 
-  // Synthesize final answer (skip if aborted — no point calling the model)
+  // Synthesize final answer (skip LLM synthesis when aborted, but still
+  // build the markdown fallback so partial results are preserved)
   const allResults = Array.from(results.values());
 
   let finalAnswer: string;
-  if (signal?.aborted) {
-    finalAnswer = 'Swarm cancelled before synthesis.';
-  } else {
+  if (opts.synthesisProvider && !signal?.aborted) {
     onStatus?.({ kind: 'synthesis_started' });
-    if (opts.synthesisProvider) {
-      finalAnswer = await synthesizeResults({
-        objective: plan.objective,
-        results: allResults,
-        provider: opts.synthesisProvider,
-        model: opts.synthesisModel ?? 'claude-sonnet-4-5-20250929',
-      });
-    } else {
-      finalAnswer = buildMarkdownFallback(plan.objective, allResults);
-    }
+    finalAnswer = await synthesizeResults({
+      objective: plan.objective,
+      results: allResults,
+      provider: opts.synthesisProvider,
+      model: opts.synthesisModel ?? 'claude-sonnet-4-5-20250929',
+    });
+  } else {
+    if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });
+    finalAnswer = buildMarkdownFallback(plan.objective, allResults);
   }
 
   const totalDurationMs = Date.now() - startTime;

@@ -209,6 +209,44 @@ describe('executeSwarm', () => {
     expect(summary.stats.totalDurationMs).toBeGreaterThanOrEqual(0);
   });
 
+  test('uses markdown fallback when aborted without synthesis provider', async () => {
+    const controller = new AbortController();
+    let taskRun = false;
+    const backend = makeBackend({
+      runTask: async () => {
+        taskRun = true;
+        // Abort after the first task completes
+        controller.abort();
+        return {
+          success: true,
+          output: '```json\n{"summary":"Partial work done","artifacts":[],"issues":[],"nextSteps":[]}\n```',
+          durationMs: 10,
+        };
+      },
+    });
+
+    const plan = makePlan({
+      tasks: [
+        { id: 'a', role: 'coder', objective: 'A', dependencies: [] },
+        { id: 'b', role: 'coder', objective: 'B', dependencies: ['a'] },
+      ],
+    });
+
+    const summary = await executeSwarm({
+      plan,
+      limits: DEFAULT_LIMITS,
+      backend,
+      workingDir: '/tmp',
+      signal: controller.signal,
+    });
+
+    expect(taskRun).toBe(true);
+    // Should use markdown fallback with partial results, not a fixed cancellation string
+    expect(summary.finalAnswer).toContain('Swarm Results');
+    expect(summary.finalAnswer).toContain('a');
+    expect(summary.finalAnswer).not.toContain('cancelled');
+  });
+
   test('handles diamond dependency pattern', async () => {
     const plan = makePlan({
       tasks: [
