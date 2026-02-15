@@ -348,7 +348,8 @@ final class ComputerUseSession: ObservableObject {
         var axTreeText: String?
         var elements: [AXElement]?
         var flatElements: [AXElement]?
-        var screenshot: Data?
+        var screenshotData: Data?
+        var screenshotMetadata: ScreenCaptureMetadata?
         var axDiffText: String?
         var secondaryWindowsText: String?
         var primaryPID: pid_t?
@@ -359,8 +360,8 @@ final class ComputerUseSession: ObservableObject {
         // This runs in parallel with AX tree enumeration below
         // Use Task.detached so it doesn't inherit @MainActor isolation and can truly run concurrently
         let screenCap = self.screenCapture
-        let screenshotPromise: Task<Data?, Never> = Task.detached {
-            try? await screenCap.captureScreen()
+        let screenshotPromise: Task<ScreenCaptureResult?, Never> = Task.detached {
+            try? await screenCap.captureScreenWithMetadata(maxWidth: 1280, maxHeight: 720)
         }
 
         if let result = enumerator.enumerateCurrentWindow() {
@@ -424,17 +425,21 @@ final class ComputerUseSession: ObservableObject {
 
             // Await the pre-started screenshot if we need it; cancel otherwise
             if shouldCaptureScreenshot(stepNumber: stepNumber, flatElements: flat, lastAction: nil) {
-                screenshot = await screenshotPromise.value
-                log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshot?.count ?? 0) bytes)")
+                let screenshotResult = await screenshotPromise.value
+                screenshotData = screenshotResult?.jpegData
+                screenshotMetadata = screenshotResult?.metadata
+                log.info("[\(stepNumber)] Screenshot captured alongside AX tree (\(screenshotData?.count ?? 0) bytes)")
             } else {
                 screenshotPromise.cancel()
             }
         } else {
             // No focused window — await pre-started screenshot as last resort
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            screenshot = await screenshotPromise.value
-            if screenshot != nil {
-                log.info("[\(stepNumber)] Screenshot captured (\(screenshot?.count ?? 0) bytes)")
+            let screenshotResult = await screenshotPromise.value
+            screenshotData = screenshotResult?.jpegData
+            screenshotMetadata = screenshotResult?.metadata
+            if screenshotData != nil {
+                log.info("[\(stepNumber)] Screenshot captured (\(screenshotData?.count ?? 0) bytes)")
             } else {
                 log.error("[\(stepNumber)] Screen capture failed")
                 return nil
@@ -450,19 +455,21 @@ final class ComputerUseSession: ObservableObject {
         var screenshotBase64: String?
         var screenshotBlobRef: IPCIpcBlobRef?
 
-        if let screenshotData = screenshot {
+        if let screenshotBytes = screenshotData {
             if daemonClient.isBlobTransportAvailable {
-                if let ref = IpcBlobStore.shared.writeBlob(data: screenshotData, kind: "screenshot_jpeg", encoding: "binary") {
+                if let ref = IpcBlobStore.shared.writeBlob(data: screenshotBytes, kind: "screenshot_jpeg", encoding: "binary") {
                     screenshotBlobRef = ref
-                    log.info("[\(stepNumber)] Screenshot written as blob (\(screenshotData.count) bytes, id=\(ref.id))")
+                    log.info("[\(stepNumber)] Screenshot written as blob (\(screenshotBytes.count) bytes, id=\(ref.id))")
                 } else {
                     log.warning("[\(stepNumber)] Blob write failed for screenshot, falling back to inline base64")
-                    screenshotBase64 = screenshotData.base64EncodedString()
+                    screenshotBase64 = screenshotBytes.base64EncodedString()
                 }
             } else {
-                screenshotBase64 = screenshotData.base64EncodedString()
+                screenshotBase64 = screenshotBytes.base64EncodedString()
             }
         }
+
+        let screenSizePt = screenshotData != nil ? screenCapture.screenSize() : nil
 
         // Transport AX tree via blob when large (>8KB) and blob transport available
         var axTreeInline = axTreeText
@@ -488,13 +495,19 @@ final class ComputerUseSession: ObservableObject {
             axDiff: axDiffText,
             secondaryWindows: secondaryWindowsText,
             screenshot: screenshotBase64,
+            screenshotWidthPx: screenshotMetadata.map { Double($0.screenshotWidthPx) },
+            screenshotHeightPx: screenshotMetadata.map { Double($0.screenshotHeightPx) },
+            screenWidthPt: screenSizePt.map { Double($0.width) },
+            screenHeightPt: screenSizePt.map { Double($0.height) },
+            coordinateOrigin: screenSizePt != nil ? "top_left" : nil,
+            captureDisplayId: screenshotMetadata.map { Double($0.captureDisplayId) },
             executionResult: executionResult,
             executionError: executionError,
             axTreeBlob: axTreeBlobRef,
             screenshotBlob: screenshotBlobRef
         )
 
-        let screenshotRawBytes = screenshot?.count ?? 0
+        let screenshotRawBytes = screenshotData?.count ?? 0
         let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
         let screenshotUsedBlob = screenshotBlobRef != nil
         let axTreeBytes = axTreeText?.utf8.count ?? 0

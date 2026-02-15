@@ -92,6 +92,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     axDiff: '+ new element',
     secondaryWindows: 'Finder, Terminal',
     screenshot: 'base64-screenshot-data',
+    screenshotWidthPx: 1280,
+    screenshotHeightPx: 720,
+    screenWidthPt: 1920,
+    screenHeightPt: 1080,
+    coordinateOrigin: 'top_left',
+    captureDisplayId: 69734112,
     executionResult: 'click completed',
   },
   ambient_observation: {

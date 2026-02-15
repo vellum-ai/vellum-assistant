@@ -70,6 +70,18 @@ final class MockScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
         return Data([0xFF, 0xD8, 0xFF]) // Minimal JPEG-like stub
     }
 
+    func captureScreenWithMetadata(maxWidth: Int, maxHeight: Int) async throws -> ScreenCaptureResult {
+        captureCallCount += 1
+        return ScreenCaptureResult(
+            jpegData: Data([0xFF, 0xD8, 0xFF]),
+            metadata: ScreenCaptureMetadata(
+                screenshotWidthPx: 1280,
+                screenshotHeightPx: 720,
+                captureDisplayId: 77
+            )
+        )
+    }
+
     func screenSize() -> CGSize {
         return CGSize(width: 1920, height: 1080)
     }
@@ -602,6 +614,56 @@ final class SessionTests: XCTestCase {
         session.cancel()
         continuation.finish()
         await runTask.value
+    }
+
+    @MainActor
+    func testObservationIncludesScreenshotMetadata_whenScreenshotPresent() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(task: "capture metadata", daemonClient: daemonClient)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThanOrEqual(obsMessages.count, 1)
+        let firstObservation = obsMessages[0]
+
+        XCTAssertEqual(firstObservation.screenshotWidthPx, 1280.0)
+        XCTAssertEqual(firstObservation.screenshotHeightPx, 720.0)
+        XCTAssertEqual(firstObservation.screenWidthPt, 1920.0)
+        XCTAssertEqual(firstObservation.screenHeightPt, 1080.0)
+        XCTAssertEqual(firstObservation.coordinateOrigin, "top_left")
+        XCTAssertEqual(firstObservation.captureDisplayId, 77.0)
+
+        session.cancel()
+        continuation.finish()
+        await runTask.value
+    }
+
+    func testCuObservationDecoding_backwardCompatibleWithoutMetadata() throws {
+        let legacyJSON = """
+        {
+          "type": "cu_observation",
+          "sessionId": "cu-sess-legacy",
+          "axTree": "<ax-tree>...</ax-tree>",
+          "screenshot": "base64-screenshot-data"
+        }
+        """
+        let data = try XCTUnwrap(legacyJSON.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(CuObservationMessage.self, from: data)
+
+        XCTAssertEqual(decoded.type, "cu_observation")
+        XCTAssertEqual(decoded.sessionId, "cu-sess-legacy")
+        XCTAssertNil(decoded.screenshotWidthPx)
+        XCTAssertNil(decoded.screenshotHeightPx)
+        XCTAssertNil(decoded.screenWidthPt)
+        XCTAssertNil(decoded.screenHeightPt)
+        XCTAssertNil(decoded.coordinateOrigin)
+        XCTAssertNil(decoded.captureDisplayId)
     }
 
     @MainActor

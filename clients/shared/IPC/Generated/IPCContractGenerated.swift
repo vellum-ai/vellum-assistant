@@ -221,6 +221,18 @@ public struct IPCCuObservation: Codable, Sendable {
     public let axDiff: String?
     public let secondaryWindows: String?
     public let screenshot: String?
+    /// Screenshot image width in pixels (`Px`).
+    public let screenshotWidthPx: Double?
+    /// Screenshot image height in pixels (`Px`).
+    public let screenshotHeightPx: Double?
+    /// Screen width in macOS points (`Pt`) used by native execution.
+    public let screenWidthPt: Double?
+    /// Screen height in macOS points (`Pt`) used by native execution.
+    public let screenHeightPt: Double?
+    /// Coordinate origin convention used by the observation payload.
+    public let coordinateOrigin: String?
+    /// Display ID used by screenshot capture for this observation.
+    public let captureDisplayId: Double?
     public let executionResult: String?
     public let executionError: String?
     public let axTreeBlob: IPCIpcBlobRef?
