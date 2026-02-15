@@ -64,9 +64,6 @@ struct MainWindowView: View {
 
                                 // Panel toggle buttons
                                 HStack(spacing: VSpacing.sm) {
-                                    VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: windowState.activePanel == .generated, iconOnly: true) {
-                                        windowState.togglePanel(.generated)
-                                    }
                                     VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: windowState.activePanel == .agent, iconOnly: true) {
                                         windowState.togglePanel(.agent)
                                     }
@@ -583,7 +580,7 @@ struct MainWindowView: View {
         if let panel = windowState.activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { showSharePicker = false; windowState.closeDynamicPanel() }, isExpanded: $windowState.isDynamicExpanded, daemonClient: daemonClient)
+                EmptyView()
             case .agent:
                 AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
