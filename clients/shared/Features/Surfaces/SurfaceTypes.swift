@@ -172,17 +172,35 @@ public struct ConfirmationSurfaceData: Sendable {
     }
 }
 
+public struct DynamicPagePreview: Sendable {
+    public let title: String
+    public let subtitle: String?
+    public let description: String?
+    public let icon: String?
+    public let metrics: [(label: String, value: String)]?
+
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.description = description
+        self.icon = icon
+        self.metrics = metrics
+    }
+}
+
 public struct DynamicPageSurfaceData: Sendable {
     public let html: String
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let preview: DynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, preview: DynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
+        self.preview = preview
     }
 }
 
@@ -472,7 +490,10 @@ public extension Surface {
         let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
         let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
         let appId: String? = update.keys.contains("appId") ? (update["appId"] as? String) : existing.appId
-        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId)
+        let preview: DynamicPagePreview? = update.keys.contains("preview")
+            ? parseDynamicPagePreview(update["preview"] as? [String: Any?])
+            : existing.preview
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, preview: preview)
     }
 
     // MARK: - Field Parsing Helpers
