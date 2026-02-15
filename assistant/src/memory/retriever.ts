@@ -67,6 +67,7 @@ interface MemoryRecallOptions {
   excludeMessageIds?: string[];
   signal?: AbortSignal;
   scopeId?: string;
+  maxInjectTokensOverride?: number;
 }
 
 interface CollectedCandidates {
@@ -301,7 +302,11 @@ export async function buildMemoryRecall(
   }
 
   const mergedCount = merged.length;
-  const selected = trimToTokenBudget(merged, config.memory.retrieval.maxInjectTokens, config.memory.retrieval.injectionFormat);
+  const maxInjectTokens = Math.max(
+    1,
+    Math.floor(options?.maxInjectTokensOverride ?? config.memory.retrieval.maxInjectTokens),
+  );
+  const selected = trimToTokenBudget(merged, maxInjectTokens, config.memory.retrieval.injectionFormat);
   markItemUsage(selected);
 
   const injectedText = buildInjectedText(selected, config.memory.retrieval.injectionFormat);
@@ -324,6 +329,7 @@ export async function buildMemoryRecall(
     entityHits: entityCandidates.length,
     mergedCount,
     selected: selected.length,
+    maxInjectTokens,
     rerankApplied,
     injectedTokens: estimateTextTokens(injectedText),
     latencyMs,

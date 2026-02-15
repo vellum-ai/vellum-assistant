@@ -40,6 +40,7 @@ import {
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
@@ -48,6 +49,7 @@ import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { buildMemoryQuery } from '../memory/query-builder.js';
+import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -112,6 +114,7 @@ export class Session {
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  private readonly systemPrompt: string;
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private currentRequestId?: string;
@@ -139,6 +142,7 @@ export class Session {
     workingDir: string,
   ) {
     this.conversationId = conversationId;
+    this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
@@ -625,9 +629,23 @@ export class Session {
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
+      const recallBudget = runtimeConfig.memory.retrieval.dynamicBudget.enabled
+        ? computeRecallBudget({
+            estimatedPromptTokens: estimatePromptTokens(
+              this.messages,
+              this.systemPrompt,
+              { providerName: this.provider.name },
+            ),
+            maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
+            targetHeadroomTokens: runtimeConfig.memory.retrieval.dynamicBudget.targetHeadroomTokens,
+            minInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.minInjectTokens,
+            maxInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
+          })
+        : undefined;
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
         excludeMessageIds: [userMessageId],
         signal: abortController.signal,
+        maxInjectTokensOverride: recallBudget,
       });
 
       onEvent({

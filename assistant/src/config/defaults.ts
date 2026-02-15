@@ -54,6 +54,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         reinforcementShieldDays: 7,
       },
       scopePolicy: 'allow_global_fallback' as const,
+      dynamicBudget: {
+        enabled: false,
+        minInjectTokens: 1200,
+        maxInjectTokens: 10000,
+        targetHeadroomTokens: 10000,
+      },
     },
     segmentation: {
       targetTokens: 450,

@@ -1153,6 +1153,69 @@ describe('Memory V2 regressions', () => {
     expect(recall.injectedTokens).toBe(0);
   });
 
+  test('memory recall respects maxInjectTokensOverride when provided', async () => {
+    const db = getDb();
+    const createdAt = 1_700_000_301_000;
+    db.insert(conversations).values({
+      id: 'conv-budget-override',
+      title: null,
+      createdAt,
+      updatedAt: createdAt,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+
+    for (let i = 0; i < 4; i++) {
+      const msgId = `msg-budget-override-${i}`;
+      const segId = `seg-budget-override-${i}`;
+      const text = `budget override sentinel item ${i} with enough text to exceed tiny limits`;
+      db.insert(messages).values({
+        id: msgId,
+        conversationId: 'conv-budget-override',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text }]),
+        createdAt: createdAt + i,
+      }).run();
+      db.run(`
+        INSERT INTO memory_segments (
+          id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
+        ) VALUES (
+          '${segId}', '${msgId}', 'conv-budget-override', 'user', 0, '${text}', 20, ${createdAt + i}, ${createdAt + i}
+        )
+      `);
+    }
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          provider: 'openai' as const,
+          required: false,
+        },
+        retrieval: {
+          ...DEFAULT_CONFIG.memory.retrieval,
+          maxInjectTokens: 5000,
+          lexicalTopK: 10,
+        },
+      },
+    };
+
+    const override = 120;
+    const recall = await buildMemoryRecall(
+      'budget override sentinel',
+      'conv-budget-override',
+      config,
+      { maxInjectTokensOverride: override },
+    );
+    expect(recall.injectedTokens).toBeLessThanOrEqual(override);
+  });
+
   test('claimMemoryJobs only returns rows it actually claimed', () => {
     const db = getDb();
     const jobId = enqueueMemoryJob('build_conversation_summary', { conversationId: 'conv-lock' });
