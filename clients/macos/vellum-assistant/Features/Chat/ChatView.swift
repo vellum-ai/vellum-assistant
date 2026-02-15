@@ -250,17 +250,6 @@ struct ChatView: View {
 
     // MARK: - Message List
 
-    /// Check if the next assistant message after `index` has inline surfaces,
-    /// meaning tool call chips at `index` should be hidden.
-    private func nextAssistantHasSurfaces(after index: Int) -> Bool {
-        for i in (index + 1)..<messages.count {
-            let m = messages[i]
-            if m.role == .user { break }
-            if !m.inlineSurfaces.isEmpty { return true }
-        }
-        return false
-    }
-
     private func shouldShowTimestamp(at index: Int) -> Bool {
         if index == 0 { return true }
         let current = messages[index].timestamp
@@ -292,7 +281,7 @@ struct ChatView: View {
                         } else {
                             ChatBubble(
                                 message: message,
-                                hideToolCalls: nextAssistantHasSurfaces(after: index),
+                                hideToolCalls: false,
                                 onSurfaceAction: onSurfaceAction,
                                 onOpenActivity: onOpenActivity,
                                 isActivityPanelOpen: isActivityPanelOpen
@@ -618,30 +607,18 @@ private struct ChatBubble: View {
         return hasText || !message.attachments.isEmpty
     }
 
-    /// Tool calls that arrived before any text content in the message.
-    private var toolCallsBeforeText: [ToolCallData] {
-        message.toolCalls.filter { $0.arrivedBeforeText }
-    }
-
-    /// Tool calls that arrived after text content started streaming.
-    private var toolCallsAfterText: [ToolCallData] {
-        message.toolCalls.filter { !$0.arrivedBeforeText }
-    }
 
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                // Pre-text tool calls render above the bubble
-                toolCallChips(toolCallsBeforeText)
-
                 if shouldShowBubble {
                     bubbleContent
                 }
 
-                // Post-text tool calls render below the bubble
-                toolCallChips(toolCallsAfterText)
+                // Consolidated tool indicator showing all tool calls
+                toolCallChips(message.toolCalls)
 
                 // Inline surfaces render below the bubble as full-width cards
                 if !message.inlineSurfaces.isEmpty {
@@ -662,11 +639,15 @@ private struct ChatBubble: View {
     }
 
     /// Current step indicator rendered outside the bubble.
-    /// Hidden for user messages, when there are no tool calls, or when inline surfaces are present.
+    /// Shows when message is streaming or has tool calls.
     @ViewBuilder
     private func toolCallChips(_ calls: [ToolCallData]) -> some View {
-        if !isUser && !calls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
-            CurrentStepIndicator(toolCalls: calls, isActivityPanelOpen: isActivityPanelOpen) {
+        if !isUser && (message.isStreaming || !calls.isEmpty) {
+            CurrentStepIndicator(
+                toolCalls: calls,
+                isActivityPanelOpen: isActivityPanelOpen,
+                isStreaming: message.isStreaming
+            ) {
                 onOpenActivity(calls)
             }
             .frame(maxWidth: 520, alignment: .leading)

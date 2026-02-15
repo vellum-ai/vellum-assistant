@@ -199,6 +199,22 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS message_surfaces (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      surface_id TEXT NOT NULL,
+      surface_type TEXT NOT NULL,
+      title TEXT,
+      data TEXT NOT NULL,
+      actions TEXT,
+      surface_message TEXT,
+      display TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
       id TEXT PRIMARY KEY,
       assistant_id TEXT NOT NULL,

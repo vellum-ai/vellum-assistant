@@ -114,6 +114,14 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Notifications") {
+                Toggle("Notify when tasks complete", isOn: $store.activityNotificationsEnabled)
+
+                Text("Get notified when computer-use sessions finish so you don't need to watch progress.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Ambient Agent") {
                 Toggle("Enable ambient screen watching", isOn: $store.ambientEnabled)
 

@@ -28,6 +28,11 @@ public final class SettingsStore: ObservableObject {
             ambientAgent?.captureIntervalSeconds = ambientInterval
         }
     }
+    @Published var activityNotificationsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(activityNotificationsEnabled, forKey: "activityNotificationsEnabled")
+        }
+    }
 
     // MARK: - Trust Rules Coordination
 
@@ -55,6 +60,9 @@ public final class SettingsStore: ObservableObject {
 
         let storedInterval = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
         self.ambientInterval = storedInterval == 0 ? 30 : storedInterval
+
+        // Default to enabled for notifications
+        self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
         // React to Keychain changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
