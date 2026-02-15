@@ -5,6 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
@@ -19,6 +21,7 @@ import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
+import { getApp } from '../memory/app-store.js';
 
 const log = getLogger('runtime-http');
 
@@ -71,6 +74,13 @@ interface RuntimeMessagePayload {
 
 const SUGGESTION_CACHE_MAX = 100;
 
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  '<': '&lt;',
+  '>': '&gt;',
+  '&': '&amp;',
+  '"': '&quot;',
+};
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -79,6 +89,7 @@ export class RuntimeHttpServer {
   private runOrchestrator?: RunOrchestrator;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
+  private designSystemCss: string | null = null;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -107,6 +118,12 @@ export class RuntimeHttpServer {
   private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
+
+    // Serve shareable app pages
+    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
+    if (pagesMatch && req.method === 'GET') {
+      return this.handleServePage(pagesMatch[1]);
+    }
 
     // Match /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
@@ -877,6 +894,53 @@ export class RuntimeHttpServer {
     }
 
     return new Response(null, { status: 204 });
+  }
+
+  // ── Shareable page endpoint ──────────────────────────────────────────
+
+  private loadDesignSystemCss(): string {
+    if (this.designSystemCss !== null) return this.designSystemCss;
+    try {
+      const cssPath = join(
+        import.meta.dirname ?? __dirname,
+        '../../../clients/macos/vellum-assistant/Resources/vellum-design-system.css',
+      );
+      this.designSystemCss = readFileSync(cssPath, 'utf-8');
+    } catch {
+      log.warn('Design system CSS not found, pages will render without styles');
+      this.designSystemCss = '';
+    }
+    return this.designSystemCss;
+  }
+
+  private handleServePage(appId: string): Response {
+    const app = getApp(appId);
+    if (!app) {
+      return Response.json({ error: 'App not found' }, { status: 404 });
+    }
+
+    const css = this.loadDesignSystemCss();
+    const escapedName = app.name.replace(/[<>&"]/g, (c) => HTML_ESCAPE_MAP[c] ?? c);
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapedName}</title>
+  <style>${css}</style>
+</head>
+<body>
+${app.htmlDefinition}
+</body>
+</html>`;
+
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'self' 'unsafe-inline'; img-src * data:; font-src *;",
+      },
+    });
   }
 
   // ── Attachment fetch endpoint ──────────────────────────────────────
