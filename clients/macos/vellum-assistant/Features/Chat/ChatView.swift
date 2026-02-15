@@ -576,22 +576,13 @@ struct ChatView: View {
                 }
             }
             .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ComposerScrollOffsetKey.self,
-                        value: -geo.frame(in: .named("composerScroll")).minY
-                    )
-                }
-            )
+            .background(ScrollOffsetReader(offset: $composerScrollOffset))
 
             // Invisible anchor for auto-scroll
             Color.clear
                 .frame(height: 1)
                 .id("composer-bottom")
         }
-        .coordinateSpace(name: "composerScroll")
-        .onPreferenceChange(ComposerScrollOffsetKey.self) { composerScrollOffset = $0 }
         .overlay(alignment: .topTrailing) {
             composerScrollIndicator
         }
@@ -648,10 +639,10 @@ struct ChatView: View {
             let yOffset = 2 + progress * thumbTravel
 
             RoundedRectangle(cornerRadius: 2)
-                .fill(Violet._400.opacity(0.35))
+                .fill(Slate._400.opacity(0.5))
                 .frame(width: 4, height: thumbHeight)
                 .padding(.top, yOffset)
-                .padding(.trailing, 6)
+                .padding(.trailing, 4)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -1305,9 +1296,41 @@ private struct ChatViewPreviewWrapper: View {
 
 // MARK: - Composer Scroll Tracking
 
-private struct ComposerScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// Reads the enclosing NSScrollView's content offset in real-time via AppKit notifications.
+private struct ScrollOffsetReader: NSViewRepresentable {
+    @Binding var offset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let scrollView = view.enclosingScrollView else { return }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                context.coordinator,
+                selector: #selector(Coordinator.boundsDidChange(_:)),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(offset: $offset)
+    }
+
+    class Coordinator: NSObject {
+        var offset: Binding<CGFloat>
+
+        init(offset: Binding<CGFloat>) {
+            self.offset = offset
+        }
+
+        @objc func boundsDidChange(_ notification: Notification) {
+            guard let clipView = notification.object as? NSClipView else { return }
+            offset.wrappedValue = clipView.bounds.origin.y
+        }
     }
 }
