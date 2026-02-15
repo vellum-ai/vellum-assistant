@@ -106,7 +106,7 @@ struct MainWindowView: View {
                                     .animation(nil, value: threadDrawerWidth)  // Disable animation on width changes
                                     .transition(.move(edge: .leading))
 
-                                drawerDragDivider(availableWidth: geometry.size.width)
+                                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                             }
 
                             // Center: Chat + right panel
@@ -362,7 +362,8 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2)
+                        let activePanelWidth: CGFloat = windowState.activePanel != nil ? sidePanelWidth : 0
+                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
                         // Update width without animation to prevent jitter
                         var transaction = Transaction()
