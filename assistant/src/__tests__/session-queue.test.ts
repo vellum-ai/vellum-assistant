@@ -1098,11 +1098,10 @@ describe('Surface-action queue-full trace', () => {
       (e) => 'kind' in e && e.kind === 'request_error',
     );
     expect(errorTrace).toBeDefined();
-    if (errorTrace && 'attributes' in errorTrace) {
-      const attrs = (errorTrace as any).attributes;
-      expect(attrs.reason).toBe('queue_full');
-      expect(attrs.source).toBe('surface_action');
-    }
+    expect(errorTrace).toHaveProperty('attributes');
+    const attrs = (errorTrace as any).attributes;
+    expect(attrs.reason).toBe('queue_full');
+    expect(attrs.source).toBe('surface_action');
 
     // Queue depth should not have increased
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
