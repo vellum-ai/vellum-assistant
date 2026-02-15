@@ -1,4 +1,7 @@
 import { describe, test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   contextInjectionCases,
   directReadCases,
@@ -79,12 +82,16 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
     });
   }
 
-  test('browser_fill_credential does not import getCredentialValue', async () => {
-    // After PR 16+17, the browser tool uses CredentialBroker instead
-    // of importing getCredentialValue directly.
-    const browserModule = await import('../tools/browser/headless-browser.js');
-    // The module itself should not re-export getCredentialValue
-    expect('getCredentialValue' in browserModule).toBe(false);
+  test('browser_fill_credential does not import getCredentialValue', () => {
+    // Static source check: if headless-browser ever re-introduces an import
+    // of getCredentialValue, the plaintext-read regression would return even
+    // though the module doesn't re-export it.
+    const thisDir = dirname(fileURLToPath(import.meta.url));
+    const browserSrc = readFileSync(
+      resolve(thisDir, '../tools/browser/headless-browser.ts'),
+      'utf-8',
+    );
+    expect(browserSrc).not.toContain('getCredentialValue');
   });
 });
 
