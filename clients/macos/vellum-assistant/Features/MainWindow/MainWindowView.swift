@@ -411,6 +411,29 @@ struct MainWindowView: View {
                 onAction: { _, _ in },
                 appId: data.appId
             )
+
+            // Chatbar pinned at bottom
+            if let viewModel = threadManager.activeViewModel {
+                ComposerView(
+                    inputText: Binding(
+                        get: { viewModel.inputText },
+                        set: { viewModel.inputText = $0 }
+                    ),
+                    hasAPIKey: hasAPIKey,
+                    isSending: viewModel.isSending,
+                    isRecording: viewModel.isRecording,
+                    suggestion: viewModel.suggestion,
+                    pendingAttachments: viewModel.pendingAttachments,
+                    onSend: viewModel.sendMessage,
+                    onStop: viewModel.stopGenerating,
+                    onAcceptSuggestion: viewModel.acceptSuggestion,
+                    onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                    onPaste: { viewModel.addAttachmentFromPasteboard() },
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    editorContentHeight: .constant(20)
+                )
+            }
         }
         .background(VColor.backgroundSubtle)
     }
