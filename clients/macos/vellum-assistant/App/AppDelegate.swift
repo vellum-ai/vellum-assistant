@@ -85,14 +85,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     private var thinkingWindow: ThinkingIndicatorWindow?
-    public let ambientAgent = AmbientAgent()
-    public let daemonClient = DaemonClient()
-    let surfaceManager = SurfaceManager()
-    let toolConfirmationManager = ToolConfirmationManager()
-    let secretPromptManager = SecretPromptManager()
+    public let services = AppServices()
     private let daemonLauncher = DaemonLauncher()
     private let updateManager = UpdateManager()
-    let zoomManager = ZoomManager()
+
+    // Forwarding accessors — ownership lives in `services`, these keep
+    // existing internal references working without a mass-rename.
+    private var daemonClient: DaemonClient { services.daemonClient }
+    private var ambientAgent: AmbientAgent { services.ambientAgent }
+    private var surfaceManager: SurfaceManager { services.surfaceManager }
+    private var toolConfirmationManager: ToolConfirmationManager { services.toolConfirmationManager }
+    private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
+    private var zoomManager: ZoomManager { services.zoomManager }
 
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
@@ -888,7 +892,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, zoomManager: zoomManager)
+        let main = MainWindow(services: services)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
@@ -922,7 +926,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: ambientAgent, daemonClient: daemonClient))
+        let hostingController = NSHostingController(rootView: SettingsView(ambientAgent: services.ambientAgent, daemonClient: services.daemonClient))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],
