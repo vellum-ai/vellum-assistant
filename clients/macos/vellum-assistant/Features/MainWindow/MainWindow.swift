@@ -127,8 +127,8 @@ final class MainWindow {
         guard let closeButton = window.standardWindowButton(.closeButton),
               let containerView = closeButton.superview else { return }
         containerView.setFrameOrigin(NSPoint(
-            x: containerView.frame.origin.x + 6,
-            y: containerView.frame.origin.y - 8
+            x: containerView.frame.origin.x + 2,
+            y: containerView.frame.origin.y - 2.5
         ))
     }
 
