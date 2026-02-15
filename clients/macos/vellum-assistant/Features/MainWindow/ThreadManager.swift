@@ -52,8 +52,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func createThread() {
+        // If the active thread is still empty, just keep it instead of creating another
+        if let activeId = activeThreadId,
+           let vm = chatViewModels[activeId],
+           !vm.messages.contains(where: { $0.role == .user }) {
+            return
+        }
+
         let thread = ThreadModel()
         let viewModel = makeViewModel()
+        let threadId = thread.id
+        viewModel.onFirstUserMessage = { [weak self] text in
+            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            Task { @MainActor in
+                await self?.generateTitle(for: threadId, userMessage: text)
+            }
+        }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
         activeThreadId = thread.id
@@ -157,6 +171,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         activeThreadId = id
     }
 
+    /// Returns true if the thread has at least one user message.
+    func threadHasMessages(_ id: UUID) -> Bool {
+        chatViewModels[id]?.messages.contains(where: { $0.role == .user }) ?? false
+    }
+
     /// Update confirmation state across ALL chat view models, not just the active one.
     /// This ensures that when the floating panel responds, the originating thread's
     /// inline confirmation is updated even if the user switched threads.
@@ -199,6 +218,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// can create and manage WatchSession objects.
     weak var ambientAgent: AmbientAgent?
 
+    func updateThreadTitle(id: UUID, title: String) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        threads[index].title = title
+    }
+
     func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
         viewModel.onInlineConfirmationResponse = { [weak self] requestId in
@@ -236,6 +260,64 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func activateThread(_ id: UUID) {
         activeThreadId = id
+    }
+
+    /// Derive a short title from the first user message, truncated at a word boundary around 50 chars.
+    static func deriveTitle(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "New Conversation" }
+        if trimmed.count <= 50 { return trimmed }
+        let prefix = trimmed.prefix(50)
+        // Find the last space to break at a word boundary
+        if let lastSpace = prefix.lastIndex(of: " ") {
+            return String(prefix[prefix.startIndex..<lastSpace]) + "..."
+        }
+        return String(prefix) + "..."
+    }
+
+    /// Generate a conversation title via LLM and update the thread.
+    private func generateTitle(for threadId: UUID, userMessage: String) async {
+        let fallback = Self.deriveTitle(from: userMessage)
+
+        guard let apiKey = APIKeyManager.getKey() else {
+            log.warning("No API key available for title generation")
+            updateThreadTitle(id: threadId, title: fallback)
+            return
+        }
+
+        let client = AnthropicClient(apiKey: apiKey)
+        let tool: [String: Any] = [
+            "name": "set_title",
+            "description": "Set a short conversation title",
+            "input_schema": [
+                "type": "object",
+                "required": ["title"],
+                "properties": [
+                    "title": [
+                        "type": "string",
+                        "description": "A concise conversation title, 2-6 words. No quotes."
+                    ]
+                ]
+            ]
+        ]
+
+        do {
+            let result = try await client.sendToolUseRequest(
+                model: "claude-haiku-4-5-20251001",
+                maxTokens: 60,
+                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Be specific and concise. Do not use quotes.",
+                tools: [tool],
+                toolChoice: ["type": "any"],
+                messages: [["role": "user", "content": userMessage]],
+                timeout: 10
+            )
+            if let title = result.input["title"] as? String, !title.isEmpty {
+                updateThreadTitle(id: threadId, title: title)
+            }
+        } catch {
+            log.warning("Title generation failed: \(error.localizedDescription)")
+            updateThreadTitle(id: threadId, title: fallback)
+        }
     }
 
     // MARK: - Private
