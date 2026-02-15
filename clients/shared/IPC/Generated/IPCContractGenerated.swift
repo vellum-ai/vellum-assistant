@@ -74,6 +74,8 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let description: String?
     public let icon: String?
     public let createdAt: Int
+    public let version: String?
+    public let contentId: String?
 }
 
 public struct IPCAssistantTextDelta: Codable, Sendable {
@@ -107,6 +109,8 @@ public struct IPCBundleAppResponseManifest: Codable, Sendable {
     public let created_by: String
     public let entry: String
     public let capabilities: [String]
+    public let version: String?
+    public let content_id: String?
 }
 
 public struct IPCCancelRequest: Codable, Sendable {
@@ -643,6 +647,9 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     public let signerDisplayName: String?
     public let bundleSizeBytes: Int
     public let installedAt: String
+    public let version: String?
+    public let contentId: String?
+    public let updateAvailable: Bool?
 }
 
 public struct IPCSignBundlePayloadRequest: Codable, Sendable {

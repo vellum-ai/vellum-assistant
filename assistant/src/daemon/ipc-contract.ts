@@ -902,6 +902,8 @@ export interface AppsListResponse {
     description?: string;
     icon?: string;
     createdAt: number;
+    version?: string;
+    contentId?: string;
   }>;
 }
 
@@ -917,6 +919,9 @@ export interface SharedAppsListResponse {
     signerDisplayName?: string;
     bundleSizeBytes: number;
     installedAt: string;
+    version?: string;
+    contentId?: string;
+    updateAvailable?: boolean;
   }>;
 }
 
@@ -945,6 +950,8 @@ export interface BundleAppResponse {
     created_by: string;
     entry: string;
     capabilities: string[];
+    version?: string;
+    content_id?: string;
   };
 }
 
