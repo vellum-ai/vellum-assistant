@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
@@ -10,7 +11,7 @@ const log = getLogger('memory-contradiction-checker');
 
 const CONTRADICTION_LLM_TIMEOUT_MS = 15_000;
 
-type Relationship = 'contradiction' | 'update' | 'complement';
+type Relationship = 'contradiction' | 'update' | 'complement' | 'ambiguous_contradiction';
 
 interface ClassifyResult {
   relationship: Relationship;
@@ -23,6 +24,7 @@ Classify the relationship as one of:
 - "contradiction": The new statement directly contradicts the old statement. They cannot both be true at the same time. Example: "User prefers dark mode" vs "User prefers light mode".
 - "update": The new statement provides updated or more specific information that supersedes the old statement, but does not contradict it. Example: "User works at Acme" vs "User works at Acme as a senior engineer".
 - "complement": The statements are compatible and provide different, non-overlapping information. Both can coexist. Example: "User likes TypeScript" vs "User prefers functional programming".
+- "ambiguous_contradiction": The statements appear to conflict, but there is not enough confidence to invalidate either statement without user clarification.
 
 Be conservative: only classify as "contradiction" when the statements are genuinely incompatible. Prefer "complement" when in doubt.`;
 
@@ -65,7 +67,9 @@ export async function checkContradictions(newItemId: string): Promise<void> {
       // Only stop when the new item itself is invalidated (update case).
       // For contradiction, the old item is invalidated but the new item remains
       // active and should continue to be checked against remaining candidates.
-      if (result.relationship === 'update') break;
+      // For ambiguous contradiction, we pause retrieval eligibility for the new
+      // item and ask for clarification on a later turn.
+      if (result.relationship === 'update' || result.relationship === 'ambiguous_contradiction') break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err: message, newItemId, existingId: existing.id }, 'Contradiction classification failed for pair');
@@ -81,6 +85,7 @@ interface MemoryItemRow {
   status: string;
   confidence: number;
   importance: number | null;
+  scopeId: string;
   lastSeenAt: number;
 }
 
@@ -125,19 +130,20 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
   if (likeClauses.length === 0) return [];
 
   const sqlQuery = `
-    SELECT id, kind, subject, statement, status, confidence, importance, last_seen_at
+    SELECT id, kind, subject, statement, status, confidence, importance, scope_id, last_seen_at
     FROM memory_items
     WHERE status = 'active'
       AND invalid_at IS NULL
       AND kind = ?
       AND id <> ?
+      AND scope_id = ?
       AND (${likeClauses.join(' OR ')})
     ORDER BY last_seen_at DESC
     LIMIT 10
   `;
 
   try {
-    const rows = raw.query(sqlQuery).all(item.kind, item.id) as Array<{
+    const rows = raw.query(sqlQuery).all(item.kind, item.id, item.scopeId) as Array<{
       id: string;
       kind: string;
       subject: string;
@@ -145,6 +151,7 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
       status: string;
       confidence: number;
       importance: number | null;
+      scope_id: string;
       last_seen_at: number;
     }>;
 
@@ -156,6 +163,7 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
       status: row.status,
       confidence: row.confidence,
       importance: row.importance,
+      scopeId: row.scope_id,
       lastSeenAt: row.last_seen_at,
     }));
   } catch (err) {
@@ -194,7 +202,7 @@ async function classifyRelationship(
           properties: {
             relationship: {
               type: 'string',
-              enum: ['contradiction', 'update', 'complement'],
+              enum: ['contradiction', 'update', 'complement', 'ambiguous_contradiction'],
               description: 'The relationship between the old and new statements',
             },
             explanation: {
@@ -220,7 +228,7 @@ async function classifyRelationship(
 
   const input = toolBlock.input as { relationship?: string; explanation?: string };
   const relationship = input.relationship as Relationship;
-  if (!['contradiction', 'update', 'complement'].includes(relationship)) {
+  if (!['contradiction', 'update', 'complement', 'ambiguous_contradiction'].includes(relationship)) {
     throw new Error(`Invalid relationship type: ${relationship}`);
   }
 
@@ -289,9 +297,33 @@ async function handleRelationship(
       );
       break;
     }
+    case 'ambiguous_contradiction': {
+      log.info(
+        { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
+        'Ambiguous contradiction detected — gating candidate pending clarification',
+      );
+      db.update(memoryItems)
+        .set({ status: 'pending_clarification' })
+        .where(eq(memoryItems.id, newItem.id))
+        .run();
+      createOrUpdatePendingConflict({
+        scopeId: newItem.scopeId,
+        existingItemId: existingItem.id,
+        candidateItemId: newItem.id,
+        relationship: 'ambiguous_contradiction',
+        clarificationQuestion: buildClarificationQuestion(existingItem.statement, newItem.statement),
+      });
+      break;
+    }
   }
 }
 
 function escapeSqlLike(s: string): string {
   return s.replace(/'/g, "''").replace(/%/g, '').replace(/_/g, '');
+}
+
+function buildClarificationQuestion(existingStatement: string, candidateStatement: string): string {
+  const normalize = (input: string): string =>
+    input.replace(/\s+/g, ' ').trim().slice(0, 180);
+  return `I have conflicting notes: "${normalize(existingStatement)}" vs "${normalize(candidateStatement)}". Which one is correct?`;
 }
