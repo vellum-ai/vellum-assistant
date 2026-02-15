@@ -1170,6 +1170,15 @@ public final class ChatViewModel: ObservableObject {
     /// Retry the last message after a session error, if the error is retryable.
     public func retryAfterSessionError() {
         guard let error = sessionError, error.isRetryable else { return }
+        guard sessionId != nil else { return }
+        // Reset sending state that may still be set if the session error arrived
+        // while queued messages were pending (pendingQueuedCount > 0).
+        // Without this, regenerateLastMessage() silently bails at its
+        // `!isSending` guard, leaving the UI stuck with no error and no retry.
+        isSending = false
+        pendingQueuedCount = 0
+        pendingMessageIds = []
+        requestIdToMessageId = [:]
         dismissSessionError()
         regenerateLastMessage()
     }
