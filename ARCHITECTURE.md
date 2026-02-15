@@ -670,7 +670,7 @@ graph TB
    - `cd assistant && bun test src/__tests__/context-memory-e2e.test.ts`
    - `cd assistant && bun test src/__tests__/memory-context-benchmark.test.ts`
    - `cd assistant && bun test src/__tests__/memory-recall-quality.test.ts`
-   - `cd assistant && bun test src/__tests__/memory-v2-regressions.test.ts -t "relation"`
+   - `cd assistant && bun test src/__tests__/memory-regressions.test.ts -t "relation"`
 7. After tuning, rerun the same suite and compare:
    - relation counters (coverage)
    - selected count / injected tokens (budget safety)
