@@ -5,6 +5,7 @@ import type { ExecutionTarget } from '../tools/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { AssistantError, ErrorCode } from '../util/errors.js';
+import { redactSensitiveFields } from '../security/redaction.js';
 
 const log = getLogger('permission-prompter');
 
@@ -53,7 +54,7 @@ export class PermissionPrompter {
         type: 'confirmation_request',
         requestId,
         toolName,
-        input,
+        input: redactSensitiveFields(input),
         riskLevel,
         allowlistOptions: allowlistOptions.map((o) => ({ label: o.label, description: o.description, pattern: o.pattern })),
         scopeOptions: scopeOptions.map((o) => ({ label: o.label, scope: o.scope })),
