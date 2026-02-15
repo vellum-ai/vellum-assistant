@@ -38,8 +38,8 @@ final class IpcBlobStoreTests: XCTestCase {
         let ref = blobStore.writeBlob(data: data, kind: "screenshot_jpeg", encoding: "binary")
 
         XCTAssertNotNil(ref)
-        let blobPath = tempDir.appendingPathComponent("\(ref!.id).blob")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: blobPath.path))
+        let blobPath = tempDir.appendingPathComponent("\(ref!.id).blob").path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blobPath))
     }
 
     func testWriteBlobSHA256MatchesExpected() {
@@ -56,8 +56,8 @@ final class IpcBlobStoreTests: XCTestCase {
 
         XCTAssertNotNil(ref)
         // No .tmp file should remain
-        let tmpPath = tempDir.appendingPathComponent("\(ref!.id).tmp")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpPath.path))
+        let tmpPath = tempDir.appendingPathComponent("\(ref!.id).tmp").path
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpPath))
     }
 
     func testWriteBlobFileContentsMatchInput() throws {
@@ -86,8 +86,8 @@ final class IpcBlobStoreTests: XCTestCase {
         let result = blobStore.writeProbeFile()
 
         XCTAssertNotNil(result)
-        let probePath = tempDir.appendingPathComponent("\(result!.probeId).blob")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: probePath.path))
+        let probePath = tempDir.appendingPathComponent("\(result!.probeId).blob").path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: probePath))
     }
 
     func testWriteProbeFileHashMatchesFileContents() throws {
@@ -115,29 +115,26 @@ final class IpcBlobStoreTests: XCTestCase {
     func testResolveBlobDirDefaultsToHomeDotVellum() {
         let resolved = resolveBlobDir(environment: [:])
         let home = NSHomeDirectory()
-        let expected = URL(filePath: home + "/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
-        XCTAssertEqual(resolved, expected)
+        XCTAssertEqual(resolved, home + "/.vellum/data/ipc-blobs")
     }
 
     func testResolveBlobDirHonorsBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "/tmp/custom-root"])
-        let expected = URL(filePath: "/tmp/custom-root/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
-        XCTAssertEqual(resolved, expected)
+        XCTAssertEqual(resolved, "/tmp/custom-root/.vellum/data/ipc-blobs")
     }
 
     func testResolveBlobDirIgnoresEmptyBaseDataDir() {
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "  "])
         let home = NSHomeDirectory()
-        let expected = URL(filePath: home + "/.vellum/data/ipc-blobs", directoryHint: .isDirectory)
-        XCTAssertEqual(resolved, expected)
+        XCTAssertEqual(resolved, home + "/.vellum/data/ipc-blobs")
     }
 
     func testResolveBlobDirDoesNotExpandTildeInBaseDataDir() {
         // The daemon's getRootDir() keeps BASE_DATA_DIR literal via path.join(),
         // so the Swift client must NOT expand "~/" either.
         let resolved = resolveBlobDir(environment: ["BASE_DATA_DIR": "~/custom"])
-        XCTAssertTrue(resolved.path.contains("~/custom"), "tilde should remain literal, got: \(resolved.path)")
-        XCTAssertFalse(resolved.path.contains(NSHomeDirectory()), "home dir should NOT appear in path")
+        XCTAssertEqual(resolved, "~/custom/.vellum/data/ipc-blobs")
+        XCTAssertFalse(resolved.contains(NSHomeDirectory()), "home dir should NOT appear in path")
     }
 
 }

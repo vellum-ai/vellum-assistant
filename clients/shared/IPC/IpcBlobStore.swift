@@ -4,12 +4,17 @@ import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "IpcBlobStore")
 
-/// Resolve the IPC blob directory, mirroring the daemon's `getIpcBlobDir()`.
+/// Resolve the IPC blob directory path, mirroring the daemon's `getIpcBlobDir()`.
 /// The daemon derives its blob dir from `BASE_DATA_DIR` (or `$HOME`), so the
 /// client must use the same root to ensure probe files land in the same directory.
 ///
 /// Resolution: `(BASE_DATA_DIR || $HOME) / .vellum / data / ipc-blobs`
-func resolveBlobDir(environment: [String: String]? = nil) -> URL {
+///
+/// Returns a plain string path rather than a URL to avoid Foundation's URL
+/// layer normalizing or expanding tildes (both `URL(fileURLWithPath:)` and
+/// `appendingPathComponent` can do this). Plain string concatenation matches
+/// the daemon's `path.join()` behavior exactly.
+func resolveBlobDir(environment: [String: String]? = nil) -> String {
     let env = environment ?? ProcessInfo.processInfo.environment
     let root: String
     if let baseDataDir = env["BASE_DATA_DIR"], !baseDataDir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -17,12 +22,7 @@ func resolveBlobDir(environment: [String: String]? = nil) -> URL {
     } else {
         root = NSHomeDirectory()
     }
-    // Build the path as a plain string (mirroring the daemon's path.join()),
-    // then use URL(filePath:) which — unlike URL(fileURLWithPath:) — does NOT
-    // perform implicit tilde expansion. This ensures the client and daemon
-    // resolve to the same directory even when BASE_DATA_DIR contains "~/".
-    let fullPath = root + "/.vellum/data/ipc-blobs"
-    return URL(filePath: fullPath, directoryHint: .isDirectory)
+    return root + "/.vellum/data/ipc-blobs"
 }
 
 /// Manages local blob files for zero-copy IPC transport.
@@ -31,33 +31,41 @@ func resolveBlobDir(environment: [String: String]? = nil) -> URL {
 public final class IpcBlobStore: Sendable {
     public static let shared = IpcBlobStore()
 
-    private let blobDir: URL
+    private let blobDirPath: String
 
     /// Creates a blob store using the directory resolved from `BASE_DATA_DIR` / `$HOME`.
     private init() {
-        blobDir = resolveBlobDir()
+        blobDirPath = resolveBlobDir()
     }
 
     /// Creates a blob store targeting a specific directory (for testing).
     init(blobDir: URL) {
-        self.blobDir = blobDir
+        self.blobDirPath = blobDir.path
+    }
+
+    /// Creates a blob store targeting a specific directory path (for testing).
+    init(blobDirPath: String) {
+        self.blobDirPath = blobDirPath
     }
 
     /// Ensure the blob directory exists.
     public func ensureDirectory() {
-        try? FileManager.default.createDirectory(at: blobDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: blobDirPath,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
     }
 
     /// Write data atomically to a blob file and return a ref describing the blob.
     /// Uses temp file + rename to guarantee readers never see partial writes.
     public func writeBlob(data: Data, kind: String, encoding: String) -> IPCIpcBlobRef? {
         let id = UUID().uuidString.lowercased()
-        let targetURL = blobDir.appendingPathComponent("\(id).blob")
-        let tempURL = blobDir.appendingPathComponent("\(id).tmp")
+        let targetPath = blobDirPath + "/\(id).blob"
+        let tempPath = blobDirPath + "/\(id).tmp"
 
         do {
-            try data.write(to: tempURL)
-            try FileManager.default.moveItem(at: tempURL, to: targetURL)
+            try data.write(to: URL(filePath: targetPath), options: .atomic)
 
             let sha256 = Self.computeSHA256(data: data)
 
@@ -70,7 +78,7 @@ public final class IpcBlobStore: Sendable {
             )
         } catch {
             log.error("Failed to write blob \(id): \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: tempURL)
+            try? FileManager.default.removeItem(atPath: tempPath)
             return nil
         }
     }
@@ -80,7 +88,7 @@ public final class IpcBlobStore: Sendable {
     /// with its observed hash so the client can verify filesystem-level reachability.
     public func writeProbeFile() -> (probeId: String, nonceSha256: String)? {
         let probeId = UUID().uuidString.lowercased()
-        let targetURL = blobDir.appendingPathComponent("\(probeId).blob")
+        let targetPath = blobDirPath + "/\(probeId).blob"
 
         var nonce = Data(count: 32)
         let result = nonce.withUnsafeMutableBytes { ptr in
@@ -92,7 +100,7 @@ public final class IpcBlobStore: Sendable {
         }
 
         do {
-            try nonce.write(to: targetURL)
+            try nonce.write(to: URL(filePath: targetPath))
             let sha256 = Self.computeSHA256(data: nonce)
             return (probeId: probeId, nonceSha256: sha256)
         } catch {
