@@ -16,6 +16,7 @@ struct MainWindowView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
+    @State private var showSharePicker = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
@@ -427,6 +428,38 @@ struct MainWindowView: View {
                     .foregroundColor(VColor.textPrimary)
 
                 Spacer()
+
+                // Share button — only shown for persisted apps with a shareable link
+                if let appId = data.appId {
+                    Menu {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("http://localhost:7821/pages/\(appId)", forType: .string)
+                        } label: {
+                            Label("Copy Link", systemImage: "doc.on.doc")
+                        }
+                        Button {
+                            showSharePicker = true
+                        } label: {
+                            Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 28, height: 28)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 28)
+                    .accessibilityLabel("Share")
+                    .background(
+                        ShareSheetButton(
+                            items: [URL(string: "http://localhost:7821/pages/\(appId)")!],
+                            isPresented: $showSharePicker
+                        )
+                        .frame(width: 1, height: 1)
+                    )
+                }
 
                 Button(action: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
                     Image(systemName: "xmark")
