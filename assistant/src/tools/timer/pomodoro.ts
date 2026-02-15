@@ -3,6 +3,12 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
+import {
+  insertTimer,
+  updateTimerStatus,
+  listActiveTimers,
+  pruneTimerRows,
+} from './timer-store.js';
 
 const log = getLogger('pomodoro');
 
@@ -17,19 +23,21 @@ export function unregisterTimerCompletionNotifier(sessionId: string): void {
   completionNotifiers.delete(sessionId);
 }
 
-/** Remove completed/cancelled timers for a session to prevent unbounded map growth. */
+/** Remove completed/cancelled timers for a session (in-memory + db). */
 export function pruneSessionTimers(sessionId: string): void {
   const session = timers.get(sessionId);
-  if (!session) return;
-  for (const [id, timer] of session) {
-    if (timer.status === 'completed' || timer.status === 'cancelled') {
-      if (timer.timeoutHandle) clearTimeout(timer.timeoutHandle);
-      session.delete(id);
+  if (session) {
+    for (const [id, timer] of session) {
+      if (timer.status === 'completed' || timer.status === 'cancelled') {
+        if (timer.timeoutHandle) clearTimeout(timer.timeoutHandle);
+        session.delete(id);
+      }
+    }
+    if (session.size === 0) {
+      timers.delete(sessionId);
     }
   }
-  if (session.size === 0) {
-    timers.delete(sessionId);
-  }
+  pruneTimerRows(sessionId);
 }
 
 export interface PomodoroTimer {
@@ -49,7 +57,6 @@ export const MAX_DURATION_MINUTES = 1440;
 /** Module-level map of active timers keyed by sessionId -> timerId. */
 export const timers = new Map<string, Map<string, PomodoroTimer>>();
 
-/** Returns the per-session timer map, creating it if it doesn't exist. Use only in write paths (start). */
 function getOrCreateSessionTimers(sessionId: string): Map<string, PomodoroTimer> {
   let session = timers.get(sessionId);
   if (!session) {
@@ -59,7 +66,6 @@ function getOrCreateSessionTimers(sessionId: string): Map<string, PomodoroTimer>
   return session;
 }
 
-/** Returns the per-session timer map without creating one. Returns undefined when the session has no timers. */
 function findSessionTimers(sessionId: string): Map<string, PomodoroTimer> | undefined {
   return timers.get(sessionId);
 }
@@ -94,9 +100,6 @@ function formatTimerStatus(timer: PomodoroTimer): string {
     const now = Date.now();
     elapsedMs = now - timer.startedAt;
     remainingMs = Math.max(0, totalMs - elapsedMs);
-    // Correct for resumed timers: remainingMs was set at resume time
-    // and startedAt was adjusted, so elapsed = now - startedAt
-    // This is correct because startedAt is adjusted on resume.
   }
 
   const percentage = totalMs > 0 ? Math.min(100, Math.round((elapsedMs / totalMs) * 100)) : 100;
@@ -115,6 +118,23 @@ function formatTimerStatus(timer: PomodoroTimer): string {
   }
 
   return lines.join('\n');
+}
+
+/** Schedule a setTimeout that fires the completion callback and persists the status. */
+function scheduleCompletion(timer: PomodoroTimer, sessionId: string, delayMs: number): void {
+  timer.timeoutHandle = setTimeout(() => {
+    timer.status = 'completed';
+    timer.completedAt = Date.now();
+    timer.remainingMs = 0;
+    timer.timeoutHandle = undefined;
+    log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
+    updateTimerStatus(timer.id, {
+      status: 'completed',
+      remainingMs: 0,
+      completedAt: timer.completedAt,
+    });
+    completionNotifiers.get(sessionId)?.(timer);
+  }, delayMs);
 }
 
 function startAction(input: Record<string, unknown>, sessionId: string): ToolExecutionResult {
@@ -145,17 +165,24 @@ function startAction(input: Record<string, unknown>, sessionId: string): ToolExe
     status: 'running',
   };
 
-  timer.timeoutHandle = setTimeout(() => {
-    timer.status = 'completed';
-    timer.completedAt = Date.now();
-    timer.remainingMs = 0;
-    timer.timeoutHandle = undefined;
-    log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
-    completionNotifiers.get(sessionId)?.(timer);
-  }, durationMs);
+  scheduleCompletion(timer, sessionId, durationMs);
 
   const sessionTimers = getOrCreateSessionTimers(sessionId);
   sessionTimers.set(id, timer);
+
+  insertTimer({
+    id,
+    sessionId,
+    label,
+    durationMinutes,
+    startedAt: now,
+    remainingMs: durationMs,
+    status: 'running',
+    completedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
   log.info({ id, label, durationMinutes, sessionId }, 'Pomodoro timer started');
 
   const endTime = new Date(now + durationMs).toISOString();
@@ -196,6 +223,11 @@ function pauseAction(input: Record<string, unknown>, sessionId: string): ToolExe
     timer.timeoutHandle = undefined;
   }
 
+  updateTimerStatus(timerId, {
+    status: 'paused',
+    remainingMs: timer.remainingMs,
+  });
+
   log.info({ id: timerId, remainingMs: timer.remainingMs }, 'Pomodoro timer paused');
 
   return {
@@ -221,19 +253,17 @@ function resumeAction(input: Record<string, unknown>, sessionId: string): ToolEx
   }
 
   const now = Date.now();
-  // Adjust startedAt so that elapsed calculations remain correct.
   const totalMs = timer.durationMinutes * 60 * 1000;
   timer.startedAt = now - (totalMs - timer.remainingMs);
   timer.status = 'running';
 
-  timer.timeoutHandle = setTimeout(() => {
-    timer.status = 'completed';
-    timer.completedAt = Date.now();
-    timer.remainingMs = 0;
-    timer.timeoutHandle = undefined;
-    log.info({ id: timer.id, label: timer.label }, 'Pomodoro timer completed');
-    completionNotifiers.get(sessionId)?.(timer);
-  }, timer.remainingMs);
+  scheduleCompletion(timer, sessionId, timer.remainingMs);
+
+  updateTimerStatus(timerId, {
+    status: 'running',
+    startedAt: timer.startedAt,
+    remainingMs: timer.remainingMs,
+  });
 
   log.info({ id: timerId, remainingMs: timer.remainingMs }, 'Pomodoro timer resumed');
 
@@ -264,7 +294,6 @@ function cancelAction(input: Record<string, unknown>, sessionId: string): ToolEx
     timer.timeoutHandle = undefined;
   }
 
-  // Preserve remaining time at time of cancellation
   if (timer.status === 'running') {
     const now = Date.now();
     const elapsed = now - timer.startedAt;
@@ -273,6 +302,12 @@ function cancelAction(input: Record<string, unknown>, sessionId: string): ToolEx
   }
 
   timer.status = 'cancelled';
+
+  updateTimerStatus(timerId, {
+    status: 'cancelled',
+    remainingMs: timer.remainingMs,
+  });
+
   log.info({ id: timerId }, 'Pomodoro timer cancelled');
 
   return {
@@ -342,9 +377,64 @@ export function executePomodoro(
   }
 }
 
+/**
+ * Rehydrate timers from the database after a daemon restart.
+ * Running timers that haven't expired are resumed with adjusted timeouts.
+ * Running timers that have already expired are marked completed.
+ * Paused timers are restored as-is.
+ */
+export function rehydrateTimers(): number {
+  const rows = listActiveTimers();
+  if (rows.length === 0) return 0;
+
+  const now = Date.now();
+  let rehydrated = 0;
+
+  for (const row of rows) {
+    const timer: PomodoroTimer = {
+      id: row.id,
+      label: row.label,
+      durationMinutes: row.durationMinutes,
+      startedAt: row.startedAt,
+      remainingMs: row.remainingMs,
+      status: row.status as PomodoroTimer['status'],
+      completedAt: row.completedAt ?? undefined,
+    };
+
+    if (row.status === 'running') {
+      const totalMs = row.durationMinutes * 60 * 1000;
+      const elapsed = now - row.startedAt;
+      const remaining = Math.max(0, totalMs - elapsed);
+
+      if (remaining <= 0) {
+        // Timer expired while daemon was down
+        timer.status = 'completed';
+        timer.completedAt = row.startedAt + totalMs;
+        timer.remainingMs = 0;
+        updateTimerStatus(row.id, {
+          status: 'completed',
+          remainingMs: 0,
+          completedAt: timer.completedAt,
+        });
+      } else {
+        timer.remainingMs = remaining;
+        scheduleCompletion(timer, row.sessionId, remaining);
+      }
+    }
+    // Paused timers need no timeout — just restore them
+
+    const sessionTimers = getOrCreateSessionTimers(row.sessionId);
+    sessionTimers.set(row.id, timer);
+    rehydrated += 1;
+  }
+
+  log.info({ rehydrated }, 'Rehydrated pomodoro timers from database');
+  return rehydrated;
+}
+
 class PomodoroTool implements Tool {
   name = 'pomodoro';
-  description = 'Manage focus timers. Start, pause, resume, cancel, or check status of pomodoro timers.';
+  description = 'Manage focus timers. Start, pause, resume, cancel, or check status of pomodoro timers. Timers persist across daemon restarts.';
   category = 'timer';
   defaultRiskLevel = RiskLevel.Low;
 
