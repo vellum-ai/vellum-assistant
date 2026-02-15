@@ -442,6 +442,9 @@ const handlers: DispatchMap = {
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+  link_open_request: (_msg, _socket, _ctx) => {
+    // Handled in M2
+  },
   ipc_blob_probe: handleIpcBlobProbe,
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
