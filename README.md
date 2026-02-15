@@ -102,6 +102,7 @@ When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bas
 | Option | Default | Description |
 |--------|---------|-------------|
 | `image` | `node:20-slim@sha256:...` | Container image (pinned with sha256 digest) |
+| `shell` | `"bash"` | Shell used to wrap commands inside the container |
 | `cpus` | `1` | CPU limit per container |
 | `memoryMb` | `512` | Memory limit in MB |
 | `pidsLimit` | `256` | Maximum number of processes |
