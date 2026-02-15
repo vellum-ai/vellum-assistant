@@ -1,58 +1,11 @@
 import type { ClientMessage } from './ipc-contract.js';
+import inventory from './ipc-contract-inventory.json';
 
 /**
- * All known ClientMessage `type` discriminator values, extracted from the
- * ClientMessage union in ipc-contract.ts.
+ * All known ClientMessage `type` discriminator values, derived from the
+ * contract inventory snapshot so it stays in sync automatically.
  */
-const KNOWN_CLIENT_TYPES = new Set<string>([
-  'user_message',
-  'confirmation_response',
-  'secret_response',
-  'session_list',
-  'session_create',
-  'session_switch',
-  'ping',
-  'cancel',
-  'model_get',
-  'model_set',
-  'history_request',
-  'undo',
-  'regenerate',
-  'usage_request',
-  'sandbox_set',
-  'cu_session_create',
-  'cu_session_abort',
-  'cu_observation',
-  'ambient_observation',
-  'task_submit',
-  'ui_surface_action',
-  'app_data_request',
-  'skills_list',
-  'skill_detail',
-  'skills_enable',
-  'skills_disable',
-  'skills_configure',
-  'skills_install',
-  'skills_uninstall',
-  'skills_update',
-  'skills_check_updates',
-  'skills_search',
-  'skills_inspect',
-  'suggestion_request',
-  'add_trust_rule',
-  'trust_rules_list',
-  'remove_trust_rule',
-  'update_trust_rule',
-  'bundle_app',
-  'apps_list',
-  'app_open_request',
-  'shared_apps_list',
-  'shared_app_delete',
-  'open_bundle',
-  'sign_bundle_payload_response',
-  'get_signing_identity_response',
-  'sessions_clear',
-]);
+const KNOWN_CLIENT_TYPES = new Set<string>(inventory.clientWireTypes);
 
 export type ValidationResult = {
   valid: true;

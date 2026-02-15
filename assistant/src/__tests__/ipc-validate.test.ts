@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { validateClientMessage, isClientMessageEnvelope } from '../daemon/ipc-validate.js';
+import { extractInventory } from '../daemon/ipc-contract-inventory.js';
 
 describe('IPC Validate', () => {
   describe('validateClientMessage', () => {
@@ -305,6 +306,30 @@ describe('IPC Validate', () => {
         // TypeScript narrows val to ClientMessage — access .type safely
         expect(val.type).toBe('ping');
       }
+    });
+  });
+
+  describe('contract parity', () => {
+    // Minimal valid payloads for high-risk message types that require extra fields
+    const HIGH_RISK_FIXTURES: Record<string, Record<string, unknown>> = {
+      user_message: { sessionId: 's1', content: 'hi' },
+      confirmation_response: { requestId: 'r1', decision: 'allow' },
+      secret_response: { requestId: 'r1' },
+      ui_surface_action: { sessionId: 's1', surfaceId: 'sf1', actionId: 'a1' },
+    };
+
+    test('KNOWN_CLIENT_TYPES matches live contract wire types', () => {
+      const live = extractInventory();
+      for (const wireType of live.clientWireTypes) {
+        const payload = { type: wireType, ...HIGH_RISK_FIXTURES[wireType] };
+        const result = validateClientMessage(payload);
+        expect(result.valid).toBe(true);
+      }
+    });
+
+    test('validator rejects types not in the live contract', () => {
+      const result = validateClientMessage({ type: 'fabricated_type_not_in_contract' });
+      expect(result.valid).toBe(false);
     });
   });
 });

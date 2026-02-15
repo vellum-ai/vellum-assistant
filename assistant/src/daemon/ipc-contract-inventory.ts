@@ -12,6 +12,10 @@ import * as fs from 'fs';
 export interface ContractInventory {
   clientMessageTypes: string[];
   serverMessageTypes: string[];
+  /** Wire type string literals (e.g. "user_message") from ClientMessage interfaces. */
+  clientWireTypes: string[];
+  /** Wire type string literals (e.g. "assistant_text_delta") from ServerMessage interfaces. */
+  serverWireTypes: string[];
 }
 
 /** Extract sorted union member names from a type alias declaration. */
@@ -41,6 +45,55 @@ function extractUnionMembers(
   return members.sort();
 }
 
+/**
+ * Extract the `type` string literal from an interface declaration.
+ * Looks for `type: 'some_wire_type'` property signatures.
+ */
+function extractWireType(
+  sourceFile: ts.SourceFile,
+  interfaceName: string,
+): string | null {
+  let wireType: string | null = null;
+
+  ts.forEachChild(sourceFile, (node) => {
+    if (
+      ts.isInterfaceDeclaration(node) &&
+      node.name.text === interfaceName
+    ) {
+      for (const member of node.members) {
+        if (
+          ts.isPropertySignature(member) &&
+          member.name &&
+          ts.isIdentifier(member.name) &&
+          member.name.text === 'type' &&
+          member.type &&
+          ts.isLiteralTypeNode(member.type) &&
+          ts.isStringLiteral(member.type.literal)
+        ) {
+          wireType = member.type.literal.text;
+        }
+      }
+    }
+  });
+
+  return wireType;
+}
+
+/**
+ * Extract wire type literals for all members of a union type.
+ */
+function extractWireTypes(
+  sourceFile: ts.SourceFile,
+  memberNames: string[],
+): string[] {
+  const wireTypes: string[] = [];
+  for (const name of memberNames) {
+    const wt = extractWireType(sourceFile, name);
+    if (wt) wireTypes.push(wt);
+  }
+  return wireTypes.sort();
+}
+
 /** Parse the contract file and extract the inventory. */
 export function extractInventory(contractPath?: string): ContractInventory {
   const resolvedPath = contractPath ?? path.resolve(
@@ -66,5 +119,8 @@ export function extractInventory(contractPath?: string): ContractInventory {
     throw new Error('Failed to extract ServerMessage union members from contract');
   }
 
-  return { clientMessageTypes, serverMessageTypes };
+  const clientWireTypes = extractWireTypes(sourceFile, clientMessageTypes);
+  const serverWireTypes = extractWireTypes(sourceFile, serverMessageTypes);
+
+  return { clientMessageTypes, serverMessageTypes, clientWireTypes, serverWireTypes };
 }
