@@ -144,7 +144,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Re-create the ChatViewModel since it was removed on archive.
         if chatViewModels[id] == nil {
-            chatViewModels[id] = makeViewModel()
+            let viewModel = makeViewModel()
+            viewModel.sessionId = threads[index].sessionId
+            chatViewModels[id] = viewModel
         }
 
         if let sessionId = threads[index].sessionId {
