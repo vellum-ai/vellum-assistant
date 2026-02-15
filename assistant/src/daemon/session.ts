@@ -893,6 +893,9 @@ export class Session {
       // Reset on each usage event (which marks the end of a provider call).
       let llmCallStartedEmitted = false;
 
+      // Map tool_use_id → toolName so tool_result processing can identify the originating tool.
+      const toolUseIdToName = new Map<string, string>();
+
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         // Emit llm_call_started once per provider call. Called on first streaming
         // token (text or thinking) or, for tool-only turns, right before the
@@ -926,6 +929,7 @@ export class Session {
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
+            toolUseIdToName.set(event.id, event.name);
             onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: this.conversationId });
             break;
           case 'tool_output_chunk':
