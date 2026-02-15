@@ -129,6 +129,20 @@ The `.githooks/pre-commit` hook runs automatically when any IPC-related file is 
 
 If either check fails, the commit is blocked with instructions on how to fix it.
 
+## Manual exception allowlist
+
+Most IPC message types in `IPCMessages.swift` are typealiases to auto-generated structs from `IPCContractGenerated.swift`. A small set of types are **intentionally hand-maintained** because the code generator cannot express their requirements. These are documented in a table at the top of `IPCMessages.swift`.
+
+Common reasons a type stays manual:
+
+- **AnyCodable fields**: The contract uses opaque `SurfaceData` or embedded JSON blobs that need `AnyCodable` on the Swift side.
+- **Hand-maintained enums**: `SessionErrorCode` and `TraceEventKind` are Swift string enums with fallback decoding; the generator only produces structs.
+- **Skipped contract types**: Some contract types are in `SKIP_TYPES` in the generator because they reference the above enums.
+- **Extra fields**: The Swift type includes fields (e.g. `sessionId` on `GenerationCancelledMessage`) not present in the contract.
+- **Nested decode types**: Types like `ClawhubSkillItem` are decoded from an `AnyCodable` field of another message, not direct wire types.
+
+**Rule**: Do not add new manual structs without documenting the reason in the allowlist table in `IPCMessages.swift`. If the generator gains support for a case, migrate the type to a typealias and remove it from the list.
+
 ## Contract inventory
 
 The inventory system tracks which interfaces are members of the `ClientMessage` and `ServerMessage` unions. It consists of:

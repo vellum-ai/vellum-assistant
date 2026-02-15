@@ -1,5 +1,44 @@
 import Foundation
 
+// MARK: - Manual IPC Type Allowlist
+//
+// Most IPC message types are auto-generated from the TS contract into
+// IPCContractGenerated.swift and referenced here via typealiases.
+// The following structs are **intentionally** hand-maintained because
+// the code generator cannot express their requirements:
+//
+// ┌─────────────────────────────────┬──────────────────────────────────────────┐
+// │ Type                            │ Reason                                   │
+// ├─────────────────────────────────┼──────────────────────────────────────────┤
+// │ AnyCodable                      │ Infrastructure — not an IPC message type │
+// │ UiSurfaceShowMessage            │ Uses AnyCodable for `data` field and     │
+// │                                 │ custom SurfaceActionData array; the      │
+// │                                 │ contract type is skipped (SKIP_TYPES)    │
+// │ UiSurfaceUpdateMessage          │ Uses AnyCodable for `data` field;        │
+// │                                 │ contract type is skipped (SKIP_TYPES)    │
+// │ GenerationCancelledMessage      │ Swift adds `sessionId` for session       │
+// │                                 │ filtering not present in the contract    │
+// │ ClawhubSkillItem                │ Decoded from nested `data` field of      │
+// │                                 │ skills_operation_response, not a direct  │
+// │                                 │ wire message                             │
+// │ ClawhubSearchData               │ Wrapper for ClawhubSkillItem array,      │
+// │                                 │ not a direct wire message                │
+// │ SkillsOperationResponseMessage  │ Uses typed ClawhubSearchData? for `data` │
+// │                                 │ instead of generated AnyCodable?         │
+// │ TraceEventMessage               │ References hand-maintained TraceEventKind│
+// │                                 │ via string `kind`; contract type skipped │
+// │ SessionErrorMessage             │ References hand-maintained               │
+// │                                 │ SessionErrorCode enum                    │
+// │ SessionErrorCode (enum)         │ String enum with fallback decoding;      │
+// │                                 │ code generator cannot emit Swift enums   │
+// │ ServerMessage (enum)            │ Discriminated union with custom          │
+// │                                 │ Decodable init; always hand-maintained   │
+// └─────────────────────────────────┴──────────────────────────────────────────┘
+//
+// **Do not add new manual structs** without documenting the reason here.
+// If the code generator gains support for a case above, migrate the type
+// to a typealias and remove it from this list.
+
 // MARK: - AnyCodable
 
 /// Lightweight wrapper for arbitrary JSON values in tool input dictionaries.
