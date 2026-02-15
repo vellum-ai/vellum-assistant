@@ -261,5 +261,40 @@ export async function initializeTools(): Promise<void> {
     },
   });
 
+  // Swarm delegate tool — decomposes complex tasks into parallel specialist
+  // subtasks.  Registered lazily since it imports the swarm orchestrator.
+  registerLazyTool({
+    name: 'swarm_delegate',
+    description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently.',
+    category: 'orchestration',
+    defaultRiskLevel: RiskLevel.Medium,
+    definition: {
+      name: 'swarm_delegate',
+      description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently. Use this for multi-part tasks that benefit from parallel research, coding, and review.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          objective: {
+            type: 'string',
+            description: 'The complex task to decompose and execute in parallel',
+          },
+          context: {
+            type: 'string',
+            description: 'Optional additional context about the task or codebase',
+          },
+          max_workers: {
+            type: 'number',
+            description: 'Maximum concurrent workers (1-6, default from config)',
+          },
+        },
+        required: ['objective'],
+      },
+    },
+    loader: async () => {
+      const mod = await import('./swarm/delegate.js');
+      return mod.swarmDelegateTool;
+    },
+  });
+
   log.info({ count: tools.size }, 'Tools initialized');
 }
