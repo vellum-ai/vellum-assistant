@@ -1371,13 +1371,15 @@ public final class ChatViewModel: ObservableObject {
                     )
                 }
             }
+            let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
-            if item.text.isEmpty && toolCalls.isEmpty { continue }
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
             let chatMsg = ChatMessage(
                 role: role,
                 text: item.text,
                 timestamp: timestamp,
+                attachments: attachments,
                 toolCalls: toolCalls
             )
             chatMessages.append(chatMsg)

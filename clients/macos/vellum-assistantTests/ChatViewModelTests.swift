@@ -1609,4 +1609,54 @@ final class ChatViewModelTests: XCTestCase {
         // Should just have the greeting — no extra empty assistant message
         XCTAssertEqual(viewModel.messages.count, 1)
     }
+
+    // MARK: - History Attachment Hydration
+
+    func testPopulateFromHistoryHydratesAssistantAttachments() {
+        let attachment = IPCUserMessageAttachment(
+            id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
+            data: "iVBORw0KGgo=", extractedText: nil
+        )
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, attachments: nil),
+            IPCHistoryResponseMessage(role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, attachments: [attachment]),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[1].role, .assistant)
+        XCTAssertEqual(viewModel.messages[1].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[1].attachments[0].filename, "chart.png")
+        XCTAssertEqual(viewModel.messages[1].attachments[0].id, "hist-att-1")
+    }
+
+    func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
+        let attachment = IPCUserMessageAttachment(
+            id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
+            data: "JVBER", extractedText: nil
+        )
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, attachments: [attachment]),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        // Attachment-only message (empty text, no tool calls) should NOT be skipped
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertEqual(viewModel.messages[0].attachments.count, 1)
+        XCTAssertEqual(viewModel.messages[0].attachments[0].filename, "report.pdf")
+    }
+
+    func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, attachments: nil),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        // Empty message with no text, no tool calls, no attachments should be skipped
+        XCTAssertEqual(viewModel.messages.count, 0)
+    }
 }
