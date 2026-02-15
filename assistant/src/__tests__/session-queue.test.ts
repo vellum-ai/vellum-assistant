@@ -384,6 +384,30 @@ describe('Session message queue', () => {
     expect(sessionErr3).toBeUndefined();
   });
 
+  test('session-scoped errors emit session_error only, not generic error', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+
+    // Start a message — blocks on AgentLoop.run
+    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Reject the AgentLoop.run() with a provider error to trigger the
+    // runAgentLoop catch block
+    pendingRuns[0].reject(new Error('Provider returned 500'));
+    await p1;
+
+    // Should emit session_error (typed, structured)
+    const sessionErr = events.find((e) => e.type === 'session_error');
+    expect(sessionErr).toBeDefined();
+
+    // Should NOT emit generic error — session failures use session_error only
+    const genericErr = events.find((e) => e.type === 'error');
+    expect(genericErr).toBeUndefined();
+  });
+
   test('queue depth is reported correctly as messages are added and drained', async () => {
     const session = makeSession();
     await session.loadFromDb();

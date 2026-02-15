@@ -497,16 +497,15 @@ async function handleUserMessage(
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
     session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
-      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      // Session-scoped failure: emit only session_error (not generic error)
+      // so the client routes it through the typed session-error channel.
       const classified = classifySessionError(err, { phase: 'agent_loop' });
       ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
-    ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    // Session-scoped failure: emit only session_error (not generic error).
     const classified = classifySessionError(err, { phase: 'handler' });
     ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
@@ -815,7 +814,7 @@ async function handleRegenerate(
       status: 'error',
       attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
     });
-    ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
+    // Session-scoped failure: emit only session_error (not generic error).
     const classified = classifySessionError(err, { phase: 'regenerate' });
     ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
@@ -1382,9 +1381,8 @@ async function handleTaskSubmit(
       session.processMessage(msg.task, msg.attachments ?? [], (event) => {
         ctx.send(socket, event);
       }, requestId).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
-        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        // Session-scoped failure: emit only session_error (not generic error).
         const classified = classifySessionError(err, { phase: 'agent_loop' });
         ctx.send(socket, buildSessionErrorMessage(conversation.id, classified));
       });
