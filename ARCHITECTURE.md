@@ -193,10 +193,12 @@ graph TB
     SESSION_MGR --> GEMINI
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
+    SESSION_MGR --> PROFILE_COMPILER
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
     CONV_STORE --> DB_ATTACH
+    PROFILE_COMPILER --> DB_ITEMS
     INDEXER --> DB_SEG
     INDEXER --> DB_FTS
     INDEXER --> DB_ITEMS
@@ -529,6 +531,8 @@ graph TB
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query Builder<br/>User request + compacted context summary<br/>+ conversation summary + weekly summary"]
         CONFLICT_GATE["Soft Conflict Gate<br/>resolve pending conflicts from user turn<br/>relevance + cooldown ask-once behavior"]
+        PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
+        PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
         LEX["Lexical Search<br/>FTS5 on memory_segment_fts"]
         SEM["Semantic Search<br/>Qdrant cosine similarity"]
@@ -542,6 +546,7 @@ graph TB
         TRIM["Token Trim<br/>maxInjectTokens override<br/>or static fallback"]
         INJECT["Attention-ordered<br/>Injection into prompt"]
         TELEMETRY["Emit memory_recalled<br/>hits + relation counters +<br/>ranking diagnostics"]
+        STRIP_PROFILE["Strip injected dynamic profile block<br/>before persisting conversation history"]
     end
 
     subgraph "Context Window Management"
@@ -577,6 +582,8 @@ graph TB
     EMBED_SEG --> OLL_EMB
 
     QUERY --> CONFLICT_GATE
+    CONFLICT_GATE --> PROFILE_BUILD
+    PROFILE_BUILD --> PROFILE_INJECT
     CONFLICT_GATE --> LEX
     CONFLICT_GATE --> SEM
     CONFLICT_GATE --> ENTITY_SEARCH
@@ -592,7 +599,9 @@ graph TB
     RERANK --> TRIM
     BUDGET --> TRIM
     TRIM --> INJECT
+    PROFILE_INJECT --> INJECT
     INJECT --> TELEMETRY
+    INJECT --> STRIP_PROFILE
 
     CTX --> COMPACT
     COMPACT --> GUARDS

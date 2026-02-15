@@ -58,6 +58,7 @@ import {
 } from '../memory/conflict-store.js';
 import type { PendingConflictDetail } from '../memory/conflict-store.js';
 import { resolveConflictClarification } from '../memory/clarification-resolver.js';
+import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -676,6 +677,13 @@ export class Session {
       const softConflictInstruction = conflictGate && !conflictGate.relevant
         ? conflictGate.question
         : null;
+      const profileConfig = runtimeConfig.memory?.profile;
+      const dynamicProfile = profileConfig?.enabled
+        ? compileDynamicProfile({
+            scopeId: 'default',
+            maxInjectTokensOverride: profileConfig.maxInjectTokens,
+          })
+        : { text: '' };
       const recallQuery = buildMemoryQuery(content, this.messages);
       const recallInjectionStrategy = runtimeConfig.memory?.retrieval?.injectionStrategy ?? 'prepend_user_block';
       const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
@@ -737,6 +745,16 @@ export class Session {
             latencyMs: recall.latencyMs,
             topCandidates: recall.topCandidates,
           });
+        }
+      }
+
+      if (dynamicProfile.text.length > 0) {
+        const userTail = runMessages[runMessages.length - 1];
+        if (userTail && userTail.role === 'user') {
+          runMessages = [
+            ...runMessages.slice(0, -1),
+            injectDynamicProfileIntoUserMessage(userTail, dynamicProfile.text),
+          ];
         }
       }
 
@@ -1027,7 +1045,8 @@ export class Session {
         return { ...msg, content: cleanedContent as ContentBlock[] };
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
-      this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
+      const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
+      this.messages = stripDynamicProfileMessages(recallStripped, dynamicProfile.text);
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 
@@ -1978,6 +1997,44 @@ function injectClarificationRequestIntoUserMessage(message: Message, question: s
       { type: 'text', text: `\n\n${instruction}` },
     ],
   };
+}
+
+function injectDynamicProfileIntoUserMessage(message: Message, profileText: string): Message {
+  const trimmedProfile = profileText.trim();
+  if (trimmedProfile.length === 0) return message;
+  const block = [
+    '[Dynamic profile context start]',
+    trimmedProfile,
+    '[Dynamic profile context end]',
+  ].join('\n');
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      { type: 'text', text: `\n\n${block}` },
+    ],
+  };
+}
+
+function stripDynamicProfileMessages(messages: Message[], profileText: string): Message[] {
+  const trimmedProfile = profileText.trim();
+  if (trimmedProfile.length === 0) return messages;
+  const injectedBlock = `\n\n[Dynamic profile context start]\n${trimmedProfile}\n[Dynamic profile context end]`;
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    let changed = false;
+    const nextContent = message.content.map((block) => {
+      if (block.type !== 'text') return block;
+      const nextText = block.text.split(injectedBlock).join('');
+      if (nextText === block.text) return block;
+      changed = true;
+      return {
+        ...block,
+        text: nextText.replace(/\n{3,}/g, '\n\n').trimEnd(),
+      };
+    });
+    return changed ? { ...message, content: nextContent } : message;
+  });
 }
 
 function buildFallbackConflictQuestion(conflict: PendingConflictDetail): string {
