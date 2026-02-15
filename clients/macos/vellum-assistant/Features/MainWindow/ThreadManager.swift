@@ -90,6 +90,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
         chatViewModels[id]?.stopGenerating()
+        chatViewModels.removeValue(forKey: id)
         threads[index].isArchived = true
 
         if let sessionId = threads[index].sessionId {
@@ -98,11 +99,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
         }
 
-        // If the archived thread was active, switch to the nearest visible thread
+        // If the archived thread was active, select an adjacent visible thread
         // or create a new one if none remain.
         if activeThreadId == id {
-            if let next = visibleThreads.first {
-                activeThreadId = next.id
+            // Find the position of the archived thread among visible threads
+            // (before archiving filtered it out) and pick the neighbor.
+            let visible = visibleThreads
+            if !visible.isEmpty {
+                // The archived thread was at `index` in the full `threads` array.
+                // Find the closest visible thread by scanning neighbors.
+                let visibleAfter = threads[index...].dropFirst().first(where: { !$0.isArchived })
+                let visibleBefore = threads[..<index].last(where: { !$0.isArchived })
+                if let next = visibleAfter ?? visibleBefore {
+                    activeThreadId = next.id
+                } else {
+                    activeThreadId = visible.first?.id
+                }
             } else {
                 createThread()
             }
@@ -115,6 +127,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
         threads[index].isArchived = false
+
+        // Re-create the ChatViewModel since it was removed on archive.
+        if chatViewModels[id] == nil {
+            chatViewModels[id] = makeViewModel()
+        }
 
         if let sessionId = threads[index].sessionId {
             var archived = archivedSessionIds
