@@ -654,6 +654,42 @@ struct MainWindowView: View {
                     .animation(VAnimation.standard, value: viewModel.isWorkspaceRefinementInFlight)
                 }
 
+                // Refinement failure toast — shown when the AI responded with text
+                // but didn't actually update the surface
+                if let viewModel = threadManager.activeViewModel,
+                   let failureText = viewModel.refinementFailureText {
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.top, 1)
+                        Text(failureText)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(4)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Button {
+                            viewModel.refinementFailureText = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .frame(maxWidth: 480)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.surface.opacity(0.95))
+                            .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.surfaceBorder, lineWidth: 1))
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .animation(VAnimation.standard, value: viewModel.refinementFailureText != nil)
+                }
+
                 // Floating composer — fade is handled inside the WebView via CSS
                 if let viewModel = threadManager.activeViewModel {
                     ComposerView(
