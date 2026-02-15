@@ -5,8 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { getLogger } from '../util/logger.js';
 import {
@@ -56,6 +56,8 @@ export interface RuntimeHttpServerOptions {
   persistAndProcessMessage?: NonBlockingMessageProcessor;
   /** Run orchestrator for the approval-flow run endpoints. */
   runOrchestrator?: RunOrchestrator;
+  /** Root directory for interface files on disk. */
+  interfacesDir?: string;
 }
 
 export interface RuntimeAttachmentMetadata {
@@ -90,6 +92,7 @@ export class RuntimeHttpServer {
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
+  private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private designSystemCss: string | null = null;
@@ -99,6 +102,7 @@ export class RuntimeHttpServer {
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
+    this.interfacesDir = options.interfacesDir ?? null;
   }
 
   async start(): Promise<void> {
@@ -243,6 +247,11 @@ export class RuntimeHttpServer {
         }
       }
 
+      const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);
+      if (interfacesMatch && req.method === 'GET') {
+        return this.handleGetInterface(interfacesMatch[1]);
+      }
+
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
         return await this.handleDeleteConversation(assistantId, req);
       }
@@ -304,6 +313,9 @@ export class RuntimeHttpServer {
     // internal user messages from the visible history.
     const merged = mergeToolResults(parsed);
 
+    const interfaceFiles = this.getInterfaceFilesWithMtimes();
+
+    let prevAssistantTimestamp = 0;
     const messages: RuntimeMessagePayload[] = merged.map((m) => {
       let msgAttachments: RuntimeAttachmentMetadata[] = [];
       if (m.role === 'assistant' && m.id) {
@@ -318,6 +330,19 @@ export class RuntimeHttpServer {
           }));
         }
       }
+
+      let interfaces: string[] | undefined;
+      if (m.role === 'assistant') {
+        const msgTimestamp = new Date(m.timestamp).getTime();
+        const dirtied = interfaceFiles
+          .filter((f) => f.mtimeMs > prevAssistantTimestamp && f.mtimeMs <= msgTimestamp)
+          .map((f) => f.path);
+        if (dirtied.length > 0) {
+          interfaces = dirtied;
+        }
+        prevAssistantTimestamp = msgTimestamp;
+      }
+
       return {
         id: m.id ?? '',
         role: m.role,
@@ -325,6 +350,7 @@ export class RuntimeHttpServer {
         timestamp: new Date(m.timestamp).toISOString(),
         attachments: msgAttachments,
         ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+        ...(interfaces ? { interfaces } : {}),
       };
     });
 
@@ -994,6 +1020,40 @@ ${app.htmlDefinition}
   }
 
   // ── Attachment fetch endpoint ──────────────────────────────────────
+
+  private getInterfaceFilesWithMtimes(): Array<{ path: string; mtimeMs: number }> {
+    if (!this.interfacesDir || !existsSync(this.interfacesDir)) return [];
+    const results: Array<{ path: string; mtimeMs: number }> = [];
+    const scan = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(fullPath);
+        } else {
+          results.push({
+            path: relative(this.interfacesDir!, fullPath),
+            mtimeMs: statSync(fullPath).mtimeMs,
+          });
+        }
+      }
+    };
+    scan(this.interfacesDir);
+    return results;
+  }
+
+  private handleGetInterface(interfacePath: string): Response {
+    if (!this.interfacesDir) {
+      return Response.json({ error: 'Interface not found' }, { status: 404 });
+    }
+    const fullPath = resolve(this.interfacesDir, interfacePath);
+    if (!fullPath.startsWith(this.interfacesDir) || !existsSync(fullPath)) {
+      return Response.json({ error: 'Interface not found' }, { status: 404 });
+    }
+    const source = readFileSync(fullPath, 'utf-8');
+    return new Response(source, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
 
   private handleGetAttachment(assistantId: string, attachmentId: string): Response {
     const attachment = attachmentsStore.getAttachmentById(assistantId, attachmentId);
