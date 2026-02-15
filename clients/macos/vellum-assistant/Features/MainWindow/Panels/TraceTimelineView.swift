@@ -13,6 +13,11 @@ struct TraceTimelineView: View {
     @State private var isNearBottom = true
     @State private var expandedEventIds: Set<String> = []
 
+    /// Debounces onDisappear so that new content pushing the anchor out of
+    /// view during an update cycle doesn't immediately disable auto-scroll.
+    /// onAppear cancels any pending disappear, preventing the race.
+    @State private var disappearWork: DispatchWorkItem?
+
     private var groupedEvents: [(key: String, events: [TraceStore.StoredEvent])] {
         let byRequest = traceStore.eventsByRequest(sessionId: sessionId)
         return byRequest.map { (key: $0.key, events: $0.value) }
@@ -35,8 +40,17 @@ struct TraceTimelineView: View {
                     Color.clear
                         .frame(height: 1)
                         .id("trace-bottom")
-                        .onAppear { isNearBottom = true }
-                        .onDisappear { isNearBottom = false }
+                        .onAppear {
+                            disappearWork?.cancel()
+                            disappearWork = nil
+                            isNearBottom = true
+                        }
+                        .onDisappear {
+                            disappearWork?.cancel()
+                            let work = DispatchWorkItem { isNearBottom = false }
+                            disappearWork = work
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+                        }
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
