@@ -405,7 +405,7 @@ describe('Session message queue', () => {
     expect(sessionErr3).toBeUndefined();
   });
 
-  test('session-scoped errors emit session_error only, not generic error', async () => {
+  test('session-scoped errors emit both generic error and session_error', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -424,9 +424,10 @@ describe('Session message queue', () => {
     const sessionErr = events.find((e) => e.type === 'session_error');
     expect(sessionErr).toBeDefined();
 
-    // Should NOT emit generic error — session failures use session_error only
+    // Should also emit generic error so consumers like RunOrchestrator
+    // (which keys on msg.type === 'error') can detect the failure.
     const genericErr = events.find((e) => e.type === 'error');
-    expect(genericErr).toBeUndefined();
+    expect(genericErr).toBeDefined();
   });
 
   test('queue depth is reported correctly as messages are added and drained', async () => {
@@ -1338,7 +1339,7 @@ describe('Regression: cancel semantics and error channel split', () => {
     expect(sessionErr).toBeUndefined();
   });
 
-  test('provider failure during processing emits session_error only', async () => {
+  test('provider failure during processing emits both error and session_error', async () => {
     const allEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
@@ -1354,9 +1355,9 @@ describe('Regression: cancel semantics and error channel split', () => {
     const sessionErr = allEvents.find((e) => e.type === 'session_error');
     expect(sessionErr).toBeDefined();
 
-    // Must not get generic error — session failures are session_error only
+    // Should also get generic error for backward-compatible consumers
     const genericErr = allEvents.find((e) => e.type === 'error');
-    expect(genericErr).toBeUndefined();
+    expect(genericErr).toBeDefined();
   });
 
   test('cancel after queued messages produces no session_error for any queued entry', async () => {
