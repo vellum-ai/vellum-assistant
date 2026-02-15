@@ -564,6 +564,8 @@ struct ChatView: View {
             if keyPress.modifiers == .shift {
                 if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
                     textView.insertNewlineIgnoringFieldEditor(nil)
+                } else {
+                    inputText += "\n"
                 }
                 return .handled
             }
