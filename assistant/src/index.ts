@@ -944,6 +944,22 @@ program
         fail(check.label, check.detail);
       }
     }
+
+    // 14. Live firewall rules
+    const { getFirewallDiagnostics } = await import('./tools/network/firewall-diagnostics.js');
+    const firewall = getFirewallDiagnostics();
+    console.log(`\n  Firewall (${firewall.platform}):`);
+    if (!firewall.available) {
+      fail('Firewall query', firewall.error);
+    } else {
+      pass('Firewall query');
+      for (const ruleSet of firewall.ruleSets) {
+        console.log(`\n  --- ${ruleSet.source} ---`);
+        for (const line of ruleSet.rules.split('\n')) {
+          console.log(`    ${line}`);
+        }
+      }
+    }
   });
 
 // --- Hooks commands ---
