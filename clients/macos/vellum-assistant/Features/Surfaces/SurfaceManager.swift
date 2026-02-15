@@ -15,6 +15,7 @@ final class SurfaceViewModel: ObservableObject {
     let appId: String?
     let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
     let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
+    let onLinkOpen: ((String, [String: Any]?) -> Void)?
     let sandboxMode: Bool
 
     init(
@@ -24,6 +25,7 @@ final class SurfaceViewModel: ObservableObject {
         appId: String? = nil,
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil,
+        onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
         sandboxMode: Bool = false
     ) {
         self.surface = surface
@@ -32,6 +34,7 @@ final class SurfaceViewModel: ObservableObject {
         self.appId = appId
         self.onDataRequest = onDataRequest
         self.onCoordinatorReady = onCoordinatorReady
+        self.onLinkOpen = onLinkOpen
         self.sandboxMode = sandboxMode
     }
 }
@@ -88,6 +91,10 @@ final class SurfaceManager: ObservableObject {
     /// When set, dynamic pages with `display != "inline"` route to the full-window
     /// workspace instead of opening as floating NSPanels.
     var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
+
+    /// Called when a dynamic page requests opening an external link.
+    /// Parameters: url string, optional metadata dictionary.
+    var onLinkOpen: ((String, [String: Any]?) -> Void)?
 
     // MARK: - Show
 
@@ -153,6 +160,9 @@ final class SurfaceManager: ObservableObject {
             onCoordinatorReady: appId != nil ? { [weak self] coordinator in
                 self?.surfaceCoordinators[surface.id] = coordinator
             } : nil,
+            onLinkOpen: { [weak self] url, metadata in
+                self?.onLinkOpen?(url, metadata)
+            },
             sandboxMode: isSandboxed
         )
         viewModels[surface.id] = viewModel
