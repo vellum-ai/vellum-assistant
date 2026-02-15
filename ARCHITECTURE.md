@@ -291,6 +291,10 @@ graph LR
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
     end
 
+    subgraph "~/.vellum/data/ipc-blobs/"
+        BLOBS["*.blob<br/>───────────────<br/>Ephemeral blob files<br/>UUID filenames<br/>Atomic temp+rename writes<br/>Consumed after daemon hydration<br/>Stale sweep every 5min (30min max age)"]
+    end
+
     subgraph "~/.vellum/ (Other Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
         TRUST["trust.json<br/>Tool permission rules"]
@@ -366,7 +370,7 @@ sequenceDiagram
             end
 
             Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error<br/>Optional: axTreeBlob, screenshotBlob<br/>(blob refs when transport available)
 
             DC->>Daemon: IPC message
             Daemon->>Claude: API call with observation
@@ -671,7 +675,7 @@ graph LR
         direction TB
         C0["task_submit<br/>task, screenWidth, screenHeight,<br/>attachments, source?:'voice'|'text'"]
         C1["cu_session_create<br/>task, attachments"]
-        C2["cu_observation<br/>axTree, axDiff, screenshot,<br/>secondaryWindows, result/error"]
+        C2["cu_observation<br/>axTree, axDiff, screenshot,<br/>secondaryWindows, result/error,<br/>axTreeBlob?, screenshotBlob?"]
         C3["ambient_observation<br/>screenContent, requestId"]
         C4["session_create<br/>title"]
         C5["user_message<br/>text, attachments"]
@@ -679,6 +683,7 @@ graph LR
         C7["cancel / undo"]
         C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
         C9["ping"]
+        C10["ipc_blob_probe<br/>probeId, nonceSha256"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -702,6 +707,7 @@ graph LR
         S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount, attachments?"]
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
+        S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
     end
 
     C0 --> SOCKET
@@ -714,6 +720,7 @@ graph LR
     C7 --> SOCKET
     C8 --> SOCKET
     C9 --> SOCKET
+    C10 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -732,7 +739,77 @@ graph LR
     SOCKET --> S14
     SOCKET --> S15
     SOCKET --> S16
+    SOCKET --> S17
 ```
+
+---
+
+## Blob Transport — Large Payload Side-Channel
+
+CU observations can carry large payloads (screenshots as JPEG, AX trees as UTF-8 text). Instead of embedding these inline as base64/text in newline-delimited JSON IPC messages, the blob transport offloads them to local files and sends only lightweight references over the socket.
+
+### Probe Mechanism
+
+Blob transport is opt-in per connection. On macOS local socket connect, the client writes a random nonce file to the blob directory and sends an `ipc_blob_probe` message with the SHA-256 of the nonce. The daemon reads the file, computes the hash, and responds with `ipc_blob_probe_result`. If hashes match, the client sets `isBlobTransportAvailable = true` for that connection. The flag resets to `false` on disconnect or reconnect.
+
+On iOS or non-local (TCP/SSH-forwarded) connections, the probe is skipped and blob transport stays disabled — the client uses inline payloads as before.
+
+### Blob Directory
+
+All blobs live at `~/.vellum/data/ipc-blobs/`. Filenames are `${uuid}.blob`. The daemon ensures this directory exists on startup. Both client and daemon use atomic writes (temp file + rename) to prevent partial reads.
+
+### Blob Reference
+
+```
+IpcBlobRef {
+  id: string              // UUID v4
+  kind: "ax_tree" | "screenshot_jpeg"
+  encoding: "utf8" | "binary"
+  byteLength: number
+  sha256?: string         // SHA-256 hex digest for integrity check
+}
+```
+
+### Transport Decision Flow
+
+```mermaid
+graph TB
+    HAS_DATA{"Has large payload?"}
+    BLOB_AVAIL{"isBlobTransportAvailable?"}
+    THRESHOLD{"Above threshold?<br/>(screenshots: always,<br/>AX trees: >8KB)"}
+    WRITE_BLOB["Write blob file<br/>atomic temp+rename"]
+    WRITE_OK{"Write succeeded?"}
+    SEND_REF["Send IpcBlobRef<br/>(inline field = nil)"]
+    SEND_INLINE["Send inline<br/>(base64 / text)"]
+
+    HAS_DATA -->|Yes| BLOB_AVAIL
+    HAS_DATA -->|No| SEND_INLINE
+    BLOB_AVAIL -->|Yes| THRESHOLD
+    BLOB_AVAIL -->|No| SEND_INLINE
+    THRESHOLD -->|Yes| WRITE_BLOB
+    THRESHOLD -->|No| SEND_INLINE
+    WRITE_BLOB --> WRITE_OK
+    WRITE_OK -->|Yes| SEND_REF
+    WRITE_OK -->|No| SEND_INLINE
+```
+
+### Daemon Hydration
+
+When the daemon receives a CU observation with blob refs, it hydrates them back to inline values before the CU session processes the observation:
+
+1. Validate blob `kind`, `encoding`, `byteLength`, and optional `sha256`.
+2. Read the blob file and verify actual size matches `byteLength`.
+3. For screenshots: base64-encode the bytes into the `screenshot` field.
+4. For AX trees: decode UTF-8 bytes into the `axTree` field.
+5. Delete the consumed blob file.
+
+If hydration fails and an inline fallback field exists, the inline value is used. If neither blob nor inline is present, the daemon sends a `cu_error`.
+
+### Cleanup
+
+- **Consumed blobs**: Deleted immediately after successful hydration.
+- **Stale sweep**: The daemon runs a periodic sweep (every 5 minutes) to delete blob files older than 30 minutes, catching orphans from failed sends or crashes.
+- **Size limits**: Screenshot blobs are capped at 10MB, AX tree blobs at 2MB. Oversized blobs are rejected.
 
 ---
 
@@ -1232,4 +1309,5 @@ graph LR
 | Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
 | Trace events | In-memory (TraceStore) | Structured events | Swift ObservableObject | Max 5,000 per session, ephemeral |
+| IPC blob payloads | `~/.vellum/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
