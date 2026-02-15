@@ -144,6 +144,47 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
+## Assistant Attachments
+
+The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
+
+### Desktop (IPC)
+
+Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` IPC messages. The macOS app renders thumbnails for images and displays file metadata for documents.
+
+### Runtime HTTP API
+
+The `GET /v1/assistants/:id/messages` endpoint returns attachment metadata on each message:
+
+```json
+{
+  "id": "att_xxx",
+  "filename": "chart.png",
+  "mimeType": "image/png",
+  "sizeBytes": 12345,
+  "kind": "image"
+}
+```
+
+Fetch the full attachment payload (including base64-encoded data) via:
+
+```
+GET /v1/assistants/:assistantId/attachments/:attachmentId
+```
+
+### Telegram
+
+The gateway downloads attachments from the runtime API and delivers them via Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (exceeding `GATEWAY_MAX_ATTACHMENT_BYTES`, default 20 MB) are skipped. Partial failures send a user-visible notice listing undelivered files.
+
+### Attachment Sources
+
+The assistant creates attachments from two sources:
+
+1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
+2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
+
+Limits: up to 5 attachments per turn, 20 MB each.
+
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
