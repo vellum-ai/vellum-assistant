@@ -21,6 +21,18 @@ extension DynamicPageSurfaceView {
             .replacingOccurrences(of: "${", with: "\\${")
             .replacingOccurrences(of: "\r", with: "")
     }()
+
+    /// Widget JS utilities loaded once from the resource bundle.
+    static let widgetJS: String = {
+        guard let url = ResourceBundle.bundle.url(
+            forResource: "vellum-widgets", withExtension: "js"
+        ), let js = try? String(contentsOf: url) else {
+            log.error("Failed to load vellum-widgets.js from resource bundle")
+            assertionFailure("vellum-widgets.js not found in resource bundle")
+            return ""
+        }
+        return js
+    }()
 }
 
 struct DynamicPageSurfaceView: NSViewRepresentable {
@@ -95,6 +107,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             window.vellum = {
                 sendAction: function(actionId, data) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({actionId: actionId, data: data});
+                },
+                openExternal: function(url) {
+                    window.webkit.messageHandlers.vellumBridge.postMessage({type: 'open_external', url: String(url)});
+                },
+                _confirmPending: {},
+                _confirmNextId: 1,
+                confirm: function(title, message) {
+                    return new Promise(function(resolve) {
+                        var confirmId = 'confirm_' + (window.vellum._confirmNextId++);
+                        window.vellum._confirmPending[confirmId] = resolve;
+                        window.webkit.messageHandlers.vellumBridge.postMessage({
+                            type: 'confirm', confirmId: confirmId, title: String(title || ''), message: String(message || '')
+                        });
+                    });
+                },
+                _resolveConfirm: function(confirmId, result) {
+                    var p = window.vellum._confirmPending[confirmId];
+                    if (p) { delete window.vellum._confirmPending[confirmId]; p(result); }
                 }
             };
             """
@@ -160,9 +190,18 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
+        // Widget JS utilities (charts, formatting, interactive behaviors).
+        // Runs after the bridge script so window.vellum is already defined.
+        let widgetScript = WKUserScript(
+            source: Self.widgetJS,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
         contentController.addUserScript(designSystemScript)
+        contentController.addUserScript(widgetScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
@@ -298,6 +337,53 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 return
             }
 
+            // Handle openExternal requests from the JS bridge.
+            if let type = body["type"] as? String, type == "open_external" {
+                if sandboxMode {
+                    log.warning("open_external: blocked in sandbox mode")
+                    return
+                }
+                guard let urlString = body["url"] as? String,
+                      let url = URL(string: urlString),
+                      let scheme = url.scheme?.lowercased(),
+                      ["http", "https", "mailto"].contains(scheme) else {
+                    log.warning("open_external: blocked invalid or disallowed URL: \(body["url"] as? String ?? "nil", privacy: .public)")
+                    return
+                }
+                NSWorkspace.shared.open(url)
+                return
+            }
+
+            // Handle confirm dialog requests from the JS bridge.
+            if let type = body["type"] as? String, type == "confirm" {
+                guard let confirmId = body["confirmId"] as? String else {
+                    log.error("confirm: missing confirmId")
+                    return
+                }
+                let title = body["title"] as? String ?? ""
+                let msg = body["message"] as? String ?? ""
+                let alert = NSAlert()
+                alert.messageText = title
+                alert.informativeText = msg
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                let confirmed = response == .alertFirstButtonReturn
+                let safeId = confirmId
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\r", with: "\\r")
+                let js = "window.vellum._resolveConfirm('\(safeId)', \(confirmed))"
+                webView?.evaluateJavaScript(js) { _, error in
+                    if let error {
+                        log.error("confirm: JS eval error: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+                return
+            }
+
             // Existing sendAction handling.
             guard let actionId = body["actionId"] as? String else { return }
             let data = body["data"]
@@ -379,6 +465,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             } else {
                 if navigationAction.navigationType == .other {
                     decisionHandler(.allow)
+                } else if navigationAction.navigationType == .linkActivated,
+                          let url = navigationAction.request.url,
+                          let scheme = url.scheme?.lowercased(),
+                          ["http", "https", "mailto"].contains(scheme) {
+                    NSWorkspace.shared.open(url)
+                    decisionHandler(.cancel)
                 } else {
                     decisionHandler(.cancel)
                 }

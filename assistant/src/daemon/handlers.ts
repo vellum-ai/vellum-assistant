@@ -61,7 +61,10 @@ import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, claw
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
+import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
+import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
+import type { UserMessageAttachment } from './ipc-contract.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -158,12 +161,6 @@ function wireEscalationHandler(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function estimateBase64Bytes(base64: string): number {
-  const sanitized = base64.trim();
-  const padding = sanitized.endsWith('==') ? 2 : (sanitized.endsWith('=') ? 1 : 0);
-  return Math.max(0, Math.floor((sanitized.length * 3) / 4) - padding);
 }
 
 function formatBytes(sizeBytes: number): string {
@@ -496,15 +493,16 @@ async function handleUserMessage(
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
     session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
       rlog.error({ err }, 'Error processing user message (session or provider failure)');
-      // Session-scoped failure: emit only session_error (not generic error)
-      // so the client routes it through the typed session-error channel.
+      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, { phase: 'agent_loop' });
       ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
-    // Session-scoped failure: emit only session_error (not generic error).
+    ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
     const classified = classifySessionError(err, { phase: 'handler' });
     ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
@@ -720,7 +718,7 @@ function handleHistoryRequest(
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
     }
-    return { role: m.role, text, timestamp: m.createdAt, toolCalls };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -728,12 +726,27 @@ function handleHistoryRequest(
   // tool_result blocks (internal agent-loop turns).
   const merged = mergeToolResults(parsed);
 
-  const historyMessages = merged.map((m) => ({
-    role: m.role,
-    text: m.text,
-    timestamp: m.timestamp,
-    ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-  }));
+  const historyMessages = merged.map((m) => {
+    let attachments: UserMessageAttachment[] | undefined;
+    if (m.role === 'assistant' && m.id) {
+      const linked = getAttachmentsForMessageUnscoped(m.id);
+      if (linked.length > 0) {
+        attachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }));
+      }
+    }
+    return {
+      role: m.role,
+      text: m.text,
+      timestamp: m.timestamp,
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
+      ...(attachments ? { attachments } : {}),
+    };
+  });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 }
 
@@ -813,7 +826,7 @@ async function handleRegenerate(
       status: 'error',
       attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
     });
-    // Session-scoped failure: emit only session_error (not generic error).
+    ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
     const classified = classifySessionError(err, { phase: 'regenerate' });
     ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
   }
@@ -1380,8 +1393,9 @@ async function handleTaskSubmit(
       session.processMessage(msg.task, msg.attachments ?? [], (event) => {
         ctx.send(socket, event);
       }, requestId).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
         rlog.error({ err }, 'Error processing task_submit text QA');
-        // Session-scoped failure: emit only session_error (not generic error).
+        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, { phase: 'agent_loop' });
         ctx.send(socket, buildSessionErrorMessage(conversation.id, classified));
       });

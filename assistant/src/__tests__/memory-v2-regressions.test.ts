@@ -46,11 +46,13 @@ mock.module('../config/loader.js', () => ({
 }));
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { requestMemoryBackfill } from '../memory/admin.js';
+import { getMemoryCheckpoint } from '../memory/checkpoints.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
+import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
-import { claimMemoryJobs, enqueueMemoryJob } from '../memory/jobs-store.js';
+import { claimMemoryJobs, enqueueBackfillEntityRelationsJob, enqueueMemoryJob } from '../memory/jobs-store.js';
 import { currentWeekWindow, resetStaleSweepThrottle, runMemoryJobsOnce, sweepStaleItems } from '../memory/jobs-worker.js';
 import {
   buildMemoryRecall,
@@ -64,6 +66,7 @@ import {
 import {
   conversations,
   memoryEmbeddings,
+  memoryEntityRelations,
   memoryItems,
   memoryItemSources,
   memoryJobs,
@@ -79,6 +82,9 @@ describe('Memory V2 regressions', () => {
 
   beforeEach(() => {
     const db = getDb();
+    db.run('DELETE FROM memory_item_entities');
+    db.run('DELETE FROM memory_entity_relations');
+    db.run('DELETE FROM memory_entities');
     db.run('DELETE FROM memory_item_sources');
     db.run('DELETE FROM memory_embeddings');
     db.run('DELETE FROM memory_summaries');
@@ -1095,6 +1101,97 @@ describe('Memory V2 regressions', () => {
     expect(JSON.parse(forceRow?.payload ?? '{}')).toMatchObject({ force: true });
   });
 
+  test('relation backfill enqueue is deduped and force upgrades payload', () => {
+    const db = getDb();
+
+    const firstId = enqueueBackfillEntityRelationsJob();
+    const secondId = enqueueBackfillEntityRelationsJob();
+    expect(secondId).toBe(firstId);
+
+    const upgradedId = enqueueBackfillEntityRelationsJob(true);
+    expect(upgradedId).toBe(firstId);
+
+    const row = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, firstId))
+      .get();
+    expect(row).not.toBeUndefined();
+    expect(JSON.parse(row?.payload ?? '{}')).toMatchObject({ force: true });
+  });
+
+  test('relation backfill advances checkpoints in deterministic batches', async () => {
+    const db = getDb();
+    const now = 1_700_001_000_000;
+    const originalEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    const originalBatchSize = TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = 2;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-rel-backfill',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values([
+        {
+          id: 'msg-rel-backfill-1',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Project Atlas uses Qdrant for memory search.' }]),
+          createdAt: now + 1,
+        },
+        {
+          id: 'msg-rel-backfill-2',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Atlas collaborates with Orion.' }]),
+          createdAt: now + 2,
+        },
+        {
+          id: 'msg-rel-backfill-3',
+          conversationId: 'conv-rel-backfill',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Orion depends on Redis caching.' }]),
+          createdAt: now + 3,
+        },
+      ]).run();
+
+      enqueueBackfillEntityRelationsJob(true);
+
+      const firstProcessed = await runMemoryJobsOnce();
+      expect(firstProcessed).toBe(1);
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_created_at')).toBe(String(now + 2));
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_message_id')).toBe('msg-rel-backfill-2');
+
+      db.run(`DELETE FROM memory_jobs WHERE type = 'extract_entities' AND status = 'pending'`);
+
+      const secondProcessed = await runMemoryJobsOnce();
+      expect(secondProcessed).toBe(1);
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_created_at')).toBe(String(now + 3));
+      expect(getMemoryCheckpoint('memory:relation_backfill:last_message_id')).toBe('msg-rel-backfill-3');
+
+      const pendingBackfill = db
+        .select()
+        .from(memoryJobs)
+        .where(and(eq(memoryJobs.type, 'backfill_entity_relations'), eq(memoryJobs.status, 'pending')))
+        .all();
+      expect(pendingBackfill).toHaveLength(0);
+    } finally {
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = originalBatchSize;
+    }
+  });
+
   test('memory recall token budgeting includes recall marker overhead', async () => {
     const db = getDb();
     const createdAt = 1_700_000_300_000;
@@ -1151,6 +1248,69 @@ describe('Memory V2 regressions', () => {
     const recall = await buildMemoryRecall('budget sentinel', 'conv-budget', config);
     expect(recall.injectedText).toBe('');
     expect(recall.injectedTokens).toBe(0);
+  });
+
+  test('memory recall respects maxInjectTokensOverride when provided', async () => {
+    const db = getDb();
+    const createdAt = 1_700_000_301_000;
+    db.insert(conversations).values({
+      id: 'conv-budget-override',
+      title: null,
+      createdAt,
+      updatedAt: createdAt,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+
+    for (let i = 0; i < 4; i++) {
+      const msgId = `msg-budget-override-${i}`;
+      const segId = `seg-budget-override-${i}`;
+      const text = `budget override sentinel item ${i} with enough text to exceed tiny limits`;
+      db.insert(messages).values({
+        id: msgId,
+        conversationId: 'conv-budget-override',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text }]),
+        createdAt: createdAt + i,
+      }).run();
+      db.run(`
+        INSERT INTO memory_segments (
+          id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at
+        ) VALUES (
+          '${segId}', '${msgId}', 'conv-budget-override', 'user', 0, '${text}', 20, ${createdAt + i}, ${createdAt + i}
+        )
+      `);
+    }
+
+    const config = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          provider: 'openai' as const,
+          required: false,
+        },
+        retrieval: {
+          ...DEFAULT_CONFIG.memory.retrieval,
+          maxInjectTokens: 5000,
+          lexicalTopK: 10,
+        },
+      },
+    };
+
+    const override = 120;
+    const recall = await buildMemoryRecall(
+      'budget override sentinel',
+      'conv-budget-override',
+      config,
+      { maxInjectTokensOverride: override },
+    );
+    expect(recall.injectedTokens).toBeLessThanOrEqual(override);
   });
 
   test('claimMemoryJobs only returns rows it actually claimed', () => {
@@ -1915,5 +2075,56 @@ describe('Memory V2 regressions', () => {
     const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, 'summary-scope-test')).get();
     expect(summary).toBeDefined();
     expect(summary!.scopeId).toBe('default');
+  });
+
+  test('entity relations upsert is idempotent under repeated processing', () => {
+    const db = getDb();
+    const sourceEntityId = upsertEntity({
+      name: 'Project Atlas',
+      type: 'project',
+      aliases: ['atlas'],
+    });
+    const targetEntityId = upsertEntity({
+      name: 'Qdrant',
+      type: 'tool',
+      aliases: [],
+    });
+
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: 'Project Atlas uses Qdrant for vector search',
+      seenAt: 1_700_000_000_000,
+    });
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: null,
+      seenAt: 1_700_000_100_000,
+    });
+    upsertEntityRelation({
+      sourceEntityId,
+      targetEntityId,
+      relation: 'uses',
+      evidence: 'Atlas currently depends on Qdrant',
+      seenAt: 1_700_000_200_000,
+    });
+
+    const rows = db
+      .select()
+      .from(memoryEntityRelations)
+      .where(and(
+        eq(memoryEntityRelations.sourceEntityId, sourceEntityId),
+        eq(memoryEntityRelations.targetEntityId, targetEntityId),
+        eq(memoryEntityRelations.relation, 'uses'),
+      ))
+      .all();
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].firstSeenAt).toBe(1_700_000_000_000);
+    expect(rows[0].lastSeenAt).toBe(1_700_000_200_000);
+    expect(rows[0].evidence).toBe('Atlas currently depends on Qdrant');
   });
 });

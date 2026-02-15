@@ -111,13 +111,13 @@ describe('DockerBackend — argument construction', () => {
     expect(result.args).toContain(defaultImage);
   });
 
-  test('wraps command with bash -c by default', () => {
+  test('wraps command with sh -c by default', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const cmd = 'cat /etc/passwd | wc -l';
     const result = backend.wrap(cmd, sandboxRoot);
-    const bashIdx = result.args.indexOf('bash');
-    expect(bashIdx).toBeGreaterThan(0);
-    expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', cmd]);
+    const shIdx = result.args.indexOf('sh');
+    expect(shIdx).toBeGreaterThan(0);
+    expect(result.args.slice(shIdx)).toEqual(['sh', '-c', cmd]);
   });
 });
 
@@ -605,7 +605,8 @@ describe('DockerBackend — preflight: mount probe', () => {
       (args) =>
         args[0] === 'docker' &&
         Array.isArray(args[1]) &&
-        (args[1] as string[]).includes('run'),
+        (args[1] as string[]).includes('run') &&
+        (args[1] as string[]).includes('test'),
     );
     expect(mountCalls.length).toBe(1);
     // Verify mount arg is passed as a single argv element
@@ -627,7 +628,8 @@ describe('DockerBackend — preflight: mount probe', () => {
       (args) =>
         args[0] === 'docker' &&
         Array.isArray(args[1]) &&
-        (args[1] as string[]).includes('run'),
+        (args[1] as string[]).includes('run') &&
+        (args[1] as string[]).includes('test'),
     );
     expect(mountCalls.length).toBe(1);
     const argv = mountCalls[0]![1] as string[];
@@ -644,9 +646,73 @@ describe('DockerBackend — preflight: mount probe', () => {
       (args) =>
         args[0] === 'docker' &&
         Array.isArray(args[1]) &&
-        (args[1] as string[]).includes('run'),
+        (args[1] as string[]).includes('run') &&
+        (args[1] as string[]).includes('test'),
     );
     expect(mountCalls.length).toBe(1);
+  });
+});
+
+describe('DockerBackend — preflight: shell resolution', () => {
+  test('falls back to sh when configured shell is not available in image', () => {
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('run') &&
+          args.includes('bash')
+        ) {
+          throw new Error('executable file not found');
+        }
+        return undefined;
+      },
+    );
+
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('echo hi', sandboxRoot);
+    // Should fall back to 'sh' instead of 'bash'
+    const imageIdx = result.args.indexOf(defaultImage);
+    expect(result.args[imageIdx + 1]).toBe('sh');
+    expect(result.args[imageIdx + 2]).toBe('-c');
+  });
+
+  test('throws when neither configured shell nor sh is available', () => {
+    execFileSyncMock.mockImplementation(
+      (file: string, args?: readonly string[]) => {
+        if (
+          file === 'docker' &&
+          Array.isArray(args) &&
+          args.includes('run') &&
+          (args.includes('bash') || args.includes('sh'))
+        ) {
+          throw new Error('executable file not found');
+        }
+        return undefined;
+      },
+    );
+
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
+    expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
+      'Neither "bash" nor "sh" is available',
+    );
+  });
+
+  test('caches resolved shell per image', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    backend.wrap('ls', sandboxRoot);
+    backend.wrap('ls', sandboxRoot);
+
+    // Shell resolution docker run (with '-c' and 'true') should only happen once
+    const shellCalls = execFileSyncMock.mock.calls.filter(
+      (args) =>
+        args[0] === 'docker' &&
+        Array.isArray(args[1]) &&
+        (args[1] as string[]).includes('run') &&
+        (args[1] as string[]).includes('true'),
+    );
+    expect(shellCalls.length).toBe(1);
   });
 });
 

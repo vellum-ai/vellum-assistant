@@ -279,6 +279,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onAppDataResponse = { [weak self] msg in
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
         }
+
+        // Route dynamic pages to workspace
+        surfaceManager.onDynamicPageShow = { [weak self] msg in
+            guard let self else { return }
+            self.showMainWindow()
+            NotificationCenter.default.post(
+                name: .openDynamicWorkspace,
+                object: nil,
+                userInfo: ["surfaceMessage": msg]
+            )
+        }
     }
 
     private func setupToolConfirmationManager() {
@@ -877,7 +888,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             existing.show()
             return
         }
-        let main = MainWindow(daemonClient: daemonClient, ambientAgent: ambientAgent, zoomManager: zoomManager)
+        let main = MainWindow(daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, zoomManager: zoomManager)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }

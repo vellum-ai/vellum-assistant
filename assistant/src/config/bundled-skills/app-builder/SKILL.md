@@ -75,6 +75,498 @@ A design system CSS is auto-injected inside a `@layer`, so your app's styles alw
 
 **Custom themes:** When the user wants a specific visual style, write complete CSS with hardcoded colors — do NOT use `--v-*` variables (they switch between light/dark mode). Explicitly style `body`, `input`/`textarea`/`select`, `button`, headings, and links with your own colors.
 
+#### Widget component library
+
+A library of reusable CSS widget classes and JS utilities is auto-injected alongside the design system. Use these when they fit your UI — they save time and ensure visual consistency. Skip them when custom HTML serves the user better. These are **reference components**, not constraints.
+
+**CSS Widget Classes** — use with semantic HTML. All use `--v-*` design tokens.
+
+**Layout & Data Primitives:**
+
+`.v-metric-card` — Big number display with label and trend:
+```html
+<div class="v-metric-card">
+  <span class="v-metric-label">Revenue</span>
+  <span class="v-metric-value">$12,450</span>
+  <span class="v-metric-trend up">↑ 12.3%</span>
+</div>
+```
+
+`.v-metric-grid` — Responsive grid of metric cards (auto 2-4 cols):
+```html
+<div class="v-metric-grid">
+  <div class="v-metric-card">...</div>
+  <div class="v-metric-card">...</div>
+</div>
+```
+
+`.v-data-table` — Sortable table with sticky header, hover states, selection:
+```html
+<table class="v-data-table" id="my-table">
+  <thead><tr>
+    <th><input type="checkbox"></th>
+    <th data-sortable>Name</th>
+    <th data-sortable>Amount</th>
+  </tr></thead>
+  <tbody><tr data-id="1">
+    <td><input type="checkbox"></td>
+    <td>Item</td>
+    <td data-sort-value="100">$100.00</td>
+  </tr></tbody>
+</table>
+```
+
+`.v-timeline` — Vertical timeline with entries:
+```html
+<div class="v-timeline">
+  <div class="v-timeline-entry active">
+    <div class="v-timeline-time">2:30 PM</div>
+    <div class="v-timeline-title">Order shipped</div>
+    <div class="v-timeline-desc">Tracking #ABC123</div>
+  </div>
+  <div class="v-timeline-entry success">...</div>
+</div>
+```
+Entry modifiers: `.active`, `.success`, `.error`
+
+`.v-action-list` — Rows with per-item actions:
+```html
+<ul class="v-action-list">
+  <li class="v-action-list-item">
+    <div class="v-action-content">
+      <div class="v-action-title">Task name</div>
+      <div class="v-action-subtitle">Due tomorrow</div>
+    </div>
+    <div class="v-action-buttons">
+      <button class="v-button ghost">Edit</button>
+    </div>
+  </li>
+</ul>
+```
+
+`.v-tabs` — Tab navigation:
+```html
+<div class="v-tabs" id="my-tabs">
+  <div class="v-tab-bar" role="tablist">
+    <button class="v-tab" aria-controls="panel-1">Tab 1</button>
+    <button class="v-tab" aria-controls="panel-2">Tab 2</button>
+  </div>
+  <div class="v-tab-panel" id="panel-1">Content 1</div>
+  <div class="v-tab-panel" id="panel-2" hidden>Content 2</div>
+</div>
+```
+
+`.v-accordion` — Collapsible sections:
+```html
+<div class="v-accordion" id="my-accordion">
+  <div class="v-accordion-item">
+    <button class="v-accordion-header" aria-expanded="true">Section 1</button>
+    <div class="v-accordion-body">Content here</div>
+  </div>
+</div>
+```
+
+`.v-search-bar` — Search input with icon:
+```html
+<div class="v-search-bar">
+  <input type="text" placeholder="Search..." id="search">
+  <button class="v-search-clear">✕</button>
+</div>
+```
+
+`.v-card-grid` — Responsive grid of cards:
+```html
+<div class="v-card-grid">
+  <div class="v-card">Card 1</div>
+  <div class="v-card">Card 2</div>
+</div>
+```
+
+`.v-progress-bar` — Horizontal progress with label:
+```html
+<div class="v-progress-bar">
+  <div class="v-progress-header">
+    <span>Upload</span><span>75%</span>
+  </div>
+  <div class="v-progress-track">
+    <div class="v-progress-fill" style="width:75%"></div>
+  </div>
+</div>
+```
+Fill modifiers: `.success`, `.warning`, `.danger`
+
+`.v-status-badge` — Colored pill with dot:
+```html
+<span class="v-status-badge success">Active</span>
+<span class="v-status-badge error">Failed</span>
+<span class="v-status-badge warning">Pending</span>
+<span class="v-status-badge info">Processing</span>
+```
+
+`.v-stat-row` — Horizontal label-value pairs:
+```html
+<div class="v-stat-row">
+  <div class="v-stat">
+    <span class="v-stat-label">Users</span>
+    <span class="v-stat-value">1,234</span>
+  </div>
+  <div class="v-stat">
+    <span class="v-stat-label">Revenue</span>
+    <span class="v-stat-value">$45K</span>
+  </div>
+</div>
+```
+
+`.v-toast` — Notification banner (prefer JS `vellum.widgets.toast()` for auto-dismiss):
+```html
+<div class="v-toast success" role="alert">
+  <span>✓</span>
+  <span>Saved successfully</span>
+  <button class="v-toast-dismiss">×</button>
+</div>
+```
+Modifiers: `.success`, `.error`, `.warning`, `.info`
+
+`.v-empty-state` — No-data placeholder with CTA:
+```html
+<div class="v-empty-state">
+  <div class="v-empty-icon">📋</div>
+  <div class="v-empty-title">No items yet</div>
+  <div class="v-empty-desc">Create your first item to get started.</div>
+  <button class="v-button">Create Item</button>
+</div>
+```
+
+`.v-divider` — Section separator with optional label:
+```html
+<div class="v-divider">OR</div>
+<div class="v-divider"></div>  <!-- plain line -->
+```
+
+`.v-avatar-row` — Contact/team display:
+```html
+<div class="v-avatar-row">
+  <div class="v-avatar">JD</div>
+  <div class="v-avatar-info">
+    <span class="v-avatar-name">Jane Doe</span>
+    <span class="v-avatar-subtitle">Engineering Lead</span>
+  </div>
+</div>
+```
+
+`.v-tag-group` — Wrapping row of tags:
+```html
+<div class="v-tag-group">
+  <span class="v-badge">Design</span>
+  <span class="v-badge success">Active</span>
+</div>
+```
+
+**Domain-Specific Widgets:**
+
+`.v-weather-card` — Temperature + forecast:
+```html
+<div class="v-weather-card">
+  <div class="v-weather-main">
+    <div>
+      <div class="v-weather-temp">72°</div>
+      <div class="v-weather-condition">Partly Cloudy</div>
+    </div>
+    <div class="v-weather-icon">⛅</div>
+  </div>
+  <div class="v-weather-details">
+    <span>Wind: 8 mph</span><span>Humidity: 45%</span>
+  </div>
+  <div class="v-weather-forecast">
+    <div class="v-weather-forecast-item">
+      <span>Mon</span><span>🌤</span><span>75°</span>
+    </div>
+  </div>
+</div>
+```
+
+`.v-stock-ticker` — Price display with chart container:
+```html
+<div class="v-stock-ticker">
+  <div class="v-stock-header">
+    <span class="v-stock-symbol">AAPL</span>
+    <span class="v-stock-price">$189.50</span>
+    <span class="v-stock-change up">+2.3%</span>
+  </div>
+  <div class="v-stock-chart" id="chart"></div>
+  <div class="v-stock-meta"><span>Vol: 52M</span><span>Mkt Cap: 2.9T</span></div>
+</div>
+```
+Change modifiers: `.up`, `.down`
+
+`.v-flight-card` — Flight info:
+```html
+<div class="v-flight-card">
+  <div class="v-flight-header">
+    <span class="v-flight-airline">United Airlines</span>
+    <span class="v-flight-price">$342</span>
+  </div>
+  <div class="v-flight-route">
+    <div class="v-flight-endpoint">
+      <div class="v-flight-time">8:30 AM</div>
+      <div class="v-flight-code">SFO</div>
+    </div>
+    <div class="v-flight-duration">
+      <span>5h 20m</span>
+      <div class="v-flight-line"></div>
+      <span>Nonstop</span>
+    </div>
+    <div class="v-flight-endpoint">
+      <div class="v-flight-time">4:50 PM</div>
+      <div class="v-flight-code">JFK</div>
+    </div>
+  </div>
+</div>
+```
+
+`.v-billing-chart` — Usage/billing display:
+```html
+<div class="v-billing-chart">
+  <div class="v-billing-header">
+    <div class="v-billing-total">$1,234.56</div>
+    <div class="v-billing-period">Jan 2025</div>
+  </div>
+  <div class="v-billing-canvas" id="billing-chart"></div>
+  <div class="v-billing-legend">
+    <div class="v-billing-legend-item">
+      <div class="v-billing-legend-dot" style="background:var(--v-accent)"></div>
+      <span>Compute</span>
+    </div>
+  </div>
+</div>
+```
+
+`.v-boarding-pass` — Pass-styled layout:
+```html
+<div class="v-boarding-pass">
+  <div class="v-bp-header"><span>United Airlines</span><span>UA 1234</span></div>
+  <div class="v-bp-route">
+    <span class="v-bp-city">SFO</span>
+    <span class="v-bp-city">JFK</span>
+  </div>
+  <div class="v-bp-details">
+    <div class="v-bp-field">
+      <span class="v-bp-field-label">Gate</span>
+      <span class="v-bp-field-value">B42</span>
+    </div>
+    <div class="v-bp-field">
+      <span class="v-bp-field-label">Seat</span>
+      <span class="v-bp-field-value">12A</span>
+    </div>
+  </div>
+</div>
+```
+
+`.v-itinerary` — Day-by-day travel plan:
+```html
+<div class="v-itinerary">
+  <div class="v-itinerary-day">
+    <div class="v-itinerary-date">Monday, Jan 15</div>
+    <div class="v-itinerary-item">
+      <span class="v-itinerary-time">9:00 AM</span>
+      <div class="v-itinerary-content">
+        <div class="v-itinerary-title">Museum Visit</div>
+        <div class="v-itinerary-location">Metropolitan Museum of Art</div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+`.v-receipt` — Receipt-styled layout:
+```html
+<div class="v-receipt">
+  <div class="v-receipt-header">
+    <div class="v-receipt-store">Coffee Shop</div>
+  </div>
+  <div class="v-receipt-items">
+    <div class="v-receipt-line"><span>Latte</span><span>$5.50</span></div>
+    <div class="v-receipt-line"><span>Muffin</span><span>$3.25</span></div>
+  </div>
+  <hr class="v-receipt-divider">
+  <div class="v-receipt-total"><span>Total</span><span>$8.75</span></div>
+</div>
+```
+
+`.v-invoice` — Formal invoice layout:
+```html
+<div class="v-invoice">
+  <div class="v-invoice-header">
+    <div class="v-invoice-title">Invoice</div>
+    <div class="v-invoice-number">#INV-2025-001</div>
+  </div>
+  <div class="v-invoice-parties">
+    <div>
+      <div class="v-invoice-party-label">From</div>
+      <div class="v-invoice-party-name">Acme Corp</div>
+    </div>
+    <div>
+      <div class="v-invoice-party-label">To</div>
+      <div class="v-invoice-party-name">Client Inc</div>
+    </div>
+  </div>
+  <table class="v-invoice-table">
+    <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+    <tbody><tr><td>Service</td><td>1</td><td>$500</td></tr></tbody>
+  </table>
+  <div class="v-invoice-totals">
+    <div class="v-invoice-line"><span>Subtotal</span><span>$500</span></div>
+    <div class="v-invoice-line"><span>Tax (10%)</span><span>$50</span></div>
+    <div class="v-invoice-line total"><span>Total</span><span>$550</span></div>
+  </div>
+</div>
+```
+
+#### Widget JavaScript utilities
+
+Interactive utilities are available at `window.vellum.widgets.*`. All are self-contained with no external dependencies.
+
+**SVG Charts:**
+
+```javascript
+// Sparkline — inline mini chart
+vellum.widgets.sparkline('container-id', [10, 25, 15, 30, 20], {
+  width: 200, height: 40, color: 'var(--v-success)', strokeWidth: 2, fill: true
+});
+
+// Bar chart — with labels and tooltips
+vellum.widgets.barChart('container-id', [
+  { label: 'Jan', value: 120 },
+  { label: 'Feb', value: 180, color: 'var(--v-success)' }
+], { width: 400, height: 200, showLabels: true, showValues: true, horizontal: false });
+
+// Line chart — with gradient fill and grid
+vellum.widgets.lineChart('container-id', [
+  { label: 'Mon', value: 42 },
+  { label: 'Tue', value: 58 }
+], { width: 400, height: 200, showDots: true, showGrid: true, gridLines: 4 });
+
+// Progress ring — circular gauge
+vellum.widgets.progressRing('container-id', 75, {
+  size: 100, strokeWidth: 8, color: 'var(--v-success)', label: '75%'
+});
+```
+
+**Data Formatting:**
+
+```javascript
+vellum.widgets.formatCurrency(1234.56, 'USD');        // "$1,234.56"
+vellum.widgets.formatDate('2025-01-15', 'relative');   // "3d ago"
+vellum.widgets.formatDate('2025-01-15', 'short');      // "1/15/25"
+vellum.widgets.formatNumber(1234567, { compact: true }); // "1.2M"
+vellum.widgets.formatNumber(0.156, { decimals: 1 });   // "0.2"
+```
+
+**Interactive Behaviors:**
+
+```javascript
+// Sort — make table columns clickable to sort
+vellum.widgets.sortTable('my-table');  // Wire all th[data-sortable]
+vellum.widgets.sortTable('my-table', 0);  // Sort by first column immediately
+
+// Filter — live text search on table rows
+vellum.widgets.filterTable('my-table', 'search-input-id');
+
+// Tabs — wire tab switching with keyboard nav
+vellum.widgets.tabs('my-tabs');
+
+// Accordion — expand/collapse with animation
+vellum.widgets.accordion('my-accordion', { allowMultiple: true });
+
+// Multi-select — checkboxes with select-all, fires vellum.sendAction
+vellum.widgets.multiSelect('my-table');
+
+// Toast — show/auto-dismiss notification
+vellum.widgets.toast('Saved successfully', 'success', 4000);
+vellum.widgets.toast('Connection lost', 'error', 0);  // 0 = manual dismiss
+
+// Countdown — live timer
+vellum.widgets.countdown('timer-el', '2025-12-31T00:00:00Z', {
+  onComplete: () => console.log('Done!')
+});
+```
+
+#### Composition patterns
+
+Combine widget primitives to build complex UIs efficiently:
+
+**Dashboard:** metric grid + charts + data table
+```html
+<div class="v-metric-grid"><!-- KPI cards --></div>
+<div class="v-billing-canvas" id="chart"></div>
+<table class="v-data-table" id="details">...</table>
+<script>
+  vellum.widgets.barChart('chart', data);
+  vellum.widgets.sortTable('details');
+</script>
+```
+
+**Search-driven list:** search bar + action list + empty state
+```html
+<div class="v-search-bar"><input id="search" placeholder="Search..."></div>
+<ul class="v-action-list" id="results">...</ul>
+<div class="v-empty-state" id="empty" hidden>
+  <div class="v-empty-icon">🔍</div>
+  <div class="v-empty-title">No results</div>
+</div>
+```
+
+**Multi-step flow:** tabs + forms + progress bar
+
+**Comparison view:** card grid + stat rows + status badges
+
+**Multi-select table:** checkboxes + sticky action toolbar + bulk actions
+```html
+<table class="v-data-table" id="my-table">
+  <thead><tr>
+    <th><input type="checkbox"></th>
+    <th data-sortable>Name</th>
+    <th data-sortable>Status</th>
+  </tr></thead>
+  <tbody>
+    <tr data-id="1"><td><input type="checkbox"></td><td>Item 1</td><td>Active</td></tr>
+    <tr data-id="2"><td><input type="checkbox"></td><td>Item 2</td><td>Pending</td></tr>
+  </tbody>
+</table>
+<div id="bulk-toolbar" hidden style="position:sticky;bottom:0;">
+  <button onclick="handleBulk('archive')">Archive Selected</button>
+  <button onclick="handleBulk('delete')">Delete Selected</button>
+</div>
+<script>
+  vellum.widgets.multiSelect('my-table');
+
+  // Toggle bulk-action toolbar when checkboxes change
+  document.getElementById('my-table').addEventListener('change', () => {
+    const anyChecked = document.querySelectorAll('#my-table tbody input:checked').length > 0;
+    document.getElementById('bulk-toolbar').hidden = !anyChecked;
+  });
+
+  function handleBulk(action) {
+    const selected = document.querySelectorAll('#my-table tbody input:checked');
+    const ids = Array.from(selected).map(cb => cb.closest('tr').dataset.id);
+    vellum.sendAction(action, { selectedIds: ids });
+  }
+</script>
+```
+
+For table-driven workflows (inbox cleanup, flight selection, batch operations):
+1. Add checkboxes per row with a "select all" header checkbox
+2. Show a sticky action toolbar when rows are selected
+3. Fire `vellum.sendAction('action_name', { selectedIds: ['id1', 'id2'] })` on bulk action click
+
+#### When to use widgets vs custom HTML
+
+- **Use widgets** for standard data patterns — tables, metrics, timelines, status displays, notifications. They ensure visual consistency and save time.
+- **Use custom HTML** for novel or creative UIs — art portfolios, interactive stories, unique dashboards, games. Don't force data into a widget that doesn't fit.
+- **Mix freely** — use `.v-metric-card` structure but with custom inner layout, or combine multiple primitives into new patterns.
+- Tier 1 primitives compose well: `.v-timeline` + `.v-metric-card` = project tracker, `.v-data-table` + `.v-search-bar` = searchable directory.
+- Always prioritize the ideal user experience over using the widget library.
+
 #### Advanced techniques you should use
 
 You have the full power of modern web APIs. Use them to build genuinely impressive apps:
@@ -172,6 +664,40 @@ Call `app_create` with:
 - `auto_open`: (optional, defaults to `true`) When true, the app opens immediately after creation
 
 Since `auto_open` defaults to `true`, the app will be displayed to the user as soon as it is created. You do **not** need to call `app_open` separately after `app_create` unless `auto_open` was explicitly set to `false`.
+
+#### Preview metadata (ui_show only)
+
+When calling `ui_show` with `surface_type: "dynamic_page"`, include a `preview` object in the `data` so that a compact preview card appears inline in chat. This lets the user see a summary of the app without switching to the workspace. The preview card includes a "View Output" button that opens the full page.
+
+Note: `preview` is a field in the `ui_show` data payload. It does not apply to `app_create` or `app_open`, which handle their own display logic and do not accept a `preview` argument.
+
+```json
+{
+  "surface_type": "dynamic_page",
+  "data": {
+    "html": "...",
+    "preview": {
+      "title": "Expense Tracker",
+      "subtitle": "Personal Finance App",
+      "description": "Track your daily expenses with category breakdowns and monthly summaries.",
+      "icon": "💰",
+      "metrics": [
+        { "label": "Records", "value": "24" },
+        { "label": "Categories", "value": "8" }
+      ]
+    }
+  }
+}
+```
+
+Preview fields:
+- `title` (required): Short app name
+- `subtitle` (optional): Category or tagline
+- `description` (optional): One-sentence summary of what the app does
+- `icon` (optional): Single emoji representing the app
+- `metrics` (optional): Up to 3 key-value pills shown below the description (e.g., record counts, totals, status summaries). Only include metrics when the app has meaningful data to surface.
+
+Always include `preview` when calling `ui_show` with `surface_type: "dynamic_page"`. Choose an icon and title that clearly communicate what the app is at a glance.
 
 ### 5. Handle Iteration
 

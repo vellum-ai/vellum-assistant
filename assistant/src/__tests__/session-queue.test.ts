@@ -1,4 +1,5 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import { rmSync, writeFileSync } from 'node:fs';
 import type { Message, ProviderResponse } from '../providers/types.js';
 import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
@@ -34,6 +35,7 @@ mock.module('../config/loader.js', () => ({
       maxSummaryTokens: 512,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    timeouts: { permissionTimeoutSec: 1 },
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     memory: { retrieval: { injectionStrategy: 'inline' } },
@@ -65,6 +67,8 @@ mock.module('../skills/slash-commands.js', () => ({
 }));
 
 mock.module('../permissions/trust-store.js', () => ({
+  addRule: () => {},
+  findHighestPriorityRule: () => null,
   clearCache: () => {},
 }));
 
@@ -89,6 +93,11 @@ mock.module('../memory/conversation-store.js', () => ({
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module('../memory/attachments-store.js', () => ({
+  uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  linkAttachmentToMessage: () => {},
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -203,6 +212,16 @@ async function waitForPendingRun(count: number, timeoutMs = 2000): Promise<void>
   while (pendingRuns.length < count) {
     if (Date.now() - start > timeoutMs) {
       throw new Error(`Timed out waiting for ${count} pending runs (have ${pendingRuns.length})`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
     }
     await new Promise((r) => setTimeout(r, 10));
   }
@@ -344,7 +363,7 @@ describe('Session message queue', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
-  test('abort() clears the queue and sends errors for each queued message', async () => {
+  test('abort() clears the queue and sends generation_cancelled for each queued message', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -366,17 +385,19 @@ describe('Session message queue', () => {
     // Queue should be empty
     expect(session.getQueueDepth()).toBe(0);
 
-    // Both queued messages should have received generic error events
+    // Both queued messages should receive session-scoped cancellation events.
+    const cancel2 = events2.find((e) => e.type === 'generation_cancelled');
+    expect(cancel2).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+
+    const cancel3 = events3.find((e) => e.type === 'generation_cancelled');
+    expect(cancel3).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+
+    // abort() must NOT emit session_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === 'error');
-    expect(err2).toBeDefined();
-    expect(err2!.type === 'error' && err2!.message).toContain('queued message discarded');
-
+    expect(err2).toBeUndefined();
     const err3 = events3.find((e) => e.type === 'error');
-    expect(err3).toBeDefined();
-    expect(err3!.type === 'error' && err3!.message).toContain('queued message discarded');
+    expect(err3).toBeUndefined();
 
-    // abort() must NOT emit session_error — cancel should only show
-    // generation_cancelled behavior, never a session-error toast.
     const sessionErr2 = events2.find((e) => e.type === 'session_error');
     expect(sessionErr2).toBeUndefined();
 
@@ -384,7 +405,7 @@ describe('Session message queue', () => {
     expect(sessionErr3).toBeUndefined();
   });
 
-  test('session-scoped errors emit session_error only, not generic error', async () => {
+  test('session-scoped errors emit both session_error and generic error', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -403,9 +424,10 @@ describe('Session message queue', () => {
     const sessionErr = events.find((e) => e.type === 'session_error');
     expect(sessionErr).toBeDefined();
 
-    // Should NOT emit generic error — session failures use session_error only
+    // Should also emit generic error for backward compatibility
+    // (RunOrchestrator relies on error events to detect failures)
     const genericErr = events.find((e) => e.type === 'error');
-    expect(genericErr).toBeUndefined();
+    expect(genericErr).toBeDefined();
   });
 
   test('queue depth is reported correctly as messages are added and drained', async () => {
@@ -1035,6 +1057,255 @@ describe('Terminal trace events on rejection/failure', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Surface-action queue-full trace emission
+// ---------------------------------------------------------------------------
+
+describe('Surface-action queue-full trace', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('surface-action queue-full rejection emits request_error trace', async () => {
+    const traceEvents: ServerMessage[] = [];
+    const session = makeSession((msg) => {
+      if ('type' in msg && msg.type === 'trace_event') traceEvents.push(msg);
+    });
+    await session.loadFromDb();
+
+    // Start processing to make the session busy
+    session.processMessage('msg-1', [], () => {}, 'req-1');
+    await waitForPendingRun(1);
+
+    // Fill the queue to MAX_QUEUE_DEPTH
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      const result = session.enqueueMessage(`queued-${i}`, [], () => {}, `req-q-${i}`);
+      expect(result.queued).toBe(true);
+    }
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+
+    // Register a pending surface action so handleSurfaceAction doesn't bail early
+    (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
+
+    // Trigger the surface action — queue is full, should be rejected
+    session.handleSurfaceAction('surf-1', 'confirm');
+
+    // Should have a request_received trace followed by a request_error trace
+    const receivedTrace = traceEvents.find(
+      (e) => 'kind' in e && e.kind === 'request_received',
+    );
+    expect(receivedTrace).toBeDefined();
+
+    const errorTrace = traceEvents.find(
+      (e) => 'kind' in e && e.kind === 'request_error',
+    );
+    expect(errorTrace).toBeDefined();
+    expect(errorTrace).toHaveProperty('attributes');
+    const attrs = (errorTrace as any).attributes;
+    expect(attrs.reason).toBe('queue_full');
+    expect(attrs.source).toBe('surface_action');
+
+    // Queue depth should not have increased
+    expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Host attachment approval tests
+// ---------------------------------------------------------------------------
+
+describe('Session host attachment directives', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('host attachment prompts and resolves when user allows', async () => {
+    const hostPath = '/tmp/vellum-host-attachment-allow.txt';
+    writeFileSync(hostPath, 'host attachment content');
+
+    try {
+      const clientEvents: ServerMessage[] = [];
+      const events: ServerMessage[] = [];
+      const session = makeSession((msg) => clientEvents.push(msg));
+      await session.loadFromDb();
+
+      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      await waitForPendingRun(1);
+
+      const run = pendingRuns[0];
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
+          },
+        ],
+      };
+      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.resolve([...run.messages, assistantMsg]);
+
+      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
+      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      expect(confirmation).toBeDefined();
+      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'allow');
+
+      await p1;
+
+      expect(session.lastAssistantAttachments).toHaveLength(1);
+      expect(session.lastAssistantAttachments[0].sourceType).toBe('host_file');
+      expect(session.lastAttachmentWarnings).toHaveLength(0);
+
+      const completion = events.find((e) => e.type === 'message_complete');
+      expect(completion).toBeDefined();
+    } finally {
+      rmSync(hostPath, { force: true });
+    }
+  });
+
+  test('host attachment denial is non-fatal and emits warning text', async () => {
+    const hostPath = '/tmp/vellum-host-attachment-deny.txt';
+    writeFileSync(hostPath, 'host attachment content');
+
+    try {
+      const clientEvents: ServerMessage[] = [];
+      const events: ServerMessage[] = [];
+      const session = makeSession((msg) => clientEvents.push(msg));
+      await session.loadFromDb();
+
+      const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+      await waitForPendingRun(1);
+
+      const run = pendingRuns[0];
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: `Here is your file.\n<vellum-attachment source="host" path="${hostPath}" />`,
+          },
+        ],
+      };
+      run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+      run.onEvent({ type: 'message_complete', message: assistantMsg });
+      run.resolve([...run.messages, assistantMsg]);
+
+      await waitForCondition(() => clientEvents.some((e) => e.type === 'confirmation_request'));
+      const confirmation = clientEvents.find((e) => e.type === 'confirmation_request');
+      expect(confirmation).toBeDefined();
+      session.handleConfirmationResponse((confirmation as { requestId: string }).requestId, 'deny');
+
+      await p1;
+
+      expect(session.lastAssistantAttachments).toHaveLength(0);
+      expect(session.lastAttachmentWarnings.some((w) => w.includes('access denied by user'))).toBe(true);
+
+      const warningDelta = events.find(
+        (e) => e.type === 'assistant_text_delta' && e.text.includes('Attachment warning:'),
+      );
+      expect(warningDelta).toBeDefined();
+      const completion = events.find((e) => e.type === 'message_complete');
+      expect(completion).toBeDefined();
+    } finally {
+      rmSync(hostPath, { force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Attachment payload emission tests
+// ---------------------------------------------------------------------------
+
+describe('Session attachment event payloads', () => {
+  beforeEach(() => {
+    pendingRuns = [];
+  });
+
+  test('message_complete includes assistant attachments', async () => {
+    const events: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    const run = pendingRuns[0];
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Here is your chart.' }],
+    };
+    run.onEvent({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+      contentBlocks: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+      ],
+    });
+    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.resolve([...run.messages, assistantMsg]);
+
+    await p1;
+
+    const completion = events.find((e) => e.type === 'message_complete' && Array.isArray(e.attachments));
+    expect(completion).toBeDefined();
+    const attachments = (completion as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe('image/png');
+    expect(attachments[0].data).toBe('iVBORw0K');
+    expect(attachments[0].id).toBeDefined();
+  });
+
+  test('generation_handoff includes assistant attachments', async () => {
+    const events1: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Queue a second message so the first run yields via checkpoint handoff.
+    session.enqueueMessage('msg-2', [], () => {}, 'req-2');
+
+    const run = pendingRuns[0];
+    expect(run.onCheckpoint).toBeDefined();
+    expect(run.onCheckpoint!({ turnIndex: 0, toolCount: 1, hasToolUse: true })).toBe('yield');
+
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Handing off with attachment.' }],
+    };
+    run.onEvent({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+      contentBlocks: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+      ],
+    });
+    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.resolve([...run.messages, assistantMsg]);
+
+    await p1;
+
+    const handoff = events1.find((e) => e.type === 'generation_handoff' && Array.isArray(e.attachments));
+    expect(handoff).toBeDefined();
+    const attachments = (handoff as { attachments: Array<{ mimeType: string; data: string; id?: string }> }).attachments;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe('image/png');
+    expect(attachments[0].data).toBe('iVBORw0K');
+
+    await waitForPendingRun(2);
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Regression: cancel semantics + session/global error channel split
 // ---------------------------------------------------------------------------
 
@@ -1068,7 +1339,7 @@ describe('Regression: cancel semantics and error channel split', () => {
     expect(sessionErr).toBeUndefined();
   });
 
-  test('provider failure during processing emits session_error only', async () => {
+  test('provider failure during processing emits both session_error and generic error', async () => {
     const allEvents: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
@@ -1084,9 +1355,9 @@ describe('Regression: cancel semantics and error channel split', () => {
     const sessionErr = allEvents.find((e) => e.type === 'session_error');
     expect(sessionErr).toBeDefined();
 
-    // Must not get generic error — session failures are session_error only
+    // Should also get generic error for backward compatibility
     const genericErr = allEvents.find((e) => e.type === 'error');
-    expect(genericErr).toBeUndefined();
+    expect(genericErr).toBeDefined();
   });
 
   test('cancel after queued messages produces no session_error for any queued entry', async () => {

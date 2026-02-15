@@ -664,7 +664,8 @@ public final class ChatViewModel: ObservableObject {
             if pendingQueuedCount == 0 {
                 isSending = false
             }
-            // Mark the current assistant message as complete
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
+            ingestAssistantAttachments(complete.attachments)
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
@@ -695,9 +696,20 @@ public final class ChatViewModel: ObservableObject {
             guard belongsToSession(cancelled.sessionId) else { return }
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
+            let wasCancelling = isCancelling
             isCancelling = false
             isThinking = false
-            if pendingQueuedCount == 0 {
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
                 isSending = false
             }
             if let existingId = currentAssistantMessageId,
@@ -745,6 +757,8 @@ public final class ChatViewModel: ObservableObject {
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
+            ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -778,12 +792,10 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
-            // When cancelling, the daemon's abort() emits error events for
-            // queued messages but drops the queue without sending
-            // message_dequeued events, so pendingQueuedCount never drains
-            // on its own. Force-clear all queue state to prevent isSending
-            // from staying true permanently. Also reset queued message
-            // statuses since the daemon will not process them.
+            // When a cancellation-related generic error arrives while we are
+            // in cancel mode, force-clear queue bookkeeping because queued
+            // messages will not be processed and no message_dequeued events
+            // are expected for them.
             if wasCancelling {
                 isSending = false
                 pendingQueuedCount = 0
@@ -885,13 +897,27 @@ public final class ChatViewModel: ObservableObject {
             guard belongsToSession(msg.sessionId) else { return }
             guard msg.display == nil || msg.display == "inline" else { break }
             guard let surface = Surface.from(msg) else { break }
+
+            // On macOS, dynamic pages with no explicit display mode are routed
+            // to the workspace by SurfaceManager. If the dynamic page has a
+            // preview, also render a compact preview card inline in chat.
+            // On iOS there is no workspace, so dynamic pages always render inline.
+            #if os(macOS)
+            if case .dynamicPage(let dpData) = surface.data, msg.display == nil {
+                isThinking = false
+                // Only render inline preview if the dynamic page has preview metadata
+                guard dpData.preview != nil else { break }
+            }
+            #endif
+
             isThinking = false
             let inlineSurface = InlineSurfaceData(
                 id: surface.id,
                 surfaceType: surface.type,
                 title: surface.title,
                 data: surface.data,
-                actions: surface.actions
+                actions: surface.actions,
+                surfaceMessage: msg
             )
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -920,7 +946,8 @@ public final class ChatViewModel: ObservableObject {
                             surfaceType: updated.type,
                             title: updated.title,
                             data: updated.data,
-                            actions: updated.actions
+                            actions: updated.actions,
+                            surfaceMessage: existing.surfaceMessage
                         )
                     }
                     return
@@ -1264,6 +1291,59 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Map IPC attachment DTOs to ChatAttachment values, generating thumbnails for images.
+    private func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+        ipcAttachments.compactMap { ipc in
+            let id = ipc.id ?? UUID().uuidString
+            let base64 = ipc.data
+            let dataLength = base64.count
+
+            var thumbnailData: Data?
+            #if os(macOS)
+            var thumbnailImage: NSImage?
+            #elseif os(iOS)
+            var thumbnailImage: UIImage?
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            if ipc.mimeType.hasPrefix("image/"), let rawData = Data(base64Encoded: base64) {
+                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
+                #if os(macOS)
+                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
+                #elseif os(iOS)
+                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
+                #endif
+            }
+
+            return ChatAttachment(
+                id: id,
+                filename: ipc.filename,
+                mimeType: ipc.mimeType,
+                data: base64,
+                thumbnailData: thumbnailData,
+                dataLength: dataLength,
+                thumbnailImage: thumbnailImage
+            )
+        }
+    }
+
+    /// Ingest attachments from a completion/handoff event into the current or new assistant message.
+    private func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
+        guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
+        let chatAttachments = mapIPCAttachments(ipcAttachments)
+        guard !chatAttachments.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachments.append(contentsOf: chatAttachments)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
     /// Ask the daemon for a follow-up suggestion for the current session.
     private func fetchSuggestion() {
         guard let sessionId, daemonClient.isConnected else { return }
@@ -1314,13 +1394,15 @@ public final class ChatViewModel: ObservableObject {
                     )
                 }
             }
+            let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
-            if item.text.isEmpty && toolCalls.isEmpty { continue }
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
             let chatMsg = ChatMessage(
                 role: role,
                 text: item.text,
                 timestamp: timestamp,
+                attachments: attachments,
                 toolCalls: toolCalls
             )
             chatMessages.append(chatMsg)

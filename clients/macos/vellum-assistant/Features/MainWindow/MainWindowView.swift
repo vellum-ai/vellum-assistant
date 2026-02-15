@@ -8,20 +8,28 @@ struct MainWindowView: View {
     @ObservedObject var traceStore: TraceStore
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
+    @State private var activeDynamicSurface: UiSurfaceShowMessage?
+    /// Parsed surface for the active workspace dynamic page, kept in sync with
+    /// SurfaceManager via notifications so updates from the daemon are reflected.
+    @State private var activeDynamicParsedSurface: Surface?
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
+    @State private var workspaceEditorContentHeight: CGFloat = 20
+    @State private var showSharePicker = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     let daemonClient: DaemonClient
+    let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
+        self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.onMicrophoneToggle = onMicrophoneToggle
     }
@@ -33,6 +41,11 @@ struct MainWindowView: View {
     /// if Apple changes the traffic light spacing. Dynamic measurement would be better
     /// but requires complex window geometry inspection.
     private let trafficLightPadding: CGFloat = 78
+
+    private func pageURL(for appId: String) -> URL? {
+        guard let port = daemonClient.httpPort else { return nil }
+        return URL(string: "http://localhost:\(port)/pages/\(appId)")
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -139,10 +152,13 @@ struct MainWindowView: View {
             refreshAPIKeyState()
         }
         .onChange(of: activePanel) { _, newPanel in
-            // Reset expanded state when navigating away from the Dynamic panel
-            // via toolbar or tab bar buttons, which only modify activePanel.
+            // Reset expanded state and active surface when navigating away from the
+            // Dynamic panel via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
+                showSharePicker = false
                 isDynamicExpanded = false
+                activeDynamicSurface = nil
+                activeDynamicParsedSurface = nil
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
@@ -153,6 +169,43 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { _, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
+            if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                activeDynamicSurface = msg
+                activeDynamicParsedSurface = Surface.from(msg)
+                activePanel = .generated
+                isDynamicExpanded = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
+            if let updated = notification.userInfo?["surface"] as? Surface,
+               updated.id == activeDynamicSurface?.surfaceId {
+                activeDynamicParsedSurface = updated
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
+            // If a specific surfaceId was dismissed, only clear if it matches.
+            if let surfaceId = notification.userInfo?["surfaceId"] as? String {
+                if activeDynamicSurface?.surfaceId == surfaceId {
+                    showSharePicker = false
+                    if activePanel == .generated {
+                        activePanel = nil
+                    }
+                    isDynamicExpanded = false
+                    activeDynamicSurface = nil
+                    activeDynamicParsedSurface = nil
+                }
+            } else {
+                // Bulk dismiss (dismissAll)
+                showSharePicker = false
+                if activePanel == .generated {
+                    activePanel = nil
+                }
+                isDynamicExpanded = false
+                activeDynamicSurface = nil
+                activeDynamicParsedSurface = nil
+            }
         }
     }
 
@@ -253,11 +306,22 @@ struct MainWindowView: View {
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
         if isDynamicExpanded && activePanel == .generated {
-            GeneratedPanel(
-                onClose: { activePanel = nil; isDynamicExpanded = false },
-                isExpanded: $isDynamicExpanded,
-                daemonClient: daemonClient
-            )
+            if let surface = activeDynamicParsedSurface,
+               case .dynamicPage(let dpData) = surface.data {
+                // Workspace mode: full-window dynamic page
+                dynamicWorkspaceView(surface: surface, data: dpData)
+            } else {
+                // Gallery mode: existing behavior, with workspace routing
+                GeneratedPanel(
+                    onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil },
+                    isExpanded: $isDynamicExpanded,
+                    daemonClient: daemonClient,
+                    onOpenApp: { surfaceMsg in
+                        activeDynamicSurface = surfaceMsg
+                        activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    }
+                )
+            }
         } else {
             VSplitView(panelWidth: $sidePanelWidth, showPanel: activePanel != nil, main: {
                 if let viewModel = threadManager.activeViewModel {
@@ -360,12 +424,122 @@ struct MainWindowView: View {
         }
     }
 
+    // MARK: - Dynamic Workspace
+
+    @ViewBuilder
+    private func dynamicWorkspaceView(surface: Surface, data: DynamicPageSurfaceData) -> some View {
+        VStack(spacing: 0) {
+            // Toolbar
+            HStack {
+                Button(action: { showSharePicker = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to gallery")
+
+                Text(surface.title ?? "App")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                // Share button — only shown when the runtime page server is active
+                if let appId = data.appId, let shareURL = pageURL(for: appId) {
+                    Menu {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
+                        } label: {
+                            Label("Copy Link", systemImage: "doc.on.doc")
+                        }
+                        Button {
+                            showSharePicker = true
+                        } label: {
+                            Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 28, height: 28)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 28)
+                    .accessibilityLabel("Share")
+                    .background(
+                        ShareSheetButton(
+                            items: [shareURL],
+                            isPresented: $showSharePicker
+                        )
+                        .frame(width: 1, height: 1)
+                    )
+                }
+
+                Button(action: { showSharePicker = false; activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close workspace")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Dynamic page WebView fills remaining space
+            DynamicPageSurfaceView(
+                data: data,
+                onAction: { actionId, actionData in
+                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                },
+                appId: data.appId,
+                onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
+                    guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
+                    surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
+                } : nil,
+                onCoordinatorReady: data.appId != nil ? { coordinator in
+                    surfaceManager.surfaceCoordinators[surface.id] = coordinator
+                } : nil
+            )
+
+            // Chatbar pinned at bottom
+            if let viewModel = threadManager.activeViewModel {
+                ComposerView(
+                    inputText: Binding(
+                        get: { viewModel.inputText },
+                        set: { viewModel.inputText = $0 }
+                    ),
+                    hasAPIKey: hasAPIKey,
+                    isSending: viewModel.isSending,
+                    isRecording: viewModel.isRecording,
+                    suggestion: viewModel.suggestion,
+                    pendingAttachments: viewModel.pendingAttachments,
+                    onSend: viewModel.sendMessage,
+                    onStop: viewModel.stopGenerating,
+                    onAcceptSuggestion: viewModel.acceptSuggestion,
+                    onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                    onPaste: { viewModel.addAttachmentFromPasteboard() },
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    editorContentHeight: $workspaceEditorContentHeight
+                )
+            }
+        }
+        .background(VColor.backgroundSubtle)
+    }
+
     @ViewBuilder
     private var panelContent: some View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
+                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
@@ -420,7 +594,7 @@ private struct ZoomIndicatorView: View {
 
 #Preview {
     let dc = DaemonClient()
-    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, ambientAgent: AmbientAgent())
+    return MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }

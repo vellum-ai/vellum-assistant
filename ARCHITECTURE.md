@@ -40,6 +40,12 @@ graph TB
             DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
         end
 
+        subgraph "Dynamic Workspace"
+            SURFACE_MGR["SurfaceManager<br/>route by display field"]
+            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer"]
+            DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
+        end
+
         VOICE["VoiceInputManager<br/>Fn hold → SFSpeechRecognizer"]
         ATTACH["Attachment System<br/>images, PDFs, text<br/>drag/drop, paste, picker"]
         PERM["PermissionManager<br/>Accessibility, Screen Recording,<br/>Microphone"]
@@ -72,6 +78,9 @@ graph TB
             DB_FTS["memory_segment_fts (FTS5)"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
+            DB_ENT["memory_entities"]
+            DB_REL["memory_entity_relations"]
+            DB_ITEM_ENT["memory_item_entities"]
             DB_SUM["memory_summaries"]
             DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
@@ -96,6 +105,7 @@ graph TB
         GW_ROUTE["Route Resolver<br/>chat_id → user_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
+        GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
@@ -165,6 +175,12 @@ graph TB
     KNOWLEDGE --> INSIGHT_CRON
     INSIGHT_CRON --> INSIGHT_STORE
 
+    %% Dynamic Workspace flow
+    IPC_SERVER -->|"ui_surface_show"| SURFACE_MGR
+    SURFACE_MGR -->|"display != inline<br/>.openDynamicWorkspace"| WORKSPACE
+    WORKSPACE --> DYN_PAGE
+    DYN_PAGE -->|"vellumBridge<br/>actions + data RPC"| IPC_SERVER
+
     %% Daemon internals
     IPC_SERVER --> HANDLERS
     HANDLERS --> SESSION_MGR
@@ -184,6 +200,9 @@ graph TB
     INDEXER --> DB_JOBS
     JOBS_WORKER --> DB_JOBS
     JOBS_WORKER --> DB_EMB
+    JOBS_WORKER --> DB_ENT
+    JOBS_WORKER --> DB_REL
+    JOBS_WORKER --> DB_ITEM_ENT
     JOBS_WORKER --> DB_SUM
     RECALL --> DB_FTS
     RECALL --> DB_EMB
@@ -195,6 +214,7 @@ graph TB
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP"| HTTP_SERVER
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
+    GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Runtime proxy path (optional)
     GW_PROXY -->|"HTTP (forwarded)"| HTTP_SERVER
@@ -262,6 +282,9 @@ graph LR
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
         FTS["memory_segment_fts<br/>───────────────<br/>FTS5 virtual table<br/>Auto-synced via triggers<br/>Powers lexical search"]
         ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
+        ENTITIES["memory_entities<br/>───────────────<br/>Canonical entities + aliases<br/>mention_count, first/last seen<br/>Resolved across messages"]
+        RELS["memory_entity_relations<br/>───────────────<br/>Directional entity edges<br/>Unique by source/target/relation<br/>first/last seen + evidence"]
+        ITEM_ENTS["memory_item_entities<br/>───────────────<br/>Join table linking extracted<br/>memory_items to entities"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill<br/>Status: pending → running →<br/>completed | failed"]
@@ -478,6 +501,8 @@ graph TB
         EMBED_ITEM["embed_item<br/>→ memory_embeddings"]
         EMBED_SUM["embed_summary<br/>→ memory_embeddings"]
         EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
+        EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
+        BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
         WEEKLY["refresh_weekly_summary<br/>→ memory_summaries"]
     end
@@ -518,8 +543,11 @@ graph TB
     WORKER --> EMBED_ITEM
     WORKER --> EMBED_SUM
     WORKER --> EXTRACT
+    WORKER --> EXTRACT_ENTITIES
+    WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM
     WORKER --> WEEKLY
+    EXTRACT --> EXTRACT_ENTITIES
 
     EMBED_SEG --> OAI_EMB
     EMBED_SEG --> GEM_EMB
@@ -615,8 +643,8 @@ graph LR
     end
 
     subgraph "Enforcement"
-        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory"]
-        HOOK["Pre-commit hook<br/>same checks on staged<br/>IPC files"]
+        CI["CI (GitHub Actions)<br/>bun run check:ipc-generated<br/>bun run ipc:inventory<br/>bun run ipc:check-swift-drift"]
+        HOOK["Pre-commit hook<br/>same 3 checks on staged<br/>IPC files"]
     end
 
     CONTRACT --> TJS
@@ -661,7 +689,7 @@ graph LR
         S3["cu_error<br/>message"]
         S4["assistant_text_delta<br/>streaming text"]
         S5["assistant_thinking_delta<br/>streaming thinking"]
-        S6["message_complete<br/>usage stats"]
+        S6["message_complete<br/>usage stats, attachments?"]
         S7["ambient_result<br/>decision, summary/suggestion"]
         S8["confirmation_request<br/>tool, risk_level,<br/>executionTarget"]
         S9["memory_recalled<br/>context segments"]
@@ -669,7 +697,7 @@ graph LR
         S11["generation_cancelled"]
         S12["message_queued<br/>position in queue"]
         S13["message_dequeued<br/>queue drained"]
-        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount"]
+        S14["generation_handoff<br/>sessionId, requestId?,<br/>queuedCount, attachments?"]
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
     end
@@ -1030,6 +1058,88 @@ Events emitted during a session lifecycle:
 
 ---
 
+## Dynamic Workspace — Surface Routing and Layout
+
+The workspace is a full-window mode that replaces the chat UI with an interactive dynamic page (WKWebView) and a pinned composer for follow-up messages. It activates when the daemon sends a `ui_surface_show` message with `display != "inline"`.
+
+### Routing Flow (Chat → Workspace)
+
+```mermaid
+sequenceDiagram
+    participant Daemon as Daemon (IPC)
+    participant DC as DaemonClient
+    participant SM as SurfaceManager
+    participant AD as AppDelegate
+    participant MW as MainWindowView
+
+    Daemon->>DC: ui_surface_show (display != "inline")
+    DC->>SM: onSurfaceShow callback
+    SM->>SM: Check display field
+    alt display == "inline"
+        SM->>SM: Show floating NSPanel
+    else display != "inline" (workspace route)
+        SM->>SM: Add to workspaceRoutedSurfaces set
+        SM->>AD: onDynamicPageShow callback
+        AD->>AD: Post .openDynamicWorkspace notification
+        AD->>MW: Notification with UiSurfaceShowMessage
+        MW->>MW: Parse Surface from message
+        MW->>MW: Set activeDynamicSurface,<br/>activeDynamicParsedSurface,<br/>isDynamicExpanded = true
+        MW->>MW: Render dynamicWorkspaceView()<br/>instead of normal chat
+    end
+
+    Note over SM,MW: Updates and dismissals follow<br/>the same notification pattern:<br/>.updateDynamicWorkspace<br/>.dismissDynamicWorkspace
+```
+
+**Key types:** `SurfaceManager` routes surfaces by `display` field. `MainWindowView` listens for three notifications (`.openDynamicWorkspace`, `.updateDynamicWorkspace`, `.dismissDynamicWorkspace`) and manages `@State` properties to toggle between chat and workspace views.
+
+### Full-Window Workspace Layout
+
+```
+┌────────────────────────────────────────────────┐
+│  ← Back    App Title                     ✕     │  ← Toolbar (HStack)
+├────────────────────────────────────────────────┤
+│                                                │
+│                                                │
+│           DynamicPageSurfaceView               │  ← WKWebView (fills space)
+│              (interactive HTML)                 │
+│                                                │
+│                                                │
+├────────────────────────────────────────────────┤
+│  ComposerView (pinned at bottom)               │  ← Follow-up input
+└────────────────────────────────────────────────┘
+```
+
+The workspace is a `VStack(spacing: 0)` with `VColor.backgroundSubtle` background. The toolbar has back (returns to gallery) and close (exits workspace + panel) buttons. `DynamicPageSurfaceView` grows to fill remaining vertical space. `ComposerView` is pinned at the bottom, bound to the active `ChatViewModel` so users can send follow-up messages while the page is open.
+
+### Widget Injection Pipeline (CSS + JS into WKWebView)
+
+`DynamicPageSurfaceView` is an `NSViewRepresentable` that wraps a `WKWebView`. On creation, three `WKUserScript`s are injected at document start:
+
+```mermaid
+graph LR
+    subgraph "Injection (at document start)"
+        BRIDGE["1. Bridge Script<br/>───────────────<br/>window.vellum.sendAction()<br/>window.vellum.confirm()<br/>window.vellum.data.* (if appId)<br/>console forwarding"]
+        CSS["2. Design System CSS<br/>───────────────<br/>vellum-design-system.css<br/>Semantic tokens (--v-*)<br/>Element defaults<br/>Dark/light mode"]
+        WIDGETS["3. Widget Utilities JS<br/>───────────────<br/>vellum-widgets.js<br/>sparkline(), barChart()<br/>lineChart(), gauge()<br/>format() helpers"]
+    end
+
+    subgraph "Message Passing"
+        JS_CALL["JS: window.webkit.messageHandlers<br/>.vellumBridge.postMessage()"]
+        COORD["Coordinator<br/>(WKScriptMessageHandler)"]
+        DAEMON["AppDelegate → Daemon"]
+    end
+
+    BRIDGE --> JS_CALL
+    JS_CALL --> COORD
+    COORD --> DAEMON
+```
+
+**Per-app isolation:** Each app gets its own origin (`https://{appId}.vellum.local/`). The `VellumAppSchemeHandler` handles `vellumapp://` URLs for serving bundled app files from the sandbox directory. Sandbox mode blocks external network requests.
+
+**Data RPC flow:** App JS calls `window.vellum.data.query()` → Coordinator → AppDelegate → Daemon `app_data_request`. Daemon responds with `app_data_response` → `SurfaceManager.resolveDataResponse()` → Coordinator evaluates `window.vellum.data._resolve()` in the WebView.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -1042,6 +1152,7 @@ Events emitted during a session lifecycle:
 | Conversations & messages | `~/.vellum/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
 | Memory segments & FTS | `~/.vellum/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
 | Extracted facts | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
+| Entity graph (entities/relations/item links) | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
 | Embeddings | `~/.vellum/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
 | Async job queue | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
 | Attachments | `~/.vellum/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |

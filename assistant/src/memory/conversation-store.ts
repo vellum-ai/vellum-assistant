@@ -1,10 +1,11 @@
 import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments } from './schema.js';
+import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
+import { deleteOrphanAttachments } from './attachments-store.js';
 
 const log = getLogger('conversation-store');
 
@@ -171,6 +172,8 @@ export function clearAll(): { conversations: number; messages: number } {
   raw.exec('DELETE FROM memory_jobs');
   raw.exec('DELETE FROM memory_checkpoints');
   raw.exec('DELETE FROM llm_usage_events');
+  raw.exec('DELETE FROM message_attachments');
+  raw.exec('DELETE FROM attachments');
   raw.exec('DELETE FROM tool_invocations');
   raw.exec('DELETE FROM messages');
   raw.exec('DELETE FROM conversations');
@@ -232,6 +235,18 @@ export function deleteLastExchange(conversationId: string): number {
   const [{ deleted }] = db.select({ deleted: count() }).from(messages).where(condition).all();
   if (deleted === 0) return 0;
 
+  // Collect attachment IDs linked to the messages being deleted so we can
+  // scope orphan cleanup to only those candidates (not freshly uploaded ones).
+  const messageIds = db.select({ id: messages.id }).from(messages).where(condition).all().map((r) => r.id);
+  const candidateAttachmentIds = messageIds.length > 0
+    ? db.select({ attachmentId: messageAttachments.attachmentId })
+      .from(messageAttachments)
+      .where(inArray(messageAttachments.messageId, messageIds))
+      .all()
+      .map((r) => r.attachmentId)
+      .filter((id): id is string => id !== null)
+    : [];
+
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
     tx.update(conversations)
@@ -239,6 +254,8 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(conversations.id, conversationId))
       .run();
   });
+
+  deleteOrphanAttachments(candidateAttachmentIds);
 
   return deleted;
 }
@@ -272,6 +289,16 @@ export interface DeletedMemoryIds {
 export function deleteMessageById(messageId: string): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = { segmentIds: [], orphanedItemIds: [] };
+
+  // Collect attachment IDs linked to this message before cascade-delete
+  // so we can scope orphan cleanup to only those candidates.
+  const candidateAttachmentIds = db
+    .select({ attachmentId: messageAttachments.attachmentId })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .all()
+    .map((r) => r.attachmentId)
+    .filter((id): id is string => id !== null);
 
   db.transaction((tx) => {
     // Collect memory segment IDs linked to this message before cascade.
@@ -345,6 +372,8 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
       }
     }
   });
+
+  deleteOrphanAttachments(candidateAttachmentIds);
 
   return result;
 }

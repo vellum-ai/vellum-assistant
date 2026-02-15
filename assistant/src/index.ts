@@ -72,7 +72,10 @@ function sendOneMessage(
     socket.on('data', (data) => {
       const messages = parser.feed(data.toString()) as ServerMessage[];
       for (const m of messages) {
-        // Skip the initial session_info that the server sends on connect
+        // Skip push messages that aren't responses to our request
+        if (m.type === 'daemon_status') {
+          continue;
+        }
         if (m.type === 'session_info' && msg.type !== 'session_create') {
           continue;
         }

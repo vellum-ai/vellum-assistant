@@ -11,10 +11,10 @@ import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
-import { getApp } from '../memory/app-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -22,7 +22,6 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
-import { generateScopeOptions } from '../permissions/checker.js';
 import { getConfig } from '../config/loader.js';
 import { estimateCost, resolvePricing } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
@@ -41,6 +40,7 @@ import {
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
   buildMemoryRecall,
@@ -48,6 +48,8 @@ import {
   injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
+import { buildMemoryQuery } from '../memory/query-builder.js';
+import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -59,6 +61,7 @@ import {
 } from '../skills/slash-commands.js';
 import {
   cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
   resolveDirectives,
   contentBlocksToDrafts,
   deduplicateDrafts,
@@ -111,9 +114,13 @@ export class Session {
   private workingDir: string;
   private sandboxOverride?: boolean;
   private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  private readonly systemPrompt: string;
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
+  private contextCompactedAt: number | null = null;
   private currentRequestId?: string;
+  private assistantId: string | null = null;
+  private hasNoClient = false;
   private messageQueue: QueuedMessage[] = [];
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -139,6 +146,7 @@ export class Session {
   ) {
     this.assistantId = assistantId;
     this.conversationId = conversationId;
+    this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
@@ -258,6 +266,7 @@ export class Session {
       0,
       Math.min(conv?.contextCompactedMessageCount ?? 0, dbMessages.length),
     );
+    this.contextCompactedAt = conv?.contextCompactedAt ?? null;
 
     const parsedMessages: Message[] = dbMessages
       .slice(this.contextCompactedMessageCount)
@@ -295,8 +304,9 @@ export class Session {
     log.info({ conversationId: this.conversationId, count: this.messages.length }, 'Loaded messages from DB');
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void): void {
+  updateClient(sendToClient: (msg: ServerMessage) => void, hasNoClient = false): void {
     this.sendToClient = sendToClient;
+    this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
     this.secretPrompter.updateSender(sendToClient);
     this.traceEmitter.updateSender(sendToClient);
@@ -341,12 +351,10 @@ export class Session {
       unregisterTimerCompletionNotifier(this.conversationId);
       pruneSessionTimers(this.conversationId);
 
-      // Clear queued messages and notify each caller.
-      // Only emit a generic `error` — NOT `session_error` — so the client's
-      // cancel-path suppression (wasCancelling) handles cleanup without
-      // surfacing a session-error toast to the user.
+      // Clear queued messages and notify each caller with a session-scoped
+      // cancel event so other sessions do not receive cross-thread errors.
       for (const queued of this.messageQueue) {
-        queued.onEvent({ type: 'error', message: 'Session aborted — queued message discarded' });
+        queued.onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       }
       this.messageQueue = [];
     }
@@ -417,6 +425,62 @@ export class Session {
 
   handleSecretResponse(requestId: string, value?: string): void {
     this.secretPrompter.resolveSecret(requestId, value);
+  }
+
+  /**
+   * Bind a runtime assistant ID to this session.
+   * IPC-only desktop sessions can leave this unset and use a local scope.
+   */
+  setAssistantId(assistantId: string): void {
+    this.assistantId = assistantId;
+  }
+
+  private async approveHostAttachmentRead(filePath: string): Promise<boolean> {
+    const toolName = 'host_file_read';
+    const input = { path: filePath };
+    const decision = await check(toolName, input, this.workingDir);
+
+    if (decision.decision === 'allow') {
+      return true;
+    }
+    if (decision.decision === 'deny') {
+      return false;
+    }
+
+    // HTTP-created sessions use a no-op sendToClient — prompting would
+    // block for the full permission timeout before auto-denying. Fail
+    // fast instead.
+    if (this.hasNoClient) {
+      log.info({ filePath }, 'Denying host attachment read: no interactive client connected');
+      return false;
+    }
+
+    const response = await this.prompter.prompt(
+      toolName,
+      input,
+      await classifyRisk(toolName, input),
+      generateAllowlistOptions(toolName, input),
+      generateScopeOptions(this.workingDir, toolName),
+      undefined,
+      undefined,
+      this.conversationId,
+      'host',
+    );
+
+    if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope);
+    }
+    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    }
+
+    return response.decision === 'allow' || response.decision === 'always_allow';
+  }
+
+  private formatAttachmentWarnings(warnings: string[]): string | null {
+    if (warnings.length === 0) return null;
+    const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
+    return `\n\n${lines.join('\n')}`;
   }
 
   /**
@@ -495,6 +559,11 @@ export class Session {
     const rlog = log.child({ conversationId: this.conversationId, requestId: reqId });
     let yieldedForHandoff = false;
 
+    // Reset attachment state so a failed exchange never retains stale data
+    // from a prior successful run.
+    this.lastAssistantAttachments = [];
+    this.lastAttachmentWarnings = [];
+
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
@@ -519,10 +588,12 @@ export class Session {
       const compacted = await this.contextWindowManager.maybeCompact(
         this.messages,
         abortController.signal,
+        { lastCompactedAt: this.contextCompactedAt ?? undefined },
       );
       if (compacted.compacted) {
         this.messages = compacted.messages;
         this.contextCompactedMessageCount += compacted.compactedPersistedMessages;
+        this.contextCompactedAt = Date.now();
         conversationStore.updateConversationContextWindow(
           this.conversationId,
           compacted.summaryText,
@@ -561,12 +632,27 @@ export class Session {
       const accumulatedDirectives: DirectiveRequest[] = [];
       const accumulatedToolContentBlocks: ContentBlock[] = [];
       const directiveWarnings: string[] = [];
+      let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
       const recallQuery = buildMemoryQuery(content, this.messages);
+      const recallBudget = runtimeConfig.memory.retrieval.dynamicBudget.enabled
+        ? computeRecallBudget({
+            estimatedPromptTokens: estimatePromptTokens(
+              this.messages,
+              this.systemPrompt,
+              { providerName: this.provider.name },
+            ),
+            maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
+            targetHeadroomTokens: runtimeConfig.memory.retrieval.dynamicBudget.targetHeadroomTokens,
+            minInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.minInjectTokens,
+            maxInjectTokens: runtimeConfig.memory.retrieval.dynamicBudget.maxInjectTokens,
+          })
+        : undefined;
       const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
         excludeMessageIds: [userMessageId],
         signal: abortController.signal,
+        maxInjectTokensOverride: recallBudget,
       });
 
       onEvent({
@@ -644,11 +730,17 @@ export class Session {
         };
 
         switch (event.type) {
-          case 'text_delta':
+          case 'text_delta': {
             emitLlmCallStartedIfNeeded();
-            onEvent({ type: 'assistant_text_delta', text: event.text, sessionId: this.conversationId });
-            if (isFirstMessage) firstAssistantText += event.text;
+            pendingDirectiveDisplayBuffer += event.text;
+            const drained = drainDirectiveDisplayBuffer(pendingDirectiveDisplayBuffer);
+            pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
+            if (drained.emitText.length > 0) {
+              onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: this.conversationId });
+              if (isFirstMessage) firstAssistantText += drained.emitText;
+            }
             break;
+          }
           case 'thinking_delta':
             // Thinking content itself is NOT included in traces to avoid leaking
             // extended-thinking data.
@@ -686,6 +778,15 @@ export class Session {
             }
             break;
           case 'message_complete': {
+            if (pendingDirectiveDisplayBuffer.length > 0) {
+              onEvent({
+                type: 'assistant_text_delta',
+                text: pendingDirectiveDisplayBuffer,
+                sessionId: this.conversationId,
+              });
+              if (isFirstMessage) firstAssistantText += pendingDirectiveDisplayBuffer;
+              pendingDirectiveDisplayBuffer = '';
+            }
             // Save pending tool results as a user message before the next assistant message.
             // tool_result blocks belong in user messages per the Anthropic API spec.
             if (pendingToolResults.size > 0) {
@@ -859,7 +960,16 @@ export class Session {
       // synthetic tool_result blocks from pre-run repair don't leak into
       // this.messages.  Only the new messages appended by the agent loop
       // (beyond the repaired prefix) are carried forward.
-      const newMessages = updatedHistory.slice(preRunHistoryLength);
+      //
+      // Strip directive tags from assistant messages so in-memory history
+      // matches the cleaned content persisted to the DB. Without this,
+      // subsequent turns would send raw <vellum-attachment /> tags to the
+      // LLM, wasting tokens and encouraging hallucinated directives.
+      const newMessages = updatedHistory.slice(preRunHistoryLength).map((msg) => {
+        if (msg.role !== 'assistant') return msg;
+        const { cleanedContent } = cleanAssistantContent(msg.content);
+        return { ...msg, content: cleanedContent as ContentBlock[] };
+      });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       this.messages = stripMemoryRecallMessages(restoredHistory, recall.injectedText, runtimeConfig.memory.retrieval.injectionStrategy);
 
@@ -871,11 +981,9 @@ export class Session {
 
       // Resolve accumulated attachment directives and tool content blocks
       let assistantAttachments: AssistantAttachmentDraft[] = [];
+      const emittedAttachments: UserMessageAttachment[] = [];
       if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
-        const approveHostRead: ApproveHostRead = async (_filePath) => {
-          // TODO(PR-6+): Wire to permission prompter for interactive approval
-          return false;
-        };
+        const approveHostRead: ApproveHostRead = async (filePath) => this.approveHostAttachmentRead(filePath);
 
         const directiveDrafts = accumulatedDirectives.length > 0
           ? await resolveDirectives(accumulatedDirectives, this.workingDir, approveHostRead)
@@ -892,25 +1000,40 @@ export class Session {
 
       // Persist resolved attachments and link to the last assistant message
       if (assistantAttachments.length > 0 && lastAssistantMessageId) {
-        // Note: assistantId is only available in HTTP/gateway contexts
-        // In IPC/desktop mode, it remains undefined and attachments aren't persisted
-        if (this.assistantId) {
-          const assistantId = this.assistantId;
-          for (let i = 0; i < assistantAttachments.length; i++) {
-            const draft = assistantAttachments[i];
-            const stored = uploadAttachment(
-              assistantId,
-              draft.filename,
-              draft.mimeType,
-              draft.dataBase64,
-            );
-            linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
-          }
+        const attachmentScope = this.assistantId ?? 'local-assistant';
+        for (let i = 0; i < assistantAttachments.length; i++) {
+          const draft = assistantAttachments[i];
+          const stored = uploadAttachment(
+            attachmentScope,
+            draft.filename,
+            draft.mimeType,
+            draft.dataBase64,
+          );
+          linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
+          emittedAttachments.push({
+            id: stored.id,
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
+        }
+      } else if (assistantAttachments.length > 0) {
+        for (const draft of assistantAttachments) {
+          emittedAttachments.push({
+            filename: draft.filename,
+            mimeType: draft.mimeType,
+            data: draft.dataBase64,
+          });
         }
       }
 
       this.lastAssistantAttachments = assistantAttachments;
       this.lastAttachmentWarnings = directiveWarnings;
+
+      const warningText = this.formatAttachmentWarnings(directiveWarnings);
+      if (warningText) {
+        onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
+      }
 
       if (yieldedForHandoff) {
         this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
@@ -923,19 +1046,24 @@ export class Session {
           sessionId: this.conversationId,
           requestId: reqId,
           queuedCount: this.getQueueDepth(),
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
         });
       } else if (abortController.signal.aborted) {
         this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled' });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
         this.traceEmitter.emit('message_complete', 'Message processing complete', {
           requestId: reqId,
           status: 'success',
         });
-        onEvent({ type: 'message_complete', sessionId: this.conversationId });
+        onEvent({
+          type: 'message_complete',
+          sessionId: this.conversationId,
+          ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
+        });
       }
 
       // Auto-generate conversation title after first exchange
@@ -953,7 +1081,7 @@ export class Session {
           requestId: reqId,
           status: 'warning',
         });
-        onEvent({ type: 'generation_cancelled' });
+        onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
         const message = err instanceof Error ? err.message : String(err);
         const errorClass = err instanceof Error ? err.constructor.name : 'Error';
@@ -963,8 +1091,7 @@ export class Session {
           status: 'error',
           attributes: { errorClass, message: message.slice(0, 500) },
         });
-        // Session-scoped failure: emit only session_error (not generic error)
-        // so the client routes it through the typed session-error channel.
+        onEvent({ type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, errorCtx);
         onEvent(buildSessionErrorMessage(this.conversationId, classified));
         void getHookManager().trigger('on-error', {
@@ -1230,6 +1357,11 @@ export class Session {
 
     if (result.rejected) {
       log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
+      this.traceEmitter.emit('request_error', 'Surface action rejected — queue full', {
+        requestId,
+        status: 'error',
+        attributes: { reason: 'queue_full', source: 'surface_action' },
+      });
       onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
       return;
     }
@@ -1722,22 +1854,4 @@ const ORDERING_ERROR_PATTERNS = [
 
 function isProviderOrderingError(message: string): boolean {
   return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
-}
-
-function buildMemoryQuery(content: string, messages: Message[]): string {
-  const summaryText = messages
-    .map((message) => getSummaryFromContextMessage(message))
-    .find((summary): summary is string => summary !== null) ?? '';
-  const maxLen = 1200;
-  let compactSummary: string;
-  if (summaryText.length <= maxLen) {
-    compactSummary = summaryText;
-  } else {
-    const marker = '<truncated />';
-    const half = Math.floor((maxLen - marker.length) / 2);
-    compactSummary = summaryText.slice(0, half) + marker + summaryText.slice(-half);
-  }
-  return compactSummary.length > 0
-    ? `${content}\n\nContext summary:\n${compactSummary}`
-    : content;
 }

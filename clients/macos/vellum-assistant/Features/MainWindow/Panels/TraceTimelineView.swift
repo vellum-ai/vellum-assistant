@@ -7,10 +7,13 @@ struct TraceTimelineView: View {
     @ObservedObject var traceStore: TraceStore
     let sessionId: String
 
-    /// Tracks whether the bottom anchor is visible — when true, new events
-    /// auto-scroll to the bottom. When the user scrolls up and the anchor
-    /// leaves the viewport, auto-scroll pauses until they return to the bottom.
+    /// Tracks whether auto-scroll is active. Uses a debounced approach to avoid
+    /// a race condition where new content pushes the bottom anchor out of the
+    /// viewport (firing onDisappear) before onChange can auto-scroll.
     @State private var isNearBottom = true
+    /// Pending task that will set isNearBottom to false after a short delay.
+    /// Cancelled if onAppear fires again (e.g. after auto-scroll completes).
+    @State private var disappearTask: Task<Void, Never>?
     @State private var expandedEventIds: Set<String> = []
 
     private var groupedEvents: [(key: String, events: [TraceStore.StoredEvent])] {
@@ -31,12 +34,25 @@ struct TraceTimelineView: View {
                         requestGroup(group.key, events: group.events)
                     }
 
-                    // Invisible anchor for auto-scroll and bottom detection
+                    // Invisible anchor for auto-scroll and bottom detection.
+                    // Uses debounced onDisappear to avoid a race where new content
+                    // pushes the anchor out of view before onChange can auto-scroll.
                     Color.clear
                         .frame(height: 1)
                         .id("trace-bottom")
-                        .onAppear { isNearBottom = true }
-                        .onDisappear { isNearBottom = false }
+                        .onAppear {
+                            disappearTask?.cancel()
+                            disappearTask = nil
+                            isNearBottom = true
+                        }
+                        .onDisappear {
+                            disappearTask?.cancel()
+                            disappearTask = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(150))
+                                guard !Task.isCancelled else { return }
+                                isNearBottom = false
+                            }
+                        }
                 }
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)

@@ -5,6 +5,7 @@ import {
   classifyKind,
   validateDrafts,
   cleanAssistantContent,
+  drainDirectiveDisplayBuffer,
   contentBlocksToDrafts,
   deduplicateDrafts,
   MAX_ASSISTANT_ATTACHMENTS,
@@ -39,6 +40,18 @@ describe('estimateBase64Bytes', () => {
   test('estimates correctly for longer strings', () => {
     // 12 base64 chars, no padding → 9 bytes
     expect(estimateBase64Bytes('SGVsbG8gV29y')).toBe(9);
+  });
+
+  test('trims trailing whitespace and newlines before estimating', () => {
+    // "a" → base64 "YQ==" → 1 byte; trailing newline should not affect result
+    expect(estimateBase64Bytes('YQ==\n')).toBe(1);
+    expect(estimateBase64Bytes('YQ==\r\n')).toBe(1);
+    expect(estimateBase64Bytes('  YQ==  ')).toBe(1);
+  });
+
+  test('handles embedded line breaks in base64 (e.g. PEM-style)', () => {
+    // "YWJj" split across lines should still yield 3 bytes
+    expect(estimateBase64Bytes('YW\nJj')).toBe(3);
   });
 });
 
@@ -203,6 +216,18 @@ describe('cleanAssistantContent', () => {
     expect(result.warnings[0]).toContain('invalid source');
   });
 
+  test('preserves whitespace in plain text blocks without directives', () => {
+    const content = [
+      { type: 'text', text: '  Hello\n\n\n\nWorld  ' },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+    // Text should be returned exactly as-is — no trimming or blank-line collapsing
+    expect((result.cleanedContent[0] as { text: string }).text).toBe('  Hello\n\n\n\nWorld  ');
+  });
+
   test('handles content with no text blocks', () => {
     const content = [
       { type: 'thinking', thinking: 'hmm', signature: 'sig' },
@@ -212,6 +237,79 @@ describe('cleanAssistantContent', () => {
     expect(result.directives).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
     expect(result.cleanedContent).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drainDirectiveDisplayBuffer
+// ---------------------------------------------------------------------------
+
+describe('drainDirectiveDisplayBuffer', () => {
+  test('strips complete valid directives from streamed text', () => {
+    const input = 'Before <vellum-attachment path="out.png" /> After';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe('Before  After');
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('preserves invalid directives as plain text', () => {
+    const input = 'Bad <vellum-attachment source="bad" path="x.txt" /> tag';
+    const result = drainDirectiveDisplayBuffer(input);
+    expect(result.emitText).toBe(input);
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('buffers incomplete directives until completion', () => {
+    const first = drainDirectiveDisplayBuffer('Start <vellum-attachment path="file');
+    expect(first.emitText).toBe('Start ');
+    expect(first.bufferedRemainder).toContain('<vellum-attachment');
+
+    const second = drainDirectiveDisplayBuffer(first.bufferedRemainder + '.png" /> done');
+    expect(second.emitText).toBe(' done');
+    expect(second.bufferedRemainder).toBe('');
+  });
+
+  test('buffers trailing partial prefix "<" split across chunks', () => {
+    const result = drainDirectiveDisplayBuffer('Hello world<');
+    expect(result.emitText).toBe('Hello world');
+    expect(result.bufferedRemainder).toBe('<');
+  });
+
+  test('buffers trailing partial prefix "<vel" split across chunks', () => {
+    const result = drainDirectiveDisplayBuffer('Some text<vel');
+    expect(result.emitText).toBe('Some text');
+    expect(result.bufferedRemainder).toBe('<vel');
+  });
+
+  test('buffers trailing partial prefix "<vellum-attachmen" (one char short)', () => {
+    const result = drainDirectiveDisplayBuffer('Data <vellum-attachmen');
+    expect(result.emitText).toBe('Data ');
+    expect(result.bufferedRemainder).toBe('<vellum-attachmen');
+  });
+
+  test('does not buffer trailing "<" that is not a prefix of the tag', () => {
+    // "<x" does not match any prefix of "<vellum-attachment"
+    const result = drainDirectiveDisplayBuffer('Hello<x');
+    expect(result.emitText).toBe('Hello<x');
+    expect(result.bufferedRemainder).toBe('');
+  });
+
+  test('partial prefix reassembles into a complete directive across chunks', () => {
+    const first = drainDirectiveDisplayBuffer('Before <vellum-at');
+    expect(first.emitText).toBe('Before ');
+    expect(first.bufferedRemainder).toBe('<vellum-at');
+
+    const second = drainDirectiveDisplayBuffer(
+      first.bufferedRemainder + 'tachment path="out.png" /> After',
+    );
+    expect(second.emitText).toBe(' After');
+    expect(second.bufferedRemainder).toBe('');
+  });
+
+  test('emits everything when text has no partial prefix', () => {
+    const result = drainDirectiveDisplayBuffer('No special chars here');
+    expect(result.emitText).toBe('No special chars here');
+    expect(result.bufferedRemainder).toBe('');
   });
 });
 
@@ -272,7 +370,7 @@ describe('contentBlocksToDrafts', () => {
 // ---------------------------------------------------------------------------
 
 describe('deduplicateDrafts', () => {
-  test('removes duplicates by filename + content prefix', () => {
+  test('removes duplicates by filename + content hash', () => {
     const d = makeDraft({ filename: 'same.txt', dataBase64: 'AAAA'.repeat(20) });
     const result = deduplicateDrafts([d, { ...d }, makeDraft({ filename: 'other.txt' })]);
 
@@ -284,6 +382,17 @@ describe('deduplicateDrafts', () => {
   test('keeps drafts with same filename but different content', () => {
     const d1 = makeDraft({ filename: 'file.txt', dataBase64: 'AAAA'.repeat(20) });
     const d2 = makeDraft({ filename: 'file.txt', dataBase64: 'BBBB'.repeat(20) });
+    const result = deduplicateDrafts([d1, d2]);
+
+    expect(result).toHaveLength(2);
+  });
+
+  test('keeps drafts with same filename and same prefix but different content', () => {
+    // Shared 64-char prefix but different suffix — old prefix-based dedup
+    // would incorrectly drop the second draft.
+    const sharedPrefix = 'A'.repeat(64);
+    const d1 = makeDraft({ filename: 'tool-output.png', dataBase64: sharedPrefix + 'XXXX' });
+    const d2 = makeDraft({ filename: 'tool-output.png', dataBase64: sharedPrefix + 'YYYY' });
     const result = deduplicateDrafts([d1, d2]);
 
     expect(result).toHaveLength(2);

@@ -42,7 +42,7 @@ final class ThreadManager: ObservableObject {
     func createThread() {
         let thread = ThreadModel()
         let viewModel = makeViewModel()
-        threads.append(thread)
+        threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
         activeThreadId = thread.id
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")

@@ -240,11 +240,30 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let interactionType: String?
 }
 
+public struct IPCDaemonStatusMessage: Codable, Sendable {
+    public let type: String
+    public let httpPort: Double?
+}
+
+public struct IPCDynamicPagePreview: Codable, Sendable {
+    public let title: String
+    public let subtitle: String?
+    public let description: String?
+    public let icon: String?
+    public let metrics: [IPCDynamicPagePreviewMetric]?
+}
+
+public struct IPCDynamicPagePreviewMetric: Codable, Sendable {
+    public let label: String
+    public let value: String
+}
+
 public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let html: String
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let preview: IPCDynamicPagePreview?
 }
 
 public struct IPCErrorMessage: Codable, Sendable {
@@ -289,6 +308,7 @@ public struct IPCGenerationHandoff: Codable, Sendable {
     public let sessionId: String
     public let requestId: String?
     public let queuedCount: Int
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCGetSigningIdentityRequest: Codable, Sendable {
@@ -317,6 +337,7 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let text: String
     public let timestamp: Double
     public let toolCalls: [IPCHistoryResponseToolCall]?
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCHistoryResponseToolCall: Codable, Sendable {
@@ -379,6 +400,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
 public struct IPCMessageComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String?
+    public let attachments: [IPCUserMessageAttachment]?
 }
 
 public struct IPCMessageDequeued: Codable, Sendable {

@@ -2,7 +2,7 @@ import pino from "pino";
 import { loadConfig } from "./config.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
-import { sendTelegramReply } from "./telegram/send.js";
+import { sendTelegramReply, sendTelegramAttachments } from "./telegram/send.js";
 import { callTelegramApi } from "./telegram/api.js";
 
 const log = pino({ name: "gateway" });
@@ -19,16 +19,29 @@ function main() {
   const handleTelegramWebhook = telegramConfigured
     ? createTelegramWebhookHandler(
         config,
-        async (chatId, result) => {
-          const content = result.runtimeResponse?.assistantMessage?.content;
-          if (!content) {
+        async (chatId, result, assistantId) => {
+          const msg = result.runtimeResponse?.assistantMessage;
+          const content = msg?.content;
+          const attachments = msg?.attachments ?? [];
+
+          if (!content && attachments.length === 0) {
             return;
           }
 
           try {
-            await sendTelegramReply(config, chatId, content);
+            if (content) {
+              await sendTelegramReply(config, chatId, content);
+            }
           } catch (err) {
             log.error({ err, chatId }, "Failed to send Telegram reply");
+          }
+
+          if (attachments.length > 0) {
+            try {
+              await sendTelegramAttachments(config, chatId, assistantId, attachments);
+            } catch (err) {
+              log.error({ err, chatId }, "Failed to send Telegram attachments");
+            }
           }
         },
       )

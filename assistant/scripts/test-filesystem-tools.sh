@@ -34,9 +34,9 @@ for test_file in "${FILESYSTEM_TESTS[@]}"; do
   fi
   echo "==> Running ${test_file}"
   if bun test "${test_file}"; then
-    ((passed++))
+    ((passed++)) || true
   else
-    ((failed++))
+    ((failed++)) || true
   fi
 done
 

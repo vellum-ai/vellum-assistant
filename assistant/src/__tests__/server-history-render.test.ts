@@ -1,5 +1,46 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, beforeEach, afterAll, mock } from 'bun:test';
+import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'history-render-test-')));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  getRootDir: () => testDir,
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+import { initializeDb, getDb } from '../memory/db.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
+import {
+  uploadAttachment,
+  linkAttachmentToMessage,
+  getAttachmentsForMessageUnscoped,
+} from '../memory/attachments-store.js';
+import {
+  createConversation,
+  addMessage,
+} from '../memory/conversation-store.js';
+
+initializeDb();
+
+afterAll(() => {
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
 
 describe('renderHistoryContent', () => {
   test('renders text-only content unchanged', () => {
@@ -225,5 +266,64 @@ describe('mergeToolResults', () => {
     mergeToolResults(original);
     // Original assistant toolCalls should not have result attached
     expect((original[0].toolCalls[0] as Record<string, unknown>).result).toBeUndefined();
+  });
+});
+
+describe('getAttachmentsForMessageUnscoped', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_attachments');
+    db.run('DELETE FROM attachments');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  function createMessage(role: string, content: string): string {
+    const conv = createConversation('test');
+    const msg = addMessage(conv.id, role, content);
+    return msg.id;
+  }
+
+  test('returns attachments linked to a message', () => {
+    const msgId = createMessage('assistant', 'Here is a chart');
+    const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'iVBOR');
+    linkAttachmentToMessage(msgId, stored.id, 0);
+
+    const result = getAttachmentsForMessageUnscoped(msgId);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(stored.id);
+    expect(result[0].originalFilename).toBe('chart.png');
+    expect(result[0].mimeType).toBe('image/png');
+    expect(result[0].dataBase64).toBe('iVBOR');
+  });
+
+  test('returns empty array when no attachments are linked', () => {
+    expect(getAttachmentsForMessageUnscoped('msg-nonexistent')).toEqual([]);
+  });
+
+  test('returns multiple attachments in position order', () => {
+    const msgId = createMessage('assistant', 'Two files');
+    const a1 = uploadAttachment('ast-1', 'first.txt', 'text/plain', 'AAAA');
+    const a2 = uploadAttachment('ast-1', 'second.txt', 'text/plain', 'BBBB');
+
+    linkAttachmentToMessage(msgId, a2.id, 1);
+    linkAttachmentToMessage(msgId, a1.id, 0);
+
+    const result = getAttachmentsForMessageUnscoped(msgId);
+    expect(result).toHaveLength(2);
+    expect(result[0].originalFilename).toBe('first.txt');
+    expect(result[1].originalFilename).toBe('second.txt');
+  });
+
+  test('works across different assistantIds', () => {
+    const msgId = createMessage('assistant', 'Mixed');
+    const a1 = uploadAttachment('ast-A', 'a.png', 'image/png', 'AAAA');
+    const a2 = uploadAttachment('ast-B', 'b.png', 'image/png', 'BBBB');
+
+    linkAttachmentToMessage(msgId, a1.id, 0);
+    linkAttachmentToMessage(msgId, a2.id, 1);
+
+    const result = getAttachmentsForMessageUnscoped(msgId);
+    expect(result).toHaveLength(2);
   });
 });

@@ -115,10 +115,11 @@ Adding an optional field is backward-compatible. Removing a field or making an o
 
 ### CI (GitHub Actions)
 
-The `ci-assistant.yml` workflow runs on every PR that touches `assistant/` or `clients/shared/IPC/Generated/`:
+The `ci-assistant.yml` workflow runs on every PR that touches `assistant/`, `clients/shared/IPC/`, or `.githooks/`:
 
 1. `bun run check:ipc-generated` -- fails if the generated Swift file doesn't match what the generator would produce
 2. `bun run ipc:inventory` -- fails if the contract inventory snapshot has drifted
+3. `bun run ipc:check-swift-drift` -- fails if the Swift `ServerMessage` decoder is out of sync with the contract (stale or missing decode cases)
 
 ### Pre-commit hook
 
@@ -126,8 +127,9 @@ The `.githooks/pre-commit` hook runs automatically when any IPC-related file is 
 
 - Checks the generated Swift file is up to date (`bun run check:ipc-generated`)
 - Checks the inventory snapshot is up to date (`bun run ipc:inventory`)
+- Checks the Swift decoder is in sync with the contract (`bun run ipc:check-swift-drift`)
 
-If either check fails, the commit is blocked with instructions on how to fix it.
+If any check fails, the commit is blocked with instructions on how to fix it.
 
 ## Manual exception allowlist
 

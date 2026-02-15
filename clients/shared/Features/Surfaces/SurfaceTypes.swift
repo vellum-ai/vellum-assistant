@@ -172,17 +172,50 @@ public struct ConfirmationSurfaceData: Sendable {
     }
 }
 
+public struct DynamicPagePreview: Sendable, Equatable {
+    public let title: String
+    public let subtitle: String?
+    public let description: String?
+    public let icon: String?
+    public let metrics: [(label: String, value: String)]?
+
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [(label: String, value: String)]? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self.description = description
+        self.icon = icon
+        self.metrics = metrics
+    }
+
+    public static func == (lhs: DynamicPagePreview, rhs: DynamicPagePreview) -> Bool {
+        guard lhs.title == rhs.title,
+              lhs.subtitle == rhs.subtitle,
+              lhs.description == rhs.description,
+              lhs.icon == rhs.icon else { return false }
+        switch (lhs.metrics, rhs.metrics) {
+        case (.none, .none):
+            return true
+        case let (.some(l), .some(r)):
+            return l.count == r.count && zip(l, r).allSatisfy { $0.label == $1.label && $0.value == $1.value }
+        default:
+            return false
+        }
+    }
+}
+
 public struct DynamicPageSurfaceData: Sendable {
     public let html: String
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let preview: DynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, preview: DynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
+        self.preview = preview
     }
 }
 
@@ -472,7 +505,10 @@ public extension Surface {
         let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
         let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
         let appId: String? = update.keys.contains("appId") ? (update["appId"] as? String) : existing.appId
-        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId)
+        let preview: DynamicPagePreview? = update.keys.contains("preview")
+            ? parseDynamicPagePreview(update["preview"] as? [String: Any?])
+            : existing.preview
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, preview: preview)
     }
 
     // MARK: - Field Parsing Helpers
@@ -599,7 +635,27 @@ public extension Surface {
             html: html,
             width: dict["width"] as? Int,
             height: dict["height"] as? Int,
-            appId: dict["appId"] as? String
+            appId: dict["appId"] as? String,
+            preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?])
+        )
+    }
+
+    private static func parseDynamicPagePreview(_ dict: [String: Any?]?) -> DynamicPagePreview? {
+        guard let dict = dict, let title = dict["title"] as? String else { return nil }
+        var metrics: [(label: String, value: String)]?
+        if let metricsArray = dict["metrics"] as? [[String: Any?]] {
+            metrics = metricsArray.compactMap { item in
+                guard let label = item["label"] as? String,
+                      let value = item["value"] as? String else { return nil }
+                return (label: label, value: value)
+            }
+        }
+        return DynamicPagePreview(
+            title: title,
+            subtitle: dict["subtitle"] as? String,
+            description: dict["description"] as? String,
+            icon: dict["icon"] as? String,
+            metrics: metrics
         )
     }
 

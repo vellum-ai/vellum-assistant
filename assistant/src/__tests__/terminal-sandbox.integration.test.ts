@@ -5,7 +5,7 @@
  * when Docker is not available or the sandbox image is not pulled locally.
  * To run them locally:
  *   1. Install Docker Desktop / Docker Engine
- *   2. docker pull node:20-slim
+ *   2. docker pull <configured sandbox image>
  *   3. bun test src/__tests__/terminal-sandbox.integration.test.ts
  */
 
@@ -22,7 +22,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { getSandboxWorkingDir } from '../util/platform.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 // ---------------------------------------------------------------------------
 // Runtime gate: skip entire file if Docker is not usable
@@ -37,7 +38,7 @@ function dockerAvailable(): boolean {
   }
 }
 
-const IMAGE = 'node:20-slim';
+const IMAGE = DEFAULT_CONFIG.sandbox.docker.image;
 
 function imageAvailable(): boolean {
   try {
@@ -61,7 +62,11 @@ let sandboxRoot: string;
 
 beforeAll(() => {
   if (!DOCKER_OK) return;
-  sandboxRoot = realpathSync(mkdtempSync(join(tmpdir(), 'docker-integ-')));
+  const parent = getSandboxWorkingDir();
+  if (!existsSync(parent)) {
+    mkdirSync(parent, { recursive: true });
+  }
+  sandboxRoot = realpathSync(mkdtempSync(join(parent, 'docker-integ-')));
 });
 
 afterAll(() => {
@@ -70,10 +75,16 @@ afterAll(() => {
   }
 });
 
+interface DockerRunOptions {
+  /** Run as root instead of the host UID:GID. Useful for testing filesystem-level protections. */
+  asRoot?: boolean;
+}
+
 /** Run a command inside a Docker container with the sandbox root mounted. */
-function dockerRun(cmd: string): { stdout: string; exitCode: number } {
+function dockerRun(cmd: string, opts?: DockerRunOptions): { stdout: string; exitCode: number } {
   const uid = process.getuid?.() ?? 1000;
   const gid = process.getgid?.() ?? 1000;
+  const userArgs = opts?.asRoot ? ['--user', '0:0'] : ['--user', `${uid}:${gid}`];
   const result = spawnSync('docker', [
     'run', '--rm',
     '--network=none',
@@ -83,7 +94,7 @@ function dockerRun(cmd: string): { stdout: string; exitCode: number } {
     '--tmpfs', '/tmp:rw,nosuid,nodev,noexec',
     '--mount', `type=bind,src=${sandboxRoot},dst=/workspace`,
     '--workdir', '/workspace',
-    '--user', `${uid}:${gid}`,
+    ...userArgs,
     IMAGE,
     'bash', '-c', cmd,
   ], { timeout: 30000, encoding: 'utf-8' });
@@ -116,13 +127,15 @@ describe.skipIf(!DOCKER_OK)('Docker integration: write inside sandbox', () => {
 });
 
 describe.skipIf(!DOCKER_OK)('Docker integration: write outside workspace fails', () => {
+  // Run as root so Unix permissions are not a factor — the read-only
+  // filesystem mount is the only thing preventing these writes.
   test('writing to /etc inside container fails (read-only root)', () => {
-    const { exitCode } = dockerRun('touch /etc/evil 2>/dev/null');
+    const { exitCode } = dockerRun('touch /etc/evil 2>/dev/null', { asRoot: true });
     expect(exitCode).not.toBe(0);
   });
 
   test('writing to /home inside container fails (read-only root)', () => {
-    const { exitCode } = dockerRun('touch /home/evil 2>/dev/null');
+    const { exitCode } = dockerRun('touch /home/evil 2>/dev/null', { asRoot: true });
     expect(exitCode).not.toBe(0);
   });
 

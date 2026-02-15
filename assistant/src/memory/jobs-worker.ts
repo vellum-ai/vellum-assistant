@@ -5,19 +5,32 @@ import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
-import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
+import {
+  getMemoryCheckpoint,
+  readMessageCursorCheckpoint,
+  resetMessageCursorCheckpoint,
+  setMemoryCheckpoint,
+  writeMessageCursorCheckpoint,
+} from './checkpoints.js';
 import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
 import { getDb } from './db.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
   deferMemoryJob,
+  enqueueBackfillEntityRelationsJob,
   enqueueMemoryJob,
   failMemoryJob,
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
-import { extractEntitiesWithLLM, upsertEntity, linkMemoryItemToEntity } from './entity-extractor.js';
+import {
+  extractEntitiesWithLLM,
+  linkMemoryItemToEntity,
+  resolveEntityName,
+  upsertEntity,
+  upsertEntityRelation,
+} from './entity-extractor.js';
 import { indexMessageNow } from './indexer.js';
 import { checkContradictions } from './contradiction-checker.js';
 import { extractAndUpsertMemoryItemsForMessage } from './items-extractor.js';
@@ -44,6 +57,8 @@ class BackendUnavailableError extends Error {
 
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
 const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
+const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
+const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_message_id';
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
 const SUMMARY_MAX_TOKENS = 800;
@@ -181,6 +196,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'backfill':
       backfillJob(job, config);
       return;
+    case 'backfill_entity_relations':
+      backfillEntityRelationsJob(job, config);
+      return;
     case 'rebuild_index':
       rebuildIndexJob();
       return;
@@ -273,8 +291,10 @@ async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Prom
   const text = extractTextFromStoredMessageContent(message.content);
   if (text.trim().length < 15) return;
 
-  const entities = await extractEntitiesWithLLM(text, config.memory.entity);
-  if (entities.length === 0) return;
+  const extracted = await extractEntitiesWithLLM(text, config.memory.entity);
+  const entities = extracted.entities;
+  const relations = extracted.relations;
+  if (entities.length === 0 && relations.length === 0) return;
 
   // Find all memory items linked to this message via memory_item_sources
   const linkedItems = db
@@ -283,16 +303,63 @@ async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig): Prom
     .where(eq(memoryItemSources.messageId, messageId))
     .all();
   const itemIds = linkedItems.map((row) => row.memoryItemId);
+  const entityNameToId = new Map<string, string>();
 
   for (const entity of entities) {
     const entityId = upsertEntity(entity);
+    entityNameToId.set(entity.name.toLowerCase(), entityId);
+    for (const alias of entity.aliases) {
+      entityNameToId.set(alias.toLowerCase(), entityId);
+    }
     // Link all memory items from this message to the entity
     for (const itemId of itemIds) {
       linkMemoryItemToEntity(itemId, entityId);
     }
   }
 
-  log.debug({ messageId, entityCount: entities.length, linkedItems: itemIds.length }, 'Extracted entities from message');
+  const relationTelemetry = {
+    attempted: 0,
+    parsed: relations.length,
+    persisted: 0,
+    dropped: 0,
+  };
+
+  if (config.memory.entity.extractRelations.enabled && relations.length > 0) {
+    const seenRelationKeys = new Set<string>();
+    for (const relation of relations) {
+      relationTelemetry.attempted += 1;
+      const sourceLookup = relation.sourceEntityName.toLowerCase();
+      const targetLookup = relation.targetEntityName.toLowerCase();
+      const sourceEntityId = entityNameToId.get(sourceLookup) ?? resolveEntityName(relation.sourceEntityName);
+      const targetEntityId = entityNameToId.get(targetLookup) ?? resolveEntityName(relation.targetEntityName);
+      if (!sourceEntityId || !targetEntityId || sourceEntityId === targetEntityId) {
+        relationTelemetry.dropped += 1;
+        continue;
+      }
+
+      const dedupeKey = `${sourceEntityId}|${targetEntityId}|${relation.relation}`;
+      if (seenRelationKeys.has(dedupeKey)) continue;
+      seenRelationKeys.add(dedupeKey);
+
+      upsertEntityRelation({
+        sourceEntityId,
+        targetEntityId,
+        relation: relation.relation,
+        evidence: relation.evidence,
+      });
+      relationTelemetry.persisted += 1;
+    }
+  }
+
+  log.debug({
+    messageId,
+    entityCount: entities.length,
+    linkedItems: itemIds.length,
+    relationAttempts: relationTelemetry.attempted,
+    relationParsed: relationTelemetry.parsed,
+    relationPersisted: relationTelemetry.persisted,
+    relationDropped: relationTelemetry.dropped,
+  }, 'Extracted entity graph from message');
 }
 
 async function checkContradictionsJob(job: MemoryJob): Promise<void> {
@@ -543,18 +610,16 @@ function backfillJob(job: MemoryJob, config: AssistantConfig): void {
   const db = getDb();
   const force = job.payload.force === true;
   if (force) {
-    setMemoryCheckpoint(BACKFILL_CHECKPOINT_KEY, '0');
-    setMemoryCheckpoint(BACKFILL_CHECKPOINT_ID_KEY, '');
+    resetMessageCursorCheckpoint(BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_ID_KEY);
   }
 
-  const lastCreatedAt = Number.parseInt(getMemoryCheckpoint(BACKFILL_CHECKPOINT_KEY) ?? '0', 10) || 0;
-  const lastMessageId = getMemoryCheckpoint(BACKFILL_CHECKPOINT_ID_KEY) ?? '';
+  const cursor = readMessageCursorCheckpoint(BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_ID_KEY);
   const batch = db
     .select()
     .from(messages)
     .where(or(
-      gt(messages.createdAt, lastCreatedAt),
-      and(eq(messages.createdAt, lastCreatedAt), gt(messages.id, lastMessageId)),
+      gt(messages.createdAt, cursor.createdAt),
+      and(eq(messages.createdAt, cursor.createdAt), gt(messages.id, cursor.messageId)),
     ))
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .limit(200)
@@ -570,11 +635,67 @@ function backfillJob(job: MemoryJob, config: AssistantConfig): void {
     }, config.memory);
   }
   const lastMessage = batch[batch.length - 1];
-  setMemoryCheckpoint(BACKFILL_CHECKPOINT_KEY, String(lastMessage.createdAt));
-  setMemoryCheckpoint(BACKFILL_CHECKPOINT_ID_KEY, lastMessage.id);
+  writeMessageCursorCheckpoint(BACKFILL_CHECKPOINT_KEY, BACKFILL_CHECKPOINT_ID_KEY, {
+    createdAt: lastMessage.createdAt,
+    messageId: lastMessage.id,
+  });
+
+  if (config.memory.entity.enabled && config.memory.entity.extractRelations.enabled) {
+    enqueueBackfillEntityRelationsJob(force);
+  }
+
   if (batch.length === 200) {
     enqueueMemoryJob('backfill', {});
   }
+}
+
+function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConfig): void {
+  if (!config.memory.entity.enabled) return;
+  if (!config.memory.entity.extractRelations.enabled) return;
+
+  const force = job.payload.force === true;
+  if (force) {
+    resetMessageCursorCheckpoint(RELATION_BACKFILL_CHECKPOINT_KEY, RELATION_BACKFILL_CHECKPOINT_ID_KEY);
+  }
+
+  const db = getDb();
+  const cursor = readMessageCursorCheckpoint(
+    RELATION_BACKFILL_CHECKPOINT_KEY,
+    RELATION_BACKFILL_CHECKPOINT_ID_KEY,
+  );
+  const batchSize = Math.max(1, config.memory.entity.extractRelations.backfillBatchSize);
+  const batch = db
+    .select({ id: messages.id, createdAt: messages.createdAt })
+    .from(messages)
+    .where(or(
+      gt(messages.createdAt, cursor.createdAt),
+      and(eq(messages.createdAt, cursor.createdAt), gt(messages.id, cursor.messageId)),
+    ))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
+    .limit(batchSize)
+    .all();
+  if (batch.length === 0) return;
+
+  for (const message of batch) {
+    enqueueMemoryJob('extract_entities', { messageId: message.id });
+  }
+
+  const lastMessage = batch[batch.length - 1];
+  writeMessageCursorCheckpoint(RELATION_BACKFILL_CHECKPOINT_KEY, RELATION_BACKFILL_CHECKPOINT_ID_KEY, {
+    createdAt: lastMessage.createdAt,
+    messageId: lastMessage.id,
+  });
+
+  if (batch.length === batchSize) {
+    enqueueBackfillEntityRelationsJob();
+  }
+
+  log.debug({
+    queuedExtractEntityJobs: batch.length,
+    batchSize,
+    lastCreatedAt: lastMessage.createdAt,
+    lastMessageId: lastMessage.id,
+  }, 'Queued relation backfill batch');
 }
 
 function rebuildIndexJob(): void {

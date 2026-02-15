@@ -43,8 +43,9 @@ export interface AssistantAttachmentDraft {
  * Accounts for trailing `=` padding characters.
  */
 export function estimateBase64Bytes(base64: string): number {
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  const trimmed = base64.replace(/\s/g, '');
+  const padding = trimmed.endsWith('==') ? 2 : trimmed.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +161,11 @@ export interface DirectiveParseResult {
   parseWarnings: string[];
 }
 
+export interface DirectiveDisplayDrainResult {
+  emitText: string;
+  bufferedRemainder: string;
+}
+
 /**
  * Match self-closing `<vellum-attachment ... />` tags.
  *
@@ -223,10 +229,88 @@ export function parseDirectives(text: string): DirectiveParseResult {
   });
 
   return {
-    cleanText: cleanText.replace(/\n{3,}/g, '\n\n').trim(),
+    cleanText: directiveRequests.length > 0
+      ? cleanText.replace(/\n{3,}/g, '\n\n').trim()
+      : cleanText,
     directiveRequests,
     parseWarnings,
   };
+}
+
+/**
+ * Drain streamed assistant text while stripping only valid, complete
+ * self-closing `<vellum-attachment ... />` directives.
+ *
+ * - Valid complete directives are removed from emitted text.
+ * - Invalid directives are preserved as plain text.
+ * - Incomplete directives are retained in `bufferedRemainder` until more
+ *   text arrives.
+ */
+const DIRECTIVE_TAG_PREFIX = '<vellum-attachment';
+
+/**
+ * Check whether `text` ends with a prefix of `tag` (e.g. "<", "<v", "<ve", …).
+ * Returns the safe-to-emit portion and any trailing partial prefix to buffer.
+ */
+function splitTrailingPrefix(
+  text: string,
+  tag: string,
+): { safe: string; trailing: string } {
+  // Scan backwards from the end for a '<' that could start a partial tag.
+  // We only need to check the last `tag.length - 1` characters — a full
+  // match would have been caught by indexOf above.
+  const searchStart = Math.max(0, text.length - tag.length + 1);
+  for (let i = text.length - 1; i >= searchStart; i--) {
+    if (text[i] === '<') {
+      const candidate = text.slice(i);
+      if (tag.startsWith(candidate)) {
+        return { safe: text.slice(0, i), trailing: candidate };
+      }
+    }
+  }
+  return { safe: text, trailing: '' };
+}
+
+export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDrainResult {
+  let emitText = '';
+  let cursor = 0;
+
+  while (cursor < buffer.length) {
+    const start = buffer.indexOf(DIRECTIVE_TAG_PREFIX, cursor);
+    if (start === -1) {
+      // No full tag-prefix match — but the remaining text might end with a
+      // partial prefix of "<vellum-attachment" split across streaming chunks.
+      const remaining = buffer.slice(cursor);
+      const split = splitTrailingPrefix(remaining, DIRECTIVE_TAG_PREFIX);
+      emitText += split.safe;
+      return { emitText, bufferedRemainder: split.trailing };
+    }
+
+    emitText += buffer.slice(cursor, start);
+
+    const end = buffer.indexOf('/>', start);
+    if (end === -1) {
+      return {
+        emitText,
+        bufferedRemainder: buffer.slice(start),
+      };
+    }
+
+    const tag = buffer.slice(start, end + 2);
+    const parsed = parseDirectives(tag);
+    const isValidDirective =
+      parsed.directiveRequests.length > 0 &&
+      parsed.parseWarnings.length === 0 &&
+      parsed.cleanText.length === 0;
+
+    if (!isValidDirective) {
+      emitText += tag;
+    }
+
+    cursor = end + 2;
+  }
+
+  return { emitText, bufferedRemainder: '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -261,10 +345,17 @@ export function resolveSandboxDirective(
   let stat;
   try {
     stat = statSync(resolved);
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return {
+        draft: null,
+        warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
+      };
+    }
     return {
       draft: null,
-      warning: `Skipped sandbox attachment "${directive.path}": file not found.`,
+      warning: `Skipped sandbox attachment "${directive.path}": stat error: ${(err as Error).message}`,
     };
   }
 
@@ -360,10 +451,17 @@ export async function resolveHostDirective(
   let stat;
   try {
     stat = statSync(resolved);
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return {
+        draft: null,
+        warning: `Skipped host attachment "${directive.path}": file not found.`,
+      };
+    }
     return {
       draft: null,
-      warning: `Skipped host attachment "${directive.path}": file not found.`,
+      warning: `Skipped host attachment "${directive.path}": stat error: ${(err as Error).message}`,
     };
   }
 
@@ -516,6 +614,10 @@ export function cleanAssistantContent(
     const b = block as Record<string, unknown>;
     if (b.type !== 'text') return block;
     const text = b.text as string;
+    // Only run the directive parser when the text actually contains a
+    // potential tag. This avoids unintentional whitespace normalisation
+    // (parseDirectives trims and collapses blank lines) on plain messages.
+    if (!text.includes('<vellum-attachment')) return block;
     const result = parseDirectives(text);
     directives.push(...result.directiveRequests);
     warnings.push(...result.parseWarnings);
@@ -530,13 +632,17 @@ export function cleanAssistantContent(
 // ---------------------------------------------------------------------------
 
 /**
- * De-duplicate drafts by filename + content hash (first 64 chars of base64
- * as a cheap proxy for content identity).
+ * De-duplicate drafts by filename + full content hash.
+ *
+ * Uses a fast hash of the entire base64 payload so that files with shared
+ * prefixes (common for image formats, tool screenshots named identically)
+ * are not incorrectly treated as duplicates.
  */
 export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
   const seen = new Set<string>();
   return drafts.filter((d) => {
-    const key = `${d.filename}:${d.dataBase64.slice(0, 64)}`;
+    const hash = Bun.hash(d.dataBase64).toString(36);
+    const key = `${d.filename}:${hash}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

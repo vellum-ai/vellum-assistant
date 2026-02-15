@@ -47,6 +47,7 @@ export class DaemonServer {
   // Shared across all sessions so maxRequestsPerMinute is enforced globally.
   private sharedRequestTimestamps: number[] = [];
   private socketPath: string;
+  private httpPort: number | undefined;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private suppressConfigReload = false;
@@ -312,6 +313,21 @@ export class DaemonServer {
   }
 
   /**
+   * Record the runtime HTTP server port and broadcast it to all
+   * connected clients so they can enable the share UI immediately.
+   */
+  setHttpPort(port: number): void {
+    this.httpPort = port;
+    // Clients that connected before the HTTP server started received
+    // daemon_status with no httpPort. Broadcast the updated port so
+    // they can enable the share UI without reconnecting.
+    this.broadcast({
+      type: 'daemon_status',
+      httpPort: port,
+    });
+  }
+
+  /**
    * Dispose and remove all in-memory sessions unconditionally.
    * Called after `sessions clear` wipes the database so that stale
    * sessions don't reference deleted conversation rows.
@@ -551,6 +567,11 @@ export class DaemonServer {
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
     });
+
+    this.send(socket, {
+      type: 'daemon_status',
+      httpPort: this.httpPort,
+    });
   }
 
   private async getOrCreateSession(
@@ -617,6 +638,12 @@ export class DaemonServer {
           rebindClient ? sendToClient : () => {},
           workingDir,
         );
+        // When created without a socket (HTTP path), mark the session
+        // so interactive prompts (e.g. host attachment reads) can fail
+        // fast instead of waiting for a timeout with no client to respond.
+        if (!socket) {
+          newSession.updateClient(sendToClient, true);
+        }
         await newSession.loadFromDb();
         if (rebindClient && socket) {
           newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
@@ -696,6 +723,10 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
+
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
@@ -735,6 +766,10 @@ export class DaemonServer {
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
     }
+
+    // Set assistantId AFTER the isProcessing check so a rejected request
+    // doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId(assistantId);
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

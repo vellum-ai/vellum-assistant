@@ -55,10 +55,10 @@ export const NetworkConfigSchema = z.object({
 export const DockerConfigSchema = z.object({
   image: z
     .string({ error: 'sandbox.docker.image must be a string' })
-    .default('node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9'),
+    .default('node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687'),
   shell: z
     .string({ error: 'sandbox.docker.shell must be a string' })
-    .default('bash'),
+    .default('sh'),
   cpus: z
     .number({ error: 'sandbox.docker.cpus must be a number' })
     .finite('sandbox.docker.cpus must be finite')
@@ -91,8 +91,8 @@ export const SandboxConfigSchema = z.object({
     })
     .default('docker'),
   docker: DockerConfigSchema.default({
-    image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
-    shell: 'bash',
+    image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+    shell: 'sh',
     cpus: 1,
     memoryMb: 512,
     pidsLimit: 256,
@@ -246,6 +246,27 @@ export const MemoryRerankingConfigSchema = z.object({
     .default(20),
 });
 
+export const MemoryDynamicBudgetConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.dynamicBudget.enabled must be a boolean' })
+    .default(false),
+  minInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.minInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.minInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.minInjectTokens must be a positive integer')
+    .default(1200),
+  maxInjectTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.maxInjectTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.maxInjectTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.maxInjectTokens must be a positive integer')
+    .default(10000),
+  targetHeadroomTokens: z
+    .number({ error: 'memory.retrieval.dynamicBudget.targetHeadroomTokens must be a number' })
+    .int('memory.retrieval.dynamicBudget.targetHeadroomTokens must be an integer')
+    .positive('memory.retrieval.dynamicBudget.targetHeadroomTokens must be a positive integer')
+    .default(10000),
+});
+
 /**
  * Per-kind freshness windows (in days). Items older than their window
  * (based on lastSeenAt) are down-ranked unless recently reinforced.
@@ -340,6 +361,12 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
+  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({
+    enabled: false,
+    minInjectTokens: 1200,
+    maxInjectTokens: 10000,
+    targetHeadroomTokens: 10000,
+  }),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -388,6 +415,19 @@ export const MemoryEntityConfigSchema = z.object({
   model: z
     .string({ error: 'memory.entity.model must be a string' })
     .default('claude-haiku-4-5-20251001'),
+  extractRelations: z.object({
+    enabled: z
+      .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
+      .default(false),
+    backfillBatchSize: z
+      .number({ error: 'memory.entity.extractRelations.backfillBatchSize must be a number' })
+      .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
+      .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
+      .default(200),
+  }).default({
+    enabled: false,
+    backfillBatchSize: 200,
+  }),
 });
 
 export const MemorySummarizationConfigSchema = z.object({
@@ -436,6 +476,12 @@ export const MemoryConfigSchema = z.object({
       reinforcementShieldDays: 7,
     },
     scopePolicy: 'allow_global_fallback',
+    dynamicBudget: {
+      enabled: false,
+      minInjectTokens: 1200,
+      maxInjectTokens: 10000,
+      targetHeadroomTokens: 10000,
+    },
   }),
   segmentation: MemorySegmentationConfigSchema.default({
     targetTokens: 450,
@@ -459,6 +505,10 @@ export const MemoryConfigSchema = z.object({
   entity: MemoryEntityConfigSchema.default({
     enabled: true,
     model: 'claude-haiku-4-5-20251001',
+    extractRelations: {
+      enabled: false,
+      backfillBatchSize: 200,
+    },
   }),
 });
 
@@ -564,6 +614,12 @@ export const AssistantConfigSchema = z.object({
         reinforcementShieldDays: 7,
       },
       scopePolicy: 'allow_global_fallback',
+      dynamicBudget: {
+        enabled: false,
+        minInjectTokens: 1200,
+        maxInjectTokens: 10000,
+        targetHeadroomTokens: 10000,
+      },
     },
     segmentation: {
       targetTokens: 450,
@@ -587,6 +643,10 @@ export const AssistantConfigSchema = z.object({
     entity: {
       enabled: true,
       model: 'claude-haiku-4-5-20251001',
+      extractRelations: {
+        enabled: false,
+        backfillBatchSize: 200,
+      },
     },
   }),
   dataDir: z
@@ -609,8 +669,8 @@ export const AssistantConfigSchema = z.object({
     enabled: true,
     backend: 'docker',
     docker: {
-      image: 'node:20-slim@sha256:a22f79e64de59efd3533828aecc9817bfdc97d3b4a58f0fc1b7b33a5e2b4d5f9',
-      shell: 'bash',
+      image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
+      shell: 'sh',
       cpus: 1,
       memoryMb: 512,
       pidsLimit: 256,
@@ -651,6 +711,13 @@ export const AssistantConfigSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'segmentation', 'overlapTokens'],
       message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
+    });
+  }
+  if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['memory', 'retrieval', 'dynamicBudget'],
+      message: 'memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens',
     });
   }
 });

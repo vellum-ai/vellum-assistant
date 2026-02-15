@@ -51,6 +51,7 @@ import { formatShellOutput, MAX_OUTPUT_LENGTH } from '../tools/shared/shell-outp
 const { NativeBackend } = await import('../tools/terminal/backends/native.js');
 const { DockerBackend, _resetDockerChecks } = await import('../tools/terminal/backends/docker.js');
 const { wrapCommand } = await import('../tools/terminal/sandbox.js');
+const { ToolError } = await import('../util/errors.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -512,14 +513,14 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const sandboxResult = sandboxOps.readFileSafe({ path: '../../../etc/hostname' });
     expect(sandboxResult.ok).toBe(false);
     if (!sandboxResult.ok) {
-      expect(sandboxResult.error.code).toBe('INVALID_PATH');
+      expect(sandboxResult.error.code).toBe('PATH_OUT_OF_BOUNDS');
     }
 
     // Host: relative paths are rejected (requires absolute)
     const hostResult = hostOps.readFileSafe({ path: 'relative.txt' });
     expect(hostResult.ok).toBe(false);
     if (!hostResult.ok) {
-      expect(hostResult.error.code).toBe('INVALID_PATH');
+      expect(hostResult.error.code).toBe('PATH_NOT_ABSOLUTE');
     }
   });
 
@@ -539,7 +540,7 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const result = hostOps.readFileSafe({ path: 'just-a-name.txt' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('INVALID_PATH');
+      expect(result.error.code).toBe('PATH_NOT_ABSOLUTE');
     }
   });
 
@@ -550,7 +551,7 @@ describe('Path policy divergence: sandbox blocks escapes, host requires absolute
     const result = sandboxOps.writeFileSafe({ path: '/tmp/somewhere-else.txt', content: 'bad' });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('INVALID_PATH');
+      expect(result.error.code).toBe('PATH_OUT_OF_BOUNDS');
     }
   });
 });
@@ -576,17 +577,18 @@ describe('SandboxResult shape consistency across backends', () => {
         expect(typeof arg).toBe('string');
       }
     } catch (err) {
-      // NativeBackend throws ToolError on unsupported platforms, but may also
-      // throw plain Errors from infra calls (e.g. writeFileSync in
-      // getProfilePath, execSync in isBwrapAvailable) depending on the
-      // environment. Both are legitimate — the key invariant is that wrap()
-      // never silently returns a non-sandboxed result.
-      expect(err).toBeInstanceOf(Error);
+      // NativeBackend explicitly throws ToolError on unsupported platforms or
+      // unsafe paths. Infrastructure calls (writeFileSync, mkdirSync) can
+      // throw system errors (ErrnoException). Both are legitimate — but
+      // programming errors like TypeError/ReferenceError should still fail.
+      const isToolError = err instanceof ToolError;
+      const isSystemError = err instanceof Error && 'syscall' in err && typeof (err as NodeJS.ErrnoException).code === 'string';
+      expect(isToolError || isSystemError).toBe(true);
     }
   });
 
   test('wrapCommand disabled returns bash with sandboxed=false', () => {
-    const result = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+    const result = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'sh', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
 
     expect(result.command).toBe('bash');
     expect(result.args).toEqual(['-c', '--', 'echo hi']);
@@ -594,7 +596,7 @@ describe('SandboxResult shape consistency across backends', () => {
   });
 
   test('wrapCommand disabled result has same shape as enabled result', () => {
-    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+    const disabled = wrapCommand('echo hi', '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'sh', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
 
     // Both must have: command (string), args (string[]), sandboxed (boolean)
     expect(typeof disabled.command).toBe('string');
@@ -875,7 +877,7 @@ describe('DockerBackend vs NativeBackend: SandboxResult shape parity', () => {
     // Various commands should all be wrapped consistently when disabled
     const commands = ['echo hello', 'ls -la', 'cat /etc/hosts', 'true && false'];
     for (const cmd of commands) {
-      const result = wrapCommand(cmd, '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'bash', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
+      const result = wrapCommand(cmd, '/tmp', { enabled: false, backend: 'native', docker: { image: 'node:20-slim', shell: 'sh', cpus: 1, memoryMb: 512, pidsLimit: 256, network: 'none' } });
       expect(result.command).toBe('bash');
       expect(result.args[0]).toBe('-c');
       expect(result.args[1]).toBe('--');

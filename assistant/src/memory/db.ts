@@ -380,6 +380,7 @@ export function initializeDb(): void {
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
+  migrateMemoryEntityRelationDedup(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
@@ -420,6 +421,7 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_name ON memory_entities(name)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(type)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_entity_relations_unique_edge ON memory_entity_relations(source_entity_id, target_entity_id, relation)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_source ON memory_entity_relations(source_entity_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entity_relations_target ON memory_entity_relations(target_entity_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_memory_item ON memory_item_entities(memory_item_id)`);
@@ -528,4 +530,82 @@ function migrateMemoryFtsBackfill(database: ReturnType<typeof drizzle<typeof sch
     INSERT INTO memory_segment_fts(segment_id, text)
     SELECT id, text FROM memory_segments
   `);
+}
+
+/**
+ * One-shot migration: merge duplicate relation edges so uniqueness can be
+ * enforced on (source_entity_id, target_entity_id, relation).
+ */
+function migrateMemoryEntityRelationDedup(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_memory_entity_relations_dedup_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  try {
+    raw.exec('BEGIN');
+
+    raw.exec(/*sql*/ `
+      CREATE TEMP TABLE memory_entity_relation_merge AS
+      WITH ranked AS (
+        SELECT
+          source_entity_id,
+          target_entity_id,
+          relation,
+          first_seen_at,
+          last_seen_at,
+          evidence,
+          ROW_NUMBER() OVER (
+            PARTITION BY source_entity_id, target_entity_id, relation
+            ORDER BY last_seen_at DESC, first_seen_at DESC, id DESC
+          ) AS rank_latest
+        FROM memory_entity_relations
+      )
+      SELECT
+        source_entity_id,
+        target_entity_id,
+        relation,
+        MIN(first_seen_at) AS merged_first_seen_at,
+        MAX(last_seen_at) AS merged_last_seen_at,
+        MAX(CASE WHEN rank_latest = 1 THEN evidence ELSE NULL END) AS merged_evidence
+      FROM ranked
+      GROUP BY source_entity_id, target_entity_id, relation
+    `);
+
+    raw.exec(/*sql*/ `DELETE FROM memory_entity_relations`);
+
+    raw.exec(/*sql*/ `
+      INSERT INTO memory_entity_relations (
+        id,
+        source_entity_id,
+        target_entity_id,
+        relation,
+        evidence,
+        first_seen_at,
+        last_seen_at
+      )
+      SELECT
+        lower(hex(randomblob(16))),
+        source_entity_id,
+        target_entity_id,
+        relation,
+        merged_evidence,
+        merged_first_seen_at,
+        merged_last_seen_at
+      FROM memory_entity_relation_merge
+    `);
+
+    raw.exec(/*sql*/ `DROP TABLE memory_entity_relation_merge`);
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  }
 }
