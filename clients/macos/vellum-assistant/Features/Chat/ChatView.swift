@@ -99,7 +99,7 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
     }
@@ -154,16 +154,55 @@ struct ChatView: View {
         }
     }
 
-    /// Handle dropped items — loads file URLs to preserve original filenames.
+    /// Handle dropped items — supports both file URLs and raw image data.
+    /// File URLs are preferred (preserves original filenames); raw image data
+    /// is used as a fallback for providers without a backing file (e.g. screenshot
+    /// thumbnails or images dragged from certain apps).
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        var urls: [URL] = []
+        var imageDataItems: [NSItemProvider] = []
+        let group = DispatchGroup()
+
         for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                DispatchQueue.main.async {
-                    if let url {
-                        onDropFiles([url])
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                group.enter()
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url { urls.append(url) }
+                        group.leave()
                     }
                 }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                imageDataItems.append(provider)
             }
+        }
+
+        for provider in imageDataItems {
+            let typeIdentifier: String
+            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                typeIdentifier = UTType.png.identifier
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
+                typeIdentifier = UTType.tiff.identifier
+            } else {
+                typeIdentifier = UTType.image.identifier
+            }
+
+            let suggestedName = provider.suggestedName
+            group.enter()
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                DispatchQueue.main.async {
+                    if let data {
+                        onDropImageData(data, suggestedName)
+                    }
+                    group.leave()
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            if !urls.isEmpty { onDropFiles(urls) }
         }
         return true
     }
