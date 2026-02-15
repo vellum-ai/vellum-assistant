@@ -311,15 +311,15 @@ describe('runSandboxDiagnostics — Docker image check', () => {
   });
 });
 
-describe('runSandboxDiagnostics — Docker container execution check', () => {
-  test('passes when container runs successfully', () => {
+describe('runSandboxDiagnostics — Docker mount writable check', () => {
+  test('passes when mount probe succeeds', () => {
     const result = runSandboxDiagnostics();
-    const runCheck = result.checks.find((c) => c.label === 'Docker container execution');
-    expect(runCheck).toBeDefined();
-    expect(runCheck!.ok).toBe(true);
+    const mountCheck = result.checks.find((c) => c.label === 'Docker mount writable');
+    expect(mountCheck).toBeDefined();
+    expect(mountCheck!.ok).toBe(true);
   });
 
-  test('uses configured image and sandbox mount for container probe', () => {
+  test('uses configured image and sandbox working dir for mount probe', () => {
     mockSandboxConfig.docker.image = 'alpine:3.19';
     runSandboxDiagnostics();
     const runCall = execFileSyncMock.mock.calls.find(
@@ -328,40 +328,29 @@ describe('runSandboxDiagnostics — Docker container execution check', () => {
     expect(runCall).toBeDefined();
     const args = runCall![1] as string[];
     expect(args).toContain('alpine:3.19');
-    expect(args).not.toContain('ubuntu:22.04');
+    // Mount source should be the sandbox working dir (getSandboxWorkingDir)
     const mountArg = args.find((a: string) => a.startsWith('type=bind'));
-    expect(mountArg).toContain('/tmp/vellum-test/sandbox');
+    expect(mountArg).toContain('/tmp/vellum-test/sandbox/workspace');
+    // Probe command should be 'test -w /workspace' matching runtime preflight
+    expect(args).toContain('test');
+    expect(args).toContain('-w');
+    expect(args).toContain('/workspace');
   });
 
-  test('fails when container execution errors', () => {
+  test('fails when mount probe errors', () => {
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
         if (file === 'docker' && Array.isArray(args) && args.includes('run')) {
-          throw new Error('container failed');
+          throw new Error('mount failed');
         }
-        return 'ok\n';
+        return undefined;
       },
     );
     const result = runSandboxDiagnostics();
-    const runCheck = result.checks.find((c) => c.label === 'Docker container execution');
-    expect(runCheck).toBeDefined();
-    expect(runCheck!.ok).toBe(false);
-  });
-
-  test('fails when container output is unexpected', () => {
-    execFileSyncMock.mockImplementation(
-      (file: string, args?: readonly string[]) => {
-        if (file === 'docker' && Array.isArray(args) && args.includes('run')) {
-          return 'unexpected\n';
-        }
-        return 'ok\n';
-      },
-    );
-    const result = runSandboxDiagnostics();
-    const runCheck = result.checks.find((c) => c.label === 'Docker container execution');
-    expect(runCheck).toBeDefined();
-    expect(runCheck!.ok).toBe(false);
-    expect(runCheck!.detail).toContain('unexpected');
+    const mountCheck = result.checks.find((c) => c.label === 'Docker mount writable');
+    expect(mountCheck).toBeDefined();
+    expect(mountCheck!.ok).toBe(false);
+    expect(mountCheck!.detail).toContain('File Sharing');
   });
 
   test('skipped when daemon is not running', () => {
@@ -372,8 +361,8 @@ describe('runSandboxDiagnostics — Docker container execution check', () => {
       return 'Docker version 24.0.7';
     });
     const result = runSandboxDiagnostics();
-    const runCheck = result.checks.find((c) => c.label === 'Docker container execution');
-    expect(runCheck).toBeUndefined();
+    const mountCheck = result.checks.find((c) => c.label === 'Docker mount writable');
+    expect(mountCheck).toBeUndefined();
   });
 });
 
@@ -390,7 +379,7 @@ describe('runSandboxDiagnostics — check cascade', () => {
     expect(labels).toContain('Docker CLI installed');
     expect(labels).not.toContain('Docker daemon running');
     expect(labels.find((l) => l.includes('Docker image'))).toBeUndefined();
-    expect(labels).not.toContain('Docker container execution');
+    expect(labels).not.toContain('Docker mount writable');
   });
 
   test('image and run checks are skipped when daemon is down', () => {
@@ -405,7 +394,7 @@ describe('runSandboxDiagnostics — check cascade', () => {
     expect(labels).toContain('Docker CLI installed');
     expect(labels).toContain('Docker daemon running');
     expect(labels.find((l) => l.includes('Docker image'))).toBeUndefined();
-    expect(labels).not.toContain('Docker container execution');
+    expect(labels).not.toContain('Docker mount writable');
   });
 
   test('all Docker checks run when everything works', () => {
@@ -414,6 +403,6 @@ describe('runSandboxDiagnostics — check cascade', () => {
     expect(labels).toContain('Docker CLI installed');
     expect(labels).toContain('Docker daemon running');
     expect(labels.find((l) => l.includes('Docker image'))).toBeDefined();
-    expect(labels).toContain('Docker container execution');
+    expect(labels).toContain('Docker mount writable');
   });
 });

@@ -1,5 +1,5 @@
 import { execSync, execFileSync } from 'node:child_process';
-import { isMacOS, isLinux, getSandboxRootDir } from '../../util/platform.js';
+import { isMacOS, isLinux, getSandboxWorkingDir } from '../../util/platform.js';
 import { getConfig } from '../../config/loader.js';
 import type { SandboxConfig } from '../../config/schema.js';
 
@@ -47,25 +47,31 @@ function checkDockerImage(image: string): SandboxCheckResult {
   }
 }
 
-function checkDockerRun(image: string): SandboxCheckResult {
-  const sandboxRoot = getSandboxRootDir();
+function checkDockerMountProbe(image: string): SandboxCheckResult {
+  // Use the same sandbox path and writable-mount probe that the runtime
+  // preflight uses (checkMountProbe in docker.ts) so doctor validates
+  // exactly what runtime enforces.
+  const sandboxRoot = getSandboxWorkingDir();
   try {
-    const out = execFileSync(
+    execFileSync(
       'docker',
       [
         'run', '--rm',
         '--mount', `type=bind,src=${sandboxRoot},dst=/workspace`,
-        image, 'echo', 'ok',
+        image, 'test', '-w', '/workspace',
       ],
-      { stdio: 'pipe', timeout: 15000, encoding: 'utf-8' },
-    ).trim();
-    if (out === 'ok') {
-      return { label: 'Docker container execution', ok: true };
-    }
-    return { label: 'Docker container execution', ok: false, detail: `unexpected output: ${out}` };
+      { stdio: 'pipe', timeout: 15000 },
+    );
+    return { label: 'Docker mount writable', ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error';
-    return { label: 'Docker container execution', ok: false, detail: msg };
+    return {
+      label: 'Docker mount writable',
+      ok: false,
+      detail: 'Cannot bind-mount sandbox root or /workspace is not writable. ' +
+        'If using Docker Desktop, enable file sharing for this path in Settings > Resources > File Sharing. ' +
+        `(${msg})`,
+    };
   }
 }
 
@@ -122,7 +128,7 @@ export function runSandboxDiagnostics(): SandboxDiagnostics {
 
     if (daemonResult.ok) {
       checks.push(checkDockerImage(sandboxConfig.docker.image));
-      checks.push(checkDockerRun(sandboxConfig.docker.image));
+      checks.push(checkDockerMountProbe(sandboxConfig.docker.image));
     }
   }
 
