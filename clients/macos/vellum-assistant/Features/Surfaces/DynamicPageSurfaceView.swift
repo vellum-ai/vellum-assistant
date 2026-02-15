@@ -107,6 +107,24 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             window.vellum = {
                 sendAction: function(actionId, data) {
                     window.webkit.messageHandlers.vellumBridge.postMessage({actionId: actionId, data: data});
+                },
+                openExternal: function(url) {
+                    window.webkit.messageHandlers.vellumBridge.postMessage({type: 'open_external', url: String(url)});
+                },
+                _confirmPending: {},
+                _confirmNextId: 1,
+                confirm: function(title, message) {
+                    return new Promise(function(resolve) {
+                        var confirmId = 'confirm_' + (window.vellum._confirmNextId++);
+                        window.vellum._confirmPending[confirmId] = resolve;
+                        window.webkit.messageHandlers.vellumBridge.postMessage({
+                            type: 'confirm', confirmId: confirmId, title: String(title || ''), message: String(message || '')
+                        });
+                    });
+                },
+                _resolveConfirm: function(confirmId, result) {
+                    var p = window.vellum._confirmPending[confirmId];
+                    if (p) { delete window.vellum._confirmPending[confirmId]; p(result); }
                 }
             };
             """
@@ -316,6 +334,47 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.error("data_request received but onDataRequest callback is nil — appId was likely not set")
                 }
                 onDataRequest?(callId, method, recordId, data)
+                return
+            }
+
+            // Handle openExternal requests from the JS bridge.
+            if let type = body["type"] as? String, type == "open_external" {
+                guard let urlString = body["url"] as? String,
+                      let url = URL(string: urlString),
+                      let scheme = url.scheme?.lowercased(),
+                      ["http", "https", "mailto"].contains(scheme) else {
+                    log.warning("open_external: blocked invalid or disallowed URL: \(body["url"] as? String ?? "nil", privacy: .public)")
+                    return
+                }
+                NSWorkspace.shared.open(url)
+                return
+            }
+
+            // Handle confirm dialog requests from the JS bridge.
+            if let type = body["type"] as? String, type == "confirm" {
+                guard let confirmId = body["confirmId"] as? String else {
+                    log.error("confirm: missing confirmId")
+                    return
+                }
+                let title = body["title"] as? String ?? ""
+                let msg = body["message"] as? String ?? ""
+                let alert = NSAlert()
+                alert.messageText = title
+                alert.informativeText = msg
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                let confirmed = response == .alertFirstButtonReturn
+                let safeId = confirmId
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                let js = "window.vellum._resolveConfirm('\(safeId)', \(confirmed))"
+                webView?.evaluateJavaScript(js) { _, error in
+                    if let error {
+                        log.error("confirm: JS eval error: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
                 return
             }
 
