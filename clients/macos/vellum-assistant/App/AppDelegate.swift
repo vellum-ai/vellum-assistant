@@ -178,6 +178,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshSkillsCache()
         }
 
+        // Open URL: daemon -> Swift -> interstitial -> browser
+        daemonClient.onOpenUrl = { msg in
+            guard let url = URL(string: msg.url) else { return }
+            let alert = NSAlert()
+            alert.messageText = "Open External Link?"
+            alert.informativeText = msg.url
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Open in Browser")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(url)
+            }
+        }
+
         // Handle escalation: text_qa -> computer_use via request_computer_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }
@@ -283,6 +297,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Data response: daemon -> Swift -> JS
         daemonClient.onAppDataResponse = { [weak self] msg in
             self?.surfaceManager.resolveDataResponse(surfaceId: msg.surfaceId, response: msg)
+        }
+
+        // Link open: JS -> Swift -> daemon
+        surfaceManager.onLinkOpen = { [weak self] url, metadata in
+            let codableMetadata = metadata?.mapValues { AnyCodable($0) }
+            try? self?.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
         }
 
         // Route dynamic pages to workspace
