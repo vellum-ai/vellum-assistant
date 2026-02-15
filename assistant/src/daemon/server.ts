@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getRootDir, getWorkspaceDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -303,7 +303,7 @@ export class DaemonServer {
   }
 
   private startSkillsWatchers(evictSessions: () => void): void {
-    const skillsDir = join(getRootDir(), 'skills');
+    const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {

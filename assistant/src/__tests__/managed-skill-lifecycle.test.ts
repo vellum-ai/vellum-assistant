@@ -25,6 +25,7 @@ const mockConfig = {
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => TEST_DIR,
+  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
