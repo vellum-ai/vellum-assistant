@@ -217,4 +217,32 @@ describe('profile-compiler', () => {
     expect(estimateTextTokens(limited.text)).toBeLessThanOrEqual(tightBudget);
     expect(limited.selectedCount).toBeLessThan(full.selectedCount);
   });
+
+  test('uses lower-ranked fallback for same subject when top candidate exceeds budget', () => {
+    profileEnabled = true;
+
+    insertItem({
+      id: 'profile-long-primary',
+      kind: 'profile',
+      subject: 'deployment policy',
+      statement: 'Prefer geographically isolated blue-green rollout windows with mandatory canary burn-in and staged health-check gates before each region is promoted.',
+      verificationState: 'user_confirmed',
+      importance: 0.95,
+    });
+    insertItem({
+      id: 'profile-short-fallback',
+      kind: 'profile',
+      subject: 'deployment policy',
+      statement: 'Deploy only on weekdays.',
+      verificationState: 'user_confirmed',
+      importance: 0.7,
+    });
+
+    const budget = estimateTextTokens('[Dynamic User Profile]\n- deployment policy: Deploy only on weekdays.') + 2;
+    const compiled = compileDynamicProfile({ maxInjectTokensOverride: budget });
+
+    expect(compiled.tokenEstimate).toBeLessThanOrEqual(budget);
+    expect(compiled.text).toContain('deployment policy: Deploy only on weekdays.');
+    expect(compiled.text).not.toContain('geographically isolated blue-green rollout');
+  });
 });

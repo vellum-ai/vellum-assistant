@@ -79,11 +79,11 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
     if (!subject || !statement) continue;
     const dedupeKey = `${candidate.kind}|${subject.toLowerCase()}`;
     if (seenKeys.has(dedupeKey)) continue;
-    seenKeys.add(dedupeKey);
 
     const line = `- ${subject}: ${statement}`;
     const tentative = renderProfileText([...selectedLines, line]);
     if (estimateTextTokens(tentative) > budgetTokens) continue;
+    seenKeys.add(dedupeKey);
     selectedLines.push(line);
   }
 
