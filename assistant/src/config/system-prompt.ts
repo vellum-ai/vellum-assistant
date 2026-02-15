@@ -90,6 +90,8 @@ function buildDynamicUiSection(): string {
     '### When to use',
     'Use `ui_show` with `surface_type: "dynamic_page"` when the response involves structured data, visual metrics, comparisons, multi-item results, charts, weather, flights, financial data, dashboards, or anything better presented visually than as plain text. Do NOT use for simple text answers, short factual replies, or casual conversation.',
     '',
+    '**Important:** `ui_show` only works in interactive UI sessions (e.g. the macOS desktop app). Non-UI channels such as HTTP API, Telegram, and gateway integrations cannot render dynamic pages or cards. When responding through a non-UI channel, present data as well-formatted text instead of calling `ui_show`.',
+    '',
     '### How it works',
     'Write a self-contained HTML string (no external resources). The CSS design system (`vellum-design-system.css`) and JS widget library (`vellum-widgets.js`) are auto-injected. Call `ui_show` with `surface_type: "dynamic_page"` and `data: { html: "<your html>", preview: { ... } }`.',
     '',
