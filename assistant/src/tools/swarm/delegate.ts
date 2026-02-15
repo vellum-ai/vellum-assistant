@@ -12,8 +12,8 @@ import { getProfilePolicy } from '../../swarm/worker-backend.js';
 
 const log = getLogger('swarm-delegate');
 
-/** Tracks whether a swarm is currently executing in this process. */
-let swarmActive = false;
+/** Tracks active swarm sessions to prevent nested invocation per-session. */
+const activeSessions = new Set<string>();
 
 /**
  * Claude Code worker backend adapter that enforces profile-based tool policies.
@@ -137,15 +137,16 @@ export const swarmDelegateTool: Tool = {
       return { content: 'Cancelled', isError: true };
     }
 
-    // Recursion guard
-    if (swarmActive) {
+    // Recursion guard — scoped to session so independent sessions are not blocked
+    const sessionKey = context.sessionId;
+    if (activeSessions.has(sessionKey)) {
       return {
         content: 'Error: A swarm is already executing in this session. Nested swarm invocation is not allowed.',
         isError: true,
       };
     }
 
-    swarmActive = true;
+    activeSessions.add(sessionKey);
     try {
       const limits = resolveSwarmLimits({
         maxWorkers: maxWorkersOverride ?? config.swarm.maxWorkers,
@@ -244,12 +245,12 @@ export const swarmDelegateTool: Tool = {
         isError: true,
       };
     } finally {
-      swarmActive = false;
+      activeSessions.delete(sessionKey);
     }
   },
 };
 
-/** Reset the active flag — only for testing. */
+/** Clear all active sessions — only for testing. */
 export function _resetSwarmActive(): void {
-  swarmActive = false;
+  activeSessions.clear();
 }
