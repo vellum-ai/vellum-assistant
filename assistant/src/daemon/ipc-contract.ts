@@ -1113,6 +1113,13 @@ export interface TimerCompleted {
   durationMinutes: number;
 }
 
+export interface ReminderFired {
+  type: 'reminder_fired';
+  reminderId: string;
+  label: string;
+  message: string;
+}
+
 export interface WatchStarted {
   type: 'watch_started';
   sessionId: string;
@@ -1270,6 +1277,7 @@ export type ServerMessage =
   | MessageQueued
   | MessageDequeued
   | TimerCompleted
+  | ReminderFired
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse

@@ -596,6 +596,13 @@ public struct IPCRegenerateRequest: Codable, Sendable {
     public let sessionId: String
 }
 
+public struct IPCReminderFired: Codable, Sendable {
+    public let type: String
+    public let reminderId: String
+    public let label: String
+    public let message: String
+}
+
 public struct IPCRemoveTrustRule: Codable, Sendable {
     public let type: String
     public let id: String

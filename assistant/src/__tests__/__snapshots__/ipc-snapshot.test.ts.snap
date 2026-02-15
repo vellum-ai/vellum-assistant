@@ -1302,3 +1302,12 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
   "webhookUrl": "https://hooks.slack.com/services/T00/B00/xxx",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
+{
+  "label": "Call Sidd",
+  "message": "Remember to call Sidd about the project",
+  "reminderId": "rem-001",
+  "type": "reminder_fired",
+}
+`;

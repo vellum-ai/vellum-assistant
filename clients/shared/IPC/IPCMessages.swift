@@ -1057,6 +1057,10 @@ public struct SessionErrorMessage: Decodable, Sendable {
 /// Backed by generated `IPCTimerCompleted`.
 public typealias TimerCompletedMessage = IPCTimerCompleted
 
+/// Reminder fired notification from daemon.
+/// Backed by generated `IPCReminderFired`.
+public typealias ReminderFiredMessage = IPCReminderFired
+
 /// Watch session started notification from daemon.
 /// Backed by generated `IPCWatchStarted`.
 public typealias WatchStartedMessage = IPCWatchStarted
@@ -1281,6 +1285,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case timerCompleted(TimerCompletedMessage)
+    case reminderFired(ReminderFiredMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -1415,6 +1420,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "timer_completed":
             let message = try TimerCompletedMessage(from: decoder)
             self = .timerCompleted(message)
+        case "reminder_fired":
+            let message = try ReminderFiredMessage(from: decoder)
+            self = .reminderFired(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)
