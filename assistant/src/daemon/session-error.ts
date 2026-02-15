@@ -1,4 +1,5 @@
 import type { SessionErrorCode, SessionErrorMessage } from './ipc-protocol.js';
+import { ProviderError } from '../util/errors.js';
 
 /**
  * Classified session error ready for IPC emission.
@@ -70,17 +71,34 @@ export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   return false;
 }
 
+/** Maximum length for debugDetails to prevent unbounded IPC payloads. */
+const MAX_DEBUG_DETAIL_LENGTH = 4000;
+
+/**
+ * Truncate debug details to a reasonable size for IPC transport.
+ */
+function truncateDebugDetails(details: string): string {
+  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
+  return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + '\n… (truncated)';
+}
+
 /**
  * Classify an unknown error into a structured session error.
  * Does NOT handle user-initiated cancellation — callers should check
  * `isUserCancellation` first and emit `generation_cancelled` instead.
+ *
+ * Classification priority:
+ * 1. Phase-specific overrides (queue, regenerate)
+ * 2. ProviderError.statusCode (deterministic for provider failures)
+ * 3. Regex fallback for network/cancel/unknown errors
  */
 export function classifySessionError(
   error: unknown,
   ctx: ErrorContext,
 ): ClassifiedSessionError {
   const message = error instanceof Error ? error.message : String(error);
-  const stack = error instanceof Error ? error.stack : undefined;
+  const rawDetails = (error instanceof Error ? error.stack : undefined) ?? message;
+  const debugDetails = truncateDebugDetails(rawDetails);
 
   // Phase-specific overrides
   if (ctx.phase === 'queue') {
@@ -88,26 +106,64 @@ export function classifySessionError(
       code: 'QUEUE_FULL',
       userMessage: 'The message queue is full. Please wait and try again.',
       retryable: true,
-      debugDetails: message,
+      debugDetails: truncateDebugDetails(message),
     };
   }
 
   if (ctx.phase === 'regenerate') {
-    const base = classifyByMessage(message);
+    const base = classifyCore(error, message);
     return {
       code: 'REGENERATE_FAILED',
       userMessage: `Failed to regenerate response. ${base.userMessage}`,
       retryable: true,
-      debugDetails: stack ?? message,
+      debugDetails,
     };
   }
 
-  // Classify by error message content
-  const classified = classifyByMessage(message);
+  // Classify using statusCode (if ProviderError) then regex fallback
+  const classified = classifyCore(error, message);
   return {
     ...classified,
-    debugDetails: stack ?? message,
+    debugDetails,
   };
+}
+
+/**
+ * Core classification: check ProviderError.statusCode first for
+ * deterministic classification, then fall back to regex patterns.
+ */
+function classifyCore(
+  error: unknown,
+  message: string,
+): Omit<ClassifiedSessionError, 'debugDetails'> {
+  // ProviderError with statusCode — deterministic classification
+  if (error instanceof ProviderError && error.statusCode !== undefined) {
+    if (error.statusCode === 429) {
+      return {
+        code: 'PROVIDER_RATE_LIMIT',
+        userMessage: 'The AI provider is rate limiting requests. Please wait a moment and try again.',
+        retryable: true,
+      };
+    }
+    if (error.statusCode >= 500) {
+      return {
+        code: 'PROVIDER_API',
+        userMessage: 'The AI provider returned an error. This is usually temporary — try again shortly.',
+        retryable: true,
+      };
+    }
+    // 4xx (non-429) — client-side issue, not retryable
+    if (error.statusCode >= 400) {
+      return {
+        code: 'PROVIDER_API',
+        userMessage: 'The AI provider rejected the request. Please try again or check your settings.',
+        retryable: false,
+      };
+    }
+  }
+
+  // Regex fallback for non-ProviderError or ProviderError without statusCode
+  return classifyByMessage(message);
 }
 
 function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debugDetails'> {
