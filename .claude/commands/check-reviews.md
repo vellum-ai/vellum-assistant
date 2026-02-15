@@ -8,6 +8,8 @@ Check each PR to see if **both** chatgpt-codex-connector and devin-ai-integratio
 
 ## How to fetch PR data
 
+Before fetching any PR data, run `date -u +%s` to get the current UTC epoch time. You will need this to accurately compute PR ages for the output table — do not guess the current time.
+
 For each PR, run these commands in parallel:
 
 1. **Reviews, comments, and creation time:** `gh pr view <number> --json comments,reviews,createdAt`
