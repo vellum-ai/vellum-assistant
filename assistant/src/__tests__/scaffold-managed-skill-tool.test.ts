@@ -107,6 +107,28 @@ describe('scaffold_managed_skill tool', () => {
     }
   });
 
+  test('sanitizes embedded newlines in name/description/emoji to prevent frontmatter injection', async () => {
+    const result = await tool.execute({
+      skill_id: 'inject-test',
+      name: 'Test\ninjected_field: "evil"',
+      description: 'Desc\rwith\r\ncarriage returns',
+      body_markdown: 'Body content.',
+      emoji: '🔥\nextra: true',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'inject-test', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+
+    // Newlines must not appear inside frontmatter values
+    const frontmatter = content.split('---')[1];
+    const fmLines = frontmatter.split('\n').filter(l => l.trim());
+    // Each frontmatter line must start with a known key -- no injected keys
+    for (const line of fmLines) {
+      expect(line).toMatch(/^(name|description|emoji|user-invocable|disable-model-invocation):\s/);
+    }
+  });
+
   test('rejects invalid skill_id', async () => {
     const result = await tool.execute({
       skill_id: '../escape',
