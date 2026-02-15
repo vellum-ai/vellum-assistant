@@ -260,7 +260,7 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: VSpacing.lg) {
+                LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index) {
                             TimestampDivider(date: message.timestamp)
