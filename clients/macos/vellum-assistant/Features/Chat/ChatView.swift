@@ -530,6 +530,7 @@ struct ChatView: View {
     }
 
     private var composerTextField: some View {
+        ScrollViewReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
             ZStack(alignment: .leading) {
                 TextField(
@@ -574,8 +575,18 @@ struct ChatView: View {
                 }
             }
             .frame(minHeight: 28, maxHeight: .infinity, alignment: .center)
+
+            // Invisible anchor for auto-scroll
+            Color.clear
+                .frame(height: 1)
+                .id("composer-bottom")
         }
         .scrollBounceBehavior(.basedOnSize)
+        .onChange(of: inputText) {
+            if editorContentHeight > 200 {
+                proxy.scrollTo("composer-bottom", anchor: .bottom)
+            }
+        }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
                 onAcceptSuggestion()
@@ -600,6 +611,7 @@ struct ChatView: View {
             }
             return .ignored
         }
+        } // ScrollViewReader
     }
 
     @ViewBuilder
