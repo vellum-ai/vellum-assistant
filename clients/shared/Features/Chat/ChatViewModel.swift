@@ -111,6 +111,14 @@ public final class ChatViewModel: ObservableObject {
     /// Used by `messageComplete` to correctly suppress refinement side-effects
     /// even though `isWorkspaceRefinementInFlight` is cleared immediately for UI.
     private var cancelledDuringRefinement: Bool = false
+    /// Text buffered during a workspace refinement (normally suppressed from chat).
+    /// Surfaced to the user if the refinement completes without a surface update.
+    private var refinementTextBuffer: String = ""
+    private var refinementReceivedSurfaceUpdate: Bool = false
+    /// When non-nil, displays a toast in the workspace with the AI's response
+    /// after a refinement that produced no surface update.
+    @Published public var refinementFailureText: String?
+    private var refinementFailureDismissTask: Task<Void, Never>?
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
 
@@ -449,6 +457,10 @@ public final class ChatViewModel: ObservableObject {
             }
         } else {
             isWorkspaceRefinementInFlight = true
+            refinementTextBuffer = ""
+            refinementReceivedSurfaceUpdate = false
+            refinementFailureText = nil
+            refinementFailureDismissTask?.cancel()
         }
         pendingSkillInvocation = nil
         inputText = ""
@@ -682,7 +694,10 @@ public final class ChatViewModel: ObservableObject {
         case .assistantTextDelta(let delta):
             guard belongsToSession(delta.sessionId) else { return }
             guard !isCancelling else { return }
-            guard !isWorkspaceRefinementInFlight else { return }
+            if isWorkspaceRefinementInFlight {
+                refinementTextBuffer += delta.text
+                return
+            }
             isThinking = false
             currentAssistantHasText = true
             if let existingId = currentAssistantMessageId,
@@ -714,6 +729,23 @@ public final class ChatViewModel: ObservableObject {
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
                 isSending = false
+            }
+            // Surface the AI's text response when a refinement produced no update
+            if wasRefinement {
+                if !refinementReceivedSurfaceUpdate && !refinementTextBuffer.isEmpty {
+                    let text = refinementTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        refinementFailureText = text
+                        refinementFailureDismissTask?.cancel()
+                        refinementFailureDismissTask = Task { [weak self] in
+                            try? await Task.sleep(nanoseconds: 8_000_000_000)
+                            guard let self, !Task.isCancelled else { return }
+                            self.refinementFailureText = nil
+                        }
+                    }
+                }
+                refinementTextBuffer = ""
+                refinementReceivedSurfaceUpdate = false
             }
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             if !wasRefinement {
@@ -1002,6 +1034,9 @@ public final class ChatViewModel: ObservableObject {
 
         case .uiSurfaceUpdate(let msg):
             guard belongsToSession(msg.sessionId) else { return }
+            if isWorkspaceRefinementInFlight {
+                refinementReceivedSurfaceUpdate = true
+            }
             // Find the inline surface across all messages and update its data
             for msgIndex in messages.indices {
                 if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
