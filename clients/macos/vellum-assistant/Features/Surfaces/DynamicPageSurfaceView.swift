@@ -128,11 +128,32 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             forMainFrameOnly: true
         )
 
+        // Inject CSS custom properties for light/dark theme support at document start.
+        let themeScript = WKUserScript(
+            source: """
+                (function() {
+                    var style = document.createElement('style');
+                    style.textContent = ':root { --bg: #ffffff; --bg-subtle: #f8f9fa; --text: #1a1a2e; --text-secondary: #6b7280; --border: #e5e7eb; --accent: #6366f1; --accent-text: #ffffff; --success: #10b981; --warning: #f59e0b; --error: #ef4444; } @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --bg-subtle: #1e293b; --text: #f1f5f9; --text-secondary: #94a3b8; --border: #334155; --accent: #818cf8; --accent-text: #ffffff; --success: #34d399; --warning: #fbbf24; --error: #f87171; } }';
+                    (document.head || document.documentElement).appendChild(style);
+
+                    window.vellum.theme = {
+                        mode: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+                    };
+                    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                        window.vellum.theme.mode = e.matches ? 'dark' : 'light';
+                        window.dispatchEvent(new CustomEvent('vellum-theme-change', { detail: window.vellum.theme }));
+                    });
+                })();
+                """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+
         let centeringScript = WKUserScript(
             source: """
                 (function() {
                     var style = document.createElement('style');
-                    style.textContent = 'body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; }';
+                    style.textContent = 'body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; background: var(--bg, #ffffff); color: var(--text, #1a1a2e); }';
                     (document.head || document.documentElement).appendChild(style);
                 })();
                 """,
@@ -142,6 +163,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         let contentController = WKUserContentController()
         contentController.addUserScript(userScript)
+        contentController.addUserScript(themeScript)
         contentController.addUserScript(centeringScript)
         contentController.add(context.coordinator, name: "vellumBridge")
 

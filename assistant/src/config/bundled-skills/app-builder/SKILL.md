@@ -88,6 +88,70 @@ Use CSS variables for theming:
 
 Use system fonts: `font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;`
 
+#### Dark Mode
+
+The WebView automatically injects CSS custom properties with light and dark variants. Always define both light and dark mode styles using these CSS custom properties rather than hardcoding colors. The following tokens are available on `:root`:
+
+| Variable | Light | Dark |
+|---|---|---|
+| `--bg` | `#ffffff` | `#0f172a` |
+| `--bg-subtle` | `#f8f9fa` | `#1e293b` |
+| `--text` | `#1a1a2e` | `#f1f5f9` |
+| `--text-secondary` | `#6b7280` | `#94a3b8` |
+| `--border` | `#e5e7eb` | `#334155` |
+| `--accent` | `#6366f1` | `#818cf8` |
+| `--accent-text` | `#ffffff` | `#ffffff` |
+| `--success` | `#10b981` | `#34d399` |
+| `--warning` | `#f59e0b` | `#fbbf24` |
+| `--error` | `#ef4444` | `#f87171` |
+
+Use these variables throughout your CSS instead of raw color values:
+```css
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.card .subtitle {
+  color: var(--text-secondary);
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+```
+
+If you need additional custom colors that adapt to dark mode, use `@media (prefers-color-scheme: dark)`:
+```css
+:root {
+  --my-custom-color: #e0e7ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --my-custom-color: #312e81;
+  }
+}
+```
+
+A `window.vellum.theme` object is available with a `mode` property (`'light'` or `'dark'`). Listen for theme changes in JavaScript:
+```javascript
+// Read current theme
+console.log(window.vellum.theme.mode); // 'light' or 'dark'
+
+// React to theme changes
+window.addEventListener('vellum-theme-change', (e) => {
+  console.log('Theme changed to:', e.detail.mode);
+  // Update canvas colors, chart themes, etc.
+});
+```
+
 #### Advanced techniques you should use
 
 You have the full power of modern web APIs. Use them to build genuinely impressive apps:
