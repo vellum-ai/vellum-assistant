@@ -54,7 +54,7 @@ bun run src/index.ts daemon start
 
 ## Sandbox and Host Access Model
 
-- Default tool workspace: `~/.vellum/data/sandbox/fs` (persistent global sandbox filesystem).
+- Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
 - Host/computer-use prompts: `host_*`, `request_computer_control`, and `cu_*` default to `ask` unless allowlisted/denylisted in trust rules.
@@ -139,7 +139,7 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 | `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
 | `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
 | `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
-| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/data/sandbox/fs` path (or your custom `dataDir` path) |
+| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
 | `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
@@ -148,7 +148,7 @@ Run `vellum doctor` for a full diagnostic check including sandbox backend status
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/data/credentials/metadata.json`.
+- **Storage**: Secret values are stored in the macOS Keychain via `secure-keys.ts`. Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/workspace/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Ingress blocking**: Inbound user messages are scanned for secrets (regex + entropy). If `secretDetection.action` is `block` (the default), messages containing secrets are rejected with a notice to use the secure prompt instead.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
@@ -164,7 +164,7 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 ### Workflow
 
 1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/skills/<id>/`.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
 4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
 
@@ -173,7 +173,7 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 | Tool | Risk Level | Description |
 |------|-----------|-------------|
 | `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/skills/<id>/`. Creates `SKILL.md` with frontmatter and updates `SKILLS.md` index. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter and updates `SKILLS.md` index. |
 | `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
 
 All three tools require explicit user approval before execution (Risk Level = High).
@@ -252,7 +252,7 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 
 ### Blob Transport Behavior
 
-When the macOS client connects to a local daemon, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and daemon share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
+When the macOS client connects to a local daemon, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and daemon share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
 
 Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't overlap), so the client falls back to inline base64/text payloads transparently. On iOS (TCP connections), the probe is skipped entirely and inline payloads are always used. No configuration is needed.
 
