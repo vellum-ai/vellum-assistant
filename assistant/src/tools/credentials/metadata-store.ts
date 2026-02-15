@@ -6,7 +6,7 @@
  * in the secure key backend only.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { getDataDir } from '../../util/platform.js';
 import { randomUUID } from 'node:crypto';
@@ -34,18 +34,40 @@ function getMetadataPath(): string {
   return join(getDataDir(), 'credentials', 'metadata.json');
 }
 
-function loadFile(): MetadataFile {
+/**
+ * Returned when the on-disk file has a version we don't understand.
+ * Callers that mutate state must check for this to avoid overwriting
+ * data written by a newer version of the app.
+ */
+interface UnknownVersionResult {
+  readonly unknownVersion: true;
+}
+
+type LoadResult = MetadataFile | UnknownVersionResult;
+
+function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
+  return 'unknownVersion' in r;
+}
+
+function loadFile(): LoadResult {
   const path = getMetadataPath();
   if (!existsSync(path)) {
     return { version: 1, credentials: [] };
   }
   try {
     const raw = readFileSync(path, 'utf-8');
-    const data = JSON.parse(raw) as MetadataFile;
-    if (data.version !== 1) {
+    const data = JSON.parse(raw);
+    if (typeof data !== 'object' || data === null) {
       return { version: 1, credentials: [] };
     }
-    return data;
+    if (data.version !== 1) {
+      // Newer format we don't understand — refuse to touch it
+      return { unknownVersion: true };
+    }
+    return {
+      version: 1,
+      credentials: Array.isArray(data.credentials) ? data.credentials : [],
+    };
   } catch {
     return { version: 1, credentials: [] };
   }
@@ -57,7 +79,9 @@ function saveFile(data: MetadataFile): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8');
+  const tmpPath = join(dir, `.tmp-${randomUUID()}`);
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+  renameSync(tmpPath, path);
 }
 
 /**
@@ -73,7 +97,11 @@ export function upsertCredentialMetadata(
     usageDescription?: string;
   },
 ): CredentialMetadata {
-  const data = loadFile();
+  const result = loadFile();
+  if (isUnknownVersion(result)) {
+    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+  }
+  const data = result;
   const now = Date.now();
 
   const existing = data.credentials.find(
@@ -112,8 +140,9 @@ export function getCredentialMetadata(
   service: string,
   field: string,
 ): CredentialMetadata | undefined {
-  const data = loadFile();
-  return data.credentials.find(
+  const result = loadFile();
+  if (isUnknownVersion(result)) return undefined;
+  return result.credentials.find(
     (c) => c.service === service && c.field === field,
   );
 }
@@ -124,16 +153,18 @@ export function getCredentialMetadata(
 export function getCredentialMetadataById(
   credentialId: string,
 ): CredentialMetadata | undefined {
-  const data = loadFile();
-  return data.credentials.find((c) => c.credentialId === credentialId);
+  const result = loadFile();
+  if (isUnknownVersion(result)) return undefined;
+  return result.credentials.find((c) => c.credentialId === credentialId);
 }
 
 /**
  * List all credential metadata records.
  */
 export function listCredentialMetadata(): CredentialMetadata[] {
-  const data = loadFile();
-  return data.credentials;
+  const result = loadFile();
+  if (isUnknownVersion(result)) return [];
+  return result.credentials;
 }
 
 /**
@@ -143,7 +174,11 @@ export function deleteCredentialMetadata(
   service: string,
   field: string,
 ): boolean {
-  const data = loadFile();
+  const result = loadFile();
+  if (isUnknownVersion(result)) {
+    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+  }
+  const data = result;
   const idx = data.credentials.findIndex(
     (c) => c.service === service && c.field === field,
   );
