@@ -56,6 +56,7 @@ struct ChatView: View {
 
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
         ZStack {
@@ -285,7 +286,8 @@ struct ChatView: View {
                     }
                 }
                 .padding(.horizontal, VSpacing.xl)
-                .padding(.vertical, VSpacing.md)
+                .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
+                .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
             }

@@ -49,8 +49,9 @@ final class ThreadManager: ObservableObject {
     }
 
     func closeThread(id: UUID) {
-        // No-op if only 1 thread remains
-        guard threads.count > 1 else { return }
+        // No-op if only 1 visible thread remains
+        let visibleThreads = threads.filter { !$0.isHidden }
+        guard visibleThreads.count > 1 else { return }
 
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
@@ -58,20 +59,26 @@ final class ThreadManager: ObservableObject {
         // an orphaned request after the view model is removed.
         chatViewModels[id]?.stopGenerating()
 
-        threads.remove(at: index)
-        chatViewModels.removeValue(forKey: id)
+        // Mark as hidden instead of removing
+        threads[index].isHidden = true
 
-        // If the closed thread was active, select an adjacent thread
+        // If the closed thread was active, select an adjacent visible thread
         if activeThreadId == id {
-            // Prefer the thread at the same index (next), otherwise fall back to last
-            if index < threads.count {
-                activeThreadId = threads[index].id
-            } else {
-                activeThreadId = threads.last?.id
-            }
+            let remainingVisible = threads.filter { !$0.isHidden }
+            // Find the next visible thread after the current index, or fall back to last visible
+            let nextVisible = remainingVisible.first(where: { threads.firstIndex(of: $0) ?? 0 > index })
+                ?? remainingVisible.last
+            activeThreadId = nextVisible?.id
         }
 
         log.info("Closed thread \(id)")
+    }
+
+    func showThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        threads[index].isHidden = false
+        activeThreadId = id
+        log.info("Showed thread \(id)")
     }
 
     func selectThread(id: UUID) {

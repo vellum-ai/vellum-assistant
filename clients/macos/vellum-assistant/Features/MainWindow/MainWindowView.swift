@@ -9,6 +9,9 @@ struct MainWindowView: View {
     @State private var activePanel: SidePanelType?
     @State private var isDynamicExpanded = false
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var selectedThreadId: UUID?
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
@@ -24,79 +27,123 @@ struct MainWindowView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // Row 1 — thread tab bar + panel buttons
-                ThreadTabBar(
-                    threads: threadManager.threads,
-                    activeThreadId: threadManager.activeThreadId,
-                    onSelect: { threadManager.selectThread(id: $0) },
-                    onClose: { threadManager.closeThread(id: $0) },
-                    onCreate: { threadManager.createThread() },
-                    activePanel: $activePanel
-                )
+            Group {
+                if useThreadDrawer {
+                    // Drawer mode: NavigationSplitView with toolbar
+                    NavigationSplitView(columnVisibility: $columnVisibility) {
+                        // Sidebar: Thread list with header
+                        List(selection: $selectedThreadId) {
+                            Section {
+                                ForEach(threadManager.threads.filter { !$0.isHidden }) { thread in
+                                    HStack(spacing: VSpacing.sm) {
+                                        Text(thread.title)
+                                            .font(VFont.body)
+                                            .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
+                                        Spacer()
 
-                // Row 2 — chat content with optional side panel
-                if isDynamicExpanded && activePanel == .generated {
-                    GeneratedPanel(
-                        onClose: { activePanel = nil; isDynamicExpanded = false },
-                        isExpanded: $isDynamicExpanded,
-                        daemonClient: daemonClient
-                    )
-                } else {
-                    VSplitView(panelWidth: geometry.size.width / zoomManager.zoomLevel * 0.5, showPanel: activePanel != nil, main: {
-                        if let viewModel = threadManager.activeViewModel {
-                            ChatView(
-                                messages: viewModel.messages,
-                                inputText: Binding(
-                                    get: { viewModel.inputText },
-                                    set: { viewModel.inputText = $0 }
-                                ),
-                                hasAPIKey: hasAPIKey,
-                                isThinking: viewModel.isThinking,
-                                isSending: viewModel.isSending,
-                                errorText: viewModel.errorText,
-                                pendingQueuedCount: viewModel.pendingQueuedCount,
-                                suggestion: viewModel.suggestion,
-                                pendingAttachments: viewModel.pendingAttachments,
-                                isRecording: viewModel.isRecording,
-                                onOpenSettings: {
-                                    // Always provide an immediate, visible fallback.
-                                    activePanel = .settings
-                                    Self.openSettings()
-                                },
-                                onSend: viewModel.sendMessage,
-                                onStop: viewModel.stopGenerating,
-                                onDismissError: viewModel.dismissError,
-                                onAcceptSuggestion: viewModel.acceptSuggestion,
-                                onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                                onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                                onDropImageData: { data, name in
-                                    let filename: String
-                                    if let name {
-                                        let basename = (name as NSString).lastPathComponent
-                                        let base = (basename as NSString).deletingPathExtension
-                                        filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                                    } else {
-                                        filename = "Dropped Image.png"
+                                        Button(action: { threadManager.closeThread(id: thread.id) }) {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundColor(VColor.textMuted)
+                                                .frame(width: 16, height: 16)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Close \(thread.title)")
                                     }
-                                    viewModel.addAttachment(imageData: data, filename: filename)
-                                },
-                                onPaste: { viewModel.addAttachmentFromPasteboard() },
-                                onMicrophoneToggle: onMicrophoneToggle,
-                                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                                onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
-                                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                                onRegenerate: { viewModel.regenerateLastMessage() },
-                                sessionError: viewModel.sessionError,
-                                onRetry: { viewModel.retryAfterSessionError() },
-                                onDismissSessionError: { viewModel.dismissSessionError() }
-                            )
+                                    .tag(thread.id)
+                                }
+                            } header: {
+                                HStack {
+                                    Text("THREADS")
+                                        .font(VFont.sectionTitle)
+                                        .foregroundColor(VColor.textPrimary)
+                                    Spacer()
+                                    VIconButton(label: "New Thread", icon: "plus", iconOnly: true) {
+                                        threadManager.createThread()
+                                    }
+                                }
+                            }
+
+                            // Hidden threads section
+                            if !threadManager.threads.filter({ $0.isHidden }).isEmpty {
+                                Section {
+                                    ForEach(threadManager.threads.filter { $0.isHidden }) { thread in
+                                        HStack(spacing: VSpacing.sm) {
+                                            Image(systemName: "eye.slash")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(VColor.textMuted)
+                                            Text(thread.title)
+                                                .font(VFont.body)
+                                                .foregroundColor(VColor.textMuted)
+                                            Spacer()
+
+                                            Button(action: { threadManager.showThread(id: thread.id) }) {
+                                                Image(systemName: "arrow.uturn.backward")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundColor(VColor.textMuted)
+                                                    .frame(width: 16, height: 16)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityLabel("Restore \(thread.title)")
+                                        }
+                                        .tag(thread.id)
+                                    }
+                                } header: {
+                                    Text("HIDDEN")
+                                        .font(VFont.sectionTitle)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                .collapsible(true)
+                            }
                         }
-                    }, panel: {
-                        panelContent
-                    })
+                        .listStyle(.sidebar)
+                        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+                    } detail: {
+                        // Detail: Main content
+                        chatContentView(geometry: geometry)
+                            .toolbar {
+                                ToolbarItemGroup {
+                                    HStack(spacing: VSpacing.sm) {
+                                        VIconButton(label: "Dynamic", icon: "wand.and.stars", isActive: activePanel == .generated, iconOnly: true) {
+                                            togglePanel(.generated)
+                                        }
+                                        VIconButton(label: "Skills", icon: "exclamationmark.triangle", isActive: activePanel == .agent, iconOnly: true) {
+                                            togglePanel(.agent)
+                                        }
+                                        VIconButton(label: "Settings", icon: "gearshape", isActive: activePanel == .settings, iconOnly: true) {
+                                            togglePanel(.settings)
+                                        }
+                                        VIconButton(label: "Directory", icon: "doc.text", isActive: activePanel == .directory, iconOnly: true) {
+                                            togglePanel(.directory)
+                                        }
+                                        VIconButton(label: "Debug", icon: "ant", isActive: activePanel == .debug, iconOnly: true) {
+                                            togglePanel(.debug)
+                                        }
+                                        VIconButton(label: "Doctor", icon: "stethoscope", isActive: activePanel == .doctor, iconOnly: true) {
+                                            togglePanel(.doctor)
+                                        }
+                                    }
+                                }
+                            }
+                    }
+                } else {
+                    // Tab mode: Traditional layout
+                    VStack(spacing: 0) {
+                        // Row 1 — thread tab bar
+                        ThreadTabBar(
+                            threads: threadManager.threads.filter { !$0.isHidden },
+                            activeThreadId: threadManager.activeThreadId,
+                            onSelect: { threadManager.selectThread(id: $0) },
+                            onClose: { threadManager.closeThread(id: $0) },
+                            onCreate: { threadManager.createThread() },
+                            activePanel: $activePanel
+                        )
+
+                        // Row 2 — chat content with optional side panel
+                        chatContentView(geometry: geometry)
+                    }
                 }
             }
             .ignoresSafeArea(edges: .top)
@@ -131,6 +178,77 @@ struct MainWindowView: View {
             if newPanel != .generated {
                 isDynamicExpanded = false
             }
+        }
+        .onChange(of: selectedThreadId) { _, newId in
+            if let newId = newId {
+                threadManager.showThread(id: newId)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chatContentView(geometry: GeometryProxy) -> some View {
+        if isDynamicExpanded && activePanel == .generated {
+            GeneratedPanel(
+                onClose: { activePanel = nil; isDynamicExpanded = false },
+                isExpanded: $isDynamicExpanded,
+                daemonClient: daemonClient
+            )
+        } else {
+            VSplitView(panelWidth: geometry.size.width / zoomManager.zoomLevel * 0.5, showPanel: activePanel != nil, main: {
+                if let viewModel = threadManager.activeViewModel {
+                    ChatView(
+                        messages: viewModel.messages,
+                        inputText: Binding(
+                            get: { viewModel.inputText },
+                            set: { viewModel.inputText = $0 }
+                        ),
+                        hasAPIKey: hasAPIKey,
+                        isThinking: viewModel.isThinking,
+                        isSending: viewModel.isSending,
+                        errorText: viewModel.errorText,
+                        pendingQueuedCount: viewModel.pendingQueuedCount,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        isRecording: viewModel.isRecording,
+                        onOpenSettings: {
+                            // Always provide an immediate, visible fallback.
+                            activePanel = .settings
+                            Self.openSettings()
+                        },
+                        onSend: viewModel.sendMessage,
+                        onStop: viewModel.stopGenerating,
+                        onDismissError: viewModel.dismissError,
+                        onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+                        onDropImageData: { data, name in
+                            let filename: String
+                            if let name {
+                                let basename = (name as NSString).lastPathComponent
+                                let base = (basename as NSString).deletingPathExtension
+                                filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                            } else {
+                                filename = "Dropped Image.png"
+                            }
+                            viewModel.addAttachment(imageData: data, filename: filename)
+                        },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                        onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                        onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+                        onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+                        onRegenerate: { viewModel.regenerateLastMessage() },
+                        sessionError: viewModel.sessionError,
+                        onRetry: { viewModel.retryAfterSessionError() },
+                        onDismissSessionError: { viewModel.dismissSessionError() }
+                    )
+                }
+            }, panel: {
+                panelContent
+            })
         }
     }
 
@@ -167,6 +285,14 @@ struct MainWindowView: View {
 
     private func refreshAPIKeyState() {
         hasAPIKey = APIKeyManager.hasAnyKey() || daemonClient.isConnected
+    }
+
+    private func togglePanel(_ panel: SidePanelType) {
+        if activePanel == panel {
+            activePanel = nil
+        } else {
+            activePanel = panel
+        }
     }
 
     @ViewBuilder

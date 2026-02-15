@@ -17,6 +17,7 @@ struct SettingsPanel: View {
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -175,6 +176,28 @@ struct SettingsPanel: View {
                     }
                     .onChange(of: ambientEnabled) { _, newValue in
                         ambientAgent.isEnabled = newValue
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: Slate._900)
+
+                // DISPLAY section
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("DISPLAY")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Show thread list drawer")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("Access chat history from a left-side drawer instead of tabs")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VToggle(isOn: $useThreadDrawer)
                     }
                 }
                 .padding(VSpacing.lg)
