@@ -215,6 +215,17 @@ function schemaToSwiftType(
     return `IPC${refName}`;
   }
 
+  // Array type syntax: e.g. "type": ["null", "string"] → String?
+  if (Array.isArray(prop.type)) {
+    const nonNull = prop.type.filter((t: string) => t !== 'null');
+    const hasNull = prop.type.includes('null');
+    if (nonNull.length === 1) {
+      const inner = schemaToSwiftType({ type: nonNull[0] }, parentName, propName, allDefs);
+      return hasNull ? `${inner}?` : inner;
+    }
+    return 'AnyCodable';
+  }
+
   // anyOf — union. Check nullable pattern: [T, {type: "null"}]
   if (prop.anyOf) {
     const nonNull = prop.anyOf.filter((v) => v.type !== 'null');

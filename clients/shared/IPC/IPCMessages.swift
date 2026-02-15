@@ -722,13 +722,13 @@ public typealias ClawhubInspectFile = IPCSkillsInspectResponseDataFile
 /// Backed by generated `IPCSkillsInspectResponseData`.
 public typealias ClawhubInspectData = IPCSkillsInspectResponseData
 
-// The generated `IPCSkillsInspectResponseData` uses `AnyCodable?` for
-// `createdAt`, `updatedAt`, and `skillMdContent`. Provide typed accessors
-// for backward compatibility with call sites that expect concrete types.
+// Backward-compatible typed accessors. The generated struct now uses
+// concrete types (Int?, String?) instead of AnyCodable?, so these are
+// simple pass-throughs for existing call sites.
 extension IPCSkillsInspectResponseData {
-    public var createdAtInt: Int? { createdAt?.value as? Int }
-    public var updatedAtInt: Int? { updatedAt?.value as? Int }
-    public var skillMdContentString: String? { skillMdContent?.value as? String }
+    public var createdAtInt: Int? { createdAt }
+    public var updatedAtInt: Int? { updatedAt }
+    public var skillMdContentString: String? { skillMdContent }
 }
 
 /// Response from inspecting a ClaWHub skill.
@@ -863,12 +863,8 @@ public typealias ToolOutputChunkMessage = IPCToolOutputChunk
 public typealias ToolResultMessage = IPCToolResult
 
 /// Follow-up suggestion response from daemon.
-/// Wire type: `"suggestion_response"`
-public struct SuggestionResponseMessage: Decodable, Sendable {
-    public let requestId: String
-    public let suggestion: String?
-    public let source: String
-}
+/// Backed by generated `IPCSuggestionResponse`.
+public typealias SuggestionResponseMessage = IPCSuggestionResponse
 
 /// Secret input request from daemon.
 /// Backed by generated `IPCSecretRequest`.

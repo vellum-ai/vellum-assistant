@@ -636,11 +636,11 @@ public struct IPCSkillsInspectResponseData: Codable, Sendable {
     public let skill: IPCSkillsInspectResponseDataSkill
     public let owner: IPCSkillsInspectResponseDataOwner?
     public let stats: IPCSkillsInspectResponseDataStats?
-    public let createdAt: AnyCodable?
-    public let updatedAt: AnyCodable?
+    public let createdAt: Int?
+    public let updatedAt: Int?
     public let latestVersion: IPCSkillsInspectResponseDataLatestVersion?
     public let files: [IPCSkillsInspectResponseDataFile]?
-    public let skillMdContent: AnyCodable?
+    public let skillMdContent: String?
 }
 
 public struct IPCSkillsInspectResponseDataFile: Codable, Sendable {
@@ -757,7 +757,7 @@ public struct IPCSuggestionRequest: Codable, Sendable {
 public struct IPCSuggestionResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
-    public let suggestion: AnyCodable
+    public let suggestion: String?
     public let source: String
 }
 
