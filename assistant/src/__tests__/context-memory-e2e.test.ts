@@ -90,7 +90,7 @@ function insertSegment(id: string, messageId: string, conversationId: string, ro
     INSERT INTO memory_segments (
       id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at
     ) VALUES (
-      '${id}', '${messageId}', '${conversationId}', '${role}', 0, '${text.replace(/'/g, "''")}', ${Math.max(6, Math.ceil(text.split(/\\s+/).length * 1.3))}, 'default', ${createdAt}, ${createdAt}
+      '${id}', '${messageId}', '${conversationId}', '${role}', 0, '${text.replace(/'/g, "''")}', ${Math.max(6, Math.ceil(text.split(/\s+/).length * 1.3))}, 'default', ${createdAt}, ${createdAt}
     )
   `);
 }
@@ -357,6 +357,7 @@ describe('Context + Memory E2E regression', () => {
 
     const recallConfig = {
       ...DEFAULT_CONFIG,
+      contextWindow: { ...DEFAULT_CONFIG.contextWindow, maxInputTokens: 5200 },
       memory: {
         ...DEFAULT_CONFIG.memory,
         embeddings: {

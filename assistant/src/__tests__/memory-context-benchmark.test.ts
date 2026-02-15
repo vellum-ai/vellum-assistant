@@ -180,6 +180,7 @@ describe('Memory context benchmark', () => {
 
     const recallConfig = {
       ...DEFAULT_CONFIG,
+      contextWindow: { ...DEFAULT_CONFIG.contextWindow, maxInputTokens: 6000 },
       memory: {
         ...DEFAULT_CONFIG.memory,
         embeddings: {
