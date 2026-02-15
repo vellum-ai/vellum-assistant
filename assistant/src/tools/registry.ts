@@ -246,6 +246,11 @@ export async function initializeTools(): Promise<void> {
             type: 'string',
             description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
           },
+          profile: {
+            type: 'string',
+            enum: ['general', 'researcher', 'coder', 'reviewer'],
+            description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
+          },
         },
         required: ['prompt'],
       },
