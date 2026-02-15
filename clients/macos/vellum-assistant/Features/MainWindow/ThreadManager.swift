@@ -27,6 +27,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Called when an inline confirmation response should dismiss the floating panel.
     var confirmationDismissHandler: ((String) -> Void)?
 
+    /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
+    var visibleThreads: [ThreadModel] {
+        threads.filter { !$0.isArchived }
+    }
+
     var activeViewModel: ChatViewModel? {
         guard let activeThreadId else { return nil }
         return chatViewModels[activeThreadId]
@@ -74,6 +79,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
 
         log.info("Closed thread \(id)")
+    }
+
+    func archiveThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+
+        chatViewModels[id]?.stopGenerating()
+        threads[index].isArchived = true
+
+        // If the archived thread was active, switch to the nearest visible thread
+        // or create a new one if none remain.
+        if activeThreadId == id {
+            if let next = visibleThreads.first {
+                activeThreadId = next.id
+            } else {
+                createThread()
+            }
+        }
+
+        log.info("Archived thread \(id)")
     }
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.

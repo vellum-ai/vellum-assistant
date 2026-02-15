@@ -105,10 +105,10 @@ struct MainWindowView: View {
                     VStack(spacing: 0) {
                         // Row 1 — thread tab bar
                         ThreadTabBar(
-                            threads: threadManager.threads,
+                            threads: threadManager.visibleThreads,
                             activeThreadId: threadManager.activeThreadId,
                             onSelect: { threadManager.selectThread(id: $0) },
-                            onClose: { threadManager.closeThread(id: $0) },
+                            onClose: { threadManager.archiveThread(id: $0) },
                             onCreate: { threadManager.createThread() },
                             activePanel: $windowState.activePanel
                         )
@@ -224,8 +224,8 @@ struct MainWindowView: View {
                     .font(VFont.body)
                     .foregroundColor(thread.id == threadManager.activeThreadId ? VColor.accent : VColor.textPrimary)
                 Spacer()
-                // Reserve space for close button
-                if threadManager.threads.count > 1 {
+                // Reserve space for archive button
+                if threadManager.visibleThreads.count > 1 {
                     Spacer().frame(width: 16)
                 }
             }
@@ -235,8 +235,8 @@ struct MainWindowView: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            if threadManager.threads.count > 1 {
-                Button(action: { threadManager.closeThread(id: thread.id) }) {
+            if threadManager.visibleThreads.count > 1 {
+                Button(action: { threadManager.archiveThread(id: thread.id) }) {
                     Image(systemName: "archivebox")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(VColor.textMuted)
@@ -270,7 +270,7 @@ struct MainWindowView: View {
 
             ScrollView {
                 VStack(spacing: VSpacing.xs) {
-                    ForEach(threadManager.threads) { thread in
+                    ForEach(threadManager.visibleThreads) { thread in
                         threadItem(thread)
                     }
                 }
