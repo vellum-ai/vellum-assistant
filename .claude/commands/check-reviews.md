@@ -72,8 +72,8 @@ Examples of feedback that would cause a regression:
 - If either reviewer hasn't reviewed yet, keep the PR in UNREVIEWED_PRS.md for next time.
 - If both have reviewed and either review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
-- If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Wait for the user to decide what to do.
-- If fully reviewed (both have reviewed) and Codex is not rate-limited, remove the PR from .private/UNREVIEWED_PRS.md.
+- If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Keep the PR in .private/UNREVIEWED_PRS.md so it is revisited on the next run. Wait for the user to decide what to do.
+- If fully reviewed (both have reviewed), Codex is not rate-limited, and no feedback was classified as regression risk, remove the PR from .private/UNREVIEWED_PRS.md.
 
 ## Output
 

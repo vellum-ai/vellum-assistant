@@ -231,7 +231,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews` | Checks for review feedback on unreviewed PRs and creates follow-up tasks. |
+| `/check-reviews` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. |
 
 ### Typical flow
 
