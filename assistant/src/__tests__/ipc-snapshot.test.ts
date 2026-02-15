@@ -259,6 +259,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'gallery_install',
     galleryAppId: 'gallery-pomodoro-timer',
   },
+  share_app_cloud: {
+    type: 'share_app_cloud',
+    appId: 'app-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -736,6 +740,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     appId: 'app-new-001',
     name: 'Pomodoro Timer',
+  },
+  share_app_cloud_response: {
+    type: 'share_app_cloud_response',
+    success: true,
+    shareToken: 'abc123def456',
+    shareUrl: 'http://localhost:7821/v1/apps/shared/abc123def456',
   },
 };
 

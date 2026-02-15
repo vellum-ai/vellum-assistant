@@ -22,6 +22,9 @@ import { getConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getApp } from '../memory/app-store.js';
+import * as sharedAppLinksStore from '../memory/shared-app-links-store.js';
+import JSZip from 'jszip';
+import type { AppManifest } from '../bundler/manifest.js';
 
 const log = getLogger('runtime-http');
 
@@ -126,6 +129,47 @@ export class RuntimeHttpServer {
         return this.handleServePage(pagesMatch[1]);
       } catch (err) {
         log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
+    // ── Cloud sharing endpoints ───────────────────────────────────────
+    if (path === '/v1/apps/share' && req.method === 'POST') {
+      try {
+        return await this.handleShareApp(req);
+      } catch (err) {
+        log.error({ err }, 'Runtime HTTP handler error sharing app');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
+    const sharedTokenMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)$/);
+    if (sharedTokenMatch) {
+      const shareToken = sharedTokenMatch[1];
+      if (req.method === 'GET') {
+        try {
+          return this.handleDownloadSharedApp(shareToken);
+        } catch (err) {
+          log.error({ err, shareToken }, 'Runtime HTTP handler error downloading shared app');
+          return Response.json({ error: 'Internal server error' }, { status: 500 });
+        }
+      }
+      if (req.method === 'DELETE') {
+        try {
+          return this.handleDeleteSharedApp(shareToken);
+        } catch (err) {
+          log.error({ err, shareToken }, 'Runtime HTTP handler error deleting shared app');
+          return Response.json({ error: 'Internal server error' }, { status: 500 });
+        }
+      }
+    }
+
+    const sharedMetadataMatch = path.match(/^\/v1\/apps\/shared\/([^/]+)\/metadata$/);
+    if (sharedMetadataMatch && req.method === 'GET') {
+      try {
+        return this.handleGetSharedAppMetadata(sharedMetadataMatch[1]);
+      } catch (err) {
+        log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
         return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     }
@@ -965,5 +1009,87 @@ ${app.htmlDefinition}
       kind: attachment.kind,
       data: attachment.dataBase64,
     });
+  }
+
+  // ── Cloud sharing endpoints ──────────────────────────────────────
+
+  private async handleShareApp(req: Request): Promise<Response> {
+    const rawBody = await req.arrayBuffer();
+    const bundleData = Buffer.from(rawBody);
+
+    if (bundleData.length === 0) {
+      return Response.json({ error: 'Empty body' }, { status: 400 });
+    }
+
+    // Validate it's a valid zip with a manifest.json
+    let manifest: AppManifest;
+    try {
+      const zip = await JSZip.loadAsync(bundleData);
+      const manifestFile = zip.file('manifest.json');
+      if (!manifestFile) {
+        return Response.json({ error: 'Invalid bundle: missing manifest.json' }, { status: 400 });
+      }
+      const manifestText = await manifestFile.async('text');
+      manifest = JSON.parse(manifestText) as AppManifest;
+      if (!manifest.name || !manifest.entry) {
+        return Response.json({ error: 'Invalid manifest: missing required fields' }, { status: 400 });
+      }
+    } catch (err) {
+      if (err instanceof Response) throw err;
+      return Response.json({ error: 'Invalid zip file' }, { status: 400 });
+    }
+
+    const { shareToken } = sharedAppLinksStore.createSharedAppLink(bundleData, manifest);
+
+    return Response.json({
+      shareToken,
+      shareUrl: `/v1/apps/shared/${shareToken}`,
+      bundleSizeBytes: bundleData.length,
+    });
+  }
+
+  private handleDownloadSharedApp(shareToken: string): Response {
+    const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+    if (!record) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+
+    sharedAppLinksStore.incrementDownloadCount(shareToken);
+
+    return new Response(new Uint8Array(record.bundleData), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="app.vellumapp"',
+      },
+    });
+  }
+
+  private handleGetSharedAppMetadata(shareToken: string): Response {
+    const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+    if (!record) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+
+    let manifest: AppManifest;
+    try {
+      manifest = JSON.parse(record.manifestJson) as AppManifest;
+    } catch {
+      return Response.json({ error: 'Corrupted manifest data' }, { status: 500 });
+    }
+
+    return Response.json({
+      name: manifest.name,
+      description: manifest.description,
+      icon: manifest.icon,
+      bundleSizeBytes: record.bundleSizeBytes,
+    });
+  }
+
+  private handleDeleteSharedApp(shareToken: string): Response {
+    const deleted = sharedAppLinksStore.deleteSharedAppLinkByToken(shareToken);
+    if (!deleted) {
+      return Response.json({ error: 'Shared app not found' }, { status: 404 });
+    }
+    return Response.json({ success: true });
   }
 }

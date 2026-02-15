@@ -45,6 +45,7 @@ import type {
   BundleAppRequest,
   SharedAppDeleteRequest,
   ForkSharedAppRequest,
+  ShareAppCloudRequest,
   UiSurfaceShow,
   IpcBlobProbe,
   GalleryListRequest,
@@ -67,6 +68,7 @@ import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, claw
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
+import { createSharedAppLink } from '../memory/shared-app-links-store.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
@@ -401,6 +403,7 @@ const handlers: DispatchMap = {
   trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
   remove_trust_rule: handleRemoveTrustRule,
   update_trust_rule: handleUpdateTrustRule,
+  share_app_cloud: handleShareAppCloud,
   bundle_app: handleBundleApp,
   open_bundle: handleOpenBundle,
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
@@ -1810,6 +1813,40 @@ function handleForkSharedApp(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to fork shared app');
     ctx.send(socket, { type: 'fork_shared_app_response', success: false, error: message });
+  }
+}
+
+// ─── Share app cloud handler ────────────────────────────────────────────────
+
+async function handleShareAppCloud(
+  msg: ShareAppCloudRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const result = await packageApp(msg.appId);
+    const bundleData = readFileSync(result.bundlePath);
+    const { shareToken } = createSharedAppLink(bundleData, result.manifest);
+
+    const port = process.env.RUNTIME_HTTP_PORT
+      ? parseInt(process.env.RUNTIME_HTTP_PORT, 10)
+      : 7821;
+    const shareUrl = `http://localhost:${port}/v1/apps/shared/${shareToken}`;
+
+    ctx.send(socket, {
+      type: 'share_app_cloud_response',
+      success: true,
+      shareToken,
+      shareUrl,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to share app to cloud');
+    ctx.send(socket, {
+      type: 'share_app_cloud_response',
+      success: false,
+      error: message,
+    });
   }
 }
 

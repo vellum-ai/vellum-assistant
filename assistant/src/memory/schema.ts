@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, blob } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -291,6 +291,17 @@ export const memoryEntityRelations = sqliteTable('memory_entity_relations', {
 export const memoryItemEntities = sqliteTable('memory_item_entities', {
   memoryItemId: text('memory_item_id').notNull(),
   entityId: text('entity_id').notNull(),
+});
+
+export const sharedAppLinks = sqliteTable('shared_app_links', {
+  id: text('id').primaryKey(),
+  shareToken: text('share_token').notNull().unique(),
+  bundleData: blob('bundle_data', { mode: 'buffer' }).notNull(),
+  bundleSizeBytes: integer('bundle_size_bytes').notNull(),
+  manifestJson: text('manifest_json').notNull(),
+  downloadCount: integer('download_count').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  expiresAt: integer('expires_at'),
 });
 
 export const llmUsageEvents = sqliteTable('llm_usage_events', {

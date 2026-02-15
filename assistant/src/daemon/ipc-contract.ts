@@ -325,6 +325,11 @@ export interface GalleryInstallRequest {
   galleryAppId: string;
 }
 
+export interface ShareAppCloudRequest {
+  type: 'share_app_cloud';
+  appId: string;
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -493,6 +498,7 @@ export type ClientMessage =
   | SignBundlePayloadResponse
   | GetSigningIdentityResponse
   | IpcBlobProbe
+  | ShareAppCloudRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest;
@@ -977,6 +983,14 @@ export interface GetSigningIdentityRequest {
   type: 'get_signing_identity';
 }
 
+export interface ShareAppCloudResponse {
+  type: 'share_app_cloud_response';
+  success: boolean;
+  shareToken?: string;
+  shareUrl?: string;
+  error?: string;
+}
+
 export interface IpcBlobProbeResult {
   type: 'ipc_blob_probe_result';
   probeId: string;
@@ -1159,6 +1173,7 @@ export type ServerMessage =
   | SignBundlePayloadRequest
   | GetSigningIdentityRequest
   | IpcBlobProbeResult
+  | ShareAppCloudResponse
   | TraceEvent
   | GalleryListResponse
   | GalleryInstallResponse;
