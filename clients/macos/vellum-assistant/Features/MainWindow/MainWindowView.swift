@@ -260,11 +260,14 @@ struct MainWindowView: View {
                 // Workspace mode: full-window dynamic page
                 dynamicWorkspaceView(surface: surface, data: dpData)
             } else {
-                // Gallery mode: existing behavior
+                // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
                     onClose: { activePanel = nil; isDynamicExpanded = false },
                     isExpanded: $isDynamicExpanded,
-                    daemonClient: daemonClient
+                    daemonClient: daemonClient,
+                    onOpenApp: { surfaceMsg in
+                        activeDynamicSurface = surfaceMsg
+                    }
                 )
             }
         } else {
