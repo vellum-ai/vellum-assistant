@@ -285,11 +285,13 @@ final class ChatViewModelTests: XCTestCase {
 
     func testErrorDuringCancellationClearsQueueState() {
         // Set up state directly because DaemonClient.send() throws in tests.
+        // Simulate the state after a successful cancel send: isCancelling is
+        // true, isSending stays true, isThinking is false.
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
         viewModel.isSending = true
-        viewModel.isThinking = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
 
-        // Manually add user messages
         let messageA = ChatMessage(role: .user, text: "Message A", status: .sent)
         let messageB = ChatMessage(role: .user, text: "Message B", status: .queued(position: 1))
         let messageC = ChatMessage(role: .user, text: "Message C", status: .queued(position: 2))
@@ -298,39 +300,13 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.messages.append(messageC)
         viewModel.pendingQueuedCount = 2
 
-        // Start streaming so stopGenerating() has something to finalize
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response A")))
+        // Daemon sends error events for queued messages during cancellation
+        // (abort drops queue without sending message_dequeued events). The
+        // error handler's wasCancelling branch force-clears all queue state.
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Request cancelled")))
 
-        // User cancels — stopGenerating() sets isCancelling = true when
-        // connected, but send() will throw. The throw-path resets all state
-        // locally. To test the error-during-cancellation path (where the
-        // cancel message reaches the daemon), simulate the isCancelling flag
-        // directly.
-        // Note: stopGenerating() can't send because connection is nil, so
-        // it resets state itself. Instead, we simulate the daemon-acknowledged
-        // cancellation flow: set isCancelling manually and then deliver the
-        // error event the daemon would send.
-
-        // Simulate the state after a successful cancel send:
-        // isCancelling = true, isSending stays true, isThinking = false
-        // (stopGenerating sets these before the daemon acknowledges)
-
-        // We need to simulate that stopGenerating() succeeded. Since send()
-        // throws, we manually set the cancelling state.
-        viewModel.isSending = true
-        viewModel.isThinking = false
-
-        // Daemon sends error events for queued messages (abort drops queue
-        // without sending message_dequeued events). The error handler checks
-        // wasCancelling which comes from isCancelling — we can't set that
-        // since it's private. Instead we simulate the cancel-error path by
-        // calling stopGenerating() which, due to send failure, does a local
-        // reset. We then verify the local reset behavior.
-        viewModel.stopGenerating()
-
-        // stopGenerating() resets everything locally when send() fails
-        XCTAssertFalse(viewModel.isSending, "Stop should clear isSending after failed cancel send")
-        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Stop should reset pendingQueuedCount")
+        XCTAssertFalse(viewModel.isSending, "Error during cancellation should clear isSending")
+        XCTAssertEqual(viewModel.pendingQueuedCount, 0, "Error during cancellation should reset pendingQueuedCount")
         // Queued messages should be reset to .sent
         if case .sent = viewModel.messages[2].status {
             // expected
@@ -384,28 +360,21 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testErrorDuringCancellationSuppressesErrorText() {
-        // Set up state directly because DaemonClient.send() throws in tests.
-        // We test the error handler's isCancelling check, which suppresses
-        // errorText when the error arrives as part of a user-initiated cancel.
+        // Simulate the state after a successful cancel send so we can test
+        // the error handler's isCancelling suppression branch.
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
         viewModel.isSending = true
-        viewModel.isThinking = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
 
         let message = ChatMessage(role: .user, text: "Hello", status: .sent)
         viewModel.messages.append(message)
 
-        // Start streaming
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+        // Daemon sends error as part of cancellation cleanup
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Request cancelled")))
 
-        // User cancels — stopGenerating() will fail to send cancel message
-        // (connection is nil) and fall through to the local reset path, which
-        // clears all state including isSending. The isCancelling flag is never
-        // set when send() fails, since there's no daemon to acknowledge it.
-        viewModel.stopGenerating()
-
-        // After a failed cancel send, stopGenerating() resets state locally.
-        // No error should be displayed since the user initiated the cancel.
-        XCTAssertNil(viewModel.errorText, "Cancellation (even failed send) should not display error text to user")
+        // Error text should NOT be shown when the user intentionally cancelled
+        XCTAssertNil(viewModel.errorText, "Error during cancellation should not display error text to user")
     }
 
     func testSendMessageClearsExistingErrorBeforeSend() {
@@ -1388,26 +1357,28 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testSessionErrorDuringCancellationSuppressesErrorText() {
-        // Set up state directly because DaemonClient.send() throws in tests.
-        // We test the sessionError handler's isCancelling check.
+        // Simulate the state after a successful cancel send so we can test
+        // the sessionError handler's isCancelling suppression branch.
         viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
         viewModel.isSending = true
-        viewModel.isThinking = true
+        viewModel.isThinking = false
+        viewModel.isCancelling = true
 
         let message = ChatMessage(role: .user, text: "Hello", status: .sent)
         viewModel.messages.append(message)
 
-        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+        // Daemon sends session error as part of cancellation cleanup
+        let errorMsg = SessionErrorMessage(
+            sessionId: "sess-1",
+            code: .sessionAborted,
+            userMessage: "Session aborted",
+            retryable: false
+        )
+        viewModel.handleServerMessage(.sessionError(errorMsg))
 
-        // stopGenerating() will fail to send cancel (no socket connection)
-        // and fall through to the local reset path, clearing all state.
-        // No error should be displayed since the user initiated the cancel.
-        viewModel.stopGenerating()
-
-        // After failed cancel send, state is reset locally. errorText should
-        // be nil because the user initiated the stop.
+        // errorText should be suppressed during cancellation (user-initiated)
         XCTAssertNil(viewModel.errorText,
-                      "Failed cancel send should not display errorText")
+                      "Session error during cancellation should not display errorText")
     }
 
     func testSessionErrorNonRetryableFlag() {
