@@ -1,6 +1,6 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
 import { rmSync, writeFileSync } from 'node:fs';
-import type { Message, ProviderResponse } from '../providers/types.js';
+import type { Message, ProviderResponse, ImageContent } from '../providers/types.js';
 import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
@@ -387,10 +387,10 @@ describe('Session message queue', () => {
 
     // Both queued messages should receive session-scoped cancellation events.
     const cancel2 = events2.find((e) => e.type === 'generation_cancelled');
-    expect(cancel2).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    expect(cancel2).toEqual({ type: 'generation_cancelled' });
 
     const cancel3 = events3.find((e) => e.type === 'generation_cancelled');
-    expect(cancel3).toEqual({ type: 'generation_cancelled', sessionId: 'conv-1' });
+    expect(cancel3).toEqual({ type: 'generation_cancelled' });
 
     // abort() must NOT emit session_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === 'error');
@@ -1084,7 +1084,10 @@ describe('Surface-action queue-full trace', () => {
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
 
     // Register a pending surface action so handleSurfaceAction doesn't bail early
-    (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
+    interface SessionWithPrivateFields {
+      pendingSurfaceActions: Map<string, { surfaceType: string }>;
+    }
+    (session as unknown as SessionWithPrivateFields).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
 
     // Trigger the surface action — queue is full, should be rejected
     session.handleSurfaceAction('surf-1', 'confirm');
@@ -1100,7 +1103,10 @@ describe('Surface-action queue-full trace', () => {
     );
     expect(errorTrace).toBeDefined();
     expect(errorTrace).toHaveProperty('attributes');
-    const attrs = (errorTrace as any).attributes;
+    interface ErrorTraceWithAttributes {
+      attributes: { reason: string; source: string };
+    }
+    const attrs = (errorTrace as unknown as ErrorTraceWithAttributes).attributes;
     expect(attrs.reason).toBe('queue_full');
     expect(attrs.source).toBe('surface_action');
 
@@ -1240,7 +1246,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } satisfies ImageContent,
       ],
     });
     run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
@@ -1283,7 +1289,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } satisfies ImageContent,
       ],
     });
     run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });

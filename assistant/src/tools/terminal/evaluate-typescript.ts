@@ -169,7 +169,7 @@ export class EvaluateTypescriptTool implements Tool {
     timeoutSec: number,
     timeoutMs: number,
     maxOutputChars: number,
-    context: ToolContext,
+    _context: ToolContext,
   ): Promise<EvalResult> {
     return new Promise<EvalResult>((resolve) => {
       const startTime = Date.now();

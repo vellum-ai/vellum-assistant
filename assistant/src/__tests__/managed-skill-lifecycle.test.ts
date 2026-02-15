@@ -73,8 +73,8 @@ import { loadSkillCatalog } from '../config/skills.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import type { ToolContext } from '../tools/types.js';
 
-const scaffoldTool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
-const deleteTool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
+const scaffoldTool = new ScaffoldManagedSkillTool();
+const deleteTool = new DeleteManagedSkillTool();
 
 function makeContext(): ToolContext {
   return {
@@ -200,8 +200,8 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
 
   test('evaluate → scaffold → skill_load chain: literal tool execution', async () => {
     const ctx = makeContext();
-    const evalTool = new (EvaluateTypescriptTool as any)() as InstanceType<typeof EvaluateTypescriptTool>;
-    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<typeof SkillLoadTool>;
+    const evalTool = new EvaluateTypescriptTool();
+    const skillLoadTool = new SkillLoadTool();
 
     // Step 1: Run evaluate_typescript_code with code that returns skill metadata
     const code = `export default () => ({

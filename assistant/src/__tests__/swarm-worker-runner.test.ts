@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import { runWorkerTask } from '../swarm/worker-runner.js';
 import { parseWorkerOutput, buildWorkerPrompt } from '../swarm/worker-prompts.js';
 import type { SwarmWorkerBackend, SwarmWorkerBackendInput } from '../swarm/worker-backend.js';

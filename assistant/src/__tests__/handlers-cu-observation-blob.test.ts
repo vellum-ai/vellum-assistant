@@ -43,7 +43,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
-import type { CuObservation, IpcBlobRef, ServerMessage } from '../daemon/ipc-contract.js';
+import type { CuObservation, CuError, IpcBlobRef, ServerMessage } from '../daemon/ipc-contract.js';
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
 
 /** Write a blob file to the test blob directory and return the IpcBlobRef. */
@@ -238,8 +238,8 @@ describe('handleCuObservation blob hydration', () => {
     // Should send cu_error
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('cu_error');
-    expect((sent[0] as any).message).toContain('Failed to hydrate axTreeBlob');
-    expect((sent[0] as any).message).toContain('no inline fallback');
+    expect((sent[0] as CuError).message).toContain('Failed to hydrate axTreeBlob');
+    expect((sent[0] as CuError).message).toContain('no inline fallback');
   });
 
   test('wrong blob kind: fails validation and falls back to inline', async () => {
@@ -288,7 +288,7 @@ describe('handleCuObservation blob hydration', () => {
     // Should send cu_error
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('cu_error');
-    expect((sent[0] as any).message).toContain('Failed to hydrate screenshotBlob');
+    expect((sent[0] as CuError).message).toContain('Failed to hydrate screenshotBlob');
   });
 
   test('inline-only unchanged: no blob refs, observation passes through', async () => {

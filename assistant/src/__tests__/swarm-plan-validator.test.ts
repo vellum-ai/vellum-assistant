@@ -82,7 +82,7 @@ describe('validateAndNormalizePlan', () => {
   test('rejects invalid role', () => {
     const plan = makePlan({
       tasks: [
-        { id: 'bad', role: 'hacker' as any, objective: 'Hack', dependencies: [] },
+        { id: 'bad', role: 'hacker' as unknown as 'coder', objective: 'Hack', dependencies: [] },
       ],
     });
     try {
@@ -205,7 +205,7 @@ describe('validateAndNormalizePlan', () => {
     const plan: SwarmPlan = {
       objective: 'Test',
       tasks: [
-        { id: 'a', role: 'coder', objective: 'A', dependencies: undefined as any },
+        { id: 'a', role: 'coder', objective: 'A', dependencies: undefined as unknown as string[] },
       ],
     };
     const result = validateAndNormalizePlan(plan, DEFAULT_LIMITS);
@@ -216,7 +216,7 @@ describe('validateAndNormalizePlan', () => {
     const plan = makePlan({
       objective: '',
       tasks: [
-        { id: 'a', role: 'invalid' as any, objective: 'A', dependencies: ['nonexistent'] },
+        { id: 'a', role: 'invalid' as unknown as 'coder', objective: 'A', dependencies: ['nonexistent'] },
         { id: 'a', role: 'coder', objective: 'B', dependencies: [] },
       ],
     });

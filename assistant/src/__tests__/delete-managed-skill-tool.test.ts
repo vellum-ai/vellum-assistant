@@ -19,7 +19,7 @@ mock.module('../util/logger.js', () => ({
 import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
-const tool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
+const tool = new DeleteManagedSkillTool();
 
 function makeContext(): ToolContext {
   return {

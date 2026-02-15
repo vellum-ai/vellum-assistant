@@ -30,6 +30,16 @@ mock.module('../config/loader.js', () => ({
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
+    memory: {
+      retrieval: {
+        enabled: false,
+        dynamicBudget: {
+          enabled: false,
+          minTokens: 0,
+          maxTokens: 0,
+        },
+      },
+    },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

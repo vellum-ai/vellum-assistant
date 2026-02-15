@@ -20,7 +20,7 @@ import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
 // Use internal class directly to avoid registry side effects
-const tool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
+const tool = new ScaffoldManagedSkillTool();
 
 function makeContext(): ToolContext {
   return {
