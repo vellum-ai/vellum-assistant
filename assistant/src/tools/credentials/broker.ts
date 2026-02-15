@@ -1,0 +1,108 @@
+import { v4 as uuid } from 'uuid';
+import type {
+  AuthorizeRequest,
+  AuthorizeResult,
+  ConsumeResult,
+  UsageToken,
+} from './broker-types.js';
+import { getCredentialMetadata } from './metadata-store.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('credential-broker');
+
+/**
+ * Credential broker that issues single-use tokens for policy-checked credential access.
+ *
+ * The broker never exposes plaintext secret values. Instead, it:
+ * 1. Checks that a credential exists and has metadata
+ * 2. Issues a single-use token for the authorized usage
+ * 3. On consumption, returns the storage key so the caller can read the secret internally
+ *
+ * Policy checks (tool policy, domain policy) are stubs in this PR — full enforcement comes later.
+ */
+export class CredentialBroker {
+  private tokens = new Map<string, UsageToken>();
+
+  /**
+   * Authorize the use of a credential for a specific tool and optional domain.
+   * Returns a single-use token on success, or a denial reason on failure.
+   */
+  authorize(request: AuthorizeRequest): AuthorizeResult {
+    const metadata = getCredentialMetadata(request.service, request.field);
+    if (!metadata) {
+      return {
+        authorized: false,
+        reason: `No credential found for ${request.service}/${request.field}`,
+      };
+    }
+
+    // Policy check stubs — full enforcement in PRs 19-20
+    // For now, always authorize if metadata exists.
+
+    const token: UsageToken = {
+      tokenId: uuid(),
+      credentialId: metadata.credentialId,
+      service: request.service,
+      field: request.field,
+      toolName: request.toolName,
+      createdAt: Date.now(),
+      consumed: false,
+    };
+
+    this.tokens.set(token.tokenId, token);
+    log.info({ tokenId: token.tokenId, service: request.service, field: request.field, tool: request.toolName },
+      'Usage token issued');
+
+    return { authorized: true, token };
+  }
+
+  /**
+   * Consume a previously issued token. Returns the storage key on success.
+   * Each token can only be consumed once.
+   */
+  consume(tokenId: string): ConsumeResult {
+    const token = this.tokens.get(tokenId);
+    if (!token) {
+      return { success: false, reason: 'Token not found or already revoked' };
+    }
+    if (token.consumed) {
+      return { success: false, reason: 'Token already consumed' };
+    }
+
+    token.consumed = true;
+    const storageKey = `credential:${token.service}:${token.field}`;
+    log.info({ tokenId, storageKey }, 'Usage token consumed');
+
+    return { success: true, storageKey };
+  }
+
+  /**
+   * Revoke a token, removing it from the active set.
+   * Returns true if the token existed and was revoked.
+   */
+  revoke(tokenId: string): boolean {
+    const existed = this.tokens.delete(tokenId);
+    if (existed) {
+      log.info({ tokenId }, 'Usage token revoked');
+    }
+    return existed;
+  }
+
+  /** Revoke all tokens (e.g. on session teardown). */
+  revokeAll(): void {
+    const count = this.tokens.size;
+    this.tokens.clear();
+    if (count > 0) {
+      log.info({ count }, 'All usage tokens revoked');
+    }
+  }
+
+  /** Return the number of active (non-consumed, non-revoked) tokens. */
+  get activeTokenCount(): number {
+    let count = 0;
+    for (const token of this.tokens.values()) {
+      if (!token.consumed) count++;
+    }
+    return count;
+  }
+}

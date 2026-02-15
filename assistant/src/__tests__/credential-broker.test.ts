@@ -1,0 +1,137 @@
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { CredentialBroker } from '../tools/credentials/broker.js';
+import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
+import { tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+
+describe('CredentialBroker', () => {
+  let broker: CredentialBroker;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'broker-test-'));
+    _setMetadataPath(join(tmpDir, 'metadata.json'));
+    broker = new CredentialBroker();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('authorize', () => {
+    test('denies when no credential metadata exists', () => {
+      const result = broker.authorize({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+      });
+      expect(result.authorized).toBe(false);
+      if (!result.authorized) {
+        expect(result.reason).toContain('No credential found');
+      }
+    });
+
+    test('authorizes when credential metadata exists', () => {
+      upsertCredentialMetadata('github', 'token');
+      const result = broker.authorize({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+      });
+      expect(result.authorized).toBe(true);
+      if (result.authorized) {
+        expect(result.token.service).toBe('github');
+        expect(result.token.field).toBe('token');
+        expect(result.token.toolName).toBe('browser_fill_credential');
+        expect(result.token.consumed).toBe(false);
+        expect(result.token.tokenId).toBeTruthy();
+      }
+    });
+
+    test('issues unique token IDs', () => {
+      upsertCredentialMetadata('github', 'token');
+      const r1 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
+      const r2 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
+      expect(r1.authorized).toBe(true);
+      expect(r2.authorized).toBe(true);
+      if (r1.authorized && r2.authorized) {
+        expect(r1.token.tokenId).not.toBe(r2.token.tokenId);
+      }
+    });
+  });
+
+  describe('consume', () => {
+    test('returns storage key on first consumption', () => {
+      upsertCredentialMetadata('github', 'token');
+      const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
+      expect(auth.authorized).toBe(true);
+      if (!auth.authorized) return;
+
+      const result = broker.consume(auth.token.tokenId);
+      expect(result.success).toBe(true);
+      expect(result.storageKey).toBe('credential:github:token');
+    });
+
+    test('rejects double consumption', () => {
+      upsertCredentialMetadata('github', 'token');
+      const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
+      if (!auth.authorized) return;
+
+      broker.consume(auth.token.tokenId);
+      const result = broker.consume(auth.token.tokenId);
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('already consumed');
+    });
+
+    test('rejects unknown token ID', () => {
+      const result = broker.consume('nonexistent-token');
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('not found');
+    });
+  });
+
+  describe('revoke', () => {
+    test('revokes existing token', () => {
+      upsertCredentialMetadata('github', 'token');
+      const auth = broker.authorize({ service: 'github', field: 'token', toolName: 'browser_fill_credential' });
+      if (!auth.authorized) return;
+
+      expect(broker.revoke(auth.token.tokenId)).toBe(true);
+      // After revocation, consume should fail
+      const result = broker.consume(auth.token.tokenId);
+      expect(result.success).toBe(false);
+    });
+
+    test('returns false for unknown token', () => {
+      expect(broker.revoke('nonexistent')).toBe(false);
+    });
+  });
+
+  describe('revokeAll', () => {
+    test('clears all active tokens', () => {
+      upsertCredentialMetadata('github', 'token');
+      broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
+      broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
+      expect(broker.activeTokenCount).toBe(2);
+
+      broker.revokeAll();
+      expect(broker.activeTokenCount).toBe(0);
+    });
+  });
+
+  describe('activeTokenCount', () => {
+    test('counts only unconsumed tokens', () => {
+      upsertCredentialMetadata('github', 'token');
+      const auth1 = broker.authorize({ service: 'github', field: 'token', toolName: 'tool1' });
+      broker.authorize({ service: 'github', field: 'token', toolName: 'tool2' });
+      expect(broker.activeTokenCount).toBe(2);
+
+      if (auth1.authorized) {
+        broker.consume(auth1.token.tokenId);
+      }
+      expect(broker.activeTokenCount).toBe(1);
+    });
+  });
+});
