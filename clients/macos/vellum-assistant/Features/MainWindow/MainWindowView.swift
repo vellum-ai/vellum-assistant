@@ -7,7 +7,7 @@ struct MainWindowView: View {
     var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
@@ -54,7 +54,7 @@ struct MainWindowView: View {
                         VStack(spacing: 0) {
                             HStack(spacing: 0) {
                                 // Thread drawer toggle
-                                VIconButton(label: "Threads", icon: "list.bullet", isActive: columnVisibility != .detailOnly, iconOnly: true) {
+                                VIconButton(label: "Threads", icon: "sidebar.left", isActive: columnVisibility != .detailOnly, iconOnly: true) {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                         columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
                                     }
