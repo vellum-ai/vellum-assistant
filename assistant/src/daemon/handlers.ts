@@ -61,7 +61,7 @@ import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, lis
 import { getRootDir } from '../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../skills/clawhub.js';
 import { parseSlashCandidate } from '../skills/slash-commands.js';
-import { removeSkillsIndexEntry } from '../skills/managed-store.js';
+import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../skills/managed-store.js';
 import { packageApp } from '../bundler/app-bundler.js';
 import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId } from './ipc-blob-store.js';
@@ -1098,21 +1098,36 @@ async function handleSkillsUninstall(
     });
     return;
   }
-  const skillDir = join(getRootDir(), 'skills', msg.name);
-  if (!existsSync(skillDir)) {
-    ctx.send(socket, {
-      type: 'skills_operation_response',
-      operation: 'uninstall',
-      success: false,
-      error: 'Skill not found',
-    });
-    return;
-  }
-  try {
-    rmSync(skillDir, { recursive: true });
 
-    // Clean SKILLS.md index entry (idempotent, safe for non-managed skills)
-    try { removeSkillsIndexEntry(msg.name); } catch { /* best effort */ }
+  try {
+    // Use shared managed-store logic for simple managed skill IDs
+    const isManagedId = !validateManagedSkillId(msg.name);
+    if (isManagedId) {
+      const result = deleteManagedSkill(msg.name);
+      if (!result.deleted) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'uninstall',
+          success: false,
+          error: result.error ?? 'Failed to delete managed skill',
+        });
+        return;
+      }
+    } else {
+      // Namespaced slug (org/name) — direct filesystem removal
+      const skillDir = join(getRootDir(), 'skills', msg.name);
+      if (!existsSync(skillDir)) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'uninstall',
+          success: false,
+          error: 'Skill not found',
+        });
+        return;
+      }
+      rmSync(skillDir, { recursive: true });
+      try { removeSkillsIndexEntry(msg.name); } catch { /* best effort */ }
+    }
 
     // Clean config entry
     const raw = loadRawConfig();

@@ -82,5 +82,17 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 1000,
   }));
 
-  return [...protectedFileRules, ...hostFileRules, hostShellRule, ...computerUseRules];
+  // Managed skill authoring tools — scaffold and delete modify ~/.vellum/skills/
+  // and should require explicit user approval.
+  const MANAGED_SKILL_TOOLS = ['scaffold_managed_skill', 'delete_managed_skill'] as const;
+  const managedSkillRules = MANAGED_SKILL_TOOLS.map((tool) => ({
+    id: `default:ask-${tool}-global`,
+    tool,
+    pattern: `${tool}:*`,
+    scope: 'everywhere',
+    decision: 'ask' as const,
+    priority: 1000,
+  }));
+
+  return [...protectedFileRules, ...hostFileRules, hostShellRule, ...computerUseRules, ...managedSkillRules];
 }
