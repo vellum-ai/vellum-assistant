@@ -16,6 +16,7 @@ final class MainWindow {
     /// Tracks daemon reconnects so trace state can be reset on stream restart.
     private var connectionCancellable: AnyCancellable?
     private var layoutObserver: NSObjectProtocol?
+    private var defaultTrafficLightOrigin: NSPoint?
     private var hasConnectedOnce = false
 
     /// Whether the main window is currently visible on screen.
@@ -126,13 +127,22 @@ final class MainWindow {
     private func repositionTrafficLights(_ window: NSWindow) {
         guard let closeButton = window.standardWindowButton(.closeButton),
               let containerView = closeButton.superview else { return }
+        if defaultTrafficLightOrigin == nil {
+            defaultTrafficLightOrigin = containerView.frame.origin
+        }
+        guard let origin = defaultTrafficLightOrigin else { return }
         containerView.setFrameOrigin(NSPoint(
-            x: containerView.frame.origin.x + 2,
-            y: containerView.frame.origin.y - 2.5
+            x: origin.x + 2,
+            y: origin.y - 2.5
         ))
     }
 
     func close() {
+        if let observer = layoutObserver {
+            NotificationCenter.default.removeObserver(observer)
+            layoutObserver = nil
+        }
+        defaultTrafficLightOrigin = nil
         window?.close()
         window = nil
     }
