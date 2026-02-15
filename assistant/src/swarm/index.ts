@@ -35,3 +35,5 @@ export { buildWorkerPrompt, parseWorkerOutput } from './worker-prompts.js';
 
 export type { WorkerStatusKind, WorkerStatusCallback, RunWorkerTaskOptions } from './worker-runner.js';
 export { runWorkerTask } from './worker-runner.js';
+
+export { generatePlan, parsePlanJSON, makeFallbackPlan } from './router-planner.js';
