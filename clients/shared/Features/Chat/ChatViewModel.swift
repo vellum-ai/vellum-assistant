@@ -1140,6 +1140,7 @@ public final class ChatViewModel: ObservableObject {
         // (via generation_cancelled or message_complete) to prevent the
         // user from sending a new message before the daemon has stopped.
         isCancelling = true
+        isWorkspaceRefinementInFlight = false
         isThinking = false
 
         // Mark current assistant message as stopped and complete any in-progress tool calls
