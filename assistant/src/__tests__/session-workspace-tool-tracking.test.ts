@@ -188,6 +188,38 @@ describe('Session workspace dirty on file mutations', () => {
     expect(session.isWorkspaceTopLevelDirty()).toBe(false);
   });
 
+  test('successful bash marks workspace dirty', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    session.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+
+    agentLoopScript = (onEvent) => {
+      onEvent({ type: 'tool_use', id: 'tu_5', name: 'bash', input: { command: 'mkdir /tmp/new-dir' } });
+      onEvent({ type: 'tool_result', toolUseId: 'tu_5', content: '', isError: false });
+    };
+
+    await session.processMessage('Run a command', [], () => {});
+    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
+  });
+
+  test('failed bash does NOT mark workspace dirty', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    session.refreshWorkspaceTopLevelContextIfNeeded();
+    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+
+    agentLoopScript = (onEvent) => {
+      onEvent({ type: 'tool_use', id: 'tu_6', name: 'bash', input: { command: 'false' } });
+      onEvent({ type: 'tool_result', toolUseId: 'tu_6', content: 'exit code 1', isError: true });
+    };
+
+    await session.processMessage('Run a command', [], () => {});
+    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+  });
+
   test('non-mutation tools do NOT mark workspace dirty', async () => {
     const session = makeSession();
     await session.loadFromDb();
