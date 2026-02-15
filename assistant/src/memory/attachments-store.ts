@@ -254,14 +254,21 @@ export function getAttachmentById(
 }
 
 /**
- * Delete attachments that have no remaining links in message_attachments.
+ * Delete attachments from a specific candidate set that have no remaining
+ * links in message_attachments. Only the given IDs are considered — this
+ * prevents freshly uploaded (but not yet linked) attachments from being
+ * mistakenly garbage-collected.
+ *
  * Returns the number of orphaned attachments removed.
  */
-export function deleteOrphanAttachments(): number {
+export function deleteOrphanAttachments(candidateIds: string[]): number {
+  if (candidateIds.length === 0) return 0;
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  const result = raw.run(
-    'DELETE FROM attachments WHERE id NOT IN (SELECT attachment_id FROM message_attachments)',
+  const placeholders = candidateIds.map(() => '?').join(', ');
+  const stmt = raw.prepare(
+    `DELETE FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
   );
+  const result = stmt.run(...candidateIds);
   return result.changes;
 }

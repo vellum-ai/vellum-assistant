@@ -280,4 +280,23 @@ describe('attachment orphan cleanup', () => {
     expect(attachmentCount.c).toBe(0);
     expect(linkCount.c).toBe(0);
   });
+
+  test('deleteLastExchange does not delete unlinked user uploads', () => {
+    const conv = createConversation('test');
+    addMessage(conv.id, 'user', 'hello');
+    const assistantMsg = addMessage(conv.id, 'assistant', 'Here is a file');
+
+    // An attachment linked to the assistant message (should be cleaned up)
+    const linked = uploadAttachment('ast-1', 'chart.png', 'image/png', 'iVBOR');
+    linkAttachmentToMessage(assistantMsg.id, linked.id, 0);
+
+    // A freshly uploaded attachment not linked to any message (should survive)
+    uploadAttachment('ast-1', 'pending.png', 'image/png', 'AAAA');
+
+    deleteLastExchange(conv.id);
+
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const remaining = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
+    expect(remaining.c).toBe(1); // only the unlinked upload survives
+  });
 });

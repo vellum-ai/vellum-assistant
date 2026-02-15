@@ -294,10 +294,10 @@ describe('getAttachmentsForMessageUnscoped', () => {
 describe('deleteOrphanAttachments', () => {
   beforeEach(resetTables);
 
-  test('removes attachments with no message links', () => {
-    uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'ZGF0YQ==');
+  test('removes candidate attachments with no message links', () => {
+    const stored = uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'ZGF0YQ==');
 
-    const removed = deleteOrphanAttachments();
+    const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(1);
   });
 
@@ -307,29 +307,41 @@ describe('deleteOrphanAttachments', () => {
     const stored = uploadAttachment('ast-1', 'linked.txt', 'text/plain', 'ZGF0YQ==');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const removed = deleteOrphanAttachments();
+    const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(0);
 
     const fetched = getAttachmentById('ast-1', stored.id);
     expect(fetched).not.toBeNull();
   });
 
-  test('removes only orphans when mixed', () => {
+  test('removes only orphans when mixed candidates provided', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'Mixed');
     const linked = uploadAttachment('ast-1', 'linked.txt', 'text/plain', 'AAAA');
-    uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'BBBB');
+    const orphan = uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'BBBB');
     linkAttachmentToMessage(msg.id, linked.id, 0);
 
-    const removed = deleteOrphanAttachments();
+    const removed = deleteOrphanAttachments([linked.id, orphan.id]);
     expect(removed).toBe(1);
 
     const remaining = getAttachmentById('ast-1', linked.id);
     expect(remaining).not.toBeNull();
   });
 
-  test('returns 0 when no orphans exist', () => {
-    const removed = deleteOrphanAttachments();
+  test('returns 0 when no candidates provided', () => {
+    const removed = deleteOrphanAttachments([]);
     expect(removed).toBe(0);
+  });
+
+  test('does not delete attachments outside the candidate set', () => {
+    const unrelated = uploadAttachment('ast-1', 'unrelated.txt', 'text/plain', 'AAAA');
+    const candidate = uploadAttachment('ast-1', 'candidate.txt', 'text/plain', 'BBBB');
+
+    const removed = deleteOrphanAttachments([candidate.id]);
+    expect(removed).toBe(1);
+
+    // The unrelated attachment should still exist
+    const fetched = getAttachmentById('ast-1', unrelated.id);
+    expect(fetched).not.toBeNull();
   });
 });
