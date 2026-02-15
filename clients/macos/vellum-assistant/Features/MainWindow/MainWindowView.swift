@@ -42,6 +42,15 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     private let trafficLightPadding: CGFloat = 78
 
+    private static var runtimeHttpPort: String? {
+        ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+    }
+
+    private static func pageURL(for appId: String) -> URL? {
+        guard let port = runtimeHttpPort else { return nil }
+        return URL(string: "http://localhost:\(port)/pages/\(appId)")
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Group {
@@ -150,6 +159,7 @@ struct MainWindowView: View {
             // Reset expanded state and active surface when navigating away from the
             // Dynamic panel via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
+                showSharePicker = false
                 isDynamicExpanded = false
                 activeDynamicSurface = nil
                 activeDynamicParsedSurface = nil
@@ -182,6 +192,7 @@ struct MainWindowView: View {
             // If a specific surfaceId was dismissed, only clear if it matches.
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
                 if activeDynamicSurface?.surfaceId == surfaceId {
+                    showSharePicker = false
                     activePanel = nil
                     isDynamicExpanded = false
                     activeDynamicSurface = nil
@@ -189,6 +200,7 @@ struct MainWindowView: View {
                 }
             } else {
                 // Bulk dismiss (dismissAll)
+                showSharePicker = false
                 activePanel = nil
                 isDynamicExpanded = false
                 activeDynamicSurface = nil
@@ -419,7 +431,7 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             // Toolbar
             HStack {
-                Button(action: { activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
+                Button(action: { showSharePicker = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textMuted)
@@ -434,12 +446,12 @@ struct MainWindowView: View {
 
                 Spacer()
 
-                // Share button — only shown for persisted apps with a shareable link
-                if let appId = data.appId {
+                // Share button — only shown when the runtime page server is active
+                if let appId = data.appId, let shareURL = Self.pageURL(for: appId) {
                     Menu {
                         Button {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("http://localhost:7821/pages/\(appId)", forType: .string)
+                            NSPasteboard.general.setString(shareURL.absoluteString, forType: .string)
                         } label: {
                             Label("Copy Link", systemImage: "doc.on.doc")
                         }
@@ -459,14 +471,14 @@ struct MainWindowView: View {
                     .accessibilityLabel("Share")
                     .background(
                         ShareSheetButton(
-                            items: [URL(string: "http://localhost:7821/pages/\(appId)")!],
+                            items: [shareURL],
                             isPresented: $showSharePicker
                         )
                         .frame(width: 1, height: 1)
                     )
                 }
 
-                Button(action: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
+                Button(action: { showSharePicker = false; activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil; activeDynamicParsedSurface = nil }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textMuted)
