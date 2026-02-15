@@ -97,7 +97,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
         // Calculate constraints
         let minPanelWidth: CGFloat = 300
         let minMainContentWidth: CGFloat = 300
-        let dividerAndPadding = VSpacing.xs + (VSpacing.xs * 2)
+        // main leading + main trailing + divider + panel trailing
+        let dividerAndPadding = VSpacing.xs * 4
         let maxAllowed = initialAvailableWidth - minMainContentWidth - dividerAndPadding
 
         // Update width without animation to prevent jitter
