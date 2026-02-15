@@ -880,6 +880,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     url: 'https://example.com',
     title: 'Example',
   },
+  dashboard_theme_update: {
+    type: 'dashboard_theme_update',
+    colorName: 'Ocean Blue',
+    colorHex: '#1E90FF',
+    appliedAt: '2026-02-15T00:00:00.000Z',
+    tokenMap: { '--accent': '#1E90FF', '--accent-light': '#87CEEB' },
+  },
+  dashboard_task_kickoff: {
+    type: 'dashboard_task_kickoff',
+    taskId: 'make_it_yours',
+    displayLabel: 'Make It Yours',
+  },
   app_update_preview_response: {
     type: 'app_update_preview_response',
     success: true,

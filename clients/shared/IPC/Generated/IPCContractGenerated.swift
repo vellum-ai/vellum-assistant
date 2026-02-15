@@ -277,6 +277,28 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let httpPort: Double?
 }
 
+/// Carries a task kickoff directive from the assistant to the dashboard UI.
+public struct IPCDashboardTaskKickoff: Codable, Sendable {
+    public let type: String
+    /// Identifier for the starter task being kicked off.
+    public let taskId: String
+    /// Human-readable label for the task (e.g. "Make It Yours").
+    public let displayLabel: String
+}
+
+/// Carries a theme/color update from the assistant to the dashboard UI.
+public struct IPCDashboardThemeUpdate: Codable, Sendable {
+    public let type: String
+    /// Human-readable color name (e.g. "Ocean Blue").
+    public let colorName: String
+    /// CSS hex color value (e.g. "#1E90FF").
+    public let colorHex: String
+    /// ISO-8601 timestamp of when the theme was applied.
+    public let appliedAt: String
+    /// Extended token map for downstream theming surfaces (e.g. {"--accent": "#1E90FF"}).
+    public let tokenMap: [String: String]?
+}
+
 public struct IPCDynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?

@@ -1366,3 +1366,69 @@ exports[`IPC message snapshots ServerMessage types ui_surface_undo_result serial
   "type": "ui_surface_undo_result",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types link_open_request serializes to expected JSON 1`] = `
+{
+  "type": "link_open_request",
+  "url": "https://example.com",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types publish_page serializes to expected JSON 1`] = `
+{
+  "html": "<html><body>Hello</body></html>",
+  "type": "publish_page",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types unpublish_page serializes to expected JSON 1`] = `
+{
+  "deploymentId": "dpl-001",
+  "type": "unpublish_page",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types open_url serializes to expected JSON 1`] = `
+{
+  "title": "Example",
+  "type": "open_url",
+  "url": "https://example.com",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types dashboard_theme_update serializes to expected JSON 1`] = `
+{
+  "appliedAt": "2026-02-15T00:00:00.000Z",
+  "colorHex": "#1E90FF",
+  "colorName": "Ocean Blue",
+  "tokenMap": {
+    "--accent": "#1E90FF",
+    "--accent-light": "#87CEEB",
+  },
+  "type": "dashboard_theme_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types dashboard_task_kickoff serializes to expected JSON 1`] = `
+{
+  "displayLabel": "Make It Yours",
+  "taskId": "make_it_yours",
+  "type": "dashboard_task_kickoff",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types publish_page_response serializes to expected JSON 1`] = `
+{
+  "deploymentId": "dpl-001",
+  "publicUrl": "https://example.vercel.app",
+  "success": true,
+  "type": "publish_page_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types unpublish_page_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "unpublish_page_response",
+}
+`;
