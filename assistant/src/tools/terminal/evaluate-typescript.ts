@@ -210,23 +210,22 @@ export class EvaluateTypescriptTool implements Tool {
         let truncated = false;
 
         // Extract structured result from raw stdout before truncation.
-        // Scan from the end since the runner prints __eval_result last,
-        // so post-processing cost stays bounded regardless of output size.
+        // Use lastIndexOf to find the marker directly, so extraction cost
+        // is bounded regardless of output size and works for any result length.
         let result: unknown = undefined;
         if (code === 0) {
-          const searchRegion = stdout.slice(-4096);
-          const lines = searchRegion.split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i];
-            if (!line) continue;
+          const markerIdx = stdout.lastIndexOf('__eval_result');
+          if (markerIdx !== -1) {
+            const lineStart = stdout.lastIndexOf('\n', markerIdx) + 1;
+            const lineEnd = stdout.indexOf('\n', markerIdx);
+            const line = stdout.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
             try {
               const parsed = JSON.parse(line);
               if (parsed && typeof parsed === 'object' && '__eval_result' in parsed) {
                 result = parsed.__eval_result;
-                break;
               }
             } catch {
-              // not the result line
+              // malformed result line
             }
           }
         }
