@@ -308,7 +308,7 @@ struct TraceStoreTests {
         #expect(grouped2["r1"] == nil)
 
         // Adding more events to one session does not affect the other.
-        store.ingest(makeEvent(eventId: "e5", sessionId: "s1", requestId: "r1", sequence: 3, kind: "request_finished"))
+        store.ingest(makeEvent(eventId: "e5", sessionId: "s1", requestId: "r1", sequence: 3, kind: "message_complete"))
         #expect(store.eventsBySession["s1"]?.count == 3)
         #expect(store.eventsBySession["s2"]?.count == 2)
     }
@@ -321,7 +321,7 @@ struct TraceStoreTests {
 
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
-        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_cancelled", summary: "Cancelled by user"))
+        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "generation_cancelled", summary: "Cancelled by user"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
         #expect(status == .cancelled)
@@ -335,7 +335,7 @@ struct TraceStoreTests {
 
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
         store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "llm_call_started"))
-        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_failed", status: "error", summary: "API error"))
+        store.ingest(makeEvent(eventId: "e3", requestId: "r1", sequence: 3, kind: "request_error", status: "error", summary: "API error"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
         #expect(status == .error)
@@ -348,7 +348,7 @@ struct TraceStoreTests {
         let store = TraceStore()
 
         store.ingest(makeEvent(eventId: "e1", requestId: "r1", sequence: 1, kind: "request_started"))
-        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "request_finished"))
+        store.ingest(makeEvent(eventId: "e2", requestId: "r1", sequence: 2, kind: "message_complete"))
 
         let status = store.requestGroupStatus(sessionId: "s1", requestId: "r1")
         #expect(status == .completed)

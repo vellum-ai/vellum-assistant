@@ -101,9 +101,10 @@ public final class TraceStore: ObservableObject {
 
     /// Determines the terminal status of a request group by inspecting its events.
     ///
-    /// A request is considered terminal when it contains a `request_finished`,
-    /// `request_cancelled`, or `request_failed` event. If none of those are present
-    /// but any event has `status == "error"`, the group is marked as error.
+    /// A request is considered terminal when it contains a `message_complete`,
+    /// `generation_cancelled`, or `request_error` event (matching the daemon's
+    /// `TraceEventKind` contract). If none of those are present but any event
+    /// has `status == "error"`, the group is marked as error.
     public func requestGroupStatus(sessionId: String, requestId: String) -> RequestGroupStatus {
         let key = requestId.isEmpty ? "" : requestId
         let grouped = eventsByRequest(sessionId: sessionId)
@@ -111,11 +112,11 @@ public final class TraceStore: ObservableObject {
 
         for event in events {
             switch event.kind {
-            case "request_cancelled":
+            case "generation_cancelled":
                 return .cancelled
-            case "request_failed":
+            case "request_error":
                 return .error
-            case "request_finished":
+            case "message_complete":
                 return .completed
             default:
                 break
