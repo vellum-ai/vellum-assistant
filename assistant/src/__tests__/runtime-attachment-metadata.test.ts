@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -67,6 +67,10 @@ describe('Runtime attachment metadata', () => {
     await server.start();
   });
 
+  afterEach(async () => {
+    await server?.stop();
+  });
+
   afterAll(async () => {
     await server?.stop();
   });
@@ -89,7 +93,7 @@ describe('Runtime attachment metadata', () => {
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     const res = await fetch(
-      `http://localhost:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
     );
     const body = await res.json() as { messages: Array<{ role: string; content: string; attachments: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number; kind: string }> }> };
 
@@ -109,8 +113,6 @@ describe('Runtime attachment metadata', () => {
     const uMsg = body.messages.find((m) => m.role === 'user');
     expect(uMsg).toBeDefined();
     expect(uMsg!.attachments).toEqual([]);
-
-    await server.stop();
   });
 
   test('GET /messages returns empty attachments when none linked', async () => {
@@ -126,7 +128,7 @@ describe('Runtime attachment metadata', () => {
     );
 
     const res = await fetch(
-      `http://localhost:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
     );
     const body = await res.json() as { messages: Array<{ role: string; attachments: unknown[] }> };
 
@@ -134,8 +136,6 @@ describe('Runtime attachment metadata', () => {
     const aMsg = body.messages.find((m) => m.role === 'assistant');
     expect(aMsg).toBeDefined();
     expect(aMsg!.attachments).toEqual([]);
-
-    await server.stop();
   });
 
   test('GET /attachments/:id returns attachment with payload', async () => {
@@ -143,7 +143,7 @@ describe('Runtime attachment metadata', () => {
     const stored = uploadAttachment(assistantId, 'report.pdf', 'application/pdf', 'JVBER');
 
     const res = await fetch(
-      `http://localhost:${port}/v1/assistants/${assistantId}/attachments/${stored.id}`,
+      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/attachments/${stored.id}`,
     );
     const body = await res.json() as {
       id: string; filename: string; mimeType: string; sizeBytes: number; kind: string; data: string;
@@ -156,33 +156,27 @@ describe('Runtime attachment metadata', () => {
     expect(body.kind).toBe('document');
     expect(body.data).toBe('JVBER');
     expect(body.sizeBytes).toBeGreaterThan(0);
-
-    await server.stop();
   });
 
   test('GET /attachments/:id returns 404 for wrong assistant', async () => {
     const stored = uploadAttachment('ast-owner', 'secret.txt', 'text/plain', 'c2VjcmV0');
 
     const res = await fetch(
-      `http://localhost:${port}/v1/assistants/ast-other/attachments/${stored.id}`,
+      `http://127.0.0.1:${port}/v1/assistants/ast-other/attachments/${stored.id}`,
     );
     const body = await res.json() as { error: string };
 
     expect(res.status).toBe(404);
     expect(body.error).toBe('Attachment not found');
-
-    await server.stop();
   });
 
   test('GET /attachments/:id returns 404 for nonexistent attachment', async () => {
     const res = await fetch(
-      `http://localhost:${port}/v1/assistants/ast-test-4/attachments/nonexistent-id`,
+      `http://127.0.0.1:${port}/v1/assistants/ast-test-4/attachments/nonexistent-id`,
     );
     const body = await res.json() as { error: string };
 
     expect(res.status).toBe(404);
     expect(body.error).toBe('Attachment not found');
-
-    await server.stop();
   });
 });

@@ -161,7 +161,7 @@ describe('runtime runs — HTTP layer', () => {
   }
 
   function runsUrl(path = ''): string {
-    return `http://localhost:${port}/v1/assistants/${ASSISTANT_ID}/runs${path}`;
+    return `http://127.0.0.1:${port}/v1/assistants/${ASSISTANT_ID}/runs${path}`;
   }
 
   // ── POST /runs ──────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ describe('runtime runs — HTTP layer', () => {
     const { id } = await createRes.json() as { id: string };
 
     // Try to access via a different assistant
-    const res = await fetch(`http://localhost:${port}/v1/assistants/other-assistant/runs/${id}`);
+    const res = await fetch(`http://127.0.0.1:${port}/v1/assistants/other-assistant/runs/${id}`);
     expect(res.status).toBe(404);
 
     await stopServer();
