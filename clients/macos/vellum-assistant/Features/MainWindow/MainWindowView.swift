@@ -11,7 +11,6 @@ struct MainWindowView: View {
     @State private var hasAPIKey = APIKeyManager.hasAnyKey()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedThreadId: UUID?
-    @State private var drawerWasOpenBeforePanel = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
@@ -147,21 +146,6 @@ struct MainWindowView: View {
             // via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
                 isDynamicExpanded = false
-            }
-
-            // Close thread drawer when opening a right-side panel to avoid cramped layout
-            // Restore previous drawer state when closing the panel
-            if useThreadDrawer && newPanel != nil {
-                // Save current drawer state before closing
-                drawerWasOpenBeforePanel = (columnVisibility != .detailOnly)
-                withTransaction(Transaction(animation: nil)) {
-                    columnVisibility = .detailOnly
-                }
-            } else if useThreadDrawer && newPanel == nil && drawerWasOpenBeforePanel {
-                // Only reopen if drawer was open before
-                withTransaction(Transaction(animation: nil)) {
-                    columnVisibility = .all
-                }
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
