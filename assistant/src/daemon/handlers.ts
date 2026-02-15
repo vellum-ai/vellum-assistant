@@ -1445,15 +1445,11 @@ async function handleTaskSubmit(
         type: 'error',
         message: taskIngressCheck.userNotice!,
       });
-      // Redirect: send a secret_request directly (no session exists yet)
-      ctx.send(socket, {
-        type: 'secret_request',
-        requestId,
-        service: 'detected',
-        field: taskIngressCheck.detectedTypes.join(','),
-        label: 'Secure Credential Entry',
-        description: 'Your message contained a secret. Please enter it here instead — it will be stored securely and never sent to the AI.',
-      });
+      // Create a session so the secret_response lifecycle works end-to-end
+      const conversation = conversationStore.createConversation('(blocked — secret detected)');
+      ctx.socketToSession.set(socket, conversation.id);
+      const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes);
       return;
     }
 
@@ -2399,7 +2395,7 @@ function handleCuSessionCreate(
   }
   sessionIds.add(msg.sessionId);
 
-  log.info({ sessionId: msg.sessionId, task: msg.task }, 'Computer-use session created');
+  log.info({ sessionId: msg.sessionId, taskLength: msg.task.length }, 'Computer-use session created');
 }
 
 function handleCuSessionAbort(
