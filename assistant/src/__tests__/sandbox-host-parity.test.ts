@@ -51,6 +51,7 @@ import { formatShellOutput, MAX_OUTPUT_LENGTH } from '../tools/shared/shell-outp
 const { NativeBackend } = await import('../tools/terminal/backends/native.js');
 const { DockerBackend, _resetDockerChecks } = await import('../tools/terminal/backends/docker.js');
 const { wrapCommand } = await import('../tools/terminal/sandbox.js');
+const { ToolError } = await import('../util/errors.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -576,12 +577,13 @@ describe('SandboxResult shape consistency across backends', () => {
         expect(typeof arg).toBe('string');
       }
     } catch (err) {
-      // NativeBackend throws ToolError on unsupported platforms, but may also
-      // throw plain Errors from infra calls (e.g. writeFileSync in
-      // getProfilePath, execSync in isBwrapAvailable) depending on the
-      // environment. Both are legitimate — the key invariant is that wrap()
-      // never silently returns a non-sandboxed result.
-      expect(err).toBeInstanceOf(Error);
+      // NativeBackend explicitly throws ToolError on unsupported platforms or
+      // unsafe paths. Infrastructure calls (writeFileSync, mkdirSync) can
+      // throw system errors (ErrnoException). Both are legitimate — but
+      // programming errors like TypeError/ReferenceError should still fail.
+      const isToolError = err instanceof ToolError;
+      const isSystemError = err instanceof Error && 'code' in err && typeof (err as NodeJS.ErrnoException).code === 'string';
+      expect(isToolError || isSystemError).toBe(true);
     }
   });
 
