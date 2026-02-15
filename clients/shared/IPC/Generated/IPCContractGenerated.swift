@@ -627,6 +627,14 @@ public struct IPCSecretRequest: Codable, Sendable {
     public let description: String?
     public let placeholder: String?
     public let sessionId: String?
+    /// Intended purpose of the credential (displayed to user).
+    public let purpose: String?
+    /// Tools allowed to use this credential.
+    public let allowedTools: [String]?
+    /// Domains where this credential may be used.
+    public let allowedDomains: [String]?
+    /// Whether one-time send override is available.
+    public let allowOneTimeSend: Bool?
 }
 
 public struct IPCSecretResponse: Codable, Sendable {
