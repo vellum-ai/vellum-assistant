@@ -301,6 +301,7 @@ public struct IPCFormSurfaceData: Codable, Sendable {
 
 public struct IPCGenerationCancelled: Codable, Sendable {
     public let type: String
+    public let sessionId: String?
 }
 
 public struct IPCGenerationHandoff: Codable, Sendable {

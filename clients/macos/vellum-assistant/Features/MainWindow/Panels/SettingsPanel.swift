@@ -17,7 +17,7 @@ struct SettingsPanel: View {
     @State private var hasBraveKey: Bool = false
     @AppStorage("maxStepsPerSession") private var maxSteps: Double = 50
     @AppStorage("ambientAgentEnabled") private var ambientEnabled: Bool = false
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
