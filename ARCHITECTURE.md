@@ -508,6 +508,7 @@ graph TB
         EMBED_ITEM["embed_item<br/>→ memory_embeddings"]
         EMBED_SUM["embed_summary<br/>→ memory_embeddings"]
         EXTRACT["extract_items<br/>→ memory_items +<br/>memory_item_sources"]
+        CHECK_CONTRA["check_contradictions<br/>→ contradiction/update merge OR<br/>pending_clarification + memory_item_conflicts"]
         EXTRACT_ENTITIES["extract_entities<br/>→ memory_entities +<br/>memory_item_entities +<br/>memory_entity_relations"]
         BACKFILL_REL["backfill_entity_relations<br/>checkpointed message scan<br/>→ enqueue extract_entities"]
         BUILD_SUM["build_conversation_summary<br/>→ memory_summaries"]
@@ -556,10 +557,12 @@ graph TB
     WORKER --> EMBED_ITEM
     WORKER --> EMBED_SUM
     WORKER --> EXTRACT
+    WORKER --> CHECK_CONTRA
     WORKER --> EXTRACT_ENTITIES
     WORKER --> BACKFILL_REL
     WORKER --> BUILD_SUM
     WORKER --> WEEKLY
+    EXTRACT --> CHECK_CONTRA
     EXTRACT --> EXTRACT_ENTITIES
 
     EMBED_SEG --> OAI_EMB
