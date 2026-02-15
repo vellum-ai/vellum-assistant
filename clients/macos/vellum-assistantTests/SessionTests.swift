@@ -1538,6 +1538,46 @@ final class SessionTests: XCTestCase {
 
         let reductionPercent = 100 - (blobJSON.count * 100 / inlineJSON.count)
         XCTAssertGreaterThan(reductionPercent, 95, "Blob transport should reduce payload by >95%")
+
+        // p95 scenario: 300KB screenshot, 12KB AX tree (both blob-transported)
+        let largeScreenshotData = Data(repeating: 0xFF, count: 300_000)
+        let largeScreenshotBase64 = largeScreenshotData.base64EncodedString()
+        let largeAxTree = String(repeating: "a", count: 12_000)
+
+        let inlineP95 = CuObservationMessage(
+            sessionId: "bench",
+            axTree: largeAxTree,
+            axDiff: nil,
+            secondaryWindows: nil,
+            screenshot: largeScreenshotBase64,
+            executionResult: nil,
+            executionError: nil
+        )
+        let inlineP95JSON = try JSONEncoder().encode(inlineP95)
+
+        let largeAxBlobRef = IPCIpcBlobRef(
+            id: "ax-blob-id",
+            kind: "ax_tree",
+            encoding: "utf8",
+            byteLength: 12_000,
+            sha256: String(repeating: "b", count: 64)
+        )
+        let blobP95 = CuObservationMessage(
+            sessionId: "bench",
+            axTree: nil,
+            axDiff: nil,
+            secondaryWindows: nil,
+            screenshot: nil,
+            executionResult: nil,
+            executionError: nil,
+            axTreeBlob: largeAxBlobRef,
+            screenshotBlob: blobRef
+        )
+        let blobP95JSON = try JSONEncoder().encode(blobP95)
+
+        // p95: inline >800KB, blob <1KB
+        XCTAssertGreaterThan(inlineP95JSON.count, 800_000)
+        XCTAssertLessThan(blobP95JSON.count, 1_000)
     }
 }
 
