@@ -236,8 +236,11 @@ public struct ChatMessage: Identifiable {
     public var attachments: [ChatAttachment]
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]
+    /// True when tool calls were received before any text content, so the UI
+    /// renders tool call chips above the text bubble to match chronological order.
+    public var toolCallsBeforeText: Bool
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], toolCallsBeforeText: Bool = false) {
         self.id = id
         self.role = role
         self.text = text
@@ -249,5 +252,6 @@ public struct ChatMessage: Identifiable {
         self.attachments = attachments
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
+        self.toolCallsBeforeText = toolCallsBeforeText
     }
 }

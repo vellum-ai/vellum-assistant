@@ -30,6 +30,13 @@ struct MessageBubbleView: View {
                         }
                     )
                 } else {
+                    // When tool calls arrived before text, show them first
+                    if message.toolCallsBeforeText && !message.toolCalls.isEmpty {
+                        ForEach(message.toolCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
+                    }
+
                     // Message text (only shown for non-confirmation messages)
                     if !message.text.isEmpty {
                         Text(message.text)
@@ -44,8 +51,8 @@ struct MessageBubbleView: View {
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     }
 
-                    // Tool call chips
-                    if !message.toolCalls.isEmpty {
+                    // Tool call chips (when text came first)
+                    if !message.toolCallsBeforeText && !message.toolCalls.isEmpty {
                         ForEach(message.toolCalls) { toolCall in
                             ToolCallChip(toolCall: toolCall)
                         }

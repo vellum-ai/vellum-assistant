@@ -874,8 +874,12 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].toolCalls.append(toolCall)
+                // If no text has arrived yet, mark tool calls as first
+                if messages[index].text.isEmpty {
+                    messages[index].toolCallsBeforeText = true
+                }
             } else {
-                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall], toolCallsBeforeText: true)
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
             }

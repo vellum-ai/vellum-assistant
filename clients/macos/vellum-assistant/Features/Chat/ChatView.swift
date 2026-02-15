@@ -608,19 +608,19 @@ private struct ChatBubble: View {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                // When tool calls arrived before text (e.g. the agent ran a command
+                // and then responded), render chips first to match chronological order.
+                if message.toolCallsBeforeText {
+                    toolCallChips
+                }
+
                 if shouldShowBubble {
                     bubbleContent
                 }
 
-                // Tool calls render outside the bubble as compact chips.
-                // Hidden when inline surfaces are present (same or adjacent message).
-                if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(message.toolCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
-                        }
-                    }
-                    .frame(maxWidth: 520, alignment: .leading)
+                // Tool calls that arrived after text render below the bubble.
+                if !message.toolCallsBeforeText {
+                    toolCallChips
                 }
 
                 // Inline surfaces render below the bubble as full-width cards
@@ -639,6 +639,20 @@ private struct ChatBubble: View {
             }
 
             if !isUser { Spacer(minLength: 0) }
+        }
+    }
+
+    /// Tool call chips rendered outside the bubble.
+    /// Hidden for user messages, when there are no tool calls, or when inline surfaces are present.
+    @ViewBuilder
+    private var toolCallChips: some View {
+        if !isUser && !message.toolCalls.isEmpty && message.inlineSurfaces.isEmpty && !hideToolCalls {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(message.toolCalls) { toolCall in
+                    ToolCallChip(toolCall: toolCall)
+                }
+            }
+            .frame(maxWidth: 520, alignment: .leading)
         }
     }
 
