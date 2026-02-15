@@ -99,6 +99,14 @@ graph TB
             EVENT_BUS["EventBus<br/>domain events"]
         end
 
+        subgraph "Swarm Orchestration"
+            SWARM_TOOL["swarm_delegate tool<br/>recursion guard"]
+            ROUTER_PLAN["Router Planner<br/>LLM → DAG plan"]
+            DAG_SCHED["DAG Scheduler<br/>topological order<br/>bounded concurrency"]
+            WORKER_POOL["Worker Pool<br/>claude_code backend<br/>role-scoped profiles"]
+            SYNTH["Synthesizer<br/>LLM + markdown fallback"]
+        end
+
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
@@ -230,6 +238,15 @@ graph TB
     LOCAL_IPC -->|"Unix socket"| IPC_SERVER
     WEB_API -->|"cloud mode"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_SERVER
+
+    %% Swarm data flow
+    SESSION_MGR -->|"swarm_delegate<br/>tool_use"| SWARM_TOOL
+    SWARM_TOOL --> ROUTER_PLAN
+    ROUTER_PLAN --> DAG_SCHED
+    DAG_SCHED --> WORKER_POOL
+    WORKER_POOL --> ANTHROPIC
+    DAG_SCHED --> SYNTH
+    SYNTH --> ANTHROPIC
 
     %% Tracing data flow
     SESSION_MGR --> TRACE_EMITTER
@@ -1153,6 +1170,74 @@ graph TB
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
 - After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
+
+---
+
+## Swarm Orchestration — Parallel Task Execution
+
+When the model invokes `swarm_delegate`, the daemon decomposes a complex task into parallel specialist subtasks and executes them concurrently.
+
+```mermaid
+sequenceDiagram
+    participant Session as Session (Daemon)
+    participant Tool as swarm_delegate tool
+    participant Planner as Router Planner
+    participant LLM as LLM Provider
+    participant Scheduler as DAG Scheduler
+    participant W1 as Worker 1 (claude_code)
+    participant W2 as Worker 2 (claude_code)
+    participant Synth as Synthesizer
+
+    Session->>Tool: execute(objective)
+    Note over Tool: Recursion guard + abort check
+
+    Tool->>Planner: generatePlan(objective)
+    Planner->>LLM: Plan request (plannerModel)
+    LLM-->>Planner: JSON plan
+    Planner->>Planner: validateAndNormalizePlan()
+
+    Tool->>Scheduler: executeSwarm(plan, limits)
+
+    par Parallel workers (bounded by maxWorkers)
+        Scheduler->>W1: runTask(t1, profile=coder)
+        Note over W1: Agent SDK subprocess
+        W1-->>Scheduler: result
+    and
+        Scheduler->>W2: runTask(t2, profile=researcher)
+        Note over W2: Agent SDK subprocess
+        W2-->>Scheduler: result
+    end
+
+    Note over Scheduler: Retry failed tasks (maxRetriesPerTask)<br/>Block dependents on failure
+
+    Scheduler->>Synth: synthesizeResults(results)
+    Synth->>LLM: Synthesis request (synthesizerModel)
+    LLM-->>Synth: Final answer
+    Synth-->>Tool: SwarmExecutionSummary
+    Tool-->>Session: tool_result + stats
+```
+
+### Key design decisions
+
+- **Recursion guard**: Only one swarm can execute per session. Nested invocations return an error.
+- **Abort signal**: The tool checks `context.signal?.aborted` before planning and before execution.
+- **DAG scheduling**: Tasks with dependencies are topologically ordered. Independent tasks run in parallel up to `maxWorkers`.
+- **Per-task retries**: Failed tasks retry up to `maxRetriesPerTask` before being marked failed. Dependents are transitively blocked.
+- **Role-scoped profiles**: Workers run with restricted tool access based on their role (coder, researcher, reviewer, general).
+- **Synthesis fallback**: If the LLM synthesis call fails, a deterministic markdown summary is generated from task results.
+- **Progress streaming**: Status events (`task_started`, `task_completed`, `task_failed`, `task_blocked`, `done`) are streamed via `context.onOutput`.
+
+### Config knobs
+
+| Config key | Default | Purpose |
+|---|---:|---|
+| `swarm.enabled` | `true` | Master switch for swarm orchestration |
+| `swarm.maxWorkers` | `3` | Max concurrent worker processes (hard ceiling: 6) |
+| `swarm.maxTasks` | `8` | Max tasks per plan (hard ceiling: 20) |
+| `swarm.maxRetriesPerTask` | `1` | Per-task retry limit (hard ceiling: 3) |
+| `swarm.workerTimeoutSec` | `900` | Worker timeout in seconds |
+| `swarm.plannerModel` | (varies) | Model used for plan generation |
+| `swarm.synthesizerModel` | (varies) | Model used for result synthesis |
 
 ---
 
