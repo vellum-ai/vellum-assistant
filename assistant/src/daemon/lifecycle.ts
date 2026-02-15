@@ -9,6 +9,7 @@ import {
   getPidPath,
   ensureDataDir,
   migrateToDataLayout,
+  migrateToWorkspaceLayout,
   removeSocketFile,
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
@@ -175,7 +176,11 @@ export async function ensureDaemonRunning(): Promise<void> {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Migration order matters: first move legacy flat files into the data dir
+  // structure, then relocate the data dir into the active workspace, and
+  // finally create any directories that don't yet exist.
   migrateToDataLayout();
+  migrateToWorkspaceLayout();
   ensureDataDir();
 
   const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
