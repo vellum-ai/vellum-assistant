@@ -105,6 +105,35 @@ describe('buildSkillMarkdown', () => {
     });
     expect(result).toContain('disable-model-invocation: true');
   });
+
+  test('escapes double quotes in name and description', () => {
+    const result = buildSkillMarkdown({
+      name: 'Say "hi"',
+      description: 'A "quoted" desc',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result).toContain('name: "Say \\"hi\\""');
+    expect(result).toContain('description: "A \\"quoted\\" desc"');
+  });
+
+  test('escapes newlines in name and description', () => {
+    const result = buildSkillMarkdown({
+      name: 'Line1\nLine2',
+      description: 'Desc\nMulti',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result).toContain('name: "Line1\\nLine2"');
+    expect(result).toContain('description: "Desc\\nMulti"');
+  });
+
+  test('escapes backslashes in name', () => {
+    const result = buildSkillMarkdown({
+      name: 'back\\slash',
+      description: 'ok',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result).toContain('name: "back\\\\slash"');
+  });
 });
 
 describe('SKILLS.md index management', () => {
@@ -142,6 +171,50 @@ describe('SKILLS.md index management', () => {
     const content = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
     expect(content).not.toContain('doomed');
     expect(content).toContain('survivor');
+  });
+
+  test('upsert recognizes * bullet entries', () => {
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '* existing-skill\n',
+    );
+    upsertSkillsIndexEntry('existing-skill');
+    const content = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
+    const matches = content.match(/existing-skill/g);
+    expect(matches?.length).toBe(1);
+  });
+
+  test('remove handles * bullet entries', () => {
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '* doomed\n- survivor\n',
+    );
+    removeSkillsIndexEntry('doomed');
+    const content = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
+    expect(content).not.toContain('doomed');
+    expect(content).toContain('survivor');
+  });
+
+  test('remove handles markdown link entries', () => {
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '- [My Skill](my-skill/SKILL.md)\n- survivor\n',
+    );
+    removeSkillsIndexEntry('my-skill');
+    const content = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
+    expect(content).not.toContain('my-skill');
+    expect(content).toContain('survivor');
+  });
+
+  test('upsert recognizes markdown link entries as existing', () => {
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '- [My Skill](my-skill/SKILL.md)\n',
+    );
+    upsertSkillsIndexEntry('my-skill');
+    const content = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
+    const matches = content.match(/my-skill/g);
+    expect(matches?.length).toBe(1);
   });
 
   test('remove from index handles missing entry gracefully', () => {
@@ -211,6 +284,39 @@ describe('createManagedSkill', () => {
     });
     expect(result.created).toBe(false);
     expect(result.error).toContain('traversal');
+  });
+
+  test('rejects empty name', () => {
+    const result = createManagedSkill({
+      id: 'no-name',
+      name: '',
+      description: 'Has desc',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result.created).toBe(false);
+    expect(result.error).toContain('name is required');
+  });
+
+  test('rejects whitespace-only name', () => {
+    const result = createManagedSkill({
+      id: 'blank-name',
+      name: '   ',
+      description: 'Has desc',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result.created).toBe(false);
+    expect(result.error).toContain('name is required');
+  });
+
+  test('rejects empty description', () => {
+    const result = createManagedSkill({
+      id: 'no-desc',
+      name: 'Has Name',
+      description: '',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result.created).toBe(false);
+    expect(result.error).toContain('description is required');
   });
 
   test('updates SKILLS.md index', () => {

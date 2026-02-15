@@ -47,11 +47,12 @@ export interface BuildSkillMarkdownInput {
 }
 
 export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
+  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
   const lines: string[] = ['---'];
-  lines.push(`name: "${input.name}"`);
-  lines.push(`description: "${input.description}"`);
+  lines.push(`name: "${esc(input.name)}"`);
+  lines.push(`description: "${esc(input.description)}"`);
   if (input.emoji) {
-    lines.push(`emoji: "${input.emoji}"`);
+    lines.push(`emoji: "${esc(input.emoji)}"`);
   }
   if (input.userInvocable === false) {
     lines.push('user-invocable: false');
@@ -91,7 +92,9 @@ function writeIndexLines(lines: string[]): void {
 
 function indexEntryRegex(id: string): RegExp {
   const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^-\\s+(?:\\[.*?\\]\\()?${escaped}(?:\\))?(?:/SKILL\\.md)?\\s*$`);
+  // Match both - and * bullets, optional backticks, optional markdown link wrapping,
+  // and optional /SKILL.md suffix (inside or outside link parens)
+  return new RegExp(`^[-*]\\s+(?:\`)?(?:\\[.*?\\]\\()?${escaped}(?:/SKILL\\.md)?(?:\\))?(?:\`)?\\s*$`);
 }
 
 export function upsertSkillsIndexEntry(id: string): void {
@@ -143,6 +146,13 @@ export function createManagedSkill(params: CreateManagedSkillParams): CreateMana
   const validationError = validateManagedSkillId(params.id);
   if (validationError) {
     return { created: false, path: '', indexUpdated: false, error: validationError };
+  }
+
+  if (!params.name || !params.name.trim()) {
+    return { created: false, path: '', indexUpdated: false, error: 'name is required' };
+  }
+  if (!params.description || !params.description.trim()) {
+    return { created: false, path: '', indexUpdated: false, error: 'description is required' };
   }
 
   const skillDir = getManagedSkillDir(params.id);
