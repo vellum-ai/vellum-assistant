@@ -330,6 +330,17 @@ export interface ShareAppCloudRequest {
   appId: string;
 }
 
+export interface ShareToSlackRequest {
+  type: 'share_to_slack';
+  appId: string;
+}
+
+export interface SlackWebhookConfigRequest {
+  type: 'slack_webhook_config';
+  action: 'get' | 'set';
+  webhookUrl?: string;
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -499,6 +510,8 @@ export type ClientMessage =
   | GetSigningIdentityResponse
   | IpcBlobProbe
   | ShareAppCloudRequest
+  | ShareToSlackRequest
+  | SlackWebhookConfigRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest;
@@ -1019,6 +1032,19 @@ export interface GalleryInstallResponse {
   error?: string;
 }
 
+export interface ShareToSlackResponse {
+  type: 'share_to_slack_response';
+  success: boolean;
+  error?: string;
+}
+
+export interface SlackWebhookConfigResponse {
+  type: 'slack_webhook_config_response';
+  webhookUrl?: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface TimerCompleted {
   type: 'timer_completed';
   sessionId: string;
@@ -1183,7 +1209,9 @@ export type ServerMessage =
   | ShareAppCloudResponse
   | TraceEvent
   | GalleryListResponse
-  | GalleryInstallResponse;
+  | GalleryInstallResponse
+  | ShareToSlackResponse
+  | SlackWebhookConfigResponse;
 
 // === Contract schema ===
 

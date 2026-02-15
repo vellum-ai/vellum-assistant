@@ -1150,6 +1150,41 @@ extension IPCOpenBundleResponseManifest {
 }
 
 
+// MARK: - Slack Webhook Messages (Manual)
+
+public struct ShareToSlackRequestMessage: Encodable, Sendable {
+    public let type = "share_to_slack"
+    public let appId: String
+
+    public init(appId: String) {
+        self.appId = appId
+    }
+}
+
+public struct SlackWebhookConfigRequestMessage: Encodable, Sendable {
+    public let type = "slack_webhook_config"
+    public let action: String
+    public let webhookUrl: String?
+
+    public init(action: String, webhookUrl: String? = nil) {
+        self.action = action
+        self.webhookUrl = webhookUrl
+    }
+}
+
+public struct ShareToSlackResponseMessage: Decodable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+}
+
+public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
+    public let type: String
+    public let webhookUrl: String?
+    public let success: Bool
+    public let error: String?
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
@@ -1197,6 +1232,8 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
+    case shareToSlackResponse(ShareToSlackResponseMessage)
+    case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case getSigningIdentity
@@ -1341,6 +1378,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
+        case "share_to_slack_response":
+            let message = try ShareToSlackResponseMessage(from: decoder)
+            self = .shareToSlackResponse(message)
+        case "slack_webhook_config_response":
+            let message = try SlackWebhookConfigResponseMessage(from: decoder)
+            self = .slackWebhookConfigResponse(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)
