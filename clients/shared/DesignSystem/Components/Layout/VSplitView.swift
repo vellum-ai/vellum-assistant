@@ -8,7 +8,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
     public let panel: Panel?
     @Binding public var panelWidth: Double
     public var showPanel: Bool = false
-    @GestureState private var dragStartWidth: Double? = nil
+    @State private var dragStartWidth: Double?
+    @State private var dragStartAvailableWidth: CGFloat?
 
     public var body: some View {
         GeometryReader { geometry in
@@ -35,7 +36,6 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 }
             }
             .animation(VAnimation.standard, value: showPanel)
-            .animation(nil, value: panelWidth)
         }
     }
 
@@ -55,23 +55,36 @@ public struct VSplitView<Main: View, Panel: View>: View {
             #endif
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .updating($dragStartWidth) { _, state, _ in
-                        // Capture initial width on first call
-                        if state == nil {
-                            state = panelWidth
-                        }
-                    }
                     .onChanged { value in
-                        // Use initial width from gesture state, not current panelWidth
-                        let initialWidth = dragStartWidth ?? panelWidth
+                        // Capture initial state on first drag event
+                        if dragStartWidth == nil {
+                            dragStartWidth = panelWidth
+                            dragStartAvailableWidth = availableWidth
+                        }
+
+                        guard let initialWidth = dragStartWidth,
+                              let initialAvailableWidth = dragStartAvailableWidth else {
+                            return
+                        }
+
                         // Dragging left (negative) increases width, dragging right (positive) decreases width
                         let newWidth = initialWidth - value.translation.width
 
                         // Compute max panel width: available width minus minimum main content (300pt), divider (8pt), and padding (16pt total)
                         let minMainContent: CGFloat = 300
-                        let maxAllowed = availableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
+                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
 
-                        panelWidth = min(max(newWidth, 300), maxAllowed)
+                        // Disable all animations during drag to prevent jitter
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            panelWidth = min(max(newWidth, 300), maxAllowed)
+                        }
+                    }
+                    .onEnded { _ in
+                        // Reset drag state
+                        dragStartWidth = nil
+                        dragStartAvailableWidth = nil
                     }
             )
     }
