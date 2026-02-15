@@ -122,7 +122,12 @@ export class RuntimeHttpServer {
     // Serve shareable app pages
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === 'GET') {
-      return this.handleServePage(pagesMatch[1]);
+      try {
+        return this.handleServePage(pagesMatch[1]);
+      } catch (err) {
+        log.error({ err, appId: pagesMatch[1] }, 'Runtime HTTP handler error serving page');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
     }
 
     // Match /v1/assistants/:assistantId/<endpoint>
