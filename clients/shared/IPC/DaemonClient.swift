@@ -196,7 +196,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// The probe ID we're currently waiting for a response to.
     /// Used to match ipc_blob_probe_result to the outstanding probe.
-    private var pendingProbeId: String?
+    /// Internal (not private) for testability via @testable import.
+    var pendingProbeId: String?
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -874,7 +875,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     #endif
 
     /// Process a blob probe result from the daemon.
-    private func handleBlobProbeResult(_ result: IpcBlobProbeResultMessage) {
+    /// Internal (not private) for testability via @testable import.
+    func handleBlobProbeResult(_ result: IpcBlobProbeResultMessage) {
         guard result.probeId == pendingProbeId else {
             log.warning("Blob probe: ignoring stale result for \(result.probeId) (expected \(self.pendingProbeId ?? "nil"))")
             return
