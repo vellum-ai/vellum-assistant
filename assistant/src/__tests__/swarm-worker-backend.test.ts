@@ -61,10 +61,11 @@ describe('getProfilePolicy', () => {
       }
     });
 
-    test('denies write tools', () => {
+    test('denies write tools and Bash', () => {
       for (const tool of WRITE_TOOLS) {
         expect(policy.deny.has(tool)).toBe(true);
       }
+      expect(policy.deny.has('Bash')).toBe(true);
     });
   });
 
