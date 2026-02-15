@@ -215,11 +215,18 @@ export class DaemonServer {
   }
 
   /**
-   * Record the runtime HTTP server port so it can be communicated
-   * to newly connected clients via the `daemon_status` message.
+   * Record the runtime HTTP server port and broadcast it to all
+   * connected clients so they can enable the share UI immediately.
    */
   setHttpPort(port: number): void {
     this.httpPort = port;
+    // Clients that connected before the HTTP server started received
+    // daemon_status with no httpPort. Broadcast the updated port so
+    // they can enable the share UI without reconnecting.
+    this.broadcast({
+      type: 'daemon_status',
+      httpPort: port,
+    });
   }
 
   /**
