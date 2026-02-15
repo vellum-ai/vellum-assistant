@@ -68,7 +68,8 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
 import { EvaluateTypescriptTool } from '../tools/terminal/evaluate-typescript.js';
-import { loadSkillCatalog, loadSkillBySelector } from '../config/skills.js';
+import { SkillLoadTool } from '../tools/skills/load.js';
+import { loadSkillCatalog } from '../config/skills.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -200,6 +201,7 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
   test('evaluate → scaffold → skill_load chain: literal tool execution', async () => {
     const ctx = makeContext();
     const evalTool = new (EvaluateTypescriptTool as any)() as InstanceType<typeof EvaluateTypescriptTool>;
+    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<typeof SkillLoadTool>;
 
     // Step 1: Run evaluate_typescript_code with code that returns skill metadata
     const code = `export default () => ({
@@ -229,20 +231,22 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
 
-    // Step 3: Use loadSkillBySelector (the function skill_load calls) to load the skill
-    const loaded = loadSkillBySelector('chain-test');
-    expect(loaded.skill).toBeDefined();
-    expect(loaded.skill!.name).toBe('Chain Test');
-    expect(loaded.skill!.description).toBe('Created from evaluate output.');
-    expect(loaded.skill!.body).toContain('dynamically created');
-    expect(loaded.skill!.body).toContain('echo chain-test-ok');
+    // Step 3: Call skill_load tool to load the created skill
+    const loadResult = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
+    expect(loadResult.isError).not.toBe(true);
+    const loadContent = loadResult.content as string;
+    expect(loadContent).toContain('Skill: Chain Test');
+    expect(loadContent).toContain('ID: chain-test');
+    expect(loadContent).toContain('Description: Created from evaluate output.');
+    expect(loadContent).toContain('dynamically created');
+    expect(loadContent).toContain('echo chain-test-ok');
 
     // Step 4: Clean up
     const deleteResult = await deleteTool.execute({ skill_id: 'chain-test' }, ctx);
     expect(deleteResult.isError).not.toBe(true);
 
-    // Step 5: Verify skill_load no longer finds the deleted skill
-    const loadedAfter = loadSkillBySelector('chain-test');
-    expect(loadedAfter.skill).toBeUndefined();
+    // Step 5: Verify skill_load returns error for deleted skill
+    const loadAfterDelete = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
+    expect(loadAfterDelete.isError).toBe(true);
   });
 });

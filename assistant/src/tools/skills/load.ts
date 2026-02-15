@@ -4,7 +4,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { loadSkillBySelector } from '../../config/skills.js';
 
-class SkillLoadTool implements Tool {
+export class SkillLoadTool implements Tool {
   name = 'skill_load';
   description = 'Load full instructions for a configured skill from ~/.vellum/skills.';
   category = 'skills';
