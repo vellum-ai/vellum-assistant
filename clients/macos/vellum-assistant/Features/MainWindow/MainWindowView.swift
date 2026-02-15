@@ -17,7 +17,9 @@ struct MainWindowView: View {
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
-    @GestureState private var drawerDragStartWidth: Double? = nil
+    @State private var drawerDragStartWidth: Double?
+    @State private var drawerDragStartAvailableWidth: CGFloat?
+    @State private var isDrawerDragging: Bool = false
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -100,6 +102,7 @@ struct MainWindowView: View {
                             // Left: Thread drawer (conditional)
                             if columnVisibility != .detailOnly {
                                 threadDrawerView
+                                    .animation(nil, value: threadDrawerWidth)  // Disable animation on width changes
                                     .transition(.move(edge: .leading))
 
                                 drawerDragDivider(availableWidth: geometry.size.width)
@@ -108,7 +111,7 @@ struct MainWindowView: View {
                             // Center: Chat + right panel
                             chatContentView(geometry: geometry)
                         }
-                        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
+                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
                 } else {
                     // Tab mode: Traditional layout
@@ -339,19 +342,41 @@ struct MainWindowView: View {
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .updating($drawerDragStartWidth) { _, state, _ in
-                        if state == nil {
-                            state = threadDrawerWidth
-                        }
-                    }
                     .onChanged { value in
-                        let initialWidth = drawerDragStartWidth ?? threadDrawerWidth
+                        // Capture initial state on first drag event
+                        if drawerDragStartWidth == nil {
+                            drawerDragStartWidth = threadDrawerWidth
+                            drawerDragStartAvailableWidth = availableWidth
+                            isDrawerDragging = true
+                        }
+
+                        guard let initialWidth = drawerDragStartWidth,
+                              let initialAvailableWidth = drawerDragStartAvailableWidth else {
+                            return
+                        }
+
                         let newWidth = initialWidth + value.translation.width
                         let minMainContent: CGFloat = 300
-                        let maxAllowed = availableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
-                        threadDrawerWidth = min(max(newWidth, 180), maxAllowed)
+                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.sm - (VSpacing.sm * 2)
+
+                        // Update width without animation to prevent jitter
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            threadDrawerWidth = min(max(newWidth, 180), maxAllowed)
+                        }
+                    }
+                    .onEnded { _ in
+                        isDrawerDragging = false
+                        drawerDragStartWidth = nil
+                        drawerDragStartAvailableWidth = nil
                     }
             )
+            .onDisappear {
+                isDrawerDragging = false
+                drawerDragStartWidth = nil
+                drawerDragStartAvailableWidth = nil
+            }
     }
 
     @ViewBuilder
