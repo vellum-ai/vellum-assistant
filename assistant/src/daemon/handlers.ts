@@ -48,7 +48,6 @@ import type {
   ShareAppCloudRequest,
   UiSurfaceShow,
   IpcBlobProbe,
-  GalleryListRequest,
   GalleryInstallRequest,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
@@ -57,7 +56,7 @@ import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
 import { computeContentId } from '../util/content-id.js';
 import { execSync } from 'node:child_process';
-import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { addRule, removeRule, updateRule, getAllRules } from '../permissions/trust-store.js';
@@ -2085,7 +2084,6 @@ function readVellumConfig(): Record<string, unknown> {
 }
 
 function writeVellumConfig(config: Record<string, unknown>): void {
-  const { writeFileSync, mkdirSync } = require('node:fs') as typeof import('node:fs');
   const configPath = getVellumConfigPath();
   const dir = join(configPath, '..');
   mkdirSync(dir, { recursive: true });
