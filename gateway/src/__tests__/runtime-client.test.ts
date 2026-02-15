@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { forwardToRuntime } from "../runtime/client.js";
+import { forwardToRuntime, downloadAttachment } from "../runtime/client.js";
+import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 
 const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
@@ -33,6 +34,14 @@ const payload = {
   senderName: "Test User",
 };
 
+const testAttachment: RuntimeAttachmentMeta = {
+  id: "att-1",
+  filename: "chart.png",
+  mimeType: "image/png",
+  sizeBytes: 1024,
+  kind: "generated_image",
+};
+
 const successBody = {
   accepted: true,
   duplicate: false,
@@ -42,7 +51,7 @@ const successBody = {
     role: "assistant" as const,
     content: "Hi there!",
     timestamp: new Date().toISOString(),
-    attachments: [],
+    attachments: [testAttachment],
   },
 };
 
@@ -116,5 +125,70 @@ describe("forwardToRuntime", () => {
     await expect(
       forwardToRuntime(config, "assistant-a", payload),
     ).rejects.toThrow("Runtime returned 500");
+  });
+
+  test("response includes typed attachment metadata", async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(successBody), { status: 200 }),
+      ),
+    );
+
+    const config = makeConfig();
+    const result = await forwardToRuntime(config, "assistant-a", payload);
+    const attachments = result.assistantMessage?.attachments ?? [];
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].id).toBe("att-1");
+    expect(attachments[0].filename).toBe("chart.png");
+    expect(attachments[0].mimeType).toBe("image/png");
+    expect(attachments[0].sizeBytes).toBe(1024);
+    expect(attachments[0].kind).toBe("generated_image");
+  });
+});
+
+describe("downloadAttachment", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("downloads attachment payload with base64 data", async () => {
+    const attachmentPayload = {
+      id: "att-1",
+      filename: "chart.png",
+      mimeType: "image/png",
+      sizeBytes: 1024,
+      kind: "generated_image",
+      data: "iVBORw0KGgo=",
+    };
+
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(attachmentPayload), { status: 200 }),
+      ),
+    );
+
+    const config = makeConfig();
+    const result = await downloadAttachment(config, "assistant-a", "att-1");
+    expect(result.id).toBe("att-1");
+    expect(result.filename).toBe("chart.png");
+    expect(result.data).toBe("iVBORw0KGgo=");
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toContain("/attachments/att-1");
+  });
+
+  test("throws on 404 not found", async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response('{"error":"Attachment not found"}', { status: 404 }),
+      ),
+    );
+
+    const config = makeConfig();
+    await expect(
+      downloadAttachment(config, "assistant-a", "nonexistent"),
+    ).rejects.toThrow("Attachment download failed (404)");
   });
 });
