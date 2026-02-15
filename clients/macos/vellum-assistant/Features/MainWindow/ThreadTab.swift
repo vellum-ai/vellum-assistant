@@ -37,14 +37,14 @@ struct ThreadTab: View {
         .overlay(alignment: .trailing) {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
+                    Image(systemName: "archivebox")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 16, height: 16)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close \(label)")
+                .accessibilityLabel("Archive \(label)")
                 .padding(.trailing, VSpacing.sm)
             }
         }

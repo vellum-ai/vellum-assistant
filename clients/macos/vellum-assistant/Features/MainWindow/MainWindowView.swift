@@ -237,14 +237,14 @@ struct MainWindowView: View {
         .overlay(alignment: .trailing) {
             if threadManager.threads.count > 1 {
                 Button(action: { threadManager.closeThread(id: thread.id) }) {
-                    Image(systemName: "xmark")
+                    Image(systemName: "archivebox")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 16, height: 16)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close \(thread.title)")
+                .accessibilityLabel("Archive \(thread.title)")
                 .padding(.trailing, VSpacing.lg)
             }
         }
