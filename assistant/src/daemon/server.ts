@@ -12,6 +12,7 @@ import { resetAllowlist } from '../security/secret-allowlist.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session } from './session.js';
+import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
   serialize,
@@ -654,6 +655,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    sourceChannel?: string,
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
 
@@ -666,6 +668,7 @@ export class DaemonServer {
     // Set assistantId AFTER the isProcessing check so a rejected request
     // doesn't mutate the session state visible to an in-flight request.
     session.setAssistantId(assistantId);
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
@@ -700,6 +703,7 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    sourceChannel?: string,
   ): Promise<{ messageId: string }> {
     const session = await this.getOrCreateSession(conversationId);
 
@@ -710,6 +714,7 @@ export class DaemonServer {
     // Set assistantId AFTER the isProcessing check so a rejected request
     // doesn't mutate the session state visible to an in-flight request.
     session.setAssistantId(assistantId);
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

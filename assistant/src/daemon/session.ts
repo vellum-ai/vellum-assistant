@@ -68,8 +68,8 @@ import { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import { applyRuntimeInjections, stripActiveSurfaceContext } from './session-runtime-assembly.js';
-import type { ActiveSurfaceContext } from './session-runtime-assembly.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext, stripChannelCapabilityContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -121,6 +121,7 @@ export class Session {
   private readonly queue = new MessageQueue();
   private currentActiveSurfaceId?: string;
   private currentPage?: string;
+  private channelCapabilities?: ChannelCapabilities;
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
@@ -515,6 +516,10 @@ export class Session {
     this.assistantId = assistantId;
   }
 
+  setChannelCapabilities(caps: ChannelCapabilities): void {
+    this.channelCapabilities = caps;
+  }
+
   private async approveHostAttachmentRead(filePath: string): Promise<boolean> {
     const toolName = 'host_file_read';
     const input = { path: filePath };
@@ -866,6 +871,7 @@ export class Session {
       runMessages = applyRuntimeInjections(runMessages, {
         softConflictInstruction,
         activeSurface,
+        channelCapabilities: this.channelCapabilities ?? null,
       });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
@@ -1146,8 +1152,10 @@ export class Session {
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-      this.messages = stripActiveSurfaceContext(
-        stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+      this.messages = stripChannelCapabilityContext(
+        stripActiveSurfaceContext(
+          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+        ),
       );
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);

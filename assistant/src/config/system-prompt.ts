@@ -59,6 +59,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildOnboardingGuidanceSection());
+  parts.push(buildChannelAwarenessSection());
   parts.push(buildSwarmGuidanceSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
@@ -165,6 +166,27 @@ function buildDynamicUiSection(): string {
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a visual output rather than displaying raw tool outputs.',
     '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` or `app_create` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished output — use `app_create` for custom UIs, or `ui_show` with domain component classes for predefined data types.',
+  ].join('\n');
+}
+
+export function buildChannelAwarenessSection(): string {
+  return [
+    '## Channel Awareness & Trust Gating',
+    '',
+    'Each turn may include a `<channel_capabilities>` block in the user message describing what the current channel supports. Use this to adapt your behaviour:',
+    '',
+    '### Channel-specific rules',
+    '- When `dashboard_capable` is `false`, never reference the dashboard UI, settings panels, dynamic pages, or visual pickers. Present data as formatted text.',
+    '- When `supports_dynamic_ui` is `false`, do not call `ui_show`, `ui_update`, or `app_create`.',
+    '- When `supports_voice_input` is `false`, do not ask the user to speak or use their microphone.',
+    '- Non-dashboard channels should defer dashboard-specific actions. Tell the user they can complete those steps later from the desktop app.',
+    '',
+    '### Permission ask trust gating',
+    '- Do NOT proactively ask for elevated permissions (microphone, computer control, file access) until the trust stage field `firstConversationComplete` in USER.md is `true`.',
+    '- Even after `firstConversationComplete`, only ask for permissions that are relevant to the current channel capabilities.',
+    '- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.',
+    '- Do not ask for computer-control permissions on non-dashboard channels.',
+    '- When you do request a permission, be transparent about what it enables and why you need it.',
   ].join('\n');
 }
 

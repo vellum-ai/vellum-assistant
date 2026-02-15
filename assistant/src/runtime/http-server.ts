@@ -35,6 +35,7 @@ export type MessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
+  sourceChannel?: string,
 ) => Promise<{ messageId: string }>;
 
 /**
@@ -47,6 +48,7 @@ export type NonBlockingMessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
+  sourceChannel?: string,
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
@@ -498,9 +500,10 @@ export class RuntimeHttpServer {
       conversationKey?: string;
       content?: string;
       attachmentIds?: string[];
+      sourceChannel?: string;
     };
 
-    const { conversationKey, content, attachmentIds } = body;
+    const { conversationKey, content, attachmentIds, sourceChannel } = body;
 
     if (!conversationKey) {
       return Response.json(
@@ -553,6 +556,7 @@ export class RuntimeHttpServer {
         mapping.conversationId,
         content ?? '',
         hasAttachments ? attachmentIds : undefined,
+        sourceChannel,
       );
       return Response.json({ accepted: true, messageId: result.messageId });
     } catch (err) {
@@ -887,7 +891,7 @@ export class RuntimeHttpServer {
     let processingSucceeded = false;
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
+        await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined, sourceChannel);
         processingSucceeded = true;
       } catch (err) {
         console.error(`[runtime-http] Processing failed`, err);
