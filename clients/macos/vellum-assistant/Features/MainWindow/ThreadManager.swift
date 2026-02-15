@@ -7,24 +7,22 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 
 @MainActor
-final class ThreadManager: ObservableObject {
-    @AppStorage("restoreRecentThreads") private var restoreRecentThreads = false
+final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
+    @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = false
     @Published var threads: [ThreadModel] = []
     @Published var activeThreadId: UUID? {
         didSet {
             subscribeToActiveViewModel()
-            loadHistoryForActiveThreadIfNeeded()
+            if let activeThreadId {
+                sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
+            }
         }
     }
 
     private var chatViewModels: [UUID: ChatViewModel] = [:]
     private let daemonClient: DaemonClient
     private var viewModelCancellable: AnyCancellable?
-    private var connectionCancellable: AnyCancellable?
-
-    /// Maps session IDs to thread IDs for in-flight history_request messages,
-    /// so rapid tab switches don't cause history from one thread to land in another.
-    private var pendingHistoryBySessionId: [String: UUID] = [:]
+    private let sessionRestorer: ThreadSessionRestorer
 
     /// Called when an inline confirmation response should dismiss the floating panel.
     var confirmationDismissHandler: ((String) -> Void)?
@@ -36,9 +34,11 @@ final class ThreadManager: ObservableObject {
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
+        self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
         // Create one default thread so the window is never empty
         createThread()
-        observeDaemonConnection()
+        sessionRestorer.delegate = self
+        sessionRestorer.startObserving()
     }
 
     func createThread() {
@@ -111,107 +111,21 @@ final class ThreadManager: ObservableObject {
         return true
     }
 
-    // MARK: - Session Restoration
+    // MARK: - ThreadRestorerDelegate
 
-    private func observeDaemonConnection() {
-        daemonClient.onSessionListResponse = { [weak self] response in
-            self?.handleSessionListResponse(response)
-        }
-        daemonClient.onHistoryResponse = { [weak self] response in
-            self?.handleHistoryResponse(response)
-        }
-
-        // Fetch session list when daemon connects
-        connectionCancellable = daemonClient.$isConnected
-            .removeDuplicates()
-            .filter { $0 }
-            .first()
-            .sink { [weak self] _ in
-                self?.fetchSessionList()
-            }
+    func chatViewModel(for threadId: UUID) -> ChatViewModel? {
+        chatViewModels[threadId]
     }
 
-    private func fetchSessionList() {
-        do {
-            try daemonClient.sendSessionList()
-        } catch {
-            log.error("Failed to send session_list: \(error.localizedDescription)")
-        }
+    func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
+        chatViewModels[threadId] = vm
     }
 
-    private func handleSessionListResponse(_ response: SessionListResponseMessage) {
-        guard restoreRecentThreads else { return }
-        guard !response.sessions.isEmpty else { return }
-
-        // Load up to 5 most recent sessions (daemon returns them sorted by updatedAt DESC)
-        let recentSessions = Array(response.sessions.prefix(5))
-
-        // Check if the default "New Thread" is still unused
-        let defaultThreadIsEmpty = threads.count == 1
-            && chatViewModels[threads[0].id]?.messages.isEmpty ?? true
-            && chatViewModels[threads[0].id]?.sessionId == nil
-
-        var restoredThreads: [ThreadModel] = []
-        for session in recentSessions {
-            let thread = ThreadModel(
-                title: session.title,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
-                sessionId: session.id
-            )
-            let viewModel = makeViewModel()
-            viewModel.sessionId = session.id
-            chatViewModels[thread.id] = viewModel
-            restoredThreads.append(thread)
-        }
-
-        if defaultThreadIsEmpty {
-            // Replace the empty default thread with restored sessions
-            if let defaultThread = threads.first {
-                chatViewModels.removeValue(forKey: defaultThread.id)
-            }
-            threads = restoredThreads
-        } else {
-            // Keep the user's active thread, prepend restored sessions
-            threads = restoredThreads + threads
-        }
-
-        // Activate the most recent thread and load its history
-        if let firstThread = restoredThreads.first {
-            activeThreadId = firstThread.id
-        }
-
-        log.info("Restored \(restoredThreads.count) threads from daemon")
+    func removeChatViewModel(for threadId: UUID) {
+        chatViewModels.removeValue(forKey: threadId)
     }
 
-    private func loadHistoryForActiveThreadIfNeeded() {
-        guard let activeThreadId else { return }
-        guard let thread = threads.first(where: { $0.id == activeThreadId }) else { return }
-        guard let sessionId = thread.sessionId else { return }
-        guard let viewModel = chatViewModels[activeThreadId] else { return }
-        guard !viewModel.isHistoryLoaded else { return }
-
-        pendingHistoryBySessionId[sessionId] = activeThreadId
-
-        do {
-            try daemonClient.sendHistoryRequest(sessionId: sessionId)
-        } catch {
-            log.error("Failed to send history_request: \(error.localizedDescription)")
-            pendingHistoryBySessionId.removeValue(forKey: sessionId)
-        }
-    }
-
-    private func handleHistoryResponse(_ response: HistoryResponseMessage) {
-        guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
-
-        guard let viewModel = chatViewModels[threadId] else { return }
-        viewModel.populateFromHistory(response.messages)
-        log.info("Loaded \(response.messages.count) history messages for thread \(threadId)")
-    }
-
-    // MARK: - Private
-
-    /// Create a ChatViewModel with standard callback wiring.
-    private func makeViewModel() -> ChatViewModel {
+    func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
         viewModel.onInlineConfirmationResponse = { [weak self] requestId in
             self?.confirmationDismissHandler?(requestId)
@@ -222,6 +136,12 @@ final class ThreadManager: ObservableObject {
         }
         return viewModel
     }
+
+    func activateThread(_ id: UUID) {
+        activeThreadId = id
+    }
+
+    // MARK: - Private
 
     /// Subscribe to the active ChatViewModel's objectWillChange so that
     /// SwiftUI re-evaluates views when the nested view model publishes
