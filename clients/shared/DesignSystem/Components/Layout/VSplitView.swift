@@ -5,6 +5,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
     public let panel: Panel?
     @Binding public var panelWidth: Double
     public var showPanel: Bool = false
+    @GestureState private var dragStartWidth: Double? = nil
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -46,9 +47,17 @@ public struct VSplitView<Main: View, Panel: View>: View {
             }
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($dragStartWidth) { _, state, _ in
+                        // Capture initial width on first call
+                        if state == nil {
+                            state = panelWidth
+                        }
+                    }
                     .onChanged { value in
+                        // Use initial width from gesture state, not current panelWidth
+                        let initialWidth = dragStartWidth ?? panelWidth
                         // Dragging left (negative) increases width, dragging right (positive) decreases width
-                        let newWidth = panelWidth - value.translation.width
+                        let newWidth = initialWidth - value.translation.width
                         panelWidth = min(max(newWidth, 300), 800)
                     }
             )
