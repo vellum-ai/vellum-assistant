@@ -140,10 +140,11 @@ struct MainWindowView: View {
             refreshAPIKeyState()
         }
         .onChange(of: activePanel) { _, newPanel in
-            // Reset expanded state when navigating away from the Dynamic panel
-            // via toolbar or tab bar buttons, which only modify activePanel.
+            // Reset expanded state and active surface when navigating away from the
+            // Dynamic panel via toolbar or tab bar buttons, which only modify activePanel.
             if newPanel != .generated {
                 isDynamicExpanded = false
+                activeDynamicSurface = nil
             }
         }
         .onChange(of: selectedThreadId) { _, newId in
@@ -269,7 +270,7 @@ struct MainWindowView: View {
             } else {
                 // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
-                    onClose: { activePanel = nil; isDynamicExpanded = false },
+                    onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil },
                     isExpanded: $isDynamicExpanded,
                     daemonClient: daemonClient,
                     onOpenApp: { surfaceMsg in
@@ -453,7 +454,7 @@ struct MainWindowView: View {
         if let panel = activePanel {
             switch panel {
             case .generated:
-                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
+                GeneratedPanel(onClose: { activePanel = nil; isDynamicExpanded = false; activeDynamicSurface = nil }, isExpanded: $isDynamicExpanded, daemonClient: daemonClient)
             case .agent:
                 AgentPanel(onClose: { activePanel = nil }, onInvokeSkill: { skill in
                     if threadManager.activeViewModel == nil {
