@@ -83,7 +83,7 @@ graph TB
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s"]
         end
 
-        subgraph "SQLite Database (~/.vellum/data/db/assistant.db)"
+        subgraph "SQLite Database (~/.vellum/workspace/data/db/assistant.db)"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
@@ -352,7 +352,7 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "~/.vellum/data/db/assistant.db (SQLite + WAL)"
+    subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
@@ -370,13 +370,16 @@ graph LR
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
     end
 
-    subgraph "~/.vellum/data/ipc-blobs/"
+    subgraph "~/.vellum/workspace/data/ipc-blobs/"
         BLOBS["*.blob<br/>───────────────<br/>Ephemeral blob files<br/>UUID filenames<br/>Atomic temp+rename writes<br/>Consumed after daemon hydration<br/>Stale sweep every 5min (30min max age)"]
     end
 
-    subgraph "~/.vellum/ (Other Files)"
+    subgraph "~/.vellum/ (Root Files)"
         SOCK["vellum.sock<br/>Unix domain socket"]
-        TRUST["trust.json<br/>Tool permission rules"]
+        TRUST["protected/trust.json<br/>Tool permission rules"]
+    end
+
+    subgraph "~/.vellum/workspace/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
     end
 
@@ -771,7 +774,7 @@ graph TB
         LOCAL_CLIENT["LocalDaemonClient"]
         LOCAL_SOCK["Unix Socket<br/>~/.vellum/vellum.sock"]
         LOCAL_DAEMON["Local Daemon<br/>(same machine)"]
-        LOCAL_DB["~/.vellum/data/db/assistant.db"]
+        LOCAL_DB["~/.vellum/workspace/data/db/assistant.db"]
     end
 
     subgraph "Cloud Mode"
@@ -934,7 +937,7 @@ On iOS (TCP connections), the probe code is compiled out via `#if os(macOS)` —
 
 ### Blob Directory
 
-All blobs live at `~/.vellum/data/ipc-blobs/`. Filenames are `${uuid}.blob`. The daemon ensures this directory exists on startup. Both client and daemon use atomic writes (temp file + rename) to prevent partial reads.
+All blobs live at `~/.vellum/workspace/data/ipc-blobs/`. Filenames are `${uuid}.blob`. The daemon ensures this directory exists on startup. Both client and daemon use atomic writes (temp file + rename) to prevent partial reads.
 
 ### Blob Reference
 
@@ -1131,7 +1134,7 @@ graph TB
 
     NATIVE -->|"macOS"| SBPL["sandbox-exec<br/>SBPL profile<br/>deny-default + allow workdir"]
     NATIVE -->|"Linux"| BWRAP["bwrap<br/>bubblewrap<br/>ro-root + rw-workdir<br/>unshare-net + unshare-pid"]
-    SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/data/sandbox/fs"]
+    SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/workspace"]
     BWRAP --> SB_FS
 
     DOCKER --> PREFLIGHT["Preflight checks<br/>CLI → daemon → image → mount"]
@@ -1151,10 +1154,10 @@ graph TB
 
 - **Backend selection**: The `sandbox.backend` config option (`"native"` or `"docker"`) determines how `bash` commands are sandboxed. The default is `"docker"`.
 - **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root, `/tmp`, `/private/tmp`, and `/var/folders` (macOS) or the sandbox root and `/tmp` (Linux).
-- **Docker backend**: Wraps each command in an ephemeral `docker run --rm` container. The canonical sandbox filesystem root (`~/.vellum/data/sandbox/fs`) is always bind-mounted to `/workspace`, regardless of which subdirectory the command runs in. Commands are wrapped with `bash -c`. Containers run with all capabilities dropped, a read-only root filesystem, no network access, and host UID:GID forwarding. The default image is `node:20-slim` (pinned with a `sha256` digest).
+- **Docker backend**: Wraps each command in an ephemeral `docker run --rm` container. The canonical sandbox filesystem root (`~/.vellum/workspace`) is always bind-mounted to `/workspace`, regardless of which subdirectory the command runs in. Commands are wrapped with `bash -c`. Containers run with all capabilities dropped, a read-only root filesystem, no network access, and host UID:GID forwarding. The default image is `node:20-slim` (pinned with a `sha256` digest).
 - **Fail-closed**: Both backends refuse to execute unsandboxed if their prerequisites are unavailable. The Docker backend runs preflight checks (CLI, daemon, image, writable mount probe via `test -w /workspace`) and throws `ToolError` with actionable messages on failure. Positive preflight results are cached; negative results are rechecked on every call. The `vellum doctor` command validates the same checks against the same sandbox path.
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
-- Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/data/sandbox/fs`.
+- Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools, `request_computer_control`, and `cu_*` actions default to `ask` unless a trust rule allowlists/denylists them.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
@@ -1190,7 +1193,7 @@ Key behaviors:
 
 ## Dynamic Skill Authoring — Tool Flow
 
-The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/skills/` (managed skills directory) and require explicit user confirmation.
+The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
 
 ```mermaid
 graph TB
@@ -1206,8 +1209,8 @@ graph TB
     subgraph "2. Persist (Filesystem)"
         SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
         MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()<br/>upsertSkillsIndexEntry()"]
-        SKILL_DIR["~/.vellum/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
-        INDEX["~/.vellum/skills/<br/>SKILLS.md (index)"]
+        SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
+        INDEX["~/.vellum/workspace/skills/<br/>SKILLS.md (index)"]
     end
 
     subgraph "3. Load & Use"
@@ -1619,8 +1622,8 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | Component | Location | What it stores |
 |-----------|----------|----------------|
 | Secret values | macOS Keychain | Encrypted credential values keyed as `credential:{service}:{field}` |
-| Credential metadata | `~/.vellum/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
-| Config | `~/.vellum/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
+| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
+| Config | `~/.vellum/workspace/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
 
 ### Key Files
 
@@ -1644,22 +1647,22 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 |------|-------|--------|-----------|-----------|
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
 | Credential secrets | macOS Keychain | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
-| Credential metadata | `~/.vellum/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
+| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
 | Ambient insights | `~/Library/.../insights.json` | JSON array | Swift Codable | Max 50 entries, FIFO |
 | Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
-| Conversations & messages | `~/.vellum/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
-| Memory segments & FTS | `~/.vellum/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
-| Extracted facts | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
-| Conflict lifecycle rows | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Pending until clarified, then retained as resolved history |
-| Entity graph (entities/relations/item links) | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
-| Embeddings | `~/.vellum/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
-| Async job queue | `~/.vellum/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
-| Attachments | `~/.vellum/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
-| Sandbox filesystem | `~/.vellum/data/sandbox/fs` | Real filesystem tree | Node FS APIs | Persistent across sessions |
+| Conversations & messages | `~/.vellum/workspace/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
+| Memory segments & FTS | `~/.vellum/workspace/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
+| Extracted facts | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped |
+| Conflict lifecycle rows | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Pending until clarified, then retained as resolved history |
+| Entity graph (entities/relations/item links) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
+| Embeddings | `~/.vellum/workspace/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
+| Async job queue | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
+| Attachments | `~/.vellum/workspace/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
+| Sandbox filesystem | `~/.vellum/workspace` | Real filesystem tree | Node FS APIs | Persistent across sessions |
 | Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
 | Trace events | In-memory (TraceStore) | Structured events | Swift ObservableObject | Max 5,000 per session, ephemeral |
-| IPC blob payloads | `~/.vellum/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
+| IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
