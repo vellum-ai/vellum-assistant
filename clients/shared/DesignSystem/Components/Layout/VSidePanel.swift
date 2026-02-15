@@ -33,7 +33,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
                     .accessibilityLabel("Close \(title)")
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
+            .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
 
             Divider()
@@ -46,7 +46,8 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             // own ScrollView (e.g. TraceTimelineView) isn't starved.
             ScrollView {
                 content()
-                    .padding(VSpacing.xl)
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
             .layoutPriority(-1)
         }
