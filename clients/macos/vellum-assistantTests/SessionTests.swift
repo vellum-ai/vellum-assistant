@@ -1646,12 +1646,18 @@ final class SessionTests: XCTestCase {
             executionResult: nil,
             executionError: nil,
             axTreeBlob: largeAxBlobRef,
-            screenshotBlob: blobRef
+            screenshotBlob: IPCIpcBlobRef(
+                id: "screenshot-blob-id",
+                kind: "screenshot_jpeg",
+                encoding: "binary",
+                byteLength: 300_000,
+                sha256: String(repeating: "c", count: 64)
+            )
         )
         let blobLargeJSON = try JSONEncoder().encode(blobLarge)
 
-        // Large scenario: inline >800KB, blob <1KB (both payloads offloaded)
-        XCTAssertGreaterThan(inlineLargeJSON.count, 800_000)
+        // Large scenario: inline >400KB (300KB screenshot → 400KB base64 + 12KB AX tree), blob <1KB
+        XCTAssertGreaterThan(inlineLargeJSON.count, 400_000)
         XCTAssertLessThan(blobLargeJSON.count, 1_000)
     }
 }
