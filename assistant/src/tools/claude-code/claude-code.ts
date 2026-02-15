@@ -63,7 +63,6 @@ export const claudeCodeTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    // Early abort check
     if (context.signal?.aborted) {
       return { content: 'Cancelled', isError: true };
     }

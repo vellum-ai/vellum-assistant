@@ -98,7 +98,6 @@ export const swarmDelegateTool: Tool = {
       }
       context.onOutput?.('\nExecuting...\n');
 
-      // Check abort before starting execution
       if (context.signal?.aborted) {
         return { content: 'Cancelled before execution', isError: true };
       }
