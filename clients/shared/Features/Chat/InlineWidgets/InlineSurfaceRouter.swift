@@ -20,6 +20,14 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    /// Dynamic page previews render as compact cards that wrap their content.
+    private var isDynamicPreview: Bool {
+        if case .dynamicPage(let data) = surface.data, data.preview != nil {
+            return true
+        }
+        return false
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards handle their own header — skip the generic title
@@ -44,7 +52,33 @@ public struct InlineSurfaceRouter: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
         )
+        .overlay(alignment: .topTrailing) {
+            if isDynamicPreview {
+                Button {
+                    if let msg = surface.surfaceMessage {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                            object: nil,
+                            userInfo: ["surfaceMessage": msg]
+                        )
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(VSpacing.xs)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .fill(VColor.surfaceBorder.opacity(0.3))
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(VSpacing.sm)
+            }
+        }
         .vShadow(VShadow.sm)
+        // Dynamic page previews should wrap their content, not stretch to fill
+        .fixedSize(horizontal: isDynamicPreview, vertical: false)
     }
 
     @ViewBuilder
