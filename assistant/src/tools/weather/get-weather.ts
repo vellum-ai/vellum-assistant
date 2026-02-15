@@ -107,6 +107,109 @@ export function weatherCodeToSFSymbol(code: number, isDay: boolean = true): stri
   return 'cloud.fill';
 }
 
+/**
+ * Maps WMO weather codes to emoji for HTML rendering.
+ */
+function weatherCodeToEmoji(code: number): string {
+  if (code === 0) return '☀️';
+  if (code === 1) return '🌤️';
+  if (code === 2) return '⛅';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if (code >= 51 && code <= 57) return '🌧️';
+  if (code >= 61 && code <= 67) return '🌧️';
+  if (code >= 71 && code <= 77) return '❄️';
+  if (code >= 80 && code <= 82) return '🌦️';
+  if (code >= 85 && code <= 86) return '🌨️';
+  if (code >= 95) return '⛈️';
+  return '☁️';
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+interface WeatherPageInput {
+  location: string;
+  currentTemp: number;
+  feelsLike: number;
+  unit: string;
+  condition: string;
+  conditionCode: number;
+  humidity: number;
+  windSpeed: number;
+  windDirection: string;
+  speedUnit: string;
+  todayHigh: number;
+  todayLow: number;
+  hourly: Array<{ time: string; temp: number; code: number }>;
+  forecast: Array<{ day: string; low: number; high: number; precip: number | null; code: number }>;
+}
+
+/**
+ * Builds a self-contained HTML weather page using the Vellum design system tokens.
+ * This renders in the workspace when the user clicks "View Output" on the preview card.
+ */
+function buildWeatherPageHtml(d: WeatherPageInput): string {
+  const condEmoji = weatherCodeToEmoji(d.conditionCode);
+
+  const hourlyHtml = d.hourly.slice(0, 24).map(h => {
+    const e = weatherCodeToEmoji(h.code);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">` +
+      `<div style="font-size:13px;color:var(--v-text-secondary)">${escapeHtml(h.time)}</div>` +
+      `<div style="font-size:20px">${e}</div>` +
+      `<div style="font-size:14px;font-weight:500">${h.temp}°</div></div>`;
+  }).join('');
+
+  const allTemps = d.forecast.flatMap(f => [f.low, f.high]);
+  const globalMin = Math.min(...allTemps);
+  const globalMax = Math.max(...allTemps);
+  const range = globalMax - globalMin || 1;
+
+  const dailyHtml = d.forecast.map(f => {
+    const e = weatherCodeToEmoji(f.code);
+    const leftPct = ((f.low - globalMin) / range) * 100;
+    const widthPct = Math.max(((f.high - f.low) / range) * 100, 3);
+    const precipCell = f.precip !== null && f.precip > 0
+      ? `<span style="font-size:12px;color:var(--v-accent);width:36px;text-align:right">${f.precip}%</span>`
+      : `<span style="width:36px"></span>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--v-surface-border)">` +
+      `<span style="width:44px;font-size:14px;font-weight:500">${escapeHtml(f.day)}</span>` +
+      `<span style="font-size:18px;width:28px;text-align:center">${e}</span>` +
+      `${precipCell}` +
+      `<span style="font-size:14px;color:var(--v-text-muted);width:36px;text-align:right">${f.low}°</span>` +
+      `<div style="flex:1;height:6px;background:var(--v-surface);border-radius:3px;position:relative;overflow:hidden;min-width:80px">` +
+      `<div style="position:absolute;left:${leftPct}%;width:${widthPct}%;height:100%;border-radius:3px;background:linear-gradient(to right,var(--v-emerald-400),var(--v-amber-400))"></div></div>` +
+      `<span style="font-size:14px;font-weight:500;width:36px">${f.high}°</span></div>`;
+  }).join('');
+
+  return [
+    `<div style="max-width:520px;margin:0 auto;padding:24px">`,
+    // Hero
+    `<div style="text-align:center;margin-bottom:24px">`,
+    `<div style="font-size:13px;text-transform:uppercase;letter-spacing:2px;color:var(--v-text-secondary);font-weight:600;margin-bottom:16px">${escapeHtml(d.location)}</div>`,
+    `<div style="display:flex;align-items:center;justify-content:center;gap:16px">`,
+    `<span style="font-size:72px;font-weight:200;line-height:1;color:var(--v-text)">${d.currentTemp}°</span>`,
+    `<div style="text-align:left">`,
+    `<div style="font-size:32px;line-height:1.2">${condEmoji}</div>`,
+    `<div style="font-size:15px;color:var(--v-text);font-weight:500">${escapeHtml(d.condition)}</div>`,
+    `</div></div>`,
+    `<div style="font-size:14px;color:var(--v-text-muted);margin-top:8px">Feels like ${d.feelsLike}° &middot; H:${d.todayHigh}° L:${d.todayLow}°</div>`,
+    `<div style="font-size:13px;color:var(--v-text-muted);margin-top:4px">💨 ${d.windSpeed} ${escapeHtml(d.speedUnit)} ${escapeHtml(d.windDirection)} &middot; 💧 ${d.humidity}%</div>`,
+    `</div>`,
+    // Hourly
+    `<div style="border-top:1px solid var(--v-surface-border);padding-top:16px;margin-bottom:16px">`,
+    `<div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--v-text-muted);margin-bottom:12px">Hourly Forecast</div>`,
+    `<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px">${hourlyHtml}</div>`,
+    `</div>`,
+    // Daily
+    `<div style="border-top:1px solid var(--v-surface-border);padding-top:16px">`,
+    `<div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--v-text-muted);margin-bottom:8px">${d.forecast.length}-Day Forecast</div>`,
+    dailyHtml,
+    `</div></div>`,
+  ].join('');
+}
+
 function windDirectionToCompass(degrees: number): string {
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const index = Math.round(degrees / 22.5) % 16;
@@ -222,6 +325,7 @@ export async function executeGetWeather(
     high: number;
     precip: number | null;
     condition: string;
+    code: number;
   }> = [];
 
   // The API returns dates in the location's local timezone (timezone=auto),
@@ -247,13 +351,13 @@ export async function executeGetWeather(
 
     lines.push(`${date}: High ${high}\u00B0${tempUnit}, Low ${low}\u00B0${tempUnit}, Precip ${precip}%, ${desc}`);
 
-    forecastItems.push({ day: dayLabel, icon, low, high, precip: precip > 0 ? precip : null, condition: desc });
+    forecastItems.push({ day: dayLabel, icon, low, high, precip: precip > 0 ? precip : null, condition: desc, code: daily.weather_code[i] });
   }
 
   // Process hourly data: next 24 hours from the current hour.
   // Use the current time from the API response (which is in the location's local
   // timezone, thanks to timezone=auto) to find the correct starting index.
-  const hourlyItems: Array<{ time: string; icon: string; temp: number }> = [];
+  const hourlyItems: Array<{ time: string; icon: string; temp: number; code: number }> = [];
   if (forecast.hourly?.time) {
     const currentTimeLocal = forecast.current.time; // e.g. "2026-02-12T22:00"
     const currentHourPrefix = currentTimeLocal.slice(0, 13); // e.g. "2026-02-12T22"
@@ -281,27 +385,48 @@ export async function executeGetWeather(
         timeLabel = `${displayHour}${suffix}`;
       }
 
-      hourlyItems.push({ time: timeLabel, icon, temp: hourTemp });
+      hourlyItems.push({ time: timeLabel, icon, temp: hourTemp, code: forecast.hourly.weather_code[idx] });
     }
   }
 
-  // Include structured data for ui_show weather_forecast template
-  const structured = {
+  // Build dynamic page HTML + preview for compact inline card with "View Output"
+  const todayHigh = forecastItems.length > 0 ? forecastItems[0].high : currentTemp;
+  const todayLow = forecastItems.length > 0 ? forecastItems[0].low : currentTemp;
+
+  const weatherHtml = buildWeatherPageHtml({
     location: locationDisplay,
     currentTemp,
     feelsLike: currentFeelsLike,
     unit: tempUnit,
     condition: currentDescription,
+    conditionCode: current.weather_code,
     humidity: current.relative_humidity_2m,
     windSpeed: currentWind,
     windDirection: windDir,
-    hourly: hourlyItems,
-    forecast: forecastItems,
+    speedUnit,
+    todayHigh,
+    todayLow,
+    hourly: hourlyItems.map(h => ({ time: h.time, temp: h.temp, code: h.code })),
+    forecast: forecastItems.map(f => ({ day: f.day, low: f.low, high: f.high, precip: f.precip, code: f.code })),
+  });
+
+  const uiShowData = {
+    html: weatherHtml,
+    preview: {
+      icon: weatherCodeToEmoji(current.weather_code),
+      title: locationDisplay,
+      subtitle: `${currentTemp}°${tempUnit} · ${currentDescription}`,
+      metrics: [
+        { label: 'Feels Like', value: `${currentFeelsLike}°${tempUnit}` },
+        { label: 'Wind', value: `${currentWind} ${speedUnit}` },
+        { label: 'Humidity', value: `${current.relative_humidity_2m}%` },
+      ],
+    },
   };
 
   lines.push('', '--- Render with ui_show ---');
-  lines.push('Call ui_show with: surface_type "card", data: { title: "' + locationDisplay + '", body: "", template: "weather_forecast", templateData: <data below> }');
-  lines.push(JSON.stringify(structured));
+  lines.push('Call ui_show with surface_type "dynamic_page" and the following data (pass exactly as-is):');
+  lines.push(JSON.stringify(uiShowData));
 
   return { content: lines.join('\n'), isError: false };
 }
