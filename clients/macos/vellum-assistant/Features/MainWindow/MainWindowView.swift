@@ -580,7 +580,7 @@ struct MainWindowView: View {
         if let panel = windowState.activePanel {
             switch panel {
             case .generated:
-                EmptyView()
+                Color.clear.frame(width: 0, height: 0)
                     .onAppear { windowState.activePanel = nil }
             case .agent:
                 AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
