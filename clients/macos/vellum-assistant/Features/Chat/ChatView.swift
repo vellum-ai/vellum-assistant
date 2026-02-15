@@ -251,6 +251,7 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
+            .scrollDisabled(messages.isEmpty && !isThinking)
             .onChange(of: messages.count) {
                 withAnimation(VAnimation.standard) {
                     if let lastMessage = messages.last {
@@ -547,6 +548,7 @@ struct ChatView: View {
             composerScrollIndicator
         }
         .scrollBounceBehavior(.basedOnSize)
+        .scrollDisabled(editorContentHeight <= 200)
         .onChange(of: inputText) {
             if editorContentHeight > 200 {
                 proxy.scrollTo("composer-bottom", anchor: .bottom)
