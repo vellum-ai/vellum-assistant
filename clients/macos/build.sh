@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Usage:
 #   ./build.sh              Build debug .app
-#   ./build.sh run          Build + launch
+#   ./build.sh run          Build + launch + watch for changes (auto-rebuild)
 #   ./build.sh release      Build release .app
 #   ./build.sh test         Run tests (no .app needed)
 #   ./build.sh clean        Remove build artifacts
@@ -347,4 +347,38 @@ if [ "$CMD" = "run" ]; then
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
     open "$APP_DIR"
+
+    # Watch for file changes and auto-rebuild+relaunch (skip in nested invocations)
+    if [ -z "${VELLUM_NO_WATCH:-}" ]; then
+        WATCH_MARKER=$(mktemp)
+        touch "$WATCH_MARKER"
+        trap 'rm -f "$WATCH_MARKER"' EXIT
+
+        echo ""
+        echo "Watching for changes... (Ctrl+C to stop)"
+        while true; do
+            sleep 2
+            # Look for any .swift or Package.swift changes (stop at first match for speed)
+            CHANGED=$(find "$SCRIPT_DIR/vellum-assistant" "$SCRIPT_DIR/vellum-assistant-app" "$SCRIPT_DIR/Package.swift" \
+                -not -path '*/.build/*' \
+                -not -path '*/dist/*' \
+                \( -name "*.swift" -o -name "*.xcassets" \) \
+                -newer "$WATCH_MARKER" \
+                -print -quit 2>/dev/null || true)
+            if [ -n "$CHANGED" ]; then
+                echo ""
+                echo "───────────────────────────────────"
+                echo "Change detected, rebuilding..."
+                echo "───────────────────────────────────"
+                touch "$WATCH_MARKER"
+                if VELLUM_NO_WATCH=1 "$0" run; then
+                    echo "✓ Rebuilt and relaunched"
+                else
+                    echo "✗ Build failed"
+                fi
+                echo ""
+                echo "Watching for changes... (Ctrl+C to stop)"
+            fi
+        done
+    fi
 fi
