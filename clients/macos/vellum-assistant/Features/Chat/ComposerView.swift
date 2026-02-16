@@ -83,17 +83,17 @@ struct ComposerView: View {
         }
         .padding(.top, isComposerExpanded ? VSpacing.lg : VSpacing.sm)
         .padding(.bottom, VSpacing.sm)
-        .padding(.leading, VSpacing.xl)
-        .padding(.trailing, VSpacing.lg)
+        .padding(.leading, VSpacing.lg)
+        .padding(.trailing, VSpacing.md)
         .background(VColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xxl))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xxl)
-                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
         )
-        .padding(.horizontal, VSpacing.xl)
-        .padding(.top, VSpacing.md)
-        .padding(.bottom, 18)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.top, VSpacing.sm)
+        .padding(.bottom, VSpacing.md)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: editorContentHeight)
@@ -150,7 +150,7 @@ struct ComposerView: View {
                     text: $inputText,
                     axis: .vertical
                 )
-                .overlay {
+                .overlay(alignment: .topLeading) {
                     if inputText.isEmpty && ghostSuffix == nil {
                         Text(placeholderText)
                             .font(VFont.body)
