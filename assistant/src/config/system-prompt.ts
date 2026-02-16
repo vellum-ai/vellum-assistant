@@ -56,9 +56,7 @@ export function buildSystemPrompt(): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  // Always use the host-visible workspace path for host file tools (host_file_edit, host_file_read)
-  // regardless of Docker sandboxing. Container-only paths like /workspace don't exist on the host.
-  parts.push(buildConfigSection(getWorkspaceDir()));
+  parts.push(buildConfigSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildToolPermissionSection());
@@ -264,10 +262,15 @@ function buildWorkspaceReflectionSection(): string {
   ].join('\n');
 }
 
-function buildConfigSection(configDir: string): string {
+function buildConfigSection(): string {
+  // Intentionally use the assistant visible workspace path when possible to avoid prompting the user to edit files using host_file_edit
+  const config = getConfig();
+  const sandboxed = config.sandbox.enabled && config.sandbox.backend === 'docker';
+  const visibleDir = sandboxed ? '/workspace' : getWorkspaceDir();
+
   return [
     '## Configuration',
-    `Your configuration directory is \`${configDir}/\`. Key files you may read or edit:`,
+    `Your configuration directory is \`${visibleDir}/\`. Key files you may read or edit:`,
     '',
     '- `IDENTITY.md` — Your name and role. Slim metadata — rarely changes.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
@@ -276,7 +279,7 @@ function buildConfigSection(configDir: string): string {
     '',
     '### Proactive Workspace Editing',
     '',
-    'You should actively update your workspace files as you learn. You don\'t need to ask the user whether it\'s okay — just briefly explain what you\'re updating, then use `file_edit` to make targeted edits.',
+    `You should actively update your workspace files as you learn. You don't need to ask the user whether it's okay — just briefly explain what you're updating, then use \`${sandboxed ? 'file_edit' : 'host_file_edit'}\` to make targeted edits.`,
     '',
     '**USER.md** — update when you learn:',
     '- Their name, pronouns, timezone, or what they prefer to be called',
