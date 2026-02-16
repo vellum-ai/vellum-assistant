@@ -33,6 +33,12 @@ import Foundation
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
 // │                                 │ Decodable init; always hand-maintained   │
+// │ UiLayoutConfigMessage           │ Temporary; canonical home is             │
+// │                                 │ LayoutConfig.swift (M1 / #2973)         │
+// │ SlotConfigWire                  │ Temporary; canonical home is             │
+// │                                 │ LayoutConfig.swift (M1 / #2973)         │
+// │ SlotContentWire                 │ Temporary; canonical home is             │
+// │                                 │ LayoutConfig.swift (M1 / #2973)         │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1365,6 +1371,7 @@ public enum ServerMessage: Decodable, Sendable {
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
+    case uiLayoutConfig(UiLayoutConfigMessage)
     case undoComplete(UndoCompleteMessage)
     case generationCancelled(GenerationCancelledMessage)
     case generationHandoff(GenerationHandoffMessage)
@@ -1469,6 +1476,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_dismiss":
             let message = try UiSurfaceDismissMessage(from: decoder)
             self = .uiSurfaceDismiss(message)
+        case "ui_layout_config":
+            let message = try UiLayoutConfigMessage(from: decoder)
+            self = .uiLayoutConfig(message)
         case "undo_complete":
             let message = try UndoCompleteMessage(from: decoder)
             self = .undoComplete(message)
@@ -1597,4 +1607,25 @@ public enum ServerMessage: Decodable, Sendable {
             self = .unknown(type)
         }
     }
+}
+
+// MARK: - Layout Config Wire Types
+// Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)
+
+public struct UiLayoutConfigMessage: Decodable, Sendable {
+    public let left: SlotConfigWire?
+    public let center: SlotConfigWire?
+    public let right: SlotConfigWire?
+}
+
+public struct SlotConfigWire: Decodable, Sendable {
+    public let content: SlotContentWire?
+    public let width: Double?
+    public let visible: Bool?
+}
+
+public struct SlotContentWire: Decodable, Sendable {
+    public let type: String
+    public let panel: String?
+    public let surfaceId: String?
 }

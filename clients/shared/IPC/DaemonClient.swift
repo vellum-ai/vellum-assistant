@@ -158,6 +158,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
+    /// Called when the daemon sends a `ui_layout_config` message.
+    public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -879,6 +882,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceUpdate?(msg)
         case .uiSurfaceDismiss(let msg):
             onSurfaceDismiss?(msg)
+        case .uiLayoutConfig(let msg):
+            onLayoutConfig?(msg)
         case .appDataResponse(let msg):
             onAppDataResponse?(msg)
         case .messageQueued(let msg):
