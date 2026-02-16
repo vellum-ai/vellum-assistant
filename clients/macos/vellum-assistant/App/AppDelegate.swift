@@ -268,8 +268,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             skipSessionCreate: true,
             notificationService: self.services.activityNotificationService
         )
-        // Wire relatedViewModel to enable tool call extraction for notifications
-        session.relatedViewModel = mainWindow?.threadManager.activeViewModel
+        // Don't bind relatedViewModel for escalated sessions — the active view model
+        // may be unrelated if the user switched threads. Tool calls for escalated
+        // sessions are tracked by the daemon session, not by ChatViewModel.
         self.currentSession = session
 
         let overlay = SessionOverlayWindow(session: session)
@@ -1167,8 +1168,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     skipSessionCreate: true,
                     notificationService: self.services.activityNotificationService
                 )
-                // Wire relatedViewModel to enable tool call extraction for notifications
-                session.relatedViewModel = self.mainWindow?.threadManager.activeViewModel
+                // Don't bind relatedViewModel — sessions started via startSession() don't
+                // originate from a chat thread, so there's no ChatViewModel to extract
+                // tool calls from. Tool calls are tracked by the daemon session itself.
                 self.currentSession = session
                 let overlay = SessionOverlayWindow(session: session)
                 overlay.show()
