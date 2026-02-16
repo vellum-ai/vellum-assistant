@@ -1006,7 +1006,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // fires during willSet — at that point activeThreadId still holds the old value,
         // so activeViewModel would resolve to the previous thread's view model.
         statusIconCancellable = mainWindow?.threadManager.$activeThreadId
-            .compactMap { [weak mainWindow] id in
+            .compactMap { [weak mainWindow] (id: UUID?) -> ChatViewModel? in
                 guard let id else { return nil }
                 return mainWindow?.threadManager.chatViewModel(for: id)
             }
