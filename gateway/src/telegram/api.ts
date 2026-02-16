@@ -1,9 +1,108 @@
 import type { GatewayConfig } from "../config.js";
+import { getLogger } from "../logger.js";
+
+const log = getLogger("telegram-api");
 
 interface TelegramApiResponse<T> {
   ok: boolean;
   result?: T;
   description?: string;
+  parameters?: { retry_after?: number };
+}
+
+function isRetryable(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function computeDelay(
+  attempt: number,
+  initialBackoffMs: number,
+  retryAfterHeader: string | null,
+): number {
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  }
+
+  const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
+  // Add jitter: 0–50% of the computed delay
+  const jitter = Math.random() * exponential * 0.5;
+  return exponential + jitter;
+}
+
+async function retryableFetch<T>(
+  config: GatewayConfig,
+  method: string,
+  doFetch: () => Promise<Response>,
+): Promise<T> {
+  let lastError: Error | null = null;
+  let lastRetryAfter: string | null = null;
+
+  for (let attempt = 0; attempt <= config.telegramMaxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = computeDelay(
+        attempt,
+        config.telegramInitialBackoffMs,
+        lastRetryAfter,
+      );
+      log.debug({ attempt, delay, method }, "Retrying Telegram API call");
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    lastRetryAfter = null;
+
+    let response: Response;
+    try {
+      response = await doFetch();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      log.warn({ err: lastError, attempt, method }, "Telegram API fetch failed");
+      continue;
+    }
+
+    if (!isRetryable(response.status) && !response.ok) {
+      const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+      throw new Error(
+        data.description
+          ? `Telegram ${method} failed: ${data.description}`
+          : `Telegram ${method} failed with status ${response.status}`,
+      );
+    }
+
+    if (isRetryable(response.status)) {
+      const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+      lastRetryAfter =
+        response.headers.get("retry-after") ??
+        (data.parameters?.retry_after != null
+          ? String(data.parameters.retry_after)
+          : null);
+      lastError = new Error(
+        data.description
+          ? `Telegram ${method} failed: ${data.description}`
+          : `Telegram ${method} failed with status ${response.status}`,
+      );
+      log.warn(
+        { status: response.status, attempt, method, retryAfter: lastRetryAfter },
+        "Telegram API returned retryable error",
+      );
+      continue;
+    }
+
+    const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
+    if (!data.ok || data.result === undefined) {
+      throw new Error(
+        data.description
+          ? `Telegram ${method} failed: ${data.description}`
+          : `Telegram ${method} failed with status ${response.status}`,
+      );
+    }
+
+    return data.result;
+  }
+
+  throw lastError ?? new Error(`Telegram ${method} failed after retries`);
 }
 
 export async function callTelegramApi<T>(
@@ -11,24 +110,17 @@ export async function callTelegramApi<T>(
   method: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  const url = `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(config.telegramTimeoutMs),
-  });
-
-  const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
-  if (!response.ok || !data.ok || data.result === undefined) {
-    throw new Error(
-      data.description
-        ? `Telegram ${method} failed: ${data.description}`
-        : `Telegram ${method} failed with status ${response.status}`,
-    );
-  }
-
-  return data.result;
+  return retryableFetch<T>(config, method, () =>
+    fetch(
+      `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(config.telegramTimeoutMs),
+      },
+    ),
+  );
 }
 
 export async function callTelegramApiMultipart<T>(
@@ -36,21 +128,14 @@ export async function callTelegramApiMultipart<T>(
   method: string,
   form: FormData,
 ): Promise<T> {
-  const url = `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`;
-  const response = await fetch(url, {
-    method: "POST",
-    body: form,
-    signal: AbortSignal.timeout(config.telegramTimeoutMs),
-  });
-
-  const data = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
-  if (!response.ok || !data.ok || data.result === undefined) {
-    throw new Error(
-      data.description
-        ? `Telegram ${method} failed: ${data.description}`
-        : `Telegram ${method} failed with status ${response.status}`,
-    );
-  }
-
-  return data.result;
+  return retryableFetch<T>(config, method, () =>
+    fetch(
+      `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
+      {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.timeout(config.telegramTimeoutMs),
+      },
+    ),
+  );
 }
