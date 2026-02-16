@@ -333,13 +333,27 @@ export class AnthropicProvider implements Provider {
     const { config, onEvent, signal } = options ?? {};
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
-      const formatted = messages.map((m) => ({
-        role: m.role,
-        content: m.content
+      const formatted = messages.map((m) => {
+        const content = m.content
           .map((block) => this.toAnthropicBlockSafe(block))
           .filter((block): block is Anthropic.ContentBlockParam => block !== null)
-          .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim())),
-      })).filter((m) => m.content.length > 0);
+          .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim()));
+
+        // Preserve assistant turns that would otherwise become empty after filtering
+        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Anthropic's role alternation requirement.
+        if (content.length === 0 && m.role === 'assistant') {
+          return {
+            role: m.role,
+            content: [{ type: 'text' as const, text: '[internal blocks omitted]' }],
+          };
+        }
+
+        return {
+          role: m.role,
+          content,
+        };
+      }).filter((m) => m.content.length > 0);
 
       sentMessages = ensureToolPairing(formatted);
       const params: Anthropic.MessageCreateParams = {
