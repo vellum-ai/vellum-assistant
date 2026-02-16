@@ -9,11 +9,13 @@ import type {
 } from "../types.js";
 import { ProviderError } from "../../util/errors.js";
 
-const TOOL_ID_RE = /[^a-zA-Z0-9_-]/g;
+const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
   if (!id) return 'empty';
+  // Escape `x` itself (to `x78`) so it can safely serve as the hex-escape
+  // prefix without collisions.  E.g. "a:" → "ax3a", "ax3a" → "ax783a".
   return id.replace(TOOL_ID_RE, (ch) => {
     const hex = ch.charCodeAt(0).toString(16).padStart(2, '0');
     return `x${hex}`;
