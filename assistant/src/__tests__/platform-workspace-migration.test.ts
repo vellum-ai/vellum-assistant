@@ -318,9 +318,9 @@ describe('migrateToWorkspaceLayout', () => {
       'ws-db',
     );
 
-    // Legacy hooks should remain at root (not moved due to conflict)
-    expect(existsSync(join(root, 'hooks', 'legacy-hook.sh'))).toBe(true);
-    expect(readFileSync(join(root, 'hooks', 'legacy-hook.sh'), 'utf-8')).toBe(
+    // Legacy hook entries are merged into workspace (not stranded)
+    expect(existsSync(join(root, 'hooks', 'legacy-hook.sh'))).toBe(false);
+    expect(readFileSync(join(ws, 'hooks', 'legacy-hook.sh'), 'utf-8')).toBe(
       'root-hook',
     );
     // Legacy skills entries are merged into workspace (not stranded)
@@ -565,8 +565,107 @@ describe('migrateToWorkspaceLayout', () => {
     expect(merged.model).toBe('claude-3');
     expect(merged.theme).toBe('light'); // workspace value wins over legacy
 
-    // Legacy config still exists (migratePath skipped the move)
+    // Merged key (slackWebhookUrl) was removed from legacy config;
+    // shared key (theme) remains so the file is kept.
     expect(existsSync(join(root, 'config.json'))).toBe(true);
+    const remaining = JSON.parse(readFileSync(join(root, 'config.json'), 'utf-8'));
+    expect(remaining.slackWebhookUrl).toBeUndefined();
+    expect(remaining.theme).toBe('dark');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: legacy file deleted when all keys were merged', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy config has only keys missing from workspace
+    writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({ slackWebhookUrl: 'https://hooks.slack.com/old' }),
+    );
+    writeFileSync(
+      join(ws, 'config.json'),
+      JSON.stringify({ model: 'claude-3' }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    const merged = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(merged.slackWebhookUrl).toBe('https://hooks.slack.com/old');
+    expect(merged.model).toBe('claude-3');
+
+    // Legacy config should be deleted since all its keys were merged
+    expect(existsSync(join(root, 'config.json'))).toBe(false);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: does not resurrect keys deleted from workspace', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy config has slackWebhookUrl
+    writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({ slackWebhookUrl: 'https://hooks.slack.com/old', theme: 'dark' }),
+    );
+    writeFileSync(
+      join(ws, 'config.json'),
+      JSON.stringify({ model: 'claude-3' }),
+    );
+
+    // First run merges slackWebhookUrl into workspace
+    migrateToWorkspaceLayout();
+    const afterFirst = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(afterFirst.slackWebhookUrl).toBe('https://hooks.slack.com/old');
+
+    // User deletes slackWebhookUrl from workspace config
+    delete afterFirst.slackWebhookUrl;
+    writeFileSync(join(ws, 'config.json'), JSON.stringify(afterFirst));
+
+    // Second run should NOT resurrect the deleted key
+    migrateToWorkspaceLayout();
+    const afterSecond = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(afterSecond.slackWebhookUrl).toBeUndefined();
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: non-object JSON in config files does not crash', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // null is valid JSON but not a plain object
+    writeFileSync(join(root, 'config.json'), 'null');
+    writeFileSync(join(ws, 'config.json'), JSON.stringify({ model: 'claude-3' }));
+
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
+    // Workspace config should be unchanged
+    const wsConfig = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(wsConfig.model).toBe('claude-3');
+
+    // Array legacy config
+    writeFileSync(join(root, 'config.json'), '[1,2,3]');
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
+    expect(JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8')).model).toBe('claude-3');
+
+    // Array workspace config
+    writeFileSync(join(root, 'config.json'), JSON.stringify({ theme: 'dark' }));
+    writeFileSync(join(ws, 'config.json'), '[1,2,3]');
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
 
     rmSync(base, { recursive: true, force: true });
   });
