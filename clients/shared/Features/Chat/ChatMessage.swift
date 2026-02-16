@@ -373,13 +373,28 @@ public struct InlineSurfaceData: Identifiable, Equatable {
         lhs.id == rhs.id
     }
 
-    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceMessage: UiSurfaceShowMessage? = nil) {
+    /// When non-nil, the surface has been completed and should render in collapsed/chip state.
+    public var completionState: SurfaceCompletionState?
+
+    public init(id: String, surfaceType: SurfaceType, title: String?, data: SurfaceData, actions: [SurfaceActionButton], surfaceMessage: UiSurfaceShowMessage? = nil, completionState: SurfaceCompletionState? = nil) {
         self.id = id
         self.surfaceType = surfaceType
         self.title = title
         self.data = data
         self.actions = actions
         self.surfaceMessage = surfaceMessage
+        self.completionState = completionState
+    }
+}
+
+/// Tracks the completed state of an inline surface after user interaction.
+public struct SurfaceCompletionState: Equatable {
+    public let summary: String
+    public let submittedData: [String: AnyCodable]?
+
+    public init(summary: String, submittedData: [String: AnyCodable]? = nil) {
+        self.summary = summary
+        self.submittedData = submittedData
     }
 }
 

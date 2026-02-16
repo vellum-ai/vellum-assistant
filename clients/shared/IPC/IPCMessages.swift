@@ -33,6 +33,8 @@ import Foundation
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
 // │                                 │ Decodable init; always hand-maintained   │
+// │ UiSurfaceCompleteMessage        │ Uses AnyCodable for `submittedData`;     │
+// │                                 │ contract type is skipped (SKIP_TYPES)    │
 // │ UiLayoutConfigMessage           │ Temporary; canonical home is             │
 // │                                 │ LayoutConfig.swift (M1 / #2973)         │
 // │ SlotConfigWire                  │ Temporary; canonical home is             │
@@ -738,6 +740,14 @@ public struct UiSurfaceUpdateMessage: Decodable, Sendable {
 /// Backed by generated `IPCUiSurfaceDismiss`.
 public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
+/// Surface completion message from daemon, sent when user interaction completes a surface.
+public struct UiSurfaceCompleteMessage: Decodable, Sendable {
+    public let sessionId: String
+    public let surfaceId: String
+    public let summary: String
+    public let submittedData: [String: AnyCodable]?
+}
+
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
 
@@ -1401,6 +1411,7 @@ public enum ServerMessage: Decodable, Sendable {
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
+    case uiSurfaceComplete(UiSurfaceCompleteMessage)
     case uiLayoutConfig(UiLayoutConfigMessage)
     case undoComplete(UndoCompleteMessage)
     case generationCancelled(GenerationCancelledMessage)
@@ -1508,6 +1519,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_dismiss":
             let message = try UiSurfaceDismissMessage(from: decoder)
             self = .uiSurfaceDismiss(message)
+        case "ui_surface_complete":
+            let message = try UiSurfaceCompleteMessage(from: decoder)
+            self = .uiSurfaceComplete(message)
         case "ui_layout_config":
             let message = try UiLayoutConfigMessage(from: decoder)
             self = .uiLayoutConfig(message)
