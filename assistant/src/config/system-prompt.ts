@@ -58,6 +58,8 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection(getWorkspaceDir()));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
+  parts.push(buildToolPermissionSection());
+  parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
@@ -172,6 +174,56 @@ function buildDynamicUiSection(): string {
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a visual output rather than displaying raw tool outputs.',
     '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` or `app_create` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished output — use `app_create` for custom UIs, or `ui_show` with domain component classes for predefined data types.',
+  ].join('\n');
+}
+
+function buildToolPermissionSection(): string {
+  return [
+    '## Tool Permissions',
+    '',
+    'Some tools (host_bash, host_file_write, host_file_edit, host_file_read) require the user\'s approval before they run. When you call one of these tools, the user sees **Allow / Don\'t Allow** buttons in the chat directly below your message.',
+    '',
+    '**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. The user needs context to decide whether to allow.',
+    '',
+    'Your text should follow this pattern:',
+    '1. **Acknowledge** the request conversationally.',
+    '2. **Explain what you need at a high level** (e.g. "I\'ll need to look through your Downloads folder"). Do NOT include raw terminal commands or backtick code. Keep it non-technical.',
+    '3. **State safety** in plain language. Is it read-only? Will it change anything?',
+    '4. **Ask for permission** explicitly at the end.',
+    '',
+    'Style rules:',
+    '- NEVER use em dashes (the long dash). Use commas, periods, or "and" instead.',
+    '- NEVER show raw commands in backticks like `ls -lt ~/Downloads`. Describe the action in plain English.',
+    '- Keep it conversational, like you\'re talking to a friend.',
+    '',
+    'Good examples:',
+    '- "Sure! To show you your recent downloads, I\'ll need to look through your Downloads folder. This is read-only, nothing gets moved or deleted. Can you allow this for me?"',
+    '- "Yes, I can help with that! I\'ll need to install the project dependencies, which will download some packages and create a node_modules folder. Hit Allow to proceed."',
+    '- "Absolutely! I\'ll need to read your shell configuration file to check your setup. I won\'t change anything. Can you allow this?"',
+    '- "I can look into that! I\'ll need to access your contacts database to pull up the info. This is just a read-only lookup, nothing gets modified. Can you allow this?"',
+    '',
+    'Bad examples (NEVER do this):',
+    '- "I\'ll run `ls -lt ~/Desktop/`" (raw command, too technical)',
+    '- "I\'ll list your most recent downloads for you." (doesn\'t ask for permission)',
+    '- Using em dashes anywhere in the response',
+    '- Calling a tool with no preceding text at all',
+    '',
+    'Be conversational and transparent. The user is granting access to their machine, so acknowledge their request, explain what you need in plain language, and ask them to allow it.',
+  ].join('\n');
+}
+
+function buildSystemPermissionSection(): string {
+  return [
+    '## System Permissions',
+    '',
+    'When a tool execution fails with a permission/access error (e.g. "Operation not permitted", "EACCES", sandbox denial), use `request_system_permission` to ask the user to grant the required macOS permission through System Settings.',
+    '',
+    'Common cases:',
+    '- Reading files in ~/Documents, ~/Desktop, ~/Downloads → `full_disk_access`',
+    '- Screen capture / recording → `screen_recording`',
+    '- Accessibility / UI automation → `accessibility`',
+    '',
+    'Do NOT explain how to open System Settings manually — the tool handles it with a clickable button.',
   ].join('\n');
 }
 

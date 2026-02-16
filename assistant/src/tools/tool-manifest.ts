@@ -30,6 +30,7 @@ export const eagerModules: string[] = [
   './browser/headless-browser.js',
   './weather/get-weather.js',
   './system/system-info.js',
+  './system/request-permission.js',
   './schedule/create.js',
   './schedule/list.js',
   './schedule/update.js',

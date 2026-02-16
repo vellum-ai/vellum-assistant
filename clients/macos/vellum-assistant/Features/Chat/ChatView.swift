@@ -140,6 +140,7 @@ struct ChatView: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onMicrophoneToggle: onMicrophoneToggle,
+                placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded
             )
@@ -276,43 +277,61 @@ struct ChatView: View {
                         }
 
                         if let confirmation = message.confirmation {
-                            ToolConfirmationBubble(
-                                confirmation: confirmation,
-                                onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                onAddTrustRule: onAddTrustRule
-                            )
-                            .id(message.id)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            if confirmation.state == .pending {
+                                // Check if the preceding assistant message has text
+                                let prevHasText: Bool = {
+                                    guard index > 0 else { return false }
+                                    let prev = messages[index - 1]
+                                    return prev.role == .assistant
+                                        && !prev.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                }()
+
+                                // Show pending confirmations as inline buttons
+                                ToolConfirmationBubble(
+                                    confirmation: confirmation,
+                                    showDescription: !prevHasText,
+                                    onAllow: { onConfirmationAllow(confirmation.requestId) },
+                                    onDeny: { onConfirmationDeny(confirmation.requestId) },
+                                    onAddTrustRule: onAddTrustRule
+                                )
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            }
+                            // Decided confirmations are rendered as compact chips
+                            // on the preceding assistant message's ChatBubble — skip here.
                         } else {
+                            // Hide tool call chips when the next message is a pending
+                            // confirmation — the tool hasn't been approved yet.
+                            let nextIsPendingConfirmation = index + 1 < messages.count
+                                && messages[index + 1].confirmation?.state == .pending
+
+                            // Pass decided confirmation from the next message so it
+                            // renders as a compact chip at the bottom of this bubble.
+                            let nextDecidedConfirmation: ToolConfirmationData? = {
+                                guard index + 1 < messages.count,
+                                      let conf = messages[index + 1].confirmation,
+                                      conf.state != .pending else { return nil }
+                                return conf
+                            }()
+
+                            let isLastAssistant = message.role == .assistant
+                                && !message.isStreaming
+                                && index == messages.count - 1
+                                && !isSending
+                                && !isThinking
+
                             ChatBubble(
                                 message: message,
-                                hideToolCalls: false,
+                                hideToolCalls: nextIsPendingConfirmation,
+                                decidedConfirmation: nextDecidedConfirmation,
+                                showRegenerate: isLastAssistant,
+                                onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onOpenActivity: onOpenActivity,
                                 isActivityPanelOpen: isActivityPanelOpen
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-
-                        // Regenerate button on the last assistant message
-                        if message.role == .assistant
-                            && !message.isStreaming
-                            && index == messages.count - 1
-                            && !isSending {
-                            HStack {
-                                Button(action: onRegenerate) {
-                                    Image(systemName: "arrow.trianglehead.counterclockwise")
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(VColor.textMuted)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Regenerate response")
-                                .help("Regenerate response")
-                                Spacer()
-                            }
-                            .padding(.top, -VSpacing.sm)
                         }
                     }
 
@@ -551,6 +570,11 @@ private struct ChatBubble: View {
     let message: ChatMessage
     /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
     let hideToolCalls: Bool
+    /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
+    let decidedConfirmation: ToolConfirmationData?
+    /// Whether to show the regenerate button on this message.
+    let showRegenerate: Bool
+    let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
@@ -576,23 +600,11 @@ private struct ChatBubble: View {
         }
     }
 
-    @Environment(\.colorScheme) private var colorScheme
-
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            if colorScheme == .dark {
-                AnyShapeStyle(
-                    LinearGradient(
-                        colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            } else {
-                AnyShapeStyle(VColor.userBubble)
-            }
+            AnyShapeStyle(VColor.userBubble)
         } else {
-            AnyShapeStyle(VColor.surface)
+            AnyShapeStyle(Color.clear)
         }
     }
 
@@ -641,15 +653,19 @@ private struct ChatBubble: View {
                         bubbleContent
                     }
 
-                    // Consolidated tool indicator showing all tool calls
-                    toolCallChips(message.toolCalls)
-
                     // Inline surfaces render below the bubble as full-width cards
                     if !message.inlineSurfaces.isEmpty {
                         ForEach(message.inlineSurfaces) { surface in
                             InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                         }
                     }
+                }
+
+                // Single unified status area at the bottom of the message:
+                // - In-progress: shows "Running a terminal command ..."
+                // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+                if !isUser {
+                    trailingStatus
                 }
 
                 if let label = statusLabel {
@@ -661,6 +677,222 @@ private struct ChatBubble: View {
 
             if !isUser { Spacer(minLength: 0) }
         }
+    }
+
+    // MARK: - Compact trailing chips (tool calls + permission)
+
+    /// Whether all tool calls are complete and the message is done streaming.
+    private var allToolCallsComplete: Bool {
+        !message.toolCalls.isEmpty && message.toolCalls.allSatisfy { $0.isComplete } && !message.isStreaming
+    }
+
+    private var regenerateButton: some View {
+        Button(action: onRegenerate) {
+            Image(systemName: "arrow.trianglehead.counterclockwise")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Regenerate response")
+        .help("Regenerate response")
+    }
+
+    /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
+    private var permissionWasDenied: Bool {
+        decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+    }
+
+    @ViewBuilder
+    private var trailingStatus: some View {
+        let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
+        let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
+        let hasPermission = decidedConfirmation != nil
+
+        if hasInProgressTools && !permissionWasDenied {
+            // In progress — show single running indicator
+            let current = message.toolCalls.first(where: { !$0.isComplete }) ?? message.toolCalls.last
+            RunningIndicator(label: Self.friendlyRunningLabel(current?.toolName ?? ""))
+                .frame(maxWidth: 520, alignment: .leading)
+        } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
+            // All done (or denied) — show chips + regenerate on one line
+            HStack(spacing: VSpacing.sm) {
+                if hasCompletedTools {
+                    compactToolChip
+                } else if hasInProgressTools && permissionWasDenied {
+                    compactFailedToolChip
+                }
+                if let confirmation = decidedConfirmation {
+                    compactPermissionChip(confirmation)
+                }
+                if showRegenerate {
+                    regenerateButton
+                }
+                Spacer()
+            }
+            .padding(.top, VSpacing.xxs)
+        }
+    }
+
+    /// Maps raw tool names to user-friendly past-tense labels.
+    private static func friendlyToolLabel(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case "host bash", "bash":          return "Ran a terminal command"
+        case "host file read", "file read": return "Read a file"
+        case "host file write", "file write": return "Wrote a file"
+        case "host file edit", "file edit": return "Edited a file"
+        case "web search":                 return "Searched the web"
+        case "web fetch":                  return "Fetched a webpage"
+        case "browser navigate":           return "Opened a page"
+        case "browser click":              return "Clicked on the page"
+        case "browser screenshot":         return "Took a screenshot"
+        default:                           return "Used \(toolName)"
+        }
+    }
+
+    /// Maps raw tool names to user-friendly present-tense labels for the running state.
+    private static func friendlyRunningLabel(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case "host bash", "bash":                           return "Running a terminal command"
+        case "host file read", "file read":                 return "Reading a file"
+        case "host file write", "file write":               return "Writing a file"
+        case "host file edit", "file edit":                 return "Editing a file"
+        case "web search":                                  return "Searching the web"
+        case "web fetch":                                   return "Fetching a webpage"
+        case "browser navigate":                            return "Opening a page"
+        case "browser click":                               return "Clicking on the page"
+        case "browser screenshot":                          return "Taking a screenshot"
+        default:                                            return "Running \(toolName)"
+        }
+    }
+
+    /// Icon for a tool category.
+    private static func friendlyToolIcon(_ toolName: String) -> String {
+        switch toolName.lowercased() {
+        case "host bash", "bash":                           return "terminal"
+        case "host file read", "file read":                 return "doc.text"
+        case "host file write", "file write":               return "doc.badge.plus"
+        case "host file edit", "file edit":                 return "pencil"
+        case "web search":                                  return "magnifyingglass"
+        case "web fetch":                                   return "globe"
+        case "browser navigate", "browser click":           return "safari"
+        case "browser screenshot":                          return "camera"
+        default:                                            return "gearshape"
+        }
+    }
+
+    private var compactToolChip: some View {
+        Button {
+            onOpenActivity(message.id)
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName)))
+                let primary = uniqueNames.first ?? "Tool"
+
+                Image(systemName: Self.friendlyToolIcon(primary))
+                    .font(.system(size: 12))
+                    .foregroundColor(VColor.textMuted)
+
+                let label: String = {
+                    if uniqueNames.count == 1 {
+                        let base = Self.friendlyToolLabel(primary)
+                        if message.toolCalls.count > 1 {
+                            // e.g. "Ran 3 terminal commands"
+                            return base
+                                .replacingOccurrences(of: "a terminal command", with: "\(message.toolCalls.count) terminal commands")
+                                .replacingOccurrences(of: "a file", with: "\(message.toolCalls.count) files")
+                                .replacingOccurrences(of: "a page", with: "\(message.toolCalls.count) pages")
+                                .replacingOccurrences(of: "a webpage", with: "\(message.toolCalls.count) webpages")
+                        }
+                        return base
+                    }
+                    return "Used \(message.toolCalls.count) tools"
+                }()
+
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                Capsule().fill(VColor.surface)
+            )
+            .overlay(
+                Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+
+    /// Failed/denied tool chip — shown when the user denied permission.
+    private var compactFailedToolChip: some View {
+        let uniqueNames = Array(Set(message.toolCalls.map(\.toolName)))
+        let primary = uniqueNames.first ?? "Tool"
+        let label = Self.friendlyRunningLabel(primary) + " failed"
+
+        return HStack(spacing: VSpacing.xs) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 12))
+                .foregroundColor(VColor.error)
+
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            Capsule().fill(VColor.surface)
+        )
+        .overlay(
+            Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+    }
+
+    private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
+        let isApproved = confirmation.state == .approved
+        return HStack(spacing: VSpacing.xs) {
+            Group {
+                switch confirmation.state {
+                case .approved:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                case .denied:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(VColor.error)
+                case .timedOut:
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(VColor.textMuted)
+                default:
+                    EmptyView()
+                }
+            }
+            .font(.system(size: 12))
+
+            Text(isApproved ? "Permission granted" :
+                 confirmation.state == .denied ? "Permission denied" : "Timed out")
+                .font(VFont.caption)
+                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
+        )
+        .overlay(
+            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
+        )
     }
 
     /// Whether this message has meaningful interleaved content (multiple block types).
@@ -705,21 +937,56 @@ private struct ChatBubble: View {
         return groups
     }
 
+    /// Whether pre-tool text should be collapsed because post-tool text exists.
+    /// When the assistant explains what it'll do, runs the tool, then gives the result,
+    /// we collapse the explanation and just show chips + result.
+    private var shouldCollapsePreToolText: Bool {
+        guard allToolCallsComplete else { return false }
+        let groups = groupContentBlocks()
+        var seenToolCalls = false
+        var hasPreToolText = false
+        var hasPostToolText = false
+        for group in groups {
+            switch group {
+            case .text:
+                if seenToolCalls { hasPostToolText = true }
+                else { hasPreToolText = true }
+            case .toolCalls:
+                seenToolCalls = true
+            case .surface:
+                break
+            }
+        }
+        return hasPreToolText && hasPostToolText
+    }
+
     @ViewBuilder
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
-        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+        let collapse = shouldCollapsePreToolText
+        // Track whether we've seen a tool call group yet (for collapsing).
+        let firstToolIndex = groups.firstIndex(where: {
+            if case .toolCalls = $0 { return true }
+            return false
+        })
+
+        ForEach(Array(groups.enumerated()), id: \.offset) { offset, group in
             switch group {
             case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        textBubble(for: segmentText)
+                // Skip pre-tool text when collapsing
+                let isPreTool = firstToolIndex.map { offset < $0 } ?? false
+                if !(collapse && isPreTool) {
+                    if i < message.textSegments.count {
+                        let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !segmentText.isEmpty {
+                            textBubble(for: segmentText)
+                        }
                     }
                 }
-            case .toolCalls(let indices):
-                let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
-                toolCallChips(calls)
+            case .toolCalls:
+                // Tool calls are rendered as a single unified status at the
+                // bottom of the message — skip them in the interleaved flow.
+                EmptyView()
             case .surface(let i):
                 if i < message.inlineSurfaces.count {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
@@ -753,31 +1020,12 @@ private struct ChatBubble: View {
             .foregroundColor(VColor.textPrimary)
             .tint(VColor.accent)
             .textSelection(.enabled)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(AnyShapeStyle(VColor.surface))
-            )
-            .vShadow(VShadow.sm)
             .frame(maxWidth: 520, alignment: .leading)
     }
 
     /// Current step indicator rendered outside the bubble.
     /// Shows only when there are actual tool calls.
-    @ViewBuilder
-    private func toolCallChips(_ calls: [ToolCallData]) -> some View {
-        if !isUser && !calls.isEmpty {
-            CurrentStepIndicator(
-                toolCalls: calls,
-                isActivityPanelOpen: isActivityPanelOpen,
-                isStreaming: message.isStreaming
-            ) {
-                onOpenActivity(message.id)
-            }
-            .frame(maxWidth: 520, alignment: .leading)
-        }
-    }
+    // Tool call status is rendered via trailingStatus at the bottom of the message.
 
     private var hasText: Bool {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -846,8 +1094,8 @@ private struct ChatBubble: View {
                 }
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.md)
+        .padding(.horizontal, isUser ? VSpacing.lg : 0)
+        .padding(.vertical, isUser ? VSpacing.md : 0)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(bubbleFill)
@@ -961,6 +1209,48 @@ private struct ChatBubble: View {
 }
 
 // MARK: - Thinking Indicator
+
+/// Minimal in-progress indicator for tool execution, matching ThinkingIndicator style.
+private struct RunningIndicator: View {
+    var label: String = "Running"
+    @State private var phase: Int = 0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: "terminal")
+                .font(.system(size: 10))
+                .foregroundColor(VColor.textSecondary)
+
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.textSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(dotOpacity(for: index))
+            }
+
+            Spacer()
+        }
+        .onAppear { startAnimation() }
+        .onDisappear { timer?.invalidate() }
+    }
+
+    private func dotOpacity(for index: Int) -> Double {
+        phase == index ? 1.0 : 0.4
+    }
+
+    private func startAnimation() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                phase = (phase + 1) % 3
+            }
+        }
+    }
+}
 
 private struct ThinkingIndicator: View {
     var label: String = "Thinking"

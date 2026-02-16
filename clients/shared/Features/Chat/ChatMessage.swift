@@ -49,24 +49,235 @@ public struct ToolConfirmationData: Equatable {
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
     public var commandPreview: String {
         switch toolName {
-        case "bash":
+        case "bash", "host_bash":
             return (input["command"]?.value as? String) ?? ""
-        case "file_read":
+        case "file_read", "host_file_read":
             return "read \((input["path"]?.value as? String) ?? "")"
-        case "file_write":
+        case "file_write", "host_file_write":
             return "write \((input["path"]?.value as? String) ?? "")"
-        case "file_edit":
+        case "file_edit", "host_file_edit":
             return "edit \((input["path"]?.value as? String) ?? "")"
         case "web_fetch":
             return "fetch \((input["url"]?.value as? String) ?? "")"
         case "browser_navigate":
             return "navigate \((input["url"]?.value as? String) ?? "")"
+        case "request_system_permission":
+            return (input["permission_type"]?.value as? String) ?? "system permission"
         default:
             // Fallback: show first string value or tool name
             if let firstString = input.values.compactMap({ $0.value as? String }).first {
                 return firstString
             }
             return ""
+        }
+    }
+
+    /// Whether this is a system permission request (TCC).
+    public var isSystemPermissionRequest: Bool {
+        toolName == "request_system_permission"
+    }
+
+    /// The permission type for system permission requests.
+    public var permissionType: String? {
+        guard isSystemPermissionRequest else { return nil }
+        return input["permission_type"]?.value as? String
+    }
+
+    /// Friendly display name for the permission type.
+    public var permissionFriendlyName: String {
+        guard let type = permissionType else { return "Permission" }
+        switch type {
+        case "full_disk_access": return "Full Disk Access"
+        case "accessibility": return "Accessibility"
+        case "screen_recording": return "Screen Recording"
+        case "calendar": return "Calendar"
+        case "contacts": return "Contacts"
+        case "photos": return "Photos"
+        case "location": return "Location Services"
+        case "microphone": return "Microphone"
+        case "camera": return "Camera"
+        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    /// The macOS System Settings deep-link URL for the permission.
+    public var settingsURL: URL? {
+        guard let type = permissionType else { return nil }
+        let urlString: String
+        switch type {
+        case "full_disk_access":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+        case "accessibility":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        case "screen_recording":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        case "calendar":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+        case "contacts":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts"
+        case "photos":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos"
+        case "location":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+        case "microphone":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        case "camera":
+            urlString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+        default:
+            urlString = "x-apple.systempreferences:com.apple.preference.security"
+        }
+        return URL(string: urlString)
+    }
+
+    /// Friendly, context-aware description for the permission ask.
+    public var humanDescription: String {
+        switch toolName {
+        case "request_system_permission":
+            let reason = (input["reason"]?.value as? String) ?? ""
+            if reason.isEmpty {
+                return "I need \(permissionFriendlyName) to do this for you."
+            }
+            return reason
+        case "bash", "host_bash":
+            return Self.describeBashCommand((input["command"]?.value as? String) ?? "")
+        case "file_write", "host_file_write":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return "I\u{2019}d like to save some changes to \(name) \u{2014} that ok?"
+        case "file_edit", "host_file_edit":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return "I need to make a quick edit to \(name) \u{2014} cool?"
+        case "file_read", "host_file_read":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return "Let me take a peek at \(name) \u{2014} alright?"
+        case "web_fetch":
+            let url = (input["url"]?.value as? String) ?? ""
+            if let host = URL(string: url)?.host {
+                return "I need to grab some info from \(host) \u{2014} that ok?"
+            }
+            return "I need to look something up online \u{2014} that ok?"
+        case "browser_navigate":
+            let url = (input["url"]?.value as? String) ?? ""
+            if let host = URL(string: url)?.host {
+                return "I want to open \(host) for you \u{2014} cool?"
+            }
+            return "I want to open a page for you \u{2014} cool?"
+        default:
+            return "I need to do something on your Mac \u{2014} that ok?"
+        }
+    }
+
+    /// Extracts a friendly folder/file name from a path in a command.
+    private static func friendlyPath(_ command: String) -> String? {
+        // Look for paths like ~/Downloads, /Users/.../folder, ./src, etc.
+        let patterns = command.split(separator: " ").compactMap { token -> String? in
+            let s = String(token)
+            guard s.contains("/") || s.hasPrefix("~") else { return nil }
+            // Clean trailing slashes and pipes
+            let cleaned = s.trimmingCharacters(in: CharacterSet(charactersIn: "/|;&"))
+            if cleaned.isEmpty || cleaned == "~" { return nil }
+            let url = URL(fileURLWithPath: cleaned.replacingOccurrences(of: "~", with: "/Users/you"))
+            let name = url.lastPathComponent
+            return name.isEmpty ? nil : name
+        }
+        return patterns.first
+    }
+
+    private static func describeBashCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespaces)
+        let words = trimmed.split(separator: " ")
+        let first = words.first.map(String.init) ?? ""
+        let path = friendlyPath(trimmed)
+
+        switch first {
+        case "ls":
+            if let p = path {
+                return "To check your \(p) folder, I need to run a quick command"
+            }
+            return "I need to look through some files \u{2014} that ok?"
+        case "cat", "head", "tail", "less", "more":
+            if let p = path {
+                return "I need to read \(p) \u{2014} that ok?"
+            }
+            return "I need to read a file \u{2014} that ok?"
+        case "mkdir":
+            if let p = path {
+                return "I need to create a \(p) folder \u{2014} cool?"
+            }
+            return "I need to create a new folder \u{2014} cool?"
+        case "rm", "rmdir":
+            if let p = path {
+                return "I need to delete \(p) \u{2014} is that alright?"
+            }
+            return "I need to delete some files \u{2014} is that alright?"
+        case "cp":
+            return "I need to copy some files over \u{2014} that ok?"
+        case "mv":
+            return "I need to move something around \u{2014} that ok?"
+        case "git":
+            let sub = words.dropFirst().first.map(String.init) ?? ""
+            switch sub {
+            case "push": return "I\u{2019}m ready to push your code \u{2014} should I go ahead?"
+            case "pull": return "Let me pull the latest code for you \u{2014} cool?"
+            case "commit": return "I want to commit your changes \u{2014} good to go?"
+            case "clone": return "I need to clone a repo \u{2014} that ok?"
+            case "checkout", "switch": return "I want to switch branches \u{2014} cool?"
+            case "status": return "Let me check what\u{2019}s changed \u{2014} that ok?"
+            case "diff": return "I want to see what\u{2019}s changed in the code"
+            case "add": return "I need to stage some files for commit"
+            case "stash": return "I\u{2019}ll set aside your changes for now \u{2014} ok?"
+            case "merge": return "I want to merge these branches \u{2014} should I?"
+            case "rebase": return "I need to rebase your commits \u{2014} that ok?"
+            case "log": return "Let me check the commit history"
+            case "fetch": return "Let me check for updates from the remote"
+            case "reset": return "I need to reset some files \u{2014} is that alright?"
+            default: return "I need to run a git command \u{2014} that ok?"
+            }
+        case "npm", "npx":
+            let sub = words.dropFirst().first.map(String.init) ?? ""
+            switch sub {
+            case "install", "i", "ci": return "I need to install some packages \u{2014} that ok?"
+            case "run": return "I need to run a project script \u{2014} cool?"
+            case "test": return "Let me run the tests for you"
+            default: return "I need to run an npm command \u{2014} that ok?"
+            }
+        case "bun", "bunx":
+            return "I need to run a Bun command \u{2014} that ok?"
+        case "yarn", "pnpm":
+            return "I need to install some packages \u{2014} that ok?"
+        case "pip", "pip3":
+            return "I need to manage some Python packages \u{2014} cool?"
+        case "brew":
+            return "I need to use Homebrew real quick \u{2014} that ok?"
+        case "curl", "wget":
+            return "I need to download something \u{2014} that ok?"
+        case "python", "python3":
+            return "I need to run a Python script \u{2014} cool?"
+        case "node":
+            return "I need to run a script \u{2014} cool?"
+        case "swift":
+            return "I need to run a Swift command \u{2014} that ok?"
+        case "xcodebuild":
+            return "I need to build the project \u{2014} that ok?"
+        case "open":
+            if let p = path {
+                return "I want to open \(p) for you \u{2014} cool?"
+            }
+            return "I want to open something for you \u{2014} cool?"
+        case "sudo":
+            return "I need admin access to run this \u{2014} is that alright?"
+        case "kill", "pkill", "killall":
+            return "I need to stop a running process \u{2014} ok?"
+        case "docker":
+            return "I need to run a Docker command \u{2014} that ok?"
+        case "ssh":
+            return "I need to connect to a remote server \u{2014} that ok?"
+        case "find", "grep", "rg", "ag":
+            return "I need to search for something \u{2014} that ok?"
+        default:
+            return "I need to run a quick command \u{2014} that ok?"
         }
     }
 

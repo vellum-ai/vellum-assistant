@@ -2,161 +2,198 @@ import SwiftUI
 
 public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
+    /// When true, show the humanDescription above buttons (used when no assistant text precedes this).
+    public let showDescription: Bool
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAddTrustRule: (String, String, String, String) -> Bool
 
-    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
+    @State private var showDetails = false
+
+    public init(confirmation: ToolConfirmationData, showDescription: Bool = false, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
+        self.showDescription = showDescription
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAddTrustRule = onAddTrustRule
     }
 
-    @State private var showRulePicker = false
-    @State private var selectedPattern: String = ""
-    @State private var selectedScope: String = ""
-    @State private var ruleSaved = false
-
-    private var isHighRisk: Bool { confirmation.riskLevel.lowercased() == "high" }
-
     private var hasRuleOptions: Bool {
         !confirmation.allowlistOptions.isEmpty && !confirmation.scopeOptions.isEmpty
-    }
-
-    private var executionTarget: String? {
-        confirmation.normalizedExecutionTarget
-    }
-
-    private var isHostTarget: Bool {
-        executionTarget == "host"
-    }
-
-    private var toolDisplayName: String {
-        switch confirmation.toolName {
-        case "file_write": return "Write File"
-        case "file_edit": return "Edit File"
-        case "bash": return "Run Command"
-        case "web_fetch": return "Fetch URL"
-        default: return confirmation.toolName.replacingOccurrences(of: "_", with: " ").capitalized
-        }
     }
 
     private var isDecided: Bool {
         confirmation.state != .pending
     }
 
+    /// The raw command/path preview for the details disclosure.
+    private var detailsPreview: String? {
+        let preview = confirmation.commandPreview
+        return preview.isEmpty ? nil : preview
+    }
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: isDecided ? VSpacing.sm : VSpacing.md) {
+        if confirmation.isSystemPermissionRequest {
+            if isDecided {
+                systemPermissionCollapsed
+            } else {
+                systemPermissionCard
+            }
+        } else {
             if isDecided {
                 collapsedContent
             } else {
-                expandedContent
+                pendingContent
             }
         }
-        .padding(isDecided ? VSpacing.md : VSpacing.lg)
+    }
+
+    // MARK: - System Permission Card (TCC)
+
+    @ViewBuilder
+    private var systemPermissionCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(VColor.accent)
+
+                Text(confirmation.permissionFriendlyName)
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.textPrimary)
+            }
+
+            Text(confirmation.humanDescription)
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Open System Settings", style: .primary) {
+                    #if os(macOS)
+                    if let url = confirmation.settingsURL {
+                        NSWorkspace.shared.open(url)
+                    }
+                    #endif
+                }
+
+                VButton(label: "I\u{2019}ve granted it", style: .ghost) {
+                    onAllow()
+                }
+            }
+        }
+        .padding(VSpacing.lg)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(isHighRisk ? VColor.error.opacity(0.4) : VColor.warning.opacity(0.4), lineWidth: 1)
-                )
         )
-        .frame(maxWidth: 520)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
     }
-
-    // MARK: - Expanded (pending)
 
     @ViewBuilder
-    private var expandedContent: some View {
-        // Header row: icon + tool name + risk badge
+    private var systemPermissionCollapsed: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: isHighRisk ? "exclamationmark.triangle.fill" : "shield.checkered")
-                .font(.system(size: 14))
-                .foregroundStyle(isHighRisk ? VColor.error : VColor.warning)
-
-            Text(toolDisplayName)
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-
-            Text(confirmation.riskLevel.lowercased())
-                .font(VFont.caption)
-                .foregroundColor(isHighRisk ? VColor.error : VColor.warning)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill((isHighRisk ? VColor.error : VColor.warning).opacity(0.15))
-                )
-
-            if let executionTarget {
-                Text(executionTarget)
-                    .font(VFont.caption)
-                    .foregroundColor(isHostTarget ? VColor.error : VColor.textSecondary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill((isHostTarget ? VColor.error : VColor.surfaceBorder).opacity(0.15))
-                    )
-            }
-
-            Spacer()
-        }
-
-        // Command preview
-        if !confirmation.commandPreview.isEmpty {
-            Text(confirmation.commandPreview)
-                .font(VFont.monoSmall)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VColor.backgroundSubtle)
-                .cornerRadius(VRadius.md)
-        }
-
-        // Diff preview (if present)
-        if let diff = confirmation.diff {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(diff.filePath)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                if diff.isNewFile {
-                    Text("New file")
-                        .font(VFont.caption)
+            Group {
+                switch confirmation.state {
+                case .approved:
+                    Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
+                case .denied:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(VColor.error)
+                case .timedOut:
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(VColor.textMuted)
+                default:
+                    EmptyView()
                 }
-
-                ScrollView {
-                    Text(String(diff.newContent.prefix(500)))
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 120)
-                .padding(VSpacing.sm)
-                .background(VColor.backgroundSubtle)
-                .cornerRadius(VRadius.md)
             }
-        }
+            .font(.system(size: 12))
 
-        // Action buttons
-        HStack(spacing: VSpacing.md) {
+            Text(confirmation.state == .approved
+                 ? "\(confirmation.permissionFriendlyName) granted"
+                 : confirmation.state == .denied
+                 ? "\(confirmation.permissionFriendlyName) skipped"
+                 : "Timed out")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+
             Spacer()
-            VButton(label: "Deny", style: .ghost) {
-                onDeny()
-            }
-            VButton(label: "Allow", style: isHighRisk ? .danger : .primary) {
-                onAllow()
-            }
         }
     }
 
-    // MARK: - Collapsed (decided)
+    // MARK: - Tool Permission (pending)
+
+    @ViewBuilder
+    private var pendingContent: some View {
+        if showDescription {
+            Text(confirmation.humanDescription)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: 520, alignment: .leading)
+        }
+
+        HStack(spacing: VSpacing.sm) {
+            VButton(label: "Don\u{2019}t Allow", style: .ghost) {
+                onDeny()
+            }
+
+            VButton(label: "Allow", style: .primary) {
+                onAllow()
+            }
+
+            if hasRuleOptions {
+                VButton(label: "Always Allow", style: .ghost) {
+                    let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+                    let scope = confirmation.scopeOptions.first?.scope ?? ""
+                    if !pattern.isEmpty && !scope.isEmpty {
+                        _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                    }
+                    onAllow()
+                }
+            }
+
+            Spacer()
+
+            if detailsPreview != nil {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        showDetails.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("Details")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.textMuted)
+                        Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showDetails ? "Hide details" : "Show details")
+            }
+        }
+
+        if showDetails, let preview = detailsPreview {
+            Text(preview)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textSecondary)
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.backgroundSubtle)
+                )
+                .textSelection(.enabled)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    // MARK: - Tool Permission (decided)
 
     @ViewBuilder
     private var collapsedContent: some View {
@@ -178,191 +215,70 @@ public struct ToolConfirmationBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(toolDisplayName)
+            Text(confirmation.state == .approved ? "Permission granted" :
+                 confirmation.state == .denied ? "Permission denied" : "Timed out")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 
-            if !confirmation.commandPreview.isEmpty {
-                Text(confirmation.commandPreview)
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
             Spacer()
-
-            Text(confirmation.state == .approved ? "Allowed" :
-                 confirmation.state == .denied ? "Denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(
-                    confirmation.state == .approved ? VColor.success :
-                    confirmation.state == .denied ? VColor.error : VColor.textMuted
-                )
         }
-
-        if (confirmation.state == .approved || confirmation.state == .denied) && hasRuleOptions && !ruleSaved {
-            if showRulePicker {
-                rulePickerView
-            } else {
-                HStack {
-                    Spacer()
-                    VButton(
-                        label: confirmation.state == .approved ? "Add to Allowlist" : "Add to Denylist",
-                        style: .ghost
-                    ) {
-                        if selectedPattern.isEmpty, let first = confirmation.allowlistOptions.first {
-                            selectedPattern = first.pattern
-                        }
-                        if selectedScope.isEmpty, let first = confirmation.scopeOptions.first {
-                            selectedScope = first.scope
-                        }
-                        withAnimation(VAnimation.standard) {
-                            showRulePicker = true
-                        }
-                    }
-                }
-            }
-        }
-
-        if ruleSaved {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(VColor.success)
-                Text("Rule saved")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.success)
-            }
-            .transition(.opacity)
-        }
-    }
-
-    @ViewBuilder
-    private var rulePickerView: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Pattern picker
-            if confirmation.allowlistOptions.count > 1 {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Pattern")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    Picker("", selection: $selectedPattern) {
-                        ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
-                            Text(option.label).tag(option.pattern)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-            } else if let single = confirmation.allowlistOptions.first {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Pattern:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    Text(single.label)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textPrimary)
-                }
-            }
-
-            // Scope picker
-            if confirmation.scopeOptions.count > 1 {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Scope")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    Picker("", selection: $selectedScope) {
-                        ForEach(confirmation.scopeOptions, id: \.scope) { option in
-                            Text(option.label).tag(option.scope)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-            } else if let single = confirmation.scopeOptions.first {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Scope:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    Text(single.label)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textPrimary)
-                }
-            }
-
-            // Save / Cancel
-            HStack(spacing: VSpacing.md) {
-                Spacer()
-                VButton(label: "Cancel", style: .ghost) {
-                    withAnimation(VAnimation.standard) {
-                        showRulePicker = false
-                    }
-                }
-                VButton(label: "Save Rule", style: .primary) {
-                    let ruleDecision = confirmation.state == .approved ? "allow" : "deny"
-                    guard onAddTrustRule(confirmation.toolName, selectedPattern, selectedScope, ruleDecision) else { return }
-                    withAnimation(VAnimation.standard) {
-                        showRulePicker = false
-                        ruleSaved = true
-                    }
-                }
-            }
-        }
-        .padding(VSpacing.md)
-        .background(VColor.backgroundSubtle)
-        .cornerRadius(VRadius.md)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
 #if DEBUG
 #Preview("ToolConfirmationBubble") {
     VStack(spacing: VSpacing.lg) {
+        // System permission request (pending)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-perm",
+                toolName: "request_system_permission",
+                input: [
+                    "permission_type": AnyCodable("full_disk_access"),
+                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
+                ],
+                riskLevel: "high"
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+        // System permission (granted)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-perm-done",
+                toolName: "request_system_permission",
+                input: [
+                    "permission_type": AnyCodable("full_disk_access"),
+                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
+                ],
+                riskLevel: "high",
+                state: .approved
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+        // Tool confirmation (pending)
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
                 requestId: "test-1",
-                toolName: "bash",
-                input: ["command": AnyCodable("git push origin main")],
-                riskLevel: "medium",
-                diff: nil,
-                allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "git push", description: "This exact command", pattern: "git push"),
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "git *", description: "Any git command", pattern: "git *"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "/Users/test/project"),
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
-                ]
+                toolName: "host_bash",
+                input: ["command": AnyCodable("ls -lt ~/Downloads/ | head -50")],
+                riskLevel: "low",
+                executionTarget: "host"
             ),
             onAllow: {},
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
+        // Tool confirmation (approved)
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
                 requestId: "test-2",
-                toolName: "file_write",
-                input: ["path": AnyCodable("/Users/test/project/src/main.swift")],
-                riskLevel: "high",
-                diff: ConfirmationRequestMessage.ConfirmationDiffInfo(
-                    filePath: "/Users/test/project/src/main.swift",
-                    oldContent: "",
-                    newContent: "import Foundation\n\nfunc hello() {\n    print(\"Hello, World!\")\n}",
-                    isNewFile: true
-                )
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
-        )
-        // Collapsed: approved
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-3",
-                toolName: "bash",
+                toolName: "host_bash",
                 input: ["command": AnyCodable("npm install")],
                 riskLevel: "medium",
-                diff: nil,
                 allowlistOptions: [
                     ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "npm install", description: "This exact command", pattern: "npm install"),
                 ],
@@ -370,20 +286,6 @@ public struct ToolConfirmationBubble: View {
                     ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 state: .approved
-            ),
-            onAllow: {},
-            onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
-        )
-        // Collapsed: denied
-        ToolConfirmationBubble(
-            confirmation: ToolConfirmationData(
-                requestId: "test-4",
-                toolName: "bash",
-                input: ["command": AnyCodable("rm -rf /")],
-                riskLevel: "high",
-                diff: nil,
-                state: .denied
             ),
             onAllow: {},
             onDeny: {},
