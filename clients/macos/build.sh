@@ -364,7 +364,7 @@ if [ "$CMD" = "run" ]; then
                 -not -path '*/.build/*' \
                 -not -path '*/dist/*' \
                 \( -name "*.swift" -o -name "*.xcassets" -o -path "*.xcassets/*" \) \
-                2>/dev/null | sort > "$WATCH_MANIFEST"
+                2>/dev/null | sort > "$WATCH_MANIFEST" || true
         }
         snapshot_watched_files
 
@@ -390,7 +390,7 @@ if [ "$CMD" = "run" ]; then
                     -not -path '*/.build/*' \
                     -not -path '*/dist/*' \
                     \( -name "*.swift" -o -name "*.xcassets" -o -path "*.xcassets/*" \) \
-                    2>/dev/null | sort > "$CURRENT_MANIFEST"
+                    2>/dev/null | sort > "$CURRENT_MANIFEST" || true
                 if ! diff -q "$WATCH_MANIFEST" "$CURRENT_MANIFEST" > /dev/null 2>&1; then
                     CHANGED="(file added or removed)"
                 fi
