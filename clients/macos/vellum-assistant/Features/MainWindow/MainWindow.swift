@@ -61,6 +61,12 @@ final class MainWindow {
                 if connected {
                     if self.hasConnectedOnce {
                         self.traceStore.resetAll()
+                    } else {
+                        // First connect: restore panel after thread restoration
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
+                            self.windowState.restoreLastActivePanel()
+                        }
                     }
                     self.hasConnectedOnce = true
                 }

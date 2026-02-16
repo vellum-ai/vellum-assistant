@@ -5,7 +5,17 @@ import VellumAssistantShared
 /// to make it explicit, injectable, and easier to preview.
 @MainActor
 final class MainWindowState: ObservableObject {
-    @Published var activePanel: SidePanelType?
+    @AppStorage("lastActivePanel") private var lastActivePanelString: String?
+    @Published var activePanel: SidePanelType? {
+        didSet {
+            // Persist non-activity panels only (activity is message-specific)
+            if let activePanel, activePanel != .activity {
+                lastActivePanelString = String(describing: activePanel)
+            } else if activePanel == nil {
+                lastActivePanelString = nil
+            }
+        }
+    }
     @Published var isDynamicExpanded = false
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
@@ -60,5 +70,16 @@ final class MainWindowState: ObservableObject {
     func resetLayout() {
         layoutConfig = .default
         LayoutConfigStore.save(layoutConfig)
+    }
+
+    /// Restore the last active panel from UserDefaults
+    func restoreLastActivePanel() {
+        guard let savedPanelString = lastActivePanelString,
+              let panel = SidePanelType(rawValue: savedPanelString) else { return }
+
+        // Don't restore activity panel (it's session-specific)
+        guard panel != .activity else { return }
+
+        activePanel = panel
     }
 }

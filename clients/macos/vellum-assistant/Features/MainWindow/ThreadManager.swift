@@ -10,12 +10,16 @@ private let archivedSessionsKey = "archivedSessionIds"
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
+    @AppStorage("lastActiveThreadId") private var lastActiveThreadIdString: String?
     @Published var threads: [ThreadModel] = []
     @Published var activeThreadId: UUID? {
         didSet {
             subscribeToActiveViewModel()
             if let activeThreadId {
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
+                lastActiveThreadIdString = activeThreadId.uuidString
+            } else {
+                lastActiveThreadIdString = nil
             }
         }
     }
@@ -393,6 +397,23 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private func subscribeToActiveViewModel() {
         viewModelCancellable = activeViewModel?.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
+        }
+    }
+
+    /// Restore the last active thread from UserDefaults after session restoration completes
+    func restoreLastActiveThread() {
+        guard restoreRecentThreads else { return }
+        guard let savedUUIDString = lastActiveThreadIdString,
+              let savedUUID = UUID(uuidString: savedUUIDString) else { return }
+
+        // Only restore if thread exists and is visible (not archived)
+        if threads.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
+            activeThreadId = savedUUID
+            log.info("Restored last active thread: \(savedUUID)")
+        } else {
+            // Thread no longer exists, clear saved state
+            lastActiveThreadIdString = nil
+            log.info("Saved thread not found, falling back to default")
         }
     }
 }

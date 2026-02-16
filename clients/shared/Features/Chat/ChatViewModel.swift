@@ -1271,12 +1271,15 @@ public final class ChatViewModel: ObservableObject {
                 surfaceMessage: msg
             )
 
-            // If messageId is provided (from history loading), attach to that specific message
+            // If messageId is provided, attach to that specific message (rarely used now that
+            // surfaces come directly in history_response, but kept for backwards compatibility)
             if let messageId = msg.messageId,
                let messageUUID = UUID(uuidString: messageId),
                let index = messages.firstIndex(where: { $0.id == messageUUID }) {
                 log.info("Attaching surface to message by messageId: \(messageId)")
+                let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
+                messages[index].contentOrder.append(.surface(surfIdx))
             } else if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 log.info("Attaching surface to currentAssistantMessage: \(existingId)")
@@ -1863,8 +1866,29 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])
+
+            // Map surfaces from history to inlineSurfaces
+            var inlineSurfaces: [InlineSurfaceData] = []
+            if let historySurfaces = item.surfaces {
+                for surf in historySurfaces {
+                    // Use sessionId from the view model (assumes history is for current session)
+                    if let sessionId = self.sessionId,
+                       let surface = Surface.from(surf, sessionId: sessionId) {
+                        let inlineSurface = InlineSurfaceData(
+                            id: surface.id,
+                            surfaceType: surface.type,
+                            title: surface.title,
+                            data: surface.data,
+                            actions: surface.actions,
+                            surfaceMessage: nil  // No IPC message for history surfaces
+                        )
+                        inlineSurfaces.append(inlineSurface)
+                    }
+                }
+            }
+
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty { continue }
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
             // Use the database message ID if available (for matching surfaces)
@@ -1887,6 +1911,9 @@ public final class ChatViewModel: ObservableObject {
                     toolCalls: toolCalls
                 )
             }
+
+            // Populate inlineSurfaces from history
+            chatMsg.inlineSurfaces = inlineSurfaces
 
             // Use daemon-provided segments/order when available; fall back to legacy
             if let segments = item.textSegments, let orderStrings = item.contentOrder, !segments.isEmpty {
@@ -1922,6 +1949,7 @@ public final class ChatViewModel: ObservableObject {
             self.messages = chatMessages
         }
         self.isHistoryLoaded = true
+        // Surfaces are now included directly in the history response and populated above
     }
 
     deinit {

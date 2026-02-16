@@ -59,8 +59,6 @@ import type {
   PublishPageRequest,
   UnpublishPageRequest,
   LinkOpenRequest,
-  IntegrationConnectRequest,
-  IntegrationDisconnectRequest,
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
@@ -96,8 +94,6 @@ import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
-import { listStatuses, getIntegration, disconnect as disconnectIntegration } from '../integrations/registry.js';
-import { startOAuth2Flow } from '../integrations/oauth2.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
 import type { UserMessageAttachment } from './ipc-contract.js';
 
@@ -248,6 +244,15 @@ export interface HistoryToolCall {
   imageData?: string;
 }
 
+export interface HistorySurface {
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data: Record<string, unknown>;
+  actions?: Array<{ id: string; label: string; style?: string }>;
+  display?: string;
+}
+
 export interface RenderedHistoryContent {
   text: string;
   toolCalls: HistoryToolCall[];
@@ -255,8 +260,10 @@ export interface RenderedHistoryContent {
   toolCallsBeforeText: boolean;
   /** Text segments split by tool-call boundaries. */
   textSegments: string[];
-  /** Content block ordering using "text:N", "tool:N" encoding. */
+  /** Content block ordering using "text:N", "tool:N", "surface:N" encoding. */
   contentOrder: string[];
+  /** UI surfaces (widgets) embedded in the message. */
+  surfaces: HistorySurface[];
 }
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
@@ -275,12 +282,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       toolCallsBeforeText: false,
       textSegments: text ? [text] : [],
       contentOrder: text ? ['text:0'] : [],
+      surfaces: [],
     };
   }
 
   const textParts: string[] = [];
   const attachmentParts: string[] = [];
   const toolCalls: HistoryToolCall[] = [];
+  const surfaces: HistorySurface[] = [];
   const pendingToolUses = new Map<string, HistoryToolCall>();
   let seenText = false;
   let seenToolUse = false;
@@ -311,8 +320,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
 
-    // Skip ui_surface blocks - they're handled separately
+    // Collect ui_surface blocks for inclusion in history
     if (block.type === 'ui_surface') {
+      finalizeSegment();
+      const surface: HistorySurface = {
+        surfaceId: typeof block.surfaceId === 'string' ? block.surfaceId : '',
+        surfaceType: typeof block.surfaceType === 'string' ? block.surfaceType : '',
+        title: typeof block.title === 'string' ? block.title : undefined,
+        data: isRecord(block.data) ? (block.data as Record<string, unknown>) : {},
+        actions: Array.isArray(block.actions) ? block.actions : undefined,
+        display: typeof block.display === 'string' ? block.display : undefined,
+      };
+      surfaces.push(surface);
+      contentOrder.push(`surface:${surfaces.length - 1}`);
       continue;
     }
 
@@ -396,7 +416,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     rendered = `${text}\n${attachmentParts.join('\n')}`;
   }
 
-  return { text: rendered, toolCalls, toolCallsBeforeText, textSegments, contentOrder };
+  return { text: rendered, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
 }
 
 /**
@@ -539,9 +559,6 @@ const handlers: DispatchMap = {
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
   },
-  integration_list: (_msg, socket, ctx) => handleIntegrationList(socket, ctx),
-  integration_connect: handleIntegrationConnect,
-  integration_disconnect: handleIntegrationDisconnect,
 };
 
 export function handleMessage(
@@ -886,6 +903,7 @@ export interface ParsedHistoryMessage {
   toolCallsBeforeText: boolean;
   textSegments: string[];
   contentOrder: string[];
+  surfaces: HistorySurface[];
 }
 
 function handleHistoryRequest(
@@ -900,6 +918,7 @@ function handleHistoryRequest(
     let toolCallsBeforeText = false;
     let textSegments: string[] = [];
     let contentOrder: string[] = [];
+    let surfaces: HistorySurface[] = [];
     try {
       const content = JSON.parse(m.content);
       const rendered = renderHistoryContent(content);
@@ -908,6 +927,7 @@ function handleHistoryRequest(
       toolCallsBeforeText = rendered.toolCallsBeforeText;
       textSegments = rendered.textSegments;
       contentOrder = rendered.contentOrder;
+      surfaces = rendered.surfaces;
       if (m.role === 'assistant' && toolCalls.length > 0) {
         log.info({ messageId: m.id, toolCallCount: toolCalls.length, text: text.substring(0, 100) }, 'History message with tool calls');
       }
@@ -916,8 +936,9 @@ function handleHistoryRequest(
       text = m.content;
       textSegments = text ? [text] : [];
       contentOrder = text ? ['text:0'] : [];
+      surfaces = [];
     }
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -939,6 +960,7 @@ function handleHistoryRequest(
       }
     }
     return {
+      ...(m.id ? { id: m.id } : {}),
       role: m.role,
       text: m.text,
       timestamp: m.timestamp,
@@ -946,41 +968,13 @@ function handleHistoryRequest(
       ...(attachments ? { attachments } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
     };
   });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
 
-  // Emit ui_surface_show for any persisted surfaces in the messages
-  for (const dbMsg of dbMessages) {
-    try {
-      const content = JSON.parse(dbMsg.content);
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (isRecord(block) && block.type === 'ui_surface') {
-            log.info({
-              surfaceId: block.surfaceId,
-              surfaceType: block.surfaceType,
-              messageId: dbMsg.id,
-              sessionId: msg.sessionId
-            }, 'Emitting ui_surface_show from history');
-            ctx.send(socket, {
-              type: 'ui_surface_show',
-              sessionId: msg.sessionId,
-              surfaceId: block.surfaceId,
-              surfaceType: block.surfaceType,
-              title: block.title,
-              data: block.data,
-              actions: block.actions,
-              display: block.display,
-              messageId: dbMsg.id,
-            } as UiSurfaceShow);
-          }
-        }
-      }
-    } catch (err) {
-      log.warn({ err, messageId: dbMsg.id }, 'Failed to emit ui_surface from history');
-    }
-  }
+  // Surfaces are now included directly in the history_response message (in the surfaces array),
+  // so we no longer emit separate ui_surface_show messages during history loading.
 }
 
 export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {
@@ -2883,130 +2877,4 @@ function handleLinkOpenRequest(
   // V1: passthrough. Future: affiliate param injection based on metadata
   const finalUrl = msg.url;
   ctx.send(socket, { type: 'open_url', url: finalUrl });
-}
-
-// ─── Integration handlers ────────────────────────────────────────────────────
-
-function handleIntegrationList(
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const statuses = listStatuses();
-  ctx.send(socket, {
-    type: 'integration_list_response',
-    integrations: statuses.map((s) => ({
-      id: s.id,
-      connected: s.connected,
-      accountInfo: s.accountInfo,
-      connectedAt: s.connectedAt,
-      lastUsed: s.lastUsed,
-      error: s.error,
-    })),
-  });
-}
-
-async function handleIntegrationConnect(
-  msg: IntegrationConnectRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  const def = getIntegration(msg.integrationId);
-  if (!def) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `Integration "${msg.integrationId}" not found`,
-    });
-    return;
-  }
-
-  if (def.authType !== 'oauth2' || !def.oauth2Config) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `Integration "${msg.integrationId}" does not support OAuth2`,
-    });
-    return;
-  }
-
-  // Load clientId from config
-  const config = getConfig();
-  const integrationConfig = config.integrations[msg.integrationId];
-  const clientId = integrationConfig?.clientId || def.oauth2Config.clientId;
-
-  if (!clientId) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `No clientId configured for "${msg.integrationId}". Set integrations.${msg.integrationId}.clientId in config.`,
-    });
-    return;
-  }
-
-  try {
-    const oauthConfig = { ...def.oauth2Config, clientId };
-    const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
-      openUrl: (url) => ctx.broadcast({ type: 'open_url', url, title: `Connect ${def.name}` }),
-    });
-
-    // Store tokens in vault
-    setSecureKey(`integration:${def.id}:access_token`, tokens.accessToken);
-    const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
-    upsertCredentialMetadata(`integration:${def.id}`, 'access_token', {
-      allowedTools: def.allowedTools,
-      expiresAt,
-      grantedScopes,
-    });
-
-    if (tokens.refreshToken) {
-      setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken);
-      upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
-    }
-
-    // Fetch account info (email) if userinfo scope was granted
-    let accountInfo: string | undefined;
-    if (grantedScopes.some((s) => s.includes('userinfo'))) {
-      try {
-        const resp = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
-          headers: { Authorization: `Bearer ${tokens.accessToken}` },
-        });
-        if (resp.ok) {
-          const info = await resp.json() as { email?: string };
-          accountInfo = info.email;
-        }
-      } catch {
-        // Non-fatal — account info is optional
-      }
-    }
-
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: def.id,
-      success: true,
-      accountInfo,
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
-    log.error({ err, integrationId: msg.integrationId }, 'Integration connect failed');
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: message,
-    });
-  }
-}
-
-function handleIntegrationDisconnect(
-  msg: IntegrationDisconnectRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  disconnectIntegration(msg.integrationId);
-  log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
-  // Send updated list so the client refreshes
-  handleIntegrationList(socket, ctx);
 }

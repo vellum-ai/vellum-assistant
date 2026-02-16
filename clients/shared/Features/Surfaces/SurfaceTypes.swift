@@ -379,6 +379,37 @@ public extension Surface {
         )
     }
 
+    /// Create a Surface from a history response surface (without sessionId).
+    /// Used when populating messages from history.
+    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String) -> Surface? {
+        guard let surfaceType = SurfaceType(rawValue: historySurface.surfaceType) else {
+            return nil
+        }
+
+        let dict = historySurface.data.mapValues { $0.value } as [String: Any?]
+
+        guard let surfaceData = parseSurfaceData(type: surfaceType, dict: dict) else {
+            return nil
+        }
+
+        let actions = (historySurface.actions ?? []).map { action in
+            SurfaceActionButton(
+                id: action.id,
+                label: action.label,
+                style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary
+            )
+        }
+
+        return Surface(
+            id: historySurface.surfaceId,
+            sessionId: sessionId,
+            type: surfaceType,
+            title: historySurface.title,
+            data: surfaceData,
+            actions: actions
+        )
+    }
+
     /// Update only the data payload of an existing surface from a `UiSurfaceUpdateMessage`.
     ///
     /// The update payload is `Partial<SurfaceData>` — only the fields present in the dict are

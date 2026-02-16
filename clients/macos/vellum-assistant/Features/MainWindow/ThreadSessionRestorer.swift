@@ -18,6 +18,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     func activateThread(_ id: UUID)
     func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
+    func restoreLastActiveThread()
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -117,6 +118,7 @@ final class ThreadSessionRestorer {
         }
 
         log.info("Restored \(restoredThreads.count) threads from daemon")
+        delegate.restoreLastActiveThread()
     }
 
     func handleHistoryResponse(_ response: HistoryResponseMessage) {

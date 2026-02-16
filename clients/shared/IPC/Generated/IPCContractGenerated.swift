@@ -438,6 +438,23 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let textSegments: [String]?
     /// Content block ordering using "text:N", "tool:N", "surface:N" encoding.
     public let contentOrder: [String]?
+    /// UI surfaces (widgets) embedded in the message.
+    public let surfaces: [IPCHistoryResponseSurface]?
+}
+
+public struct IPCHistoryResponseSurface: Codable, Sendable {
+    public let surfaceId: String
+    public let surfaceType: String
+    public let title: String?
+    public let data: [String: AnyCodable]
+    public let actions: [IPCHistoryResponseSurfaceAction]?
+    public let display: String?
+}
+
+public struct IPCHistoryResponseSurfaceAction: Codable, Sendable {
+    public let id: String
+    public let label: String
+    public let style: String?
 }
 
 public struct IPCHistoryResponseToolCall: Codable, Sendable {

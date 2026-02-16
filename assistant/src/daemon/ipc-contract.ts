@@ -813,6 +813,15 @@ export interface HistoryResponseToolCall {
   imageData?: string;
 }
 
+export interface HistoryResponseSurface {
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data: Record<string, unknown>;
+  actions?: Array<{ id: string; label: string; style?: string }>;
+  display?: string;
+}
+
 export interface HistoryResponse {
   type: 'history_response';
   sessionId: string;
@@ -829,6 +838,8 @@ export interface HistoryResponse {
     textSegments?: string[];
     /** Content block ordering using "text:N", "tool:N", "surface:N" encoding. */
     contentOrder?: string[];
+    /** UI surfaces (widgets) embedded in the message. */
+    surfaces?: HistoryResponseSurface[];
   }>;
 }
 
