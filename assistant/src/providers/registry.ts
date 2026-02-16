@@ -5,6 +5,7 @@ import { GeminiProvider } from "./gemini/client.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { RetryProvider } from "./retry.js";
+import { FailoverProvider } from "./failover.js";
 import { ConfigError } from "../util/errors.js";
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -29,6 +30,34 @@ export function getProvider(name: string): Provider {
     );
   }
   return provider;
+}
+
+/**
+ * Build a provider that tries the primary provider first, then falls back to
+ * others in the configured order. If providerOrder is empty or only contains
+ * the primary, returns the primary provider directly (no wrapper overhead).
+ */
+export function getFailoverProvider(primaryName: string, providerOrder: string[]): Provider {
+  const primary = getProvider(primaryName);
+
+  // Build the ordered list: primary first, then remaining from providerOrder
+  const orderedProviders: Provider[] = [primary];
+  const seen = new Set<string>([primaryName]);
+
+  for (const name of providerOrder) {
+    if (seen.has(name)) continue;
+    const p = providers.get(name);
+    if (p) {
+      orderedProviders.push(p);
+      seen.add(name);
+    }
+  }
+
+  if (orderedProviders.length === 1) {
+    return primary;
+  }
+
+  return new FailoverProvider(orderedProviders);
 }
 
 export function listProviders(): string[] {
