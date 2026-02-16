@@ -283,6 +283,10 @@ public struct SettingsView: View {
             }
             try? daemonClient?.sendIntegrationList()
         }
+        .onDisappear {
+            daemonClient?.onIntegrationListResponse = nil
+            daemonClient?.onIntegrationConnectResult = nil
+        }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
         }
