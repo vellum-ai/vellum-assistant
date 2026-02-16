@@ -304,6 +304,8 @@ export class RuntimeHttpServer {
         timestamp: msg.createdAt,
         toolCalls: rendered.toolCalls,
         toolCallsBeforeText: rendered.toolCallsBeforeText,
+        textSegments: rendered.textSegments,
+        contentOrder: rendered.contentOrder,
         id: msg.id,
       };
     });
