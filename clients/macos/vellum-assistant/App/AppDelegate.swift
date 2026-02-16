@@ -163,41 +163,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             appearance = nil // follow system
         }
 
-        if appearance == nil {
-            // When switching back to "system", clear the override first so
-            // effectiveAppearance reflects the actual system appearance, then
-            // snapshot it and apply explicitly so windows see an immediate change.
-            NSApp.appearance = nil
-            let systemAppearance = NSAppearance(named:
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? .darkAqua : .aqua)
-            NSApp.appearance = systemAppearance
-            for window in NSApp.windows {
-                window.appearance = systemAppearance
-                window.invalidateShadow()
-                window.contentView?.needsDisplay = true
-            }
-            // Clear the explicit override on the next run loop so future system
-            // appearance changes propagate. Guard against races where the user
-            // picks a different theme before this block fires.
-            DispatchQueue.main.async {
-                let current = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
-                guard current == "system" else { return }
-                NSApp.appearance = nil
-                for window in NSApp.windows {
-                    window.appearance = nil
-                    window.invalidateShadow()
-                    window.contentView?.needsDisplay = true
-                }
-            }
-        } else {
-            NSApp.appearance = appearance
-            for window in NSApp.windows {
-                window.appearance = appearance
-                window.invalidateShadow()
-                window.contentView?.needsDisplay = true
-                window.displayIfNeeded()
-            }
+        NSApp.appearance = appearance
+        for window in NSApp.windows {
+            window.appearance = appearance
+            window.invalidateShadow()
+            window.contentView?.needsDisplay = true
         }
     }
 
