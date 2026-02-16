@@ -27,9 +27,8 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://bun.sh/install | bash && \
-    mv /root/.bun/bin/bun /usr/local/bin/bun && \
-    rm -rf /root/.bun
+# Copy bun binary from builder instead of re-installing
+COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 
 RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
