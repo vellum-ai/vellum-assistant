@@ -1110,19 +1110,48 @@ private struct ChatBubble: View {
         }
     }
 
-    /// Render a single text segment as a styled bubble.
+    /// Render a single text segment as a styled bubble, with table support.
+    @ViewBuilder
     private func textBubble(for segmentText: String) -> some View {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let attributed = (try? AttributedString(markdown: segmentText, options: options))
-            ?? AttributedString(segmentText)
-        return Text(attributed)
-            .font(.system(size: 13))
-            .foregroundColor(VColor.textPrimary)
-            .tint(VColor.accent)
-            .textSelection(.enabled)
-            .frame(maxWidth: 520, alignment: .leading)
+        let segments = parseMarkdownSegments(segmentText)
+        let hasTable = segments.contains(where: {
+            if case .table = $0 { return true }; return false
+        })
+
+        if hasTable {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .text(let text):
+                        let options = AttributedString.MarkdownParsingOptions(
+                            interpretedSyntax: .inlineOnlyPreservingWhitespace
+                        )
+                        let attributed = (try? AttributedString(markdown: text, options: options))
+                            ?? AttributedString(text)
+                        Text(attributed)
+                            .font(.system(size: 13))
+                            .foregroundColor(VColor.textPrimary)
+                            .tint(VColor.accent)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: 520, alignment: .leading)
+                    case .table(let headers, let rows):
+                        MarkdownTableView(headers: headers, rows: rows)
+                    }
+                }
+            }
+        } else {
+            let options = AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace
+            )
+            let attributed = (try? AttributedString(markdown: segmentText, options: options))
+                ?? AttributedString(segmentText)
+            Text(attributed)
+                .font(.system(size: 13))
+                .foregroundColor(VColor.textPrimary)
+                .tint(VColor.accent)
+                .textSelection(.enabled)
+                .frame(maxWidth: 520, alignment: .leading)
+        }
     }
 
     /// Current step indicator rendered outside the bubble.
@@ -1200,13 +1229,39 @@ private struct ChatBubble: View {
             }
 
             if hasText {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(markdownText)
-                        .font(.system(size: 13))
-                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                        .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    let segments = parseMarkdownSegments(displayText)
+                    let hasTable = segments.contains(where: {
+                        if case .table = $0 { return true }; return false
+                    })
+
+                    if hasTable {
+                        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                            switch segment {
+                            case .text(let text):
+                                let options = AttributedString.MarkdownParsingOptions(
+                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                )
+                                let attributed = (try? AttributedString(markdown: text, options: options))
+                                    ?? AttributedString(text)
+                                Text(attributed)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            case .table(let headers, let rows):
+                                MarkdownTableView(headers: headers, rows: rows)
+                            }
+                        }
+                    } else {
+                        Text(markdownText)
+                            .font(.system(size: 13))
+                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     if shouldTruncate || (isExpanded && (message.text.count > truncationLimit || message.text.components(separatedBy: .newlines).count > lineLimit)) {
                         Button(action: { isExpanded.toggle() }) {
@@ -1380,6 +1435,146 @@ private struct ChatBubble: View {
             }
         }
         return "\(n)\(suffix)"
+    }
+}
+
+// MARK: - Markdown Table Support
+
+/// A segment of message content — either plain text or a parsed table.
+private enum MarkdownSegment {
+    case text(String)
+    case table(headers: [String], rows: [[String]])
+}
+
+/// Parses message text into segments, extracting pipe-delimited markdown tables.
+private func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
+    let lines = text.components(separatedBy: .newlines)
+    var segments: [MarkdownSegment] = []
+    var currentText: [String] = []
+    var i = 0
+
+    while i < lines.count {
+        // Check for table: need header row + separator row + at least one data row
+        if i + 2 < lines.count,
+           isTableRow(lines[i]),
+           isTableSeparator(lines[i + 1]),
+           isTableRow(lines[i + 2]) {
+            // Flush accumulated text
+            let pending = currentText.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !pending.isEmpty {
+                segments.append(.text(pending))
+            }
+            currentText = []
+
+            // Parse headers
+            let headers = parseTableCells(lines[i])
+            i += 2  // skip separator
+
+            // Parse data rows
+            var rows: [[String]] = []
+            while i < lines.count, isTableRow(lines[i]) {
+                let cells = parseTableCells(lines[i])
+                // Pad or trim to match header count
+                let padded = Array(cells.prefix(headers.count))
+                    + Array(repeating: "", count: max(0, headers.count - cells.count))
+                rows.append(padded)
+                i += 1
+            }
+
+            segments.append(.table(headers: headers, rows: rows))
+        } else {
+            currentText.append(lines[i])
+            i += 1
+        }
+    }
+
+    // Flush remaining text
+    let remaining = currentText.joined(separator: "\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if !remaining.isEmpty {
+        segments.append(.text(remaining))
+    }
+
+    return segments
+}
+
+private func isTableRow(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed.hasPrefix("|") && trimmed.hasSuffix("|")
+        && trimmed.filter({ $0 == "|" }).count >= 2
+}
+
+private func isTableSeparator(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard trimmed.hasPrefix("|") && trimmed.hasSuffix("|") else { return false }
+    let inner = trimmed.dropFirst().dropLast()
+    // Each cell should be dashes (with optional colons for alignment)
+    return inner.split(separator: "|").allSatisfy { cell in
+        let c = cell.trimmingCharacters(in: .whitespaces)
+        return !c.isEmpty && c.allSatisfy({ $0 == "-" || $0 == ":" })
+    }
+}
+
+private func parseTableCells(_ line: String) -> [String] {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let inner = String(trimmed.dropFirst().dropLast())  // strip outer pipes
+    return inner.components(separatedBy: "|")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+}
+
+/// Renders a parsed markdown table.
+private struct MarkdownTableView: View {
+    let headers: [String]
+    let rows: [[String]]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            HStack(spacing: 0) {
+                ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
+                    Text(header)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                }
+            }
+            .background(VColor.backgroundSubtle)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Data rows
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
+                HStack(spacing: 0) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        inlineMarkdownCell(cell)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                    }
+                }
+                .background(rowIdx % 2 == 1 ? VColor.backgroundSubtle.opacity(0.5) : Color.clear)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+        .frame(maxWidth: 520, alignment: .leading)
+    }
+
+    private func inlineMarkdownCell(_ text: String) -> some View {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let attributed = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+        return Text(attributed)
+            .font(VFont.caption)
+            .foregroundColor(VColor.textPrimary)
     }
 }
 
