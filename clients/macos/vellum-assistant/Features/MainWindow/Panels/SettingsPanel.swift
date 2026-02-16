@@ -540,11 +540,13 @@ struct SettingsPanel: View {
 
 }
 
-#Preview("SettingsPanel") {
-    let dc = DaemonClient()
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc))
+struct SettingsPanel_Previews: PreviewProvider {
+    static var previews: some View {
+        let dc = DaemonClient()
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc))
+        }
+        .frame(width: 600, height: 700)
     }
-    .frame(width: 600, height: 700)
 }

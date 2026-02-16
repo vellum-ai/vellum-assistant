@@ -29,8 +29,9 @@ public final class RideShotgunTrigger: ObservableObject {
     public func start() {
         guard checkTimer == nil else { return }
         checkTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let strongSelf = self else { return }
             Task { @MainActor in
-                self?.evaluate()
+                strongSelf.evaluate()
             }
         }
         log.info("Ride shotgun trigger started")

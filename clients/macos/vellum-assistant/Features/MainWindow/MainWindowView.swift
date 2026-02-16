@@ -1260,9 +1260,11 @@ private struct DynamicWorkspaceWrapper: View {
     }
 }
 
-#Preview {
-    let dc = DaemonClient()
-    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
-        .frame(width: 900, height: 600)
-        .padding(.top, 36)
+struct MainWindowView_Previews: PreviewProvider {
+    static var previews: some View {
+        let dc = DaemonClient()
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
+            .frame(width: 900, height: 600)
+            .padding(.top, 36)
+    }
 }

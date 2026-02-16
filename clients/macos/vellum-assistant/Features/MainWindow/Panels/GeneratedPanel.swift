@@ -281,7 +281,7 @@ struct GeneratedPanel: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            openApp(item)
+            MainActor.assumeIsolated { openApp(item) }
         }
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
@@ -704,6 +704,8 @@ struct GeneratedPanel: View {
     }
 }
 
-#Preview {
-    GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient())
+struct GeneratedPanel_Previews: PreviewProvider {
+    static var previews: some View {
+        GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient())
+    }
 }

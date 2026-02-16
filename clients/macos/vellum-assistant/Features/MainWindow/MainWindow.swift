@@ -134,8 +134,9 @@ final class MainWindow {
             object: window,
             queue: .main
         ) { [weak self] _ in
+            guard let strongSelf = self else { return }
             Task { @MainActor in
-                self?.repositionTrafficLights(window)
+                strongSelf.repositionTrafficLights(window)
             }
         }
     }

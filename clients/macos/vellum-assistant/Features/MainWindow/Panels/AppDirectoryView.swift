@@ -179,7 +179,7 @@ struct AppDirectoryView: View {
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(VAnimation.fast, value: isHovered)
         .contentShape(Rectangle())
-        .onTapGesture { openApp(item) }
+        .onTapGesture { MainActor.assumeIsolated { openApp(item) } }
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
                 hoveredAppId = hovering ? item.id : nil
@@ -300,7 +300,7 @@ struct AppDirectoryView: View {
 
     // MARK: - Open App
 
-    private func openApp(_ item: DirectoryAppItem) {
+    @MainActor private func openApp(_ item: DirectoryAppItem) {
         if let localId = item.localAppId {
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
@@ -371,11 +371,13 @@ private struct DirectoryAppItem: Identifiable {
     let sharedUUID: String?
 }
 
-#Preview {
-    AppDirectoryView(
-        daemonClient: DaemonClient(),
-        onBack: {},
-        onOpenApp: { _ in }
-    )
-    .frame(width: 900, height: 600)
+struct AppDirectoryView_Previews: PreviewProvider {
+    static var previews: some View {
+        AppDirectoryView(
+            daemonClient: DaemonClient(),
+            onBack: {},
+            onOpenApp: { _ in }
+        )
+        .frame(width: 900, height: 600)
+    }
 }

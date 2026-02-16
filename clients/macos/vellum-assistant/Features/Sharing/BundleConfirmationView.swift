@@ -1,6 +1,7 @@
 import VellumAssistantShared
 import SwiftUI
 
+@MainActor
 struct BundleConfirmationView: View {
     var viewModel: BundleConfirmationViewModel
 

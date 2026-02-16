@@ -533,6 +533,8 @@ private struct KnowledgeEntriesView: View {
     }
 }
 
-#Preview {
-    SettingsView(store: SettingsStore())
+struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        SettingsView(store: SettingsStore())
+    }
 }
