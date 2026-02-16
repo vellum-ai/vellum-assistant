@@ -836,6 +836,7 @@ export class Session {
             relationTraversedEdgeCount: recall.relationTraversedEdgeCount,
             relationNeighborEntityCount: recall.relationNeighborEntityCount,
             relationExpandedItemCount: recall.relationExpandedItemCount,
+            earlyTerminated: recall.earlyTerminated,
             mergedCount: recall.mergedCount,
             selectedCount: recall.selectedCount,
             rerankApplied: recall.rerankApplied,

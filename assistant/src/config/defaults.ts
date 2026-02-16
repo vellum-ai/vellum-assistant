@@ -61,6 +61,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         maxInjectTokens: 10000,
         targetHeadroomTokens: 10000,
       },
+      earlyTermination: {
+        enabled: true,
+        minCandidates: 20,
+        minHighConfidence: 10,
+        confidenceThreshold: 0.7,
+      },
     },
     segmentation: {
       targetTokens: 450,

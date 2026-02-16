@@ -916,6 +916,7 @@ export interface MemoryRecalled {
   relationTraversedEdgeCount?: number;
   relationNeighborEntityCount?: number;
   relationExpandedItemCount?: number;
+  earlyTerminated?: boolean;
   mergedCount: number;
   selectedCount: number;
   rerankApplied: boolean;

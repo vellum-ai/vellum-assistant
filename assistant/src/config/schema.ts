@@ -248,6 +248,27 @@ export const MemoryDynamicBudgetConfigSchema = z.object({
     .default(10000),
 });
 
+export const MemoryEarlyTerminationConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'memory.retrieval.earlyTermination.enabled must be a boolean' })
+    .default(true),
+  minCandidates: z
+    .number({ error: 'memory.retrieval.earlyTermination.minCandidates must be a number' })
+    .int('memory.retrieval.earlyTermination.minCandidates must be an integer')
+    .positive('memory.retrieval.earlyTermination.minCandidates must be a positive integer')
+    .default(20),
+  minHighConfidence: z
+    .number({ error: 'memory.retrieval.earlyTermination.minHighConfidence must be a number' })
+    .int('memory.retrieval.earlyTermination.minHighConfidence must be an integer')
+    .positive('memory.retrieval.earlyTermination.minHighConfidence must be a positive integer')
+    .default(10),
+  confidenceThreshold: z
+    .number({ error: 'memory.retrieval.earlyTermination.confidenceThreshold must be a number' })
+    .min(0, 'memory.retrieval.earlyTermination.confidenceThreshold must be >= 0')
+    .max(1, 'memory.retrieval.earlyTermination.confidenceThreshold must be <= 1')
+    .default(0.7),
+});
+
 /**
  * Per-kind freshness windows (in days). Items older than their window
  * (based on lastSeenAt) are down-ranked unless recently reinforced.
@@ -347,6 +368,12 @@ export const MemoryRetrievalConfigSchema = z.object({
     minInjectTokens: 1200,
     maxInjectTokens: 10000,
     targetHeadroomTokens: 10000,
+  }),
+  earlyTermination: MemoryEarlyTerminationConfigSchema.default({
+    enabled: true,
+    minCandidates: 20,
+    minHighConfidence: 10,
+    confidenceThreshold: 0.7,
   }),
 });
 
@@ -555,6 +582,12 @@ export const MemoryConfigSchema = z.object({
       minInjectTokens: 1200,
       maxInjectTokens: 10000,
       targetHeadroomTokens: 10000,
+    },
+    earlyTermination: {
+      enabled: true,
+      minCandidates: 20,
+      minHighConfidence: 10,
+      confidenceThreshold: 0.7,
     },
   }),
   segmentation: MemorySegmentationConfigSchema.default({
@@ -767,6 +800,12 @@ export const AssistantConfigSchema = z.object({
         minInjectTokens: 1200,
         maxInjectTokens: 10000,
         targetHeadroomTokens: 10000,
+      },
+      earlyTermination: {
+        enabled: true,
+        minCandidates: 20,
+        minHighConfidence: 10,
+        confidenceThreshold: 0.7,
       },
     },
     segmentation: {

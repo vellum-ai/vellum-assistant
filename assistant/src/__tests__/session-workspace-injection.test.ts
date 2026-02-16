@@ -78,7 +78,7 @@ mock.module('../memory/retriever.js', () => ({
     enabled: false, degraded: false, reason: null, provider: 'mock', model: 'mock',
     injectedText: '', lexicalHits: 0, semanticHits: 0, recencyHits: 0, entityHits: 0,
     relationSeedEntityCount: 0, relationTraversedEdgeCount: 0, relationNeighborEntityCount: 0,
-    relationExpandedItemCount: 0, mergedCount: 0, selectedCount: 0, rerankApplied: false,
+    relationExpandedItemCount: 0, earlyTerminated: false, mergedCount: 0, selectedCount: 0, rerankApplied: false,
     injectedTokens: 0, latencyMs: 0, topCandidates: [],
   }),
   injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
