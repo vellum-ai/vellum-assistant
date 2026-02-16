@@ -1802,7 +1802,7 @@ function handleAppOpenRequest(msg: { appId: string }, socket: net.Socket, ctx: H
     surfaceId,
     surfaceType: 'dynamic_page',
     title: app.name,
-    data: { html: app.htmlDefinition, appId: app.id },
+    data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
     display: 'panel',
   } as UiSurfaceShow);
 }
@@ -1839,6 +1839,7 @@ function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
           createdAt: a.createdAt,
           version,
           contentId,
+          appType: a.appType,
         };
       }),
     });

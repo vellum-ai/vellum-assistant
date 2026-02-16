@@ -1058,6 +1058,7 @@ export interface AppsListResponse {
     createdAt: number;
     version?: string;
     contentId?: string;
+    appType?: string;
   }>;
 }
 
