@@ -21,10 +21,11 @@ function getHeader(headers: GmailHeader[] | undefined, name: string): string | u
 }
 
 function parseSender(from: string): { name: string; email: string } {
-  // "Display Name <email@example.com>" or just "email@example.com"
-  const match = from.match(/^(.+?)\s*<([^>]+)>$/);
+  // Handles "Display Name <email@example.com>", "<email@example.com>", or just "email@example.com"
+  const match = from.match(/^(.*?)\s*<([^>]+)>$/);
   if (match) {
-    return { name: match[1].replace(/^["']|["']$/g, '').trim(), email: match[2].toLowerCase() };
+    const rawName = match[1].replace(/^["']|["']$/g, '').trim();
+    return { name: rawName || match[2], email: match[2].toLowerCase() };
   }
   return { name: from.trim(), email: from.trim().toLowerCase() };
 }
