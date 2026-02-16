@@ -190,16 +190,15 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
-  log.info('Daemon startup: loading .env');
   loadDotEnv();
 
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and
   // finally create any directories that don't yet exist.
-  log.info('Daemon startup: running migrations');
   migrateToDataLayout();
   migrateToWorkspaceLayout();
   ensureDataDir();
+
   log.info('Daemon startup: migrations complete');
 
   const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
