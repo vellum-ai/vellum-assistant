@@ -526,7 +526,22 @@
       await animateTextReplace(textOps[t], cancelled);
     }
 
-    // Animate style changes and structural changes in parallel
+    // Pre-resolve insert refNodes: if a refNode is queued for removal, walk
+    // to the next sibling that isn't being removed so the insert lands in the
+    // correct position instead of falling back to append-at-end.
+    var removedNodes = [];
+    for (var rn = 0; rn < removeOps.length; rn++) {
+      removedNodes.push(removeOps[rn].node);
+    }
+    for (var ri = 0; ri < insertOps.length; ri++) {
+      var ref = insertOps[ri].refNode;
+      while (ref && removedNodes.indexOf(ref) >= 0) {
+        ref = ref.nextSibling;
+      }
+      insertOps[ri].refNode = ref;
+    }
+
+    // Animate style changes and removes in parallel
     var parallelTasks = [];
 
     for (var s = 0; s < styleOps.length; s++) {
@@ -538,13 +553,21 @@
       parallelTasks.push(animateRemove(removeOps[r].node));
     }
 
-    for (var ins = 0; ins < insertOps.length; ins++) {
-      if (cancelled()) return { cancelled: true };
-      parallelTasks.push(animateInsert(insertOps[ins].node, insertOps[ins].parent, insertOps[ins].refNode));
-    }
-
     if (parallelTasks.length > 0) {
       await Promise.all(parallelTasks);
+    }
+
+    if (cancelled()) return { cancelled: true };
+
+    // Inserts run after removes so refNodes are stable in the DOM
+    var insertTasks = [];
+    for (var ins = 0; ins < insertOps.length; ins++) {
+      if (cancelled()) return { cancelled: true };
+      insertTasks.push(animateInsert(insertOps[ins].node, insertOps[ins].parent, insertOps[ins].refNode));
+    }
+
+    if (insertTasks.length > 0) {
+      await Promise.all(insertTasks);
     }
 
     if (cancelled()) return { cancelled: true };
