@@ -416,6 +416,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             context.coordinator.lastReloadGeneration = gen
             context.coordinator.hasCapturedSnapshot = false
             webView.reload()
+            return
         }
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
@@ -480,11 +481,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
 
         // Show transient status pill overlay
-        if let status = data.status {
+        if let status = data.status, status != context.coordinator.lastStatus {
+            context.coordinator.lastStatus = status
             let escapedStatus = status
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "'", with: "\\'")
                 .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
             let js = """
                 (function() {
                     var existing = document.getElementById('vellum-status-pill');
@@ -503,6 +506,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 })();
                 """
             webView.evaluateJavaScript(js, completionHandler: nil)
+        } else if data.status == nil {
+            context.coordinator.lastStatus = nil
         }
     }
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -531,6 +536,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var hasCapturedSnapshot = false
         var morphGeneration: Int = 0
         var lastReloadGeneration: Int = 0
+        var lastStatus: String?
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
