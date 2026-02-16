@@ -370,7 +370,7 @@ public struct InlineSurfaceData: Identifiable, Equatable {
     public let surfaceMessage: UiSurfaceShowMessage?
 
     public static func == (lhs: InlineSurfaceData, rhs: InlineSurfaceData) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id && lhs.completionState == rhs.completionState
     }
 
     /// When non-nil, the surface has been completed and should render in collapsed/chip state.
