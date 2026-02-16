@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 
@@ -11,6 +13,103 @@ function getManagedSkillsDir(): string {
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
 function validateSlug(slug: string): boolean {
   return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*(\/[a-zA-Z0-9][a-zA-Z0-9._-]*)?)?$/.test(slug);
+}
+
+// ─── Content hash verification (trust-on-first-use) ──────────────────────────
+
+interface IntegrityRecord {
+  sha256: string;
+  installedAt: string;
+}
+
+type IntegrityManifest = Record<string, IntegrityRecord>;
+
+function getIntegrityPath(): string {
+  return join(getManagedSkillsDir(), '.integrity.json');
+}
+
+function loadIntegrityManifest(): IntegrityManifest {
+  const path = getIntegrityPath();
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as IntegrityManifest;
+  } catch {
+    log.warn('Failed to parse integrity manifest, starting fresh');
+    return {};
+  }
+}
+
+function saveIntegrityManifest(manifest: IntegrityManifest): void {
+  writeFileSync(getIntegrityPath(), JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
+}
+
+/** Collect all file contents in a directory tree, sorted by relative path for determinism. */
+function collectFileContents(dir: string, prefix = ''): Array<{ relPath: string; content: Buffer }> {
+  const results: Array<{ relPath: string; content: Buffer }> = [];
+  if (!existsSync(dir)) return results;
+
+  const entries = readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectFileContents(fullPath, relPath));
+    } else if (entry.isFile()) {
+      results.push({ relPath, content: readFileSync(fullPath) });
+    }
+  }
+  return results.sort((a, b) => a.relPath.localeCompare(b.relPath));
+}
+
+/** Compute a SHA-256 hash over all files in a skill directory. */
+function computeSkillHash(skillDir: string): string | null {
+  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
+
+  const files = collectFileContents(skillDir);
+  if (files.length === 0) return null;
+
+  const hasher = new Bun.CryptoHasher('sha256');
+  for (const file of files) {
+    // Include the relative path in the hash so renames are detected
+    hasher.update(file.relPath);
+    hasher.update(file.content);
+  }
+  return hasher.digest('hex');
+}
+
+/**
+ * Record or verify the content hash of an installed skill.
+ * On first install: stores the hash (trust-on-first-use).
+ * On subsequent installs: compares with stored hash and warns on mismatch.
+ */
+function verifyAndRecordSkillHash(slug: string): void {
+  const skillDir = join(getManagedSkillsDir(), slug);
+  const hash = computeSkillHash(skillDir);
+  if (!hash) {
+    log.warn({ slug }, 'Could not compute content hash for installed skill');
+    return;
+  }
+
+  const manifest = loadIntegrityManifest();
+  const existing = manifest[slug];
+
+  if (existing) {
+    if (existing.sha256 !== hash) {
+      log.warn(
+        { slug, expected: existing.sha256, actual: hash },
+        'Skill content hash changed — content differs from previous install. ' +
+          'This is expected for updates but could indicate CDN tampering.',
+      );
+    } else {
+      log.info({ slug }, 'Skill content hash verified — matches previous install');
+    }
+  } else {
+    log.info({ slug, sha256: hash }, 'Recorded initial content hash for skill (trust-on-first-use)');
+  }
+
+  // Always store the latest hash
+  manifest[slug] = { sha256: hash, installedAt: new Date().toISOString() };
+  saveIntegrityManifest(manifest);
 }
 
 export interface ClawhubInstallResult {
@@ -101,6 +200,7 @@ export async function clawhubInstall(slug: string, opts?: { version?: string }):
       const error = result.stderr.trim() || result.stdout.trim() || 'Unknown error';
       return { success: false, error };
     }
+    verifyAndRecordSkillHash(slug);
     return { success: true, skillName: slug };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -115,6 +215,7 @@ export async function clawhubUpdate(name: string): Promise<ClawhubUpdateResult> 
       const error = result.stderr.trim() || result.stdout.trim() || 'Unknown error';
       return { success: false, error };
     }
+    verifyAndRecordSkillHash(name);
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
