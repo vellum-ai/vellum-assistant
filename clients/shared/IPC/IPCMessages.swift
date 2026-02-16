@@ -707,8 +707,10 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     public let actions: [SurfaceActionData]?
     /// `"inline"` embeds in chat, `"panel"` shows a floating window.
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 
-    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?) {
+    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
         self.sessionId = sessionId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -716,6 +718,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
         self.data = data
         self.actions = actions
         self.display = display
+        self.messageId = messageId
     }
 }
 
@@ -954,7 +957,7 @@ extension IPCHistoryResponse {
 extension IPCHistoryResponseMessage {
     /// Backward-compatible init without textSegments/contentOrder (added in later IPC version).
     public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil)
+        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil)
     }
 }
 
@@ -1141,6 +1144,10 @@ public struct SessionErrorMessage: Decodable, Sendable {
 /// Reminder fired notification from daemon.
 /// Backed by generated `IPCReminderFired`.
 public typealias ReminderFiredMessage = IPCReminderFired
+
+/// Schedule complete notification from daemon.
+/// Backed by generated `IPCScheduleComplete`.
+public typealias ScheduleCompleteMessage = IPCScheduleComplete
 
 /// Watch session started notification from daemon.
 /// Backed by generated `IPCWatchStarted`.
@@ -1413,6 +1420,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
+    case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -1557,6 +1565,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "reminder_fired":
             let message = try ReminderFiredMessage(from: decoder)
             self = .reminderFired(message)
+        case "schedule_complete":
+            let message = try ScheduleCompleteMessage(from: decoder)
+            self = .scheduleComplete(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)

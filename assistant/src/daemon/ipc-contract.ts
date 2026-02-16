@@ -769,6 +769,7 @@ export interface HistoryResponse {
   type: 'history_response';
   sessionId: string;
   messages: Array<{
+    id?: string;  // Database message ID (for matching surfaces)
     role: string;
     text: string;
     timestamp: number;
@@ -1217,6 +1218,12 @@ export interface ReminderFired {
   message: string;
 }
 
+export interface ScheduleComplete {
+  type: 'schedule_complete';
+  scheduleId: string;
+  name: string;
+}
+
 export interface WatchStarted {
   type: 'watch_started';
   sessionId: string;
@@ -1270,6 +1277,8 @@ interface UiSurfaceShowBase {
   title?: string;
   actions?: SurfaceAction[];
   display?: 'inline' | 'panel';
+  /** The message ID that this surface belongs to (for history loading). */
+  messageId?: string;
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {
@@ -1384,6 +1393,7 @@ export type ServerMessage =
   | MessageQueued
   | MessageDequeued
   | ReminderFired
+  | ScheduleComplete
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse

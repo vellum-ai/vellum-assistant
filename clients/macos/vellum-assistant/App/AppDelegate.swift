@@ -201,6 +201,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        daemonClient.onScheduleComplete = { msg in
+            let content = UNMutableNotificationContent()
+            content.title = msg.name
+            content.sound = .default
+
+            let request = UNNotificationRequest(
+                identifier: "schedule-\(msg.scheduleId)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post schedule notification: \(error.localizedDescription)")
+                }
+            }
+        }
+
         // Handle open_bundle_response from the daemon
         daemonClient.onOpenBundleResponse = { [weak self] response in
             guard let self else { return }
@@ -1358,7 +1375,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         title: manifest.name,
                         data: AnyCodable(["html": html]),
                         actions: nil,
-                        display: "panel"
+                        display: "panel",
+                        messageId: nil
                     )
                     self.surfaceManager.showSurface(surfaceMsg)
                 }

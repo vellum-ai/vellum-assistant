@@ -349,11 +349,10 @@ struct ChatView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isThinking)
-            .onChange(of: messages.count) {
-                withAnimation(VAnimation.standard) {
-                    if let lastMessage = messages.last {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+            .onAppear {
+                // Scroll to bottom on initial load
+                if let lastMessage = messages.last {
+                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
                 }
             }
             .onChange(of: isThinking) {
@@ -580,6 +579,10 @@ private struct ChatBubble: View {
     let isActivityPanelOpen: Bool
 
     private var isUser: Bool { message.role == .user }
+
+    @State private var isExpanded = false
+    private let truncationLimit = 2000  // Character limit before truncation
+    private let lineLimit = 50  // Maximum lines before truncation
 
     private var statusLabel: String? {
         switch message.status {
@@ -1031,6 +1034,42 @@ private struct ChatBubble: View {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var shouldTruncate: Bool {
+        if isExpanded { return false }
+        let charCount = message.text.count
+        let lineCount = message.text.components(separatedBy: .newlines).count
+        return charCount > truncationLimit || lineCount > lineLimit
+    }
+
+    private var displayText: String {
+        if shouldTruncate {
+            let lines = message.text.components(separatedBy: .newlines)
+            if lines.count > lineLimit {
+                // Truncate by line count
+                let truncatedLines = lines.prefix(lineLimit)
+                return truncatedLines.joined(separator: "\n")
+            } else {
+                // Truncate by character count
+                return String(message.text.prefix(truncationLimit))
+            }
+        }
+        return message.text
+    }
+
+    private var truncationMessage: String {
+        let charCount = message.text.count
+        let lineCount = message.text.components(separatedBy: .newlines).count
+
+        if lineCount > lineLimit {
+            let hiddenLines = lineCount - lineLimit
+            return "Show more (\(hiddenLines) more lines)"
+        } else if charCount > truncationLimit {
+            let hiddenChars = charCount - truncationLimit
+            return "Show more (\(hiddenChars) more characters)"
+        }
+        return "Show more"
+    }
+
     private var attachmentSummary: String {
         let count = message.attachments.count
         if count == 1 {
@@ -1062,11 +1101,38 @@ private struct ChatBubble: View {
             }
 
             if hasText {
-                Text(markdownText)
-                    .font(.system(size: 13))
-                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    if isExpanded && message.text.count > truncationLimit {
+                        // For expanded long messages, use a scrollable container with fixed height
+                        ScrollView {
+                            Text(markdownText)
+                                .font(.system(size: 13))
+                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(height: 400)
+                        .background(Color.black.opacity(0.1))
+                        .cornerRadius(4)
+                    } else {
+                        Text(markdownText)
+                            .font(.system(size: 13))
+                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if shouldTruncate || (isExpanded && (message.text.count > truncationLimit || message.text.components(separatedBy: .newlines).count > lineLimit)) {
+                        Button(action: { isExpanded.toggle() }) {
+                            Text(isExpanded ? "Show less" : truncationMessage)
+                                .font(VFont.caption)
+                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             } else if !message.attachments.isEmpty {
                 Text(attachmentSummary)
                     .font(VFont.caption)
@@ -1181,13 +1247,38 @@ private struct ChatBubble: View {
         return String(format: "%.1f MB", mb)
     }
 
+    /// Cached markdown parser to avoid re-parsing on every render.
+    /// Uses the message text hash as the cache key.
+    private static var markdownCache = [Int: AttributedString]()
+    private static let maxCacheSize = 100
+
     private var markdownText: AttributedString {
-        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let textToRender = displayText
+        let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = trimmed.hashValue
+
+        // Return cached value if available
+        if let cached = Self.markdownCache[cacheKey] {
+            return cached
+        }
+
+        // Parse markdown
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: trimmed, options: options))
+        let parsed = (try? AttributedString(markdown: trimmed, options: options))
             ?? AttributedString(trimmed)
+
+        // Store in cache (with size limit to prevent unbounded growth)
+        if Self.markdownCache.count >= Self.maxCacheSize {
+            // Simple FIFO eviction - remove first entry
+            if let firstKey = Self.markdownCache.keys.first {
+                Self.markdownCache.removeValue(forKey: firstKey)
+            }
+        }
+        Self.markdownCache[cacheKey] = parsed
+
+        return parsed
     }
 
     private func ordinal(_ n: Int) -> String {

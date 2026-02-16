@@ -323,7 +323,8 @@ struct AppDirectoryView: View {
                 title: item.name,
                 data: AnyCodable(["html": html]),
                 actions: nil,
-                display: "panel"
+                display: "panel",
+                messageId: nil
             )
             onOpenApp(surfaceMsg)
         }

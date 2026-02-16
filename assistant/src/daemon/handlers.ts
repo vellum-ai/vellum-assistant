@@ -307,6 +307,11 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
 
+    // Skip ui_surface blocks - they're handled separately
+    if (block.type === 'ui_surface') {
+      continue;
+    }
+
     if (block.type === 'text' && typeof block.text === 'string') {
       textParts.push(block.text);
       ensureSegment();
@@ -896,6 +901,9 @@ function handleHistoryRequest(
       toolCallsBeforeText = rendered.toolCallsBeforeText;
       textSegments = rendered.textSegments;
       contentOrder = rendered.contentOrder;
+      if (m.role === 'assistant' && toolCalls.length > 0) {
+        log.info({ messageId: m.id, toolCallCount: toolCalls.length, text: text.substring(0, 100) }, 'History message with tool calls');
+      }
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
@@ -934,23 +942,57 @@ function handleHistoryRequest(
     };
   });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
+
+  // Emit ui_surface_show for any persisted surfaces in the messages
+  for (const dbMsg of dbMessages) {
+    try {
+      const content = JSON.parse(dbMsg.content);
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (isRecord(block) && block.type === 'ui_surface') {
+            log.info({
+              surfaceId: block.surfaceId,
+              surfaceType: block.surfaceType,
+              messageId: dbMsg.id,
+              sessionId: msg.sessionId
+            }, 'Emitting ui_surface_show from history');
+            ctx.send(socket, {
+              type: 'ui_surface_show',
+              sessionId: msg.sessionId,
+              surfaceId: block.surfaceId as string,
+              surfaceType: block.surfaceType as SurfaceType,
+              title: block.title as string | undefined,
+              data: block.data as SurfaceData,
+              actions: block.actions as Array<{ id: string; label: string; style?: string }> | undefined,
+              display: block.display as string | undefined,
+              messageId: dbMsg.id,  // Add messageId so client can match surface to message
+            });
+          }
+        }
+      }
+    } catch (err) {
+      log.warn({ err, messageId: dbMsg.id }, 'Failed to emit ui_surface from history');
+    }
+  }
 }
 
 export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistoryMessage[] {
+  // Note: We no longer merge consecutive assistant messages at load time since
+  // they are now consolidated when saved. This function only handles legacy
+  // conversations that haven't been consolidated yet, and continues to merge
+  // tool_result blocks into their preceding assistant messages.
   const result: ParsedHistoryMessage[] = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
     // If this is a user message whose only content is tool_result blocks,
     // merge those results into the preceding assistant message's toolCalls.
+    // This should rarely happen now since consolidation removes these messages,
+    // but we keep it for backwards compatibility with old data.
     if (msg.role === 'user' && msg.text.trim() === '' && msg.toolCalls.length > 0) {
       const prev = result.length > 0 ? result[result.length - 1] : null;
       if (prev && prev.role === 'assistant' && prev.toolCalls.length > 0) {
-        // Build a lookup from tool name → result for this user message's tool_results
         for (const resultEntry of msg.toolCalls) {
-          // Match by tool_use_id pairing: tool_results are ordered to match
-          // the tool_uses in the preceding assistant message, so pair by index
-          // of unresolved entries, or fall back to name matching.
           const unresolved = prev.toolCalls.find(
             (tc) => tc.result === undefined,
           );

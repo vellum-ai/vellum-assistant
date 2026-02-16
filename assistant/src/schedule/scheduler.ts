@@ -16,6 +16,8 @@ export type ScheduleMessageProcessor = (
 
 export type ReminderNotifier = (reminder: { id: string; label: string; message: string }) => void;
 
+export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
+
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
   stop(): void;
@@ -26,6 +28,7 @@ const TICK_INTERVAL_MS = 15_000;
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyReminder: ReminderNotifier,
+  notifySchedule: ScheduleNotifier,
 ): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
@@ -34,7 +37,7 @@ export function startScheduler(
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runScheduleOnce(processMessage, notifyReminder);
+      await runScheduleOnce(processMessage, notifyReminder, notifySchedule);
     } catch (err) {
       log.error({ err }, 'Schedule tick failed');
     } finally {
@@ -60,6 +63,7 @@ export function startScheduler(
 async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyReminder: ReminderNotifier,
+  notifySchedule: ScheduleNotifier,
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
@@ -74,6 +78,7 @@ async function runScheduleOnce(
       log.info({ jobId: job.id, name: job.name, conversationId: conversation.id }, 'Executing schedule');
       await processMessage(conversation.id, job.message);
       completeScheduleRun(runId, { status: 'ok' });
+      notifySchedule({ id: job.id, name: job.name });
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
