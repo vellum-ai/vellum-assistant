@@ -14,7 +14,6 @@ struct FirstMeetingIntroductionView: View {
     @State private var hasCompleted = false
 
     @State private var voiceInputManager = VoiceInputManager()
-    private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -23,7 +22,6 @@ struct FirstMeetingIntroductionView: View {
         self._viewModel = State(initialValue: FirstMeetingIntroductionViewModel(
             daemonClient: daemonClient
         ))
-        self.profileExtractor = ProfileExtractor(daemonClient: daemonClient)
     }
 
     /// Combines finalized messages with any in-progress streaming text.
@@ -168,8 +166,6 @@ struct FirstMeetingIntroductionView: View {
         guard !hasCompleted else { return }
         hasCompleted = true
 
-        let messages = viewModel.messages
-
         // Extract conversation data (name, first task candidate).
         viewModel.extractConversationData()
 
@@ -183,14 +179,6 @@ struct FirstMeetingIntroductionView: View {
 
         state.conversationCompleted = true
         viewModel.endConversation()
-
-        // Capture the assistant name AFTER extraction so profile uses the updated name.
-        let assistantName = state.assistantName
-
-        // Run profile extraction in the background.
-        Task { @MainActor in
-            await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
-        }
 
         onComplete()
     }

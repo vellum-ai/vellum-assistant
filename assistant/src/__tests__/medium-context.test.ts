@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   applyRuntimeInjections,
   stripChannelOnboardingContext,
+  stripOnboardingModeContext,
 } from '../daemon/session-runtime-assembly.js';
 import type { Message } from '../providers/types.js';
 
@@ -66,5 +67,35 @@ describe('medium context runtime injection', () => {
 
     expect(text).toContain('real user text');
     expect(text).not.toContain('<channel_onboarding_playbook>');
+  });
+
+  test('injects and strips onboarding mode runtime context', () => {
+    const runMessages: Message[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Let us set this up.' }],
+      },
+    ];
+
+    const injected = applyRuntimeInjections(runMessages, {
+      onboardingMode: {
+        channelId: 'desktop',
+        phase: 'post_hatch',
+        source: 'transport_hints',
+        prompt: 'Capture profile details in USER.md and then hand off to Home Base.',
+      },
+    });
+
+    const first = ((injected[0]?.content[0] as { type: 'text'; text: string })?.text ?? '');
+    expect(first).toContain('<onboarding_mode>');
+    expect(first).toContain('phase: post_hatch');
+
+    const stripped = stripOnboardingModeContext(injected);
+    const text = stripped[0].content
+      .filter((block) => block.type === 'text')
+      .map((block) => (block as { type: 'text'; text: string }).text)
+      .join('\n');
+    expect(text).not.toContain('<onboarding_mode>');
+    expect(text).toContain('Let us set this up.');
   });
 });

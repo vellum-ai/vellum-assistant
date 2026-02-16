@@ -314,6 +314,8 @@ function buildConfigSection(): string {
     '- Mark checklist items complete as the user finishes onboarding steps in that channel',
     '- Keep channel-specific onboarding guidance natural-language and practical',
     '- If reconciliation is needed, add an audit note and defer redundant steps cleanly',
+    '- During post-hatch onboarding: talk first, define assistant identity/personality, capture profile basics in USER.md, then hand off to Home Base tasks',
+    '- Do not proactively request microphone/computer-control permissions during hatch + first conversation',
     '',
     '**SOUL.md** — update when you notice:',
     '- They prefer a different tone or interaction style (add to Personality or User-Specific Behavior)',

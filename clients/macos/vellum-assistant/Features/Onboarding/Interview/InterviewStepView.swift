@@ -13,7 +13,6 @@ struct InterviewStepView: View {
     @State private var isRecording = false
 
     @State private var voiceInputManager = VoiceInputManager()
-    private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -23,7 +22,6 @@ struct InterviewStepView: View {
             daemonClient: daemonClient,
             assistantName: state.assistantName
         ))
-        self.profileExtractor = ProfileExtractor(daemonClient: daemonClient)
     }
 
     /// Combines finalized messages with any in-progress streaming text.
@@ -165,15 +163,8 @@ struct InterviewStepView: View {
     // MARK: - Interview Completion
 
     private func completeInterview() {
-        let messages = viewModel.messages
-        let assistantName = state.assistantName
-
         state.interviewCompleted = true
         viewModel.endInterview()
-
-        Task { @MainActor in
-            await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
-        }
 
         onComplete()
     }

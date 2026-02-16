@@ -215,9 +215,56 @@ extension IPCWatchObservation {
 /// Backed by generated `IPCSessionCreateRequest`.
 public typealias SessionCreateMessage = IPCSessionCreateRequest
 
+private func buildSessionTransportMetadata(
+    channelId: String?,
+    hints: [String]?,
+    uxBrief: String?
+) -> IPCSessionTransportMetadata? {
+    guard let channelId, !channelId.isEmpty else { return nil }
+
+    var payload: [String: Any] = ["channelId": channelId]
+    if let hints {
+        payload["hints"] = hints
+    }
+    if let uxBrief {
+        payload["uxBrief"] = uxBrief
+    }
+
+    guard JSONSerialization.isValidJSONObject(payload) else { return nil }
+    do {
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(IPCSessionTransportMetadata.self, from: data)
+    } catch {
+        return nil
+    }
+}
+
 extension IPCSessionCreateRequest {
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil) {
         self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport)
+    }
+
+    public init(
+        title: String?,
+        systemPromptOverride: String? = nil,
+        maxResponseTokens: Int? = nil,
+        correlationId: String? = nil,
+        transportChannelId: String?,
+        transportHints: [String]? = nil,
+        transportUxBrief: String? = nil
+    ) {
+        self.init(
+            type: "session_create",
+            title: title,
+            systemPromptOverride: systemPromptOverride,
+            maxResponseTokens: maxResponseTokens,
+            correlationId: correlationId,
+            transport: buildSessionTransportMetadata(
+                channelId: transportChannelId,
+                hints: transportHints,
+                uxBrief: transportUxBrief
+            )
+        )
     }
 }
 

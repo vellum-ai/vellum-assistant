@@ -71,6 +71,7 @@ graph TB
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
             PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
+            ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence + Home Base handoff<br/>runtime onboarding-mode prompt"]
         end
 
         subgraph "Inference"
@@ -230,6 +231,8 @@ graph TB
     HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
     PLAYBOOK_MGR --> PLAYBOOK_REG
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
+    PLAYBOOK_MGR --> ONBOARD_ORCH
+    ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
@@ -309,7 +312,8 @@ graph TB
 
 - Transport metadata arrives via `session_create.transport` (IPC) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies first-time fast-path vs cross-channel reconciliation.
-- Session runtime assembly injects `<channel_onboarding_playbook>` context before provider calls and strips it from persisted conversation history.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
+- Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 
 ---
 
@@ -840,8 +844,9 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 |------|------|
 | `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
 | `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | `injectWorkspaceTopLevelContext()` and `stripWorkspaceTopLevelContext()` |
-| `assistant/src/daemon/session.ts` | Cache state, dirty marking, refresh logic, runtime wiring |
+| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata |
+| `assistant/src/daemon/session.ts` | Cache state, dirty marking, runtime injection wiring |
 
 ---
 

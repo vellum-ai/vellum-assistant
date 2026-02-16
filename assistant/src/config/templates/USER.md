@@ -11,3 +11,9 @@ Don't be pushy about seeking out these details - no rush.
 ## Details
 
 ...
+
+## Onboarding Snapshot
+
+- Preferred name/reference:
+- Goals:
+- Locale:
