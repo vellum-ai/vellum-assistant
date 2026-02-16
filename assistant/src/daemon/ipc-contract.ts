@@ -395,6 +395,19 @@ export interface SlackWebhookConfigRequest {
   webhookUrl?: string;
 }
 
+export interface VercelApiConfigRequest {
+  type: 'vercel_api_config';
+  action: 'get' | 'set' | 'delete';
+  apiToken?: string;
+}
+
+export interface VercelApiConfigResponse {
+  type: 'vercel_api_config_response';
+  hasToken: boolean;
+  success: boolean;
+  error?: string;
+}
+
 export interface LinkOpenRequest {
   type: 'link_open_request';
   url: string;
@@ -611,6 +624,7 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | VercelApiConfigRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
@@ -1388,6 +1402,7 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | VercelApiConfigResponse
   | OpenUrl
   | AppUpdatePreviewResponse
   | PublishPageResponse

@@ -54,6 +54,7 @@ import type {
   GalleryInstallRequest,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  VercelApiConfigRequest,
   AppUpdatePreviewRequest,
   PublishPageRequest,
   UnpublishPageRequest,
@@ -86,6 +87,8 @@ import { handleOpenBundle } from './handlers/open-bundle-handler.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { deployHtmlToVercel, deleteVercelDeployment } from '../services/vercel-deploy.js';
 import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId } from '../memory/published-pages-store.js';
+import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { credentialBroker } from '../tools/credentials/broker.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
@@ -449,6 +452,7 @@ const handlers: DispatchMap = {
   gallery_install: handleGalleryInstall,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  vercel_api_config: handleVercelApiConfig,
   publish_page: handlePublishPage,
   unpublish_page: handleUnpublishPage,
   ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
@@ -2425,6 +2429,59 @@ function handleSlackWebhookConfig(
     log.error({ err }, 'Failed to handle Slack webhook config');
     ctx.send(socket, {
       type: 'slack_webhook_config_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleVercelApiConfig(
+  msg: VercelApiConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const existing = getSecureKey('credential:vercel:api_token');
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: !!existing,
+        success: true,
+      });
+    } else if (msg.action === 'set') {
+      if (!msg.apiToken) {
+        ctx.send(socket, {
+          type: 'vercel_api_config_response',
+          hasToken: false,
+          success: false,
+          error: 'apiToken is required for set action',
+        });
+        return;
+      }
+      setSecureKey('credential:vercel:api_token', msg.apiToken);
+      upsertCredentialMetadata('vercel', 'api_token', {
+        allowedTools: ['publish_page', 'unpublish_page'],
+      });
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: true,
+        success: true,
+      });
+    } else {
+      deleteSecureKey('credential:vercel:api_token');
+      deleteCredentialMetadata('vercel', 'api_token');
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: false,
+        success: true,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Vercel API config');
+    ctx.send(socket, {
+      type: 'vercel_api_config_response',
+      hasToken: false,
       success: false,
       error: message,
     });

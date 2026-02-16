@@ -308,6 +308,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  vercel_api_config: {
+    type: 'vercel_api_config',
+    action: 'get',
+  },
   link_open_request: {
     type: 'link_open_request',
     url: 'https://example.com',
@@ -873,6 +877,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   slack_webhook_config_response: {
     type: 'slack_webhook_config_response',
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
+    success: true,
+  },
+  vercel_api_config_response: {
+    type: 'vercel_api_config_response',
+    hasToken: true,
     success: true,
   },
   open_url: {
