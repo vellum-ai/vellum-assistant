@@ -51,6 +51,12 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     private let trafficLightPadding: CGFloat = 78
 
+    /// When a generated surface is expanded into the workspace, hide the
+    /// global sidebar toggle so workspace controls own the top-left slot.
+    private var isGeneratedWorkspaceOpen: Bool {
+        windowState.isDynamicExpanded && windowState.activePanel == .generated
+    }
+
     private func pageURL(for appId: String) -> URL? {
         guard let port = daemonClient.httpPort else { return nil }
         return URL(string: "http://localhost:\(port)/pages/\(appId)")
@@ -127,7 +133,7 @@ struct MainWindowView: View {
                         chatContentView(geometry: geometry)
                             .overlay(alignment: .topLeading) {
                                 // Toggle button when sidebar is hidden
-                                if !sidebarOpen && windowState.layoutConfig.left.visible {
+                                if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
                                     HStack(spacing: 0) {
                                         VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -909,7 +915,8 @@ struct MainWindowView: View {
                         )
                     }
                 }
-                .padding(.horizontal, VSpacing.xl)
+                .padding(.leading, trafficLightPadding)
+                .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.md)
 
                 Spacer()
