@@ -222,7 +222,7 @@ struct ComposerView: View {
         }
         .onChange(of: editorContentHeight) {
             syncComposerScrollPosition(proxy)
-            if editorContentHeight > 28 { isComposerExpanded = true }
+            if editorContentHeight > 40 { isComposerExpanded = true }
         }
         .onKeyPress(.tab, phases: .down) { keyPress in
             if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
