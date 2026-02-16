@@ -235,20 +235,16 @@ export function updateApp(
   };
 
   // Write htmlDefinition to {appId}/index.html if provided in updates
+  const appDir = join(getAppsDir(), id);
   if (htmlUpdate !== undefined) {
     updated.htmlDefinition = htmlUpdate;
-    const appDir = join(getAppsDir(), id);
     mkdirSync(appDir, { recursive: true });
     writeFileSync(join(appDir, 'index.html'), htmlUpdate, 'utf-8');
-  }
-
-  // Backfill migration: if index.html doesn't exist yet (pre-migration app), write it
-  // before stripping htmlDefinition from JSON to prevent data loss on metadata-only updates.
-  const indexPath = join(getAppsDir(), id, 'index.html');
-  if (!existsSync(indexPath) && updated.htmlDefinition) {
-    const appDir = join(getAppsDir(), id);
+  } else if (!existsSync(join(appDir, 'index.html')) && updated.htmlDefinition) {
+    // Backfill: migrate existing htmlDefinition to index.html before stripping from JSON
+    // to prevent data loss on metadata-only updates of pre-migration apps.
     mkdirSync(appDir, { recursive: true });
-    writeFileSync(indexPath, updated.htmlDefinition, 'utf-8');
+    writeFileSync(join(appDir, 'index.html'), updated.htmlDefinition, 'utf-8');
   }
 
   // Don't persist htmlDefinition or pages in the JSON file — they live as separate files
