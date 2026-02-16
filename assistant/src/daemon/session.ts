@@ -953,13 +953,18 @@ export class Session {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
-            // Mark workspace context dirty for mutation tools regardless of
-            // isError — a non-zero exit code or post-write error does not mean
-            // the filesystem was untouched (e.g. `mkdir foo && false`, or
-            // secret-detection blocking after a physical write).
+            // Mark workspace context dirty for mutation tools.
+            // file_write is always dirty regardless of isError because the
+            // file may have been physically written before a post-write error
+            // (e.g. secret-detection blocking after a physical write).
+            // file_edit and bash are only dirty on success — a failed edit
+            // never touches the filesystem, and a non-zero exit code from a
+            // simple command typically means nothing was modified.
             {
               const toolName = toolUseIdToName.get(event.toolUseId);
-              if (toolName === 'file_write' || toolName === 'file_edit' || toolName === 'bash') {
+              if (toolName === 'file_write') {
+                this.markWorkspaceTopLevelDirty();
+              } else if ((toolName === 'file_edit' || toolName === 'bash') && !event.isError) {
                 this.markWorkspaceTopLevelDirty();
               }
             }
