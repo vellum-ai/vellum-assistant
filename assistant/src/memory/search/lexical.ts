@@ -163,21 +163,31 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     return [];
   }
 
-  return rows.map((row) => ({
-    key: `item:${row.id}`,
-    type: 'item' as CandidateType,
-    id: row.id,
-    source: 'item_direct',
-    text: `${row.subject}: ${row.statement}`,
-    kind: row.kind,
-    confidence: row.confidence,
-    importance: row.importance ?? 0.5,
-    createdAt: row.last_seen_at,
-    lexical: 0,
-    semantic: 0,
-    recency: computeRecencyScore(row.last_seen_at),
-    finalScore: 0,
-  }));
+  return rows.map((row) => {
+    // Compute lexical score based on token match coverage: fraction of query
+    // tokens that appear in subject or statement. Direct items are keyword
+    // matches so this score reflects query-match relevance (unlike confidence,
+    // which reflects extraction certainty).
+    const textLower = `${row.subject} ${row.statement}`.toLowerCase();
+    const matchedTokens = tokens.filter((t) => textLower.includes(t)).length;
+    const lexical = tokens.length > 0 ? matchedTokens / tokens.length : 0;
+
+    return {
+      key: `item:${row.id}`,
+      type: 'item' as CandidateType,
+      id: row.id,
+      source: 'item_direct',
+      text: `${row.subject}: ${row.statement}`,
+      kind: row.kind,
+      confidence: row.confidence,
+      importance: row.importance ?? 0.5,
+      createdAt: row.last_seen_at,
+      lexical,
+      semantic: 0,
+      recency: computeRecencyScore(row.last_seen_at),
+      finalScore: 0,
+    };
+  });
 }
 
 export function lexicalRankToScore(rank: number, minRank: number, maxRank: number): number {
