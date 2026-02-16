@@ -29,8 +29,10 @@ const log = getLogger('credential-broker');
  */
 export class CredentialBroker {
   private tokens = new Map<string, UsageToken>();
-  /** Transient values for one-time send: consumed on first read, never persisted. */
-  private transientValues = new Map<string, string>();
+  /** Transient values for one-time send: consumed on first read, never persisted.
+   *  Values are wrapped in objects so post-await guards use reference identity
+   *  (not string value equality) to detect concurrent replacements. */
+  private transientValues = new Map<string, { value: string }>();
 
   /**
    * Inject a value for one-time use. The value is consumed on the next
@@ -38,7 +40,7 @@ export class CredentialBroker {
    */
   injectTransient(service: string, field: string, value: string): void {
     const key = `credential:${service}:${field}`;
-    this.transientValues.set(key, value);
+    this.transientValues.set(key, { value });
     log.info({ service, field }, 'Transient credential injected for one-time use');
   }
 
@@ -105,7 +107,7 @@ export class CredentialBroker {
     if (transient !== undefined) {
       this.transientValues.delete(storageKey);
       log.info({ tokenId, storageKey, transient: true }, 'Usage token consumed (transient)');
-      return { success: true, storageKey, value: transient };
+      return { success: true, storageKey, value: transient.value };
     }
 
     log.info({ tokenId, storageKey }, 'Usage token consumed');
@@ -185,7 +187,7 @@ export class CredentialBroker {
     // Deletion is deferred until after a successful fill so the value survives
     // transient failures (e.g. stale element, page navigation, Playwright timeout).
     const transient = this.transientValues.get(storageKey);
-    const value = transient ?? getSecureKey(storageKey);
+    const value = transient?.value ?? getSecureKey(storageKey);
     if (!value) {
       return {
         success: false,
@@ -259,7 +261,7 @@ export class CredentialBroker {
 
     const storageKey = `credential:${request.service}:${request.field}`;
     const transient = this.transientValues.get(storageKey);
-    const value = transient ?? getSecureKey(storageKey);
+    const value = transient?.value ?? getSecureKey(storageKey);
     if (!value) {
       return {
         success: false,
