@@ -278,7 +278,7 @@ function buildConfigSection(configDir: string): string {
     '',
     '### Proactive Workspace Editing',
     '',
-    'You should actively update your workspace files as you learn. No confirmation is needed. Use `host_file_edit` to make targeted edits.',
+    'You should actively update your workspace files as you learn. You don\'t need to ask the user whether it\'s okay — just briefly explain what you\'re updating, then use `host_file_edit` to make targeted edits.',
     '',
     '**USER.md** — update when you learn:',
     '- Their name, pronouns, timezone, or what they prefer to be called',
