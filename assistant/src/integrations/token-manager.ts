@@ -52,12 +52,16 @@ async function doRefresh(integrationId: string, definition: IntegrationDefinitio
   const result = await refreshOAuth2Token(config.tokenUrl, runtimeClientId, refreshToken);
 
   // Store the new access token
-  setSecureKey(`integration:${integrationId}:access_token`, result.accessToken);
+  if (!setSecureKey(`integration:${integrationId}:access_token`, result.accessToken)) {
+    throw new Error(`Failed to store refreshed access token for "${integrationId}"`);
+  }
 
-  // Update metadata with new expiry
-  const expiresAt = result.expiresIn
+  // Update metadata with new expiry.
+  // Use null to explicitly clear a stale expiresAt when the provider omits
+  // expires_in (or returns 0), so isTokenExpired won't keep forcing refreshes.
+  const expiresAt = result.expiresIn != null && result.expiresIn > 0
     ? Date.now() + result.expiresIn * 1000
-    : undefined;
+    : null;
 
   upsertCredentialMetadata(`integration:${integrationId}`, 'access_token', {
     expiresAt,
@@ -65,7 +69,9 @@ async function doRefresh(integrationId: string, definition: IntegrationDefinitio
 
   // If a new refresh token was issued, store it too
   if (result.refreshToken) {
-    setSecureKey(`integration:${integrationId}:refresh_token`, result.refreshToken);
+    if (!setSecureKey(`integration:${integrationId}:refresh_token`, result.refreshToken)) {
+      throw new Error(`Failed to store refreshed refresh token for "${integrationId}"`);
+    }
     upsertCredentialMetadata(`integration:${integrationId}`, 'refresh_token', {});
   }
 
@@ -91,25 +97,20 @@ export async function withValidToken<T>(
     throw new TokenExpiredError(integrationId, `No access token found for "${integrationId}". Authorization required.`);
   }
 
-  // Proactively refresh if expired or about to expire
+  // Proactively refresh if expired or about to expire.
+  // Let doRefresh errors propagate directly so transient failures (network,
+  // 5xx) are surfaced to callers instead of being masked as TokenExpiredError.
   if (isTokenExpired(integrationId)) {
-    try {
-      token = await doRefresh(integrationId, definition);
-    } catch {
-      throw new TokenExpiredError(integrationId);
-    }
+    token = await doRefresh(integrationId, definition);
   }
 
   try {
     return await callback(token);
   } catch (err: unknown) {
-    // Check if this is a 401 response — attempt one refresh + retry
+    // Check if this is a 401 response — attempt one refresh + retry.
+    // Let doRefresh errors propagate directly for the same reason.
     if (is401Error(err)) {
-      try {
-        token = await doRefresh(integrationId, definition);
-      } catch {
-        throw new TokenExpiredError(integrationId);
-      }
+      token = await doRefresh(integrationId, definition);
       return callback(token);
     }
     throw err;

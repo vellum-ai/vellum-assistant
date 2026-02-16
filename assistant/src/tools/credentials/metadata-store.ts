@@ -109,7 +109,8 @@ export function upsertCredentialMetadata(
     allowedTools?: string[];
     allowedDomains?: string[];
     usageDescription?: string;
-    expiresAt?: number;
+    /** Pass `null` to explicitly clear a previously-set expiry. */
+    expiresAt?: number | null;
     grantedScopes?: string[];
   },
 ): CredentialMetadata {
@@ -128,7 +129,13 @@ export function upsertCredentialMetadata(
     if (policy?.allowedTools !== undefined) existing.allowedTools = policy.allowedTools;
     if (policy?.allowedDomains !== undefined) existing.allowedDomains = policy.allowedDomains;
     if (policy?.usageDescription !== undefined) existing.usageDescription = policy.usageDescription;
-    if (policy?.expiresAt !== undefined) existing.expiresAt = policy.expiresAt;
+    if (policy?.expiresAt !== undefined) {
+      if (policy.expiresAt === null) {
+        delete existing.expiresAt;
+      } else {
+        existing.expiresAt = policy.expiresAt;
+      }
+    }
     if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
     existing.updatedAt = now;
     saveFile(data);
@@ -142,7 +149,7 @@ export function upsertCredentialMetadata(
     allowedTools: policy?.allowedTools ?? [],
     allowedDomains: policy?.allowedDomains ?? [],
     usageDescription: policy?.usageDescription,
-    expiresAt: policy?.expiresAt,
+    expiresAt: policy?.expiresAt ?? undefined,
     grantedScopes: policy?.grantedScopes,
     createdAt: now,
     updatedAt: now,
