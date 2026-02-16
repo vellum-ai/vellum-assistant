@@ -364,6 +364,10 @@ struct ChatView: View {
                             .id("thinking-indicator")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
+
+                    // Invisible anchor at the very bottom of all content
+                    Color.clear.frame(height: 1)
+                        .id("scroll-bottom-anchor")
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
@@ -375,14 +379,12 @@ struct ChatView: View {
             .scrollDisabled(messages.isEmpty && !isThinking)
             .onAppear {
                 // Scroll to bottom on initial load
-                if let lastMessage = messages.last {
-                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                }
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             .onChange(of: isThinking) {
                 if isThinking {
                     withAnimation(VAnimation.standard) {
-                        proxy.scrollTo("thinking-indicator", anchor: .bottom)
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 } else {
                     // Thinking finished — mark flag so next message shows "Thinking"
@@ -393,9 +395,12 @@ struct ChatView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 withAnimation(VAnimation.fast) {
-                    if let lastMessage = messages.last {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+            }
+            .onChange(of: messages.count) {
+                withAnimation(VAnimation.fast) {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             }
         }
