@@ -68,7 +68,7 @@ function populateLegacyLayout(root: string): void {
 }
 
 describe('migration ordering: ensureDataDir before migration', () => {
-  test('ensureDataDir() before migrateToWorkspaceLayout() does NOT prevent migration', () => {
+  test('ensureDataDir() before migrateToWorkspaceLayout() prevents directory migration', () => {
     // This is the critical regression test. Before the fix, calling
     // ensureDataDir() first would pre-create workspace/data, workspace/hooks,
     // workspace/skills — causing migrateToWorkspaceLayout() to skip those
