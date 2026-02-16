@@ -888,7 +888,7 @@ private struct ChatBubble: View {
 
     /// Failed/denied tool chip — shown when the user denied permission.
     private var compactFailedToolChip: some View {
-        let uniqueNames = Array(Set(message.toolCalls.map(\.toolName)))
+        let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
         let primary = uniqueNames.first ?? "Tool"
         let label = Self.friendlyRunningLabel(primary) + " failed"
 
