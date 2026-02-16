@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-sign-release:
+  build-macos:
     runs-on: macos-14
     defaults:
       run:
@@ -20,15 +20,6 @@ jobs:
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-          owner: vellum-ai
-          repositories: velly
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -78,18 +69,6 @@ jobs:
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION / Build version: $BUILD_VERSION"
-
-      - name: Zip assistant directory
-        run: |
-          mkdir -p build
-          (cd ../../assistant && zip -r ../clients/macos/build/assistant.zip .)
-          ls -lh build/assistant.zip
-
-      - name: Zip gateway directory
-        run: |
-          mkdir -p build
-          (cd ../../gateway && zip -r ../clients/macos/build/gateway.zip .)
-          ls -lh build/gateway.zip
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -256,13 +235,6 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
           echo "Notarization ticket stapled and validated"
 
-      - name: Upload DMG artifact
-        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
-        with:
-          name: vellum-assistant.dmg
-          path: clients/macos/${{ env.DMG_PATH }}
-
       - name: Build ZIP for Sparkle auto-update
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
@@ -325,8 +297,83 @@ jobs:
           EOF
           echo "Appcast generated for $REPO"
 
-      - name: Create GitHub Release on public repos
+      - name: Upload macOS build artifacts
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            clients/macos/build/vellum-assistant.dmg
+            clients/macos/dist/vellum-assistant.zip
+            clients/macos/dist/appcast-*.xml
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload DMG artifact
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-assistant.dmg
+          path: clients/macos/${{ env.DMG_PATH }}
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+  release:
+    needs: [build-macos]
+    if: >-
+      !cancelled() &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: velly
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stamp version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+            DISPLAY_VERSION="${TAG#v}"
+          else
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            DISPLAY_VERSION="${TAG#v}-${SHORT_SHA}"
+          fi
+          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Zip assistant directory
+        run: |
+          (cd assistant && zip -r ../assistant.zip .)
+          ls -lh assistant.zip
+
+      - name: Zip gateway directory
+        run: |
+          (cd gateway && zip -r ../gateway.zip .)
+          ls -lh gateway.zip
+
+      - name: Download macOS build artifacts
+        id: download-macos
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: macos-artifacts
+        continue-on-error: true
+
+      - name: Create GitHub Release on public repos
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           UPSTREAM_BODY: ${{ github.event.release.body }}
@@ -355,7 +402,6 @@ jobs:
           } > "$NOTES_FILE"
 
           REPO="vellum-ai/velly"
-          APPCAST="dist/appcast-${REPO//\//-}.xml"
 
           # Delete existing 'latest' release and tag if they exist
           gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
@@ -363,11 +409,22 @@ jobs:
 
           # Build asset list from available files
           ASSETS=()
-          [ -f "$DMG_PATH" ] && ASSETS+=("$DMG_PATH")
-          [ -f "dist/vellum-assistant.zip" ] && ASSETS+=("dist/vellum-assistant.zip")
-          [ -f "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
-          [ -f "build/assistant.zip" ] && ASSETS+=("build/assistant.zip#assistant.zip")
-          [ -f "build/gateway.zip" ] && ASSETS+=("build/gateway.zip#gateway.zip")
+
+          # Always include assistant and gateway zips
+          [ -f "assistant.zip" ] && ASSETS+=("assistant.zip#assistant.zip")
+          [ -f "gateway.zip" ] && ASSETS+=("gateway.zip#gateway.zip")
+
+          # Include macOS artifacts if the build succeeded
+          if [ -d "macos-artifacts" ]; then
+            DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
+            ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
+            APPCAST=$(find macos-artifacts -name "appcast-*.xml" -type f | head -1)
+            [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
+            [ -n "$ZIP" ] && ASSETS+=("$ZIP#vellum-assistant.zip")
+            [ -n "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
+          else
+            echo "::warning::macOS build artifacts not available - releasing without macOS app"
+          fi
 
           echo "Release assets: ${ASSETS[*]}"
 
@@ -381,15 +438,11 @@ jobs:
           rm -f "$NOTES_FILE"
           echo "Release created at https://github.com/$REPO/releases/tag/latest"
 
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-
   notify-failure:
-    if: failure()
-    needs: [build-sign-release]
+    if: >-
+      !cancelled() &&
+      (needs.build-macos.result == 'failure' || needs.release.result == 'failure')
+    needs: [build-macos, release]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack of build failure
