@@ -16,6 +16,7 @@ import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from '.
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
+import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -55,6 +56,13 @@ export async function startCli(): Promise<void> {
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
+
+  process.stdout.write('\x1b[2J\x1b[H');
+  let mainScreenLayout: MainScreenLayout = renderMainScreen();
+  let canvasHeight = mainScreenLayout.height;
+  const terminalRows = process.stdout.rows || 24;
+  process.stdout.write(`\x1b[${canvasHeight + 1};${terminalRows}r`);
+  process.stdout.write(`\x1b[${canvasHeight + 1};1H`);
 
   function formatToolProgress(toolName: string, input: Record<string, unknown>): string {
     switch (toolName) {
@@ -747,8 +755,13 @@ export async function startCli(): Promise<void> {
 
     if (content === '/clear') {
       lastResponse = '';
-      process.stdout.write('\x1B[2J\x1B[H');
-      process.stdout.write('  Screen cleared.\n\n');
+      process.stdout.write('\x1b[r');
+      process.stdout.write('\x1b[2J\x1b[H');
+      mainScreenLayout = renderMainScreen();
+      canvasHeight = mainScreenLayout.height;
+      const rows = process.stdout.rows || 24;
+      process.stdout.write(`\x1b[${canvasHeight + 1};${rows}r`);
+      process.stdout.write(`\x1b[${canvasHeight + 1};1H`);
       prompt();
       return;
     }
@@ -810,7 +823,8 @@ export async function startCli(): Promise<void> {
 
   rl.on('close', () => {
     stopHeartbeat();
-    process.stdout.write('\nDetaching from vellum...\n');
+    process.stdout.write('\x1b[r\x1b[2J\x1b[H');
+    process.stdout.write('\x1b[2mDetached.\x1b[0m\n');
     process.exit(0);
   });
 
@@ -824,7 +838,14 @@ export async function startCli(): Promise<void> {
     }
   });
 
+  process.stdout.on('resize', () => {
+    const rows = process.stdout.rows || 24;
+    process.stdout.write(`\x1b[${canvasHeight + 1};${rows}r`);
+  });
+
   // Initial connection
   await connect();
+  updateDaemonText(mainScreenLayout, 'connected');
+  updateStatusText(mainScreenLayout, 'ready');
 
 }
