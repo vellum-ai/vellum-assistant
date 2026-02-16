@@ -383,10 +383,18 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     // Exact file
     options.push({ label: filePath, description: `This file only`, pattern: `${toolName}:${filePath}` });
 
-    // Directory wildcard
-    const dir = dirname(filePath);
-    const dirName = friendlyBasename(dir);
-    options.push({ label: `${dir}/*`, description: `Any file in ${dirName}/`, pattern: `${toolName}:${dir}/*` });
+    // Ancestor directory wildcards — walk up from immediate parent, stop at home dir or /
+    const home = homedir();
+    let dir = dirname(filePath);
+    const maxLevels = 3;
+    let levels = 0;
+    while (dir && dir !== '/' && levels < maxLevels) {
+      const dirName = friendlyBasename(dir);
+      options.push({ label: `${dir}/**`, description: `Anything in ${dirName}/`, pattern: `${toolName}:${dir}/**` });
+      if (dir === home) break;
+      dir = dirname(dir);
+      levels++;
+    }
 
     // Tool wildcard
     options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });

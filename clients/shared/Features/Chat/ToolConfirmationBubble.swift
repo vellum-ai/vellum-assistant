@@ -149,13 +149,33 @@ public struct ToolConfirmationBubble: View {
             }
 
             if hasRuleOptions {
-                VButton(label: "Always Allow", style: .ghost) {
-                    let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !pattern.isEmpty && !scope.isEmpty {
-                        _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                if confirmation.allowlistOptions.count > 2 {
+                    Menu {
+                        ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
+                            Button(option.description) {
+                                let scope = confirmation.scopeOptions.first?.scope ?? ""
+                                if !option.pattern.isEmpty && !scope.isEmpty {
+                                    _ = onAddTrustRule(confirmation.toolName, option.pattern, scope, "allow")
+                                }
+                                onAllow()
+                            }
+                        }
+                    } label: {
+                        Text("Always Allow")
+                            .font(VFont.bodyMedium)
+                            .foregroundStyle(VColor.textSecondary)
                     }
-                    onAllow()
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                } else {
+                    VButton(label: "Always Allow", style: .ghost) {
+                        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+                        let scope = confirmation.scopeOptions.first?.scope ?? ""
+                        if !pattern.isEmpty && !scope.isEmpty {
+                            _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                        }
+                        onAllow()
+                    }
                 }
             }
 
