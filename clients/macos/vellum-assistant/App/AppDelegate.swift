@@ -312,6 +312,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.surfaceManager.dismissSurface(msg)
         }
 
+        // Reload webviews for surfaces whose app files changed (cross-session broadcast)
+        daemonClient.onAppFilesChanged = { [weak self] appId in
+            guard let self else { return }
+            for (surfaceId, appSurfaceId) in self.surfaceManager.surfaceAppIds {
+                guard appSurfaceId == appId else { continue }
+                self.surfaceManager.surfaceCoordinators[surfaceId]?.webView?.reload()
+            }
+        }
+
         // Wire SurfaceManager action callback to DaemonClient
         surfaceManager.onAction = { [weak self] sessionId, surfaceId, actionId, data in
             guard let self else { return }

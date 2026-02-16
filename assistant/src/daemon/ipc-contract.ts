@@ -609,6 +609,11 @@ export interface UnpublishPageResponse {
   error?: string;
 }
 
+export interface AppFilesChanged {
+  type: 'app_files_changed';
+  appId: string;
+}
+
 export type ClientMessage =
   | UserMessage
   | ConfirmationResponse
@@ -1499,7 +1504,8 @@ export type ServerMessage =
   | IntegrationConnectResult
   | AppUpdatePreviewResponse
   | PublishPageResponse
-  | UnpublishPageResponse;
+  | UnpublishPageResponse
+  | AppFilesChanged;
 
 // === Contract schema ===
 

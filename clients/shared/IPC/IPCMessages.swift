@@ -1464,6 +1464,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
+    case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity
     case pong
     case unknown(String)
@@ -1671,6 +1672,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "integration_connect_result":
             let message = try IPCIntegrationConnectResult(from: decoder)
             self = .integrationConnectResult(message)
+        case "app_files_changed":
+            let message = try AppFilesChangedMessage(from: decoder)
+            self = .appFilesChanged(message)
         case "pong":
             self = .pong
         default:
@@ -1678,6 +1682,10 @@ public enum ServerMessage: Decodable, Sendable {
         }
     }
 }
+
+// MARK: - App Files Changed
+
+public typealias AppFilesChangedMessage = IPCAppFilesChanged
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

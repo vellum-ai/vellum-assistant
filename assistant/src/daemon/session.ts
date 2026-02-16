@@ -107,6 +107,8 @@ export class Session {
   private executor: ToolExecutor;
   /** @internal — exposed for session-surfaces.ts module functions. */
   sendToClient: (msg: ServerMessage) => void;
+  /** Broadcast a message to all connected sockets (not just this session's client). */
+  private broadcastToAllClients?: (msg: ServerMessage) => void;
   private eventBus = new EventBus<AssistantDomainEvents>();
   private workingDir: string;
   private sandboxOverride?: boolean;
@@ -149,12 +151,14 @@ export class Session {
     maxTokens: number,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
+    broadcastToAllClients?: (msg: ServerMessage) => void,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
+    this.broadcastToAllClients = broadcastToAllClients;
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
@@ -281,6 +285,7 @@ export class Session {
         const appId = input.app_id as string | undefined;
         if (appId) {
           refreshSurfacesForApp(this, appId);
+          this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
         }
       }
 
@@ -290,6 +295,7 @@ export class Session {
         const status = input.status as string | undefined;
         if (appId) {
           refreshSurfacesForApp(this, appId, { fileChange: true, status });
+          this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
         }
       }
 

@@ -80,6 +80,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_surface_complete` message.
     public var onSurfaceComplete: ((UiSurfaceCompleteMessage) -> Void)?
 
+    /// Called when the daemon sends an `app_files_changed` broadcast.
+    public var onAppFilesChanged: ((String) -> Void)?
+
     /// Called when the daemon sends an `app_data_response` message.
     public var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
 
@@ -917,6 +920,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceComplete?(msg)
         case .uiLayoutConfig(let msg):
             onLayoutConfig?(msg)
+        case .appFilesChanged(let msg):
+            onAppFilesChanged?(msg.appId)
         case .appDataResponse(let msg):
             onAppDataResponse?(msg)
         case .messageQueued(let msg):

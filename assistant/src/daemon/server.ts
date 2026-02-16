@@ -603,6 +603,7 @@ export class DaemonServer {
           maxTokens,
           rebindClient ? sendToClient : () => {},
           workingDir,
+          (msg) => this.broadcast(msg),
         );
         // When created without a socket (HTTP path), mark the session
         // so interactive prompts (e.g. host attachment reads) can fail

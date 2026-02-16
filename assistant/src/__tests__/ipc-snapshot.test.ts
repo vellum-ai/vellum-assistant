@@ -955,6 +955,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     accountInfo: 'user@gmail.com',
   },
+  app_files_changed: {
+    type: 'app_files_changed',
+    appId: 'app-001',
+  },
 };
 
 // ---------------------------------------------------------------------------

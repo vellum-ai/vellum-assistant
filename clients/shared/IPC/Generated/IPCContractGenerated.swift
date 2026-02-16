@@ -37,6 +37,11 @@ public struct IPCAppDataResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCAppFilesChanged: Codable, Sendable {
+    public let type: String
+    public let appId: String
+}
+
 public struct IPCAppOpenRequest: Codable, Sendable {
     public let type: String
     public let appId: String
