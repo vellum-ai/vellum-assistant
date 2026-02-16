@@ -12,7 +12,7 @@ import { withValidToken } from '../../integrations/token-manager.js';
 import { getIntegration } from '../../integrations/registry.js';
 import * as gmail from '../../integrations/gmail/client.js';
 import type { GmailMessageFormat } from '../../integrations/gmail/types.js';
-import { isPrivateOrLocalHost } from '../network/url-safety.js';
+import { isPrivateOrLocalHost, resolveHostAddresses, resolveRequestAddress } from '../network/url-safety.js';
 import {
   gmailSearchDef,
   gmailListMessagesDef,
@@ -225,14 +225,20 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
 
     if (httpsMatch) {
       const url = httpsMatch[1];
-      // SSRF protection: validate URL
+      // SSRF protection: validate URL against private/internal addresses
+      let parsed: URL;
       try {
-        const parsed = new URL(url);
+        parsed = new URL(url);
         if (parsed.protocol !== 'https:') {
           return err('Unsubscribe URL must use HTTPS.');
         }
         if (isPrivateOrLocalHost(parsed.hostname)) {
-          return err('Unsubscribe URL points to a local or private address.');
+          return err('Unsubscribe URL points to a private or local address.');
+        }
+        // DNS resolution check to catch DNS rebinding attacks
+        const { blockedAddress } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
+        if (blockedAddress) {
+          return err('Unsubscribe URL resolves to a private or local address.');
         }
       } catch {
         return err('Invalid unsubscribe URL.');
