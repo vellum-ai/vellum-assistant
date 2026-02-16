@@ -1,14 +1,13 @@
-_ Lines starting with _ are comments — they won't appear in the prompt sent to your assistant.
+_ Lines starting with _ are comments — they won't appear in the system prompt
 
-# USER
+# USER.md
 
-_Your assistant learns about you over time. Fill in what you're comfortable sharing to help it help you better._
+## Purpose of this file
 
-- **Name:**
-- **Pronouns:**
-- **Timezone:**
-- **What to call you:**
+Store details about your user in this file in any format you like - you're expected to edit it often and freely.
+Figure out who they are, how to delight them, and what makes them tick as you interact with them, etc.
+Don't be pushy about seeking out these details - no rush.
 
-## Context
+## Details
 
-_(What do you care about? What are you working on? What are your preferences? Add notes here over time.)_
+...
