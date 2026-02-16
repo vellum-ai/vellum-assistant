@@ -60,8 +60,8 @@ function loadFile(): LoadResult {
     if (typeof data !== 'object' || data === null) {
       return { version: 1, credentials: [] };
     }
-    if (data.version !== 1) {
-      // Newer format we don't understand — refuse to touch it
+    if (typeof data.version === 'number' && data.version !== 1) {
+      // Newer numeric version we don't understand — refuse to touch it
       return { unknownVersion: true };
     }
     return {
@@ -82,6 +82,18 @@ function saveFile(data: MetadataFile): void {
   const tmpPath = join(dir, `.tmp-${randomUUID()}`);
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tmpPath, path);
+}
+
+/**
+ * Throws if the metadata file has an unrecognized version.
+ * Call this before performing irreversible keychain operations
+ * so the operation fails cleanly before any side effects.
+ */
+export function assertMetadataWritable(): void {
+  const result = loadFile();
+  if (isUnknownVersion(result)) {
+    throw new Error('Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss');
+  }
 }
 
 /**
