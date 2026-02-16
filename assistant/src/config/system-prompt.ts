@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { getConfig } from './loader.js';
 
 const log = getLogger('system-prompt');
 
@@ -265,13 +266,20 @@ function buildConfigSection(): string {
   // Always use `file_edit` (not `host_file_edit`) for workspace files — file_edit
   // handles sandbox path mapping internally, and host_file_edit is permission-gated
   // which would trigger approval prompts for routine workspace updates.
-  // Always use the real host workspace path — file_edit validates against it, so
-  // container-relative paths like /workspace/ would be rejected as out-of-bounds.
-  const workspaceDir = getWorkspaceDir();
+  const hostWorkspaceDir = getWorkspaceDir();
+
+  // When Docker sandbox is active the workspace is mounted at /workspace inside
+  // the container. The assistant should prefer the local path for all operations
+  // (shell commands, file reads, file_edit, etc.).
+  const config = getConfig();
+  const localWorkspaceDir =
+    config.sandbox.enabled && config.sandbox.backend === 'docker'
+      ? '/workspace'
+      : hostWorkspaceDir;
 
   return [
     '## Configuration',
-    `Your configuration directory is \`${workspaceDir}/\`. Key files you may read or edit:`,
+    `Your configuration directory is \`${localWorkspaceDir}/\` (host path: \`${hostWorkspaceDir}/\`). Prefer the local path for all operations. Key files you may read or edit include but are not limited to:`,
     '',
     '- `IDENTITY.md` — Your name and role. Slim metadata — rarely changes.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
