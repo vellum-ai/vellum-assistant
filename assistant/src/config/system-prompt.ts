@@ -7,7 +7,7 @@ import { getConfig } from './loader.js';
 
 const log = getLogger('system-prompt');
 
-const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'BOOTSTRAP.md'] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -148,16 +148,12 @@ function buildDynamicUiSection(): string {
     'vellum.sendAction(actionId, data)  — send interaction back to assistant',
     '```',
     '',
-    '### Home Base starter task action IDs',
-    'When the prebuilt Home Base dashboard emits these actions via `vellum.sendAction`, follow these flows:',
-    '- `home_base_starter_change_look_and_feel`: start a color-first customization flow only. Propose color choices, ask for explicit confirmation, and DO NOT apply changes yet.',
-    '- `home_base_color_apply_confirm`: this is an explicit apply confirmation. Now call `app_update` to apply the selected palette across the full Home Base dashboard (not just one card).',
-    '- `home_base_color_apply_cancel`: acknowledge cancellation and keep the current dashboard style unchanged.',
-    '- `home_base_starter_research`: begin a concrete research task using the provided `topic` (ask a brief follow-up only if topic is empty).',
-    '- `home_base_starter_webpage`: turn the provided `brief` into a webpage/interactive UI flow (ask a brief follow-up only if brief is empty).',
-    '- `home_base_onboarding_enable_voice_mode`: this is an explicit optional-task trigger. Help enable voice mode, and request microphone permission only if/when required for the chosen setup path.',
-    '- `home_base_onboarding_enable_computer_control`: this is an explicit optional-task trigger. Help enable computer control, and request Accessibility/Screen Recording only when the user confirms they want setup now.',
-    '- `home_base_onboarding_try_ambient_mode`: guide a lightweight ambient-mode setup flow. Keep it optional and avoid unrelated permission asks.',
+    '### Home Base interaction prompts',
+    'Home Base buttons send prefilled natural-language prompts through `vellum.sendAction`.',
+    'Treat these as normal user messages, not as direct execution commands.',
+    '- For appearance changes: keep customization color-first, ask for explicit confirmation before applying a full-dashboard update.',
+    '- For optional capability setup tasks (voice/computer control/ambient): keep them user-initiated and request permissions only when required for the chosen path.',
+    '- If a prompt is underspecified, ask one brief follow-up and continue.',
     '',
     '### External Links',
     'When building apps with linkable items (search results, product cards, bookings), use `vellum.openLink(url, metadata)` to make them clickable.',
