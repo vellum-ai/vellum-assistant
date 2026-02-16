@@ -43,6 +43,11 @@ final class MainWindowState: ObservableObject {
         hasAPIKey = APIKeyManager.hasAnyKey() || isConnected
     }
 
+    func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {
+        layoutConfig = LayoutConfig.merged(base: layoutConfig, wire: wire)
+        LayoutConfigStore.save(layoutConfig)
+    }
+
     /// Reset all dynamic workspace state. Callers should also reset
     /// view-local state like `showSharePicker` separately.
     func closeDynamicPanel() {

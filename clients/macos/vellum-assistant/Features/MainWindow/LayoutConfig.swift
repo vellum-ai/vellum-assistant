@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 // MARK: - Domain Types
 
@@ -71,26 +72,6 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
         center: SlotConfig(content: .native(.chat), width: nil, visible: true),
         right: SlotConfig(content: .empty, width: 400, visible: false)
     )
-}
-
-// MARK: - Wire Types (IPC)
-
-public struct UiLayoutConfigMessage: Decodable, Sendable {
-    public let left: SlotConfigWire?
-    public let center: SlotConfigWire?
-    public let right: SlotConfigWire?
-}
-
-public struct SlotConfigWire: Decodable, Sendable {
-    public let content: SlotContentWire?
-    public let width: Double?
-    public let visible: Bool?
-}
-
-public struct SlotContentWire: Decodable, Sendable {
-    public let type: String       // "native" | "surface" | "empty"
-    public let panel: String?     // for native
-    public let surfaceId: String? // for surface
 }
 
 // MARK: - Merge Logic

@@ -341,6 +341,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             try? self?.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
         }
 
+        // Forward layout config from daemon to MainWindowState
+        daemonClient.onLayoutConfig = { [weak self] msg in
+            self?.mainWindow?.windowState.applyLayoutConfig(msg)
+        }
+
         // Route dynamic pages to workspace
         surfaceManager.onDynamicPageShow = { [weak self] msg in
             guard let self else { return }
