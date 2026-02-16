@@ -62,19 +62,13 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import {
   applyRuntimeInjections,
   stripActiveSurfaceContext,
-  stripChannelOnboardingContext,
-  stripOnboardingModeContext,
   stripWorkspaceTopLevelContext,
 } from './session-runtime-assembly.js';
 import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
 import type {
   ActiveSurfaceContext,
-  ChannelOnboardingContext,
-  OnboardingModeContext,
 } from './session-runtime-assembly.js';
-import { refreshPlaybookContent } from '../onboarding/playbooks/manager.js';
-import { resolveOnboardingRuntimeContext } from '../onboarding/onboarding-orchestrator.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -150,8 +144,6 @@ export class Session {
   /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   private workspaceTopLevelContext: string | null = null;
   private workspaceTopLevelDirty = true;
-  private channelOnboardingContext: ChannelOnboardingContext | null = null;
-  private onboardingModeContext: OnboardingModeContext | null = null;
   public readonly traceEmitter: TraceEmitter;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
@@ -784,15 +776,11 @@ export class Session {
         }
       }
       // Refresh workspace top-level context before injection
-      this.refreshChannelOnboardingContext();
-      this.refreshOnboardingModeContext();
       this.refreshWorkspaceTopLevelContextIfNeeded();
 
       runMessages = applyRuntimeInjections(runMessages, {
         softConflictInstruction,
         activeSurface,
-        channelOnboarding: this.channelOnboardingContext,
-        onboardingMode: this.onboardingModeContext,
         workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
 
@@ -1116,11 +1104,7 @@ export class Session {
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
       this.messages = stripWorkspaceTopLevelContext(
         stripActiveSurfaceContext(
-          stripOnboardingModeContext(
-            stripChannelOnboardingContext(
-              stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
-            ),
-          ),
+          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
         ),
       );
 
@@ -1804,45 +1788,6 @@ export class Session {
   /** Check if workspace context is marked dirty (for testing). */
   isWorkspaceTopLevelDirty(): boolean {
     return this.workspaceTopLevelDirty;
-  }
-
-  setChannelOnboardingContext(context: ChannelOnboardingContext | null): void {
-    this.channelOnboardingContext = context;
-    if (!context) {
-      this.onboardingModeContext = null;
-    }
-  }
-
-  getChannelOnboardingContext(): ChannelOnboardingContext | null {
-    return this.channelOnboardingContext;
-  }
-
-  getOnboardingModeContext(): OnboardingModeContext | null {
-    return this.onboardingModeContext;
-  }
-
-  private refreshChannelOnboardingContext(): void {
-    if (!this.channelOnboardingContext) return;
-    const latest = refreshPlaybookContent(this.channelOnboardingContext.playbookPath);
-    if (latest.length === 0) return;
-    this.channelOnboardingContext = {
-      ...this.channelOnboardingContext,
-      playbookContent: latest,
-    };
-  }
-
-  private refreshOnboardingModeContext(): void {
-    if (!this.channelOnboardingContext) {
-      this.onboardingModeContext = null;
-      return;
-    }
-
-    this.onboardingModeContext = resolveOnboardingRuntimeContext({
-      channelId: this.channelOnboardingContext.channelId,
-      hints: this.channelOnboardingContext.hints,
-      uxBrief: this.channelOnboardingContext.uxBrief,
-      playbookContent: this.channelOnboardingContext.playbookContent,
-    });
   }
 
   /**

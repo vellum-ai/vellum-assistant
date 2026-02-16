@@ -24,7 +24,6 @@ import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
-import { resolveOnboardingPlaybook } from '../onboarding/playbooks/manager.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 
 const log = getLogger('server');
@@ -59,56 +58,13 @@ export class DaemonServer {
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
   private static readonly MAX_CONNECTIONS = 50;
 
-  private normalizeTransportChannelId(channelId: string): string {
-    const normalized = channelId
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    return normalized.length > 0 ? normalized : 'desktop';
-  }
-
-  private applyTransportMetadata(session: Session, options: SessionCreateOptions | undefined): void {
+  private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
     const transport = options?.transport;
     if (!transport) return;
 
-    const normalizedChannelId = this.normalizeTransportChannelId(transport.channelId);
-    const normalizedHints = Array.isArray(transport.hints)
-      ? transport.hints.map((hint) => hint.trim()).filter((hint) => hint.length > 0)
-      : undefined;
-    const normalizedUxBrief = typeof transport.uxBrief === 'string' && transport.uxBrief.trim().length > 0
-      ? transport.uxBrief.trim()
-      : undefined;
-
-    const existing = session.getChannelOnboardingContext();
-    if (existing && existing.channelId === normalizedChannelId) {
-      session.setChannelOnboardingContext({
-        ...existing,
-        uxBrief: normalizedUxBrief ?? existing.uxBrief,
-        hints: normalizedHints ?? existing.hints,
-      });
-      return;
-    }
-
-    try {
-      const playbook = resolveOnboardingPlaybook(transport);
-      session.setChannelOnboardingContext({
-        channelId: playbook.channelId,
-        playbookPath: playbook.playbookPath,
-        playbookName: playbook.playbookName,
-        playbookContent: playbook.playbookContent,
-        uxBrief: normalizedUxBrief ?? playbook.uxBrief,
-        hints: normalizedHints ?? playbook.hints,
-        guidanceBullets: playbook.guidanceBullets,
-        reconciliation: {
-          firstTimeFastPath: playbook.reconciliation.firstTimeFastPath,
-          attempted: playbook.reconciliation.attempted,
-          sourceChannels: playbook.reconciliation.sourceChannels,
-        },
-      });
-    } catch (err) {
-      log.warn({ err, transport }, 'Failed to resolve onboarding playbook context from transport metadata');
-    }
+    // Transport metadata is available for future use but onboarding context
+    // is now handled via BOOTSTRAP.md in the system prompt.
+    log.debug({ channelId: transport.channelId }, 'Transport metadata received');
   }
 
   constructor() {
