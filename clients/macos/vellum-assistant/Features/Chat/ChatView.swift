@@ -3,17 +3,49 @@ import VellumAssistantShared
 import UniformTypeIdentifiers
 
 private enum ChatTimestampTimeZone {
+    private static var cachedZone: TimeZone?
+    private static var cacheTimestamp: Date?
+    private static let cacheInterval: TimeInterval = 60
+    private static var observer: NSObjectProtocol?
+
     /// Prefer the host's configured timezone over process-level TZ overrides
     /// so chat dividers stay in the user's real local timezone.
+    /// Caches the result to avoid repeated filesystem reads in hot rendering paths.
     static func resolve() -> TimeZone {
+        // Check if we have a valid cached value
+        if let cached = cachedZone,
+           let timestamp = cacheTimestamp,
+           Date().timeIntervalSince(timestamp) < cacheInterval {
+            return cached
+        }
+
+        // Register for timezone change notifications if not already registered
+        if observer == nil {
+            observer = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name.NSSystemTimeZoneDidChange,
+                object: nil,
+                queue: nil
+            ) { _ in
+                cachedZone = nil
+                cacheTimestamp = nil
+            }
+        }
+
+        // Resolve timezone from /etc/localtime
+        let resolved: TimeZone
         if let symlink = try? FileManager.default.destinationOfSymbolicLink(atPath: "/etc/localtime"),
            let markerRange = symlink.range(of: "/zoneinfo/") {
             let identifier = String(symlink[markerRange.upperBound...])
-            if let tz = TimeZone(identifier: identifier) {
-                return tz
-            }
+            resolved = TimeZone(identifier: identifier) ?? .autoupdatingCurrent
+        } else {
+            resolved = .autoupdatingCurrent
         }
-        return .autoupdatingCurrent
+
+        // Update cache
+        cachedZone = resolved
+        cacheTimestamp = Date()
+
+        return resolved
     }
 }
 
