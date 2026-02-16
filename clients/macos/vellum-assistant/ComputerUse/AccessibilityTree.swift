@@ -36,6 +36,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     /// correct app when our own window is frontmost.
     private var lastTargetPid: pid_t?
 
+    /// Track total elements enumerated in current call to prevent infinite loops
+    private var totalElementsEnumerated = 0
+    /// Maximum elements to enumerate before bailing out (protects against circular refs)
+    private let maxElementsPerEnumeration = 10000
+
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
         "AXPopUpButton", "AXComboBox", "AXSlider", "AXLink", "AXMenuItem",
@@ -134,7 +139,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
 
         nextId = 1
-        let elements = enumerateElement(element: windowElement, depth: 0, maxDepth: 25)
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -200,7 +206,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
 
         nextId = 1
-        let elements = enumerateElement(element: windowElement, depth: 0, maxDepth: 25)
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
@@ -247,7 +254,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             let appName = app.localizedName ?? "Unknown"
 
             nextId = 1
-            let elements = enumerateElement(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
+            totalElementsEnumerated = 0
+            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
             guard !elements.isEmpty else { continue }
 
             results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))
@@ -255,6 +263,19 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         }
 
         return results
+    }
+
+    /// Safe wrapper around enumerateElement that prevents infinite loops.
+    /// File save dialogs (especially with Downloads) can have corrupted AX trees or circular references.
+    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+        // Bail out if we've processed too many elements (circular reference protection)
+        guard totalElementsEnumerated < maxElementsPerEnumeration else {
+            log.warning("Hit max element limit (\(self.maxElementsPerEnumeration)) during enumeration — stopping to prevent infinite loop")
+            return []
+        }
+
+        totalElementsEnumerated += 1
+        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth)
     }
 
     private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
@@ -277,13 +298,32 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
         let isStaticText = role == "AXStaticText" || role == "AXHeading"
 
-        // Enumerate children
+        // Enumerate children with safety checks
         var childElements: [AXElement] = []
         var childrenRef: CFTypeRef?
+
+        // Bail early if we've hit the element limit
+        guard totalElementsEnumerated < maxElementsPerEnumeration else {
+            return []
+        }
+
         if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
            let children = childrenRef as? [AXUIElement] {
-            for child in children {
-                childElements.append(contentsOf: enumerateElement(element: child, depth: depth + 1, maxDepth: maxDepth))
+            // Sanity check: if children array is suspiciously large, it might be corrupted
+            guard children.count < 1000 else {
+                log.warning("Element has \(children.count) children — likely corrupted, skipping")
+                return []
+            }
+
+            for (index, child) in children.enumerated() {
+                // Stop if we've hit the limit mid-enumeration
+                guard totalElementsEnumerated < maxElementsPerEnumeration else {
+                    log.warning("Hit element limit while enumerating children (\(index)/\(children.count) processed)")
+                    break
+                }
+
+                // Recursively enumerate with the safe wrapper
+                childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
             }
         }
 
@@ -381,6 +421,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         var point = CGPoint.zero
         var size = CGSize.zero
 
+        // Extract values from AXValue refs (force cast is safe here since we validated success above)
         if let posRef = positionValue {
             AXValueGetValue(posRef as! AXValue, .cgPoint, &point)
         }
