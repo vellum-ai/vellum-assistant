@@ -315,7 +315,7 @@ public enum SurfaceData: Sendable {
     case fileUpload(FileUploadSurfaceData)
 }
 
-public struct SurfaceActionButton: Identifiable, Sendable {
+public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let style: SurfaceActionStyle
