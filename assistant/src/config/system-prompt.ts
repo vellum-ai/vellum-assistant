@@ -262,7 +262,7 @@ function buildWorkspaceReflectionSection(): string {
     '- Did they mention a project, tool, or workflow you should remember?',
     '- Did you adapt your style in a way that worked well and should persist?',
     '',
-    'If yes, update the relevant workspace file (USER.md, SOUL.md, or IDENTITY.md) as part of your response. Don\'t mention that you\'re doing it unless the update is significant enough to warrant a note.',
+    'If yes, briefly explain what you\'re updating, then update the relevant workspace file (USER.md, SOUL.md, or IDENTITY.md) as part of your response.',
   ].join('\n');
 }
 
