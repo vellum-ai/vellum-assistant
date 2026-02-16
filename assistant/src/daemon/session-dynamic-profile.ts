@@ -11,9 +11,9 @@ export function injectDynamicProfileIntoUserMessage(message: Message, profileTex
   const trimmedProfile = profileText.trim();
   if (trimmedProfile.length === 0) return message;
   const block = [
-    '[Dynamic profile context start]',
+    '<dynamic-profile-context>',
     trimmedProfile,
-    '[Dynamic profile context end]',
+    '</dynamic-profile-context>',
   ].join('\n');
   return {
     ...message,
@@ -27,7 +27,7 @@ export function injectDynamicProfileIntoUserMessage(message: Message, profileTex
 export function stripDynamicProfileMessages(messages: Message[], profileText: string): Message[] {
   const trimmedProfile = profileText.trim();
   if (trimmedProfile.length === 0) return messages;
-  const injectedBlock = `\n\n[Dynamic profile context start]\n${trimmedProfile}\n[Dynamic profile context end]`;
+  const injectedBlock = `\n\n<dynamic-profile-context>\n${trimmedProfile}\n</dynamic-profile-context>`;
   // Find the last user message that actually contains the injected profile block.
   // We can't just target the last user message by role — tool_result messages also
   // have role 'user', so after tool use the last user message won't be the one

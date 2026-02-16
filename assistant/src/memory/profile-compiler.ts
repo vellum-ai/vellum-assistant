@@ -120,5 +120,5 @@ function normalizeWhitespace(input: string, maxLength: number): string {
 
 function renderProfileText(lines: string[]): string {
   if (lines.length === 0) return '';
-  return ['[Dynamic User Profile]', ...lines].join('\n');
+  return ['<dynamic-user-profile>', ...lines].join('\n');
 }

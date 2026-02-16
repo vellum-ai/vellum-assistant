@@ -238,7 +238,7 @@ describe('profile-compiler', () => {
       importance: 0.7,
     });
 
-    const budget = estimateTextTokens('[Dynamic User Profile]\n- deployment policy: Deploy only on weekdays.') + 2;
+    const budget = estimateTextTokens('<dynamic-user-profile>\n- deployment policy: Deploy only on weekdays.') + 2;
     const compiled = compileDynamicProfile({ maxInjectTokensOverride: budget });
 
     expect(compiled.tokenEstimate).toBeLessThanOrEqual(budget);
