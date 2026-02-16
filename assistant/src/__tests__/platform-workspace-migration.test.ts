@@ -318,7 +318,7 @@ describe('migrateToWorkspaceLayout', () => {
       'ws-db',
     );
 
-    // Legacy hooks/data should remain at root (not moved due to conflict)
+    // Legacy hooks should remain at root (not moved due to conflict)
     expect(existsSync(join(root, 'hooks', 'legacy-hook.sh'))).toBe(true);
     expect(readFileSync(join(root, 'hooks', 'legacy-hook.sh'), 'utf-8')).toBe(
       'root-hook',
@@ -328,8 +328,15 @@ describe('migrateToWorkspaceLayout', () => {
     expect(
       readFileSync(join(ws, 'skills', 'legacy-skill.json'), 'utf-8'),
     ).toBe('root-skill');
-    // data dir is also left in place
-    expect(existsSync(join(root, 'data', 'logs', 'vellum.log'))).toBe(true);
+    // Legacy data entries are merged into workspace/data (not orphaned)
+    expect(existsSync(join(root, 'data', 'logs', 'vellum.log'))).toBe(false);
+    expect(
+      readFileSync(join(ws, 'data', 'logs', 'vellum.log'), 'utf-8'),
+    ).toBe('root-log');
+    // Existing workspace data entries are preserved
+    expect(readFileSync(join(ws, 'data', 'db', 'assistant.db'), 'utf-8')).toBe(
+      'ws-db',
+    );
 
     rmSync(base, { recursive: true, force: true });
   });
@@ -582,6 +589,45 @@ describe('migrateToWorkspaceLayout', () => {
 
     // Workspace config should be unchanged
     expect(readFileSync(join(ws, 'config.json'), 'utf-8')).toBe(wsBefore);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('sandbox/fs extraction with user data/ dir does not orphan internal state', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(root, { recursive: true });
+
+    // Legacy data dir: sandbox/fs contains a user project with its own data/ folder
+    const dataDir = join(root, 'data');
+    mkdirSync(join(dataDir, 'sandbox', 'fs', 'data', 'models'), { recursive: true });
+    writeFileSync(join(dataDir, 'sandbox', 'fs', 'data', 'models', 'model.pkl'), 'user-model');
+    writeFileSync(join(dataDir, 'sandbox', 'fs', 'app.py'), 'user-app');
+
+    // Internal state dirs inside data/
+    mkdirSync(join(dataDir, 'db'), { recursive: true });
+    writeFileSync(join(dataDir, 'db', 'assistant.db'), 'internal-db');
+    mkdirSync(join(dataDir, 'logs'), { recursive: true });
+    writeFileSync(join(dataDir, 'logs', 'vellum.log'), 'internal-log');
+    mkdirSync(join(dataDir, 'sandbox', 'metadata'), { recursive: true });
+    writeFileSync(join(dataDir, 'sandbox', 'metadata', 'state.json'), 'sandbox-state');
+
+    migrateToWorkspaceLayout();
+
+    // (a) sandbox/fs was extracted to workspace root
+    expect(readFileSync(join(ws, 'app.py'), 'utf-8')).toBe('user-app');
+    // User's data/ directory is now workspace/data
+    expect(readFileSync(join(ws, 'data', 'models', 'model.pkl'), 'utf-8')).toBe('user-model');
+
+    // Internal state from root/data/ was merged into workspace/data/
+    expect(readFileSync(join(ws, 'data', 'db', 'assistant.db'), 'utf-8')).toBe('internal-db');
+    expect(readFileSync(join(ws, 'data', 'logs', 'vellum.log'), 'utf-8')).toBe('internal-log');
+
+    // sandbox/ subdir from root/data/ was merged too
+    expect(readFileSync(join(ws, 'data', 'sandbox', 'metadata', 'state.json'), 'utf-8')).toBe('sandbox-state');
 
     rmSync(base, { recursive: true, force: true });
   });
