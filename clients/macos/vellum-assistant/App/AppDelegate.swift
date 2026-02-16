@@ -367,12 +367,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupToolConfirmationManager() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
-            // Only suppress the floating panel when the main chat window is visible
-            // AND the app is active (frontmost). NSWindow.isVisible returns true even
-            // when the window is behind other apps, so we must also check NSApp.isActive
-            // to avoid silently dropping confirmations when the user can't see the inline UI.
-            guard self?.mainWindow?.isVisible != true || !NSApp.isActive else { return }
-            self?.toolConfirmationManager.showConfirmation(msg)
+            guard let self else { return }
+            let mainWindowVisible = self.mainWindow?.isVisible == true && NSApp.isActive
+            let workspaceExpanded = self.mainWindow?.windowState.isDynamicExpanded == true
+            // Show floating panel when window not visible OR workspace is expanded
+            // (in workspace mode the chat is hidden behind the surface)
+            if !mainWindowVisible || workspaceExpanded {
+                self.toolConfirmationManager.showConfirmation(msg)
+            }
         }
         toolConfirmationManager.onResponse = { [weak self] requestId, decision in
             guard let self else { return false }
