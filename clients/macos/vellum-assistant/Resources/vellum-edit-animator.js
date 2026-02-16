@@ -167,7 +167,7 @@
           for (key in newAttrs) allKeys[key] = true;
           for (key in allKeys) {
             if (oldAttrs[key] !== newAttrs[key]) {
-              ops.push({ type: 'attr_change', node: oldChild, attr: key, oldVal: oldAttrs[key] || null, newVal: newAttrs[key] || null });
+              ops.push({ type: 'attr_change', node: oldChild, attr: key, oldVal: oldAttrs[key] !== undefined ? oldAttrs[key] : null, newVal: newAttrs[key] !== undefined ? newAttrs[key] : null });
             }
           }
           // Recurse into children
@@ -319,7 +319,11 @@
 
     // Delete old middle chars
     for (var d = oldMiddle.length; d > 0; d--) {
-      if (cancelled()) return;
+      if (cancelled()) {
+        var cleanupText = document.createTextNode(op.newText);
+        if (wrapper.parentNode) wrapper.parentNode.replaceChild(cleanupText, wrapper);
+        return;
+      }
       currentMiddle = currentMiddle.substring(0, d - 1);
       updateWrapper();
       await sleep(20);
@@ -327,7 +331,11 @@
 
     // Type new middle chars
     for (var t = 1; t <= newMiddle.length; t++) {
-      if (cancelled()) return;
+      if (cancelled()) {
+        var cleanupText2 = document.createTextNode(op.newText);
+        if (wrapper.parentNode) wrapper.parentNode.replaceChild(cleanupText2, wrapper);
+        return;
+      }
       currentMiddle = newMiddle.substring(0, t);
       updateWrapper();
       await sleep(25);
@@ -413,7 +421,8 @@
       imported.style.transform = 'translateY(-8px)';
       imported.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
     }
-    parent.insertBefore(imported, refNode || null);
+    var safeRef = (refNode && refNode.parentNode === parent) ? refNode : null;
+    parent.insertBefore(imported, safeRef);
     if (imported.nodeType === 1) {
       // Force reflow
       void imported.offsetHeight;
