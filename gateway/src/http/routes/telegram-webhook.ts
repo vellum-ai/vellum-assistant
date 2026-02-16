@@ -1,15 +1,14 @@
-import pino from "pino";
 import type { GatewayConfig } from "../../config.js";
-import { verifyWebhookSecret } from "../../telegram/verify.js";
-import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
-import { downloadTelegramFile } from "../../telegram/download.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
-import { sendTypingIndicator } from "../../telegram/send.js";
+import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { uploadAttachment, resetConversation } from "../../runtime/client.js";
-import { sendTelegramReply } from "../../telegram/send.js";
+import { resetConversation, uploadAttachment } from "../../runtime/client.js";
+import { downloadTelegramFile } from "../../telegram/download.js";
+import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import { sendTelegramReply, sendTypingIndicator } from "../../telegram/send.js";
+import { verifyWebhookSecret } from "../../telegram/verify.js";
 
-const log = pino({ name: "gateway:telegram-webhook" });
+const log = getLogger("telegram-webhook");
 
 const MAX_TYPING_DURATION_MS = 60_000;
 

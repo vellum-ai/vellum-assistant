@@ -1,8 +1,8 @@
-import pino from "pino";
 import type { GatewayConfig } from "../../config.js";
+import { getLogger } from "../../logger.js";
 import { validateBearerToken } from "../auth/bearer.js";
 
-const log = pino({ name: "gateway:runtime-proxy" });
+const log = getLogger("runtime-proxy");
 
 const HOP_BY_HOP_HEADERS = [
   "connection",

@@ -1,8 +1,8 @@
-import pino from "pino";
 import type { GatewayConfig } from "../config.js";
+import { getLogger } from "../logger.js";
 import type { RoutingOutcome } from "./types.js";
 
-const log = pino({ name: "gateway:routing" });
+const log = getLogger("routing");
 
 export function resolveAssistant(
   config: GatewayConfig,

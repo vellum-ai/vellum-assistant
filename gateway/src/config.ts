@@ -1,6 +1,6 @@
-import pino from "pino";
+import { getLogger, type LogFileConfig } from "./logger.js";
 
-const log = pino({ name: "gateway:config" });
+const log = getLogger("config");
 
 export type RoutingEntry = {
   type: "chat_id" | "user_id";
@@ -9,25 +9,26 @@ export type RoutingEntry = {
 };
 
 export type GatewayConfig = {
-  telegramBotToken: string | undefined;
-  telegramWebhookSecret: string | undefined;
-  telegramApiBaseUrl: string;
   assistantRuntimeBaseUrl: string;
-  routingEntries: RoutingEntry[];
   defaultAssistantId: string | undefined;
-  unmappedPolicy: "reject" | "default";
-  port: number;
-  runtimeProxyEnabled: boolean;
-  runtimeProxyRequireAuth: boolean;
-  runtimeProxyBearerToken: string | undefined;
-  shutdownDrainMs: number;
-  runtimeTimeoutMs: number;
-  runtimeMaxRetries: number;
-  runtimeInitialBackoffMs: number;
-  telegramTimeoutMs: number;
-  maxWebhookPayloadBytes: number;
+  logFile: LogFileConfig;
   maxAttachmentBytes: number;
   maxAttachmentConcurrency: number;
+  maxWebhookPayloadBytes: number;
+  port: number;
+  routingEntries: RoutingEntry[];
+  runtimeInitialBackoffMs: number;
+  runtimeMaxRetries: number;
+  runtimeProxyBearerToken: string | undefined;
+  runtimeProxyEnabled: boolean;
+  runtimeProxyRequireAuth: boolean;
+  runtimeTimeoutMs: number;
+  shutdownDrainMs: number;
+  telegramApiBaseUrl: string;
+  telegramBotToken: string | undefined;
+  telegramTimeoutMs: number;
+  telegramWebhookSecret: string | undefined;
+  unmappedPolicy: "reject" | "default";
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -169,6 +170,18 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
+  const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
+
+  const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
+  if (!Number.isInteger(logFileRetentionDays) || logFileRetentionDays < 1) {
+    throw new Error("GATEWAY_LOG_RETENTION_DAYS must be a positive integer");
+  }
+
+  const logFile: LogFileConfig = {
+    dir: logFileDir,
+    retentionDays: logFileRetentionDays,
+  };
+
   log.info(
     {
       telegramApiBaseUrl,
@@ -184,24 +197,25 @@ export function loadConfig(): GatewayConfig {
   );
 
   return {
-    telegramBotToken,
-    telegramWebhookSecret,
-    telegramApiBaseUrl,
     assistantRuntimeBaseUrl,
-    routingEntries,
     defaultAssistantId,
-    unmappedPolicy,
-    port,
-    runtimeProxyEnabled,
-    runtimeProxyRequireAuth,
-    runtimeProxyBearerToken,
-    shutdownDrainMs,
-    runtimeTimeoutMs,
-    runtimeMaxRetries,
-    runtimeInitialBackoffMs,
-    telegramTimeoutMs,
-    maxWebhookPayloadBytes,
+    logFile,
     maxAttachmentBytes,
     maxAttachmentConcurrency,
+    maxWebhookPayloadBytes,
+    port,
+    routingEntries,
+    runtimeInitialBackoffMs,
+    runtimeMaxRetries,
+    runtimeProxyBearerToken,
+    runtimeProxyEnabled,
+    runtimeProxyRequireAuth,
+    runtimeTimeoutMs,
+    shutdownDrainMs,
+    telegramApiBaseUrl,
+    telegramBotToken,
+    telegramTimeoutMs,
+    telegramWebhookSecret,
+    unmappedPolicy,
   };
 }
