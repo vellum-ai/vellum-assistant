@@ -152,6 +152,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `vercel_api_config_response` message.
+    public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `publish_page_response` message.
     public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
 
@@ -696,6 +699,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SlackWebhookConfigRequestMessage(action: action, webhookUrl: webhookUrl))
     }
 
+    /// Get, set, or delete the Vercel API token configuration.
+    public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
+        try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
+    }
+
     /// Publish a static page to Vercel.
     public func sendPublishPage(html: String, title: String? = nil) throws {
         try send(PublishPageRequestMessage(html: html, title: title))
@@ -934,6 +942,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
+        case .vercelApiConfigResponse(let msg):
+            onVercelApiConfigResponse?(msg)
         case .publishPageResponse(let msg):
             onPublishPageResponse?(msg)
         case .openUrl(let msg):

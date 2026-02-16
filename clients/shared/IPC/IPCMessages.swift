@@ -1358,6 +1358,22 @@ public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+// MARK: - Vercel API Config Messages
+
+/// Sent to get/set/delete the Vercel API token.
+/// Backed by generated `IPCVercelApiConfigRequest`.
+public typealias VercelApiConfigRequestMessage = IPCVercelApiConfigRequest
+
+extension IPCVercelApiConfigRequest {
+    public init(action: String, apiToken: String? = nil) {
+        self.init(type: "vercel_api_config", action: action, apiToken: apiToken)
+    }
+}
+
+/// Response from Vercel API config operations.
+/// Backed by generated `IPCVercelApiConfigResponse`.
+public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
@@ -1413,6 +1429,7 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
     case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
@@ -1585,6 +1602,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)
+        case "vercel_api_config_response":
+            let message = try VercelApiConfigResponseMessage(from: decoder)
+            self = .vercelApiConfigResponse(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)

@@ -296,6 +296,7 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let appType: String?
     public let preview: IPCDynamicPagePreview?
 }
 
@@ -1343,6 +1344,19 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let mimeType: String
     public let data: String
     public let extractedText: String?
+}
+
+public struct IPCVercelApiConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let apiToken: String?
+}
+
+public struct IPCVercelApiConfigResponse: Codable, Sendable {
+    public let type: String
+    public let hasToken: Bool
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCWatchCompleteRequest: Codable, Sendable {
