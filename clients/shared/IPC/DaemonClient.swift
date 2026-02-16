@@ -170,6 +170,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_layout_config` message.
     public var onLayoutConfig: ((UiLayoutConfigMessage) -> Void)?
 
+    /// Called when the daemon sends an `integration_list_response` message.
+    public var onIntegrationListResponse: ((IPCIntegrationListResponse) -> Void)?
+
+    /// Called when the daemon sends an `integration_connect_result` message.
+    public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -720,6 +726,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
     }
 
+    // MARK: - Integrations
+
+    /// Request the list of registered integrations and their connection status.
+    public func sendIntegrationList() throws {
+        try send(IPCIntegrationListRequest(type: "integration_list"))
+    }
+
+    /// Initiate an OAuth2 connection flow for an integration.
+    public func sendIntegrationConnect(integrationId: String) throws {
+        try send(IPCIntegrationConnectRequest(type: "integration_connect", integrationId: integrationId))
+    }
+
+    /// Disconnect an integration (revoke tokens + remove from vault).
+    public func sendIntegrationDisconnect(integrationId: String) throws {
+        try send(IPCIntegrationDisconnectRequest(type: "integration_disconnect", integrationId: integrationId))
+    }
+
     // MARK: - Link Open
 
     /// Send a link_open_request to the daemon, requesting it open a URL externally.
@@ -980,6 +1003,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         case .signBundlePayload, .getSigningIdentity:
             log.error("Signing operations are not supported on this platform")
         #endif
+        case .integrationListResponse(let msg):
+            onIntegrationListResponse?(msg)
+        case .integrationConnectResult(let msg):
+            onIntegrationConnectResult?(msg)
         default:
             break
         }
