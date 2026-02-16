@@ -1190,10 +1190,29 @@ Preview fields: `title` (required), `subtitle`, `description`, `icon` (emoji), `
 
 ### 6. Handle Iteration
 
-If the user wants changes:
-- Use `app_update` with the `app_id` and updated fields (`html`, `schema_json`, `name`, or `description`)
-- Call `app_open` to refresh the view
-- If schema changes affect existing records, mention this
+When the user requests changes to an existing app, prefer **`app_file_edit`** over rewriting the entire file. It performs surgical find-and-replace edits (like sed), which is faster and less error-prone than re-emitting a full page.
+
+#### Editing code
+
+- **`app_file_edit`** — preferred for modifying existing code. Provide `app_id`, `path` (e.g. `index.html`, `styles.css`), `old_string` (exact text to find), and `new_string` (replacement). Use this for targeted changes like updating styles, fixing bugs, or adding features.
+- **`app_file_write`** — use when creating a new file or when changes are so extensive that a full rewrite is cleaner. Provide `app_id`, `path`, and `content`.
+- Always include a **`status`** parameter when calling `app_file_edit` or `app_file_write` — a brief human-readable message describing what you are doing (e.g. "adding dark mode styles", "updating navigation layout", "fixing chart rendering bug"). This gives the user visible progress feedback.
+
+#### Metadata vs code changes
+
+- **`app_update`** — use for metadata changes only: `name`, `description`, `icon`, `preview`. Do not use it for code changes.
+- **`app_file_edit`** / **`app_file_write`** — use for all code changes (HTML, CSS, JS).
+- Call `app_open` after edits to refresh the view.
+- If schema changes affect existing records, mention this.
+
+#### Multi-file apps
+
+Apps can have multiple files beyond `index.html`. Use separate files for CSS and JavaScript to keep code organized:
+
+- Create additional files with `app_file_write` (e.g. `styles.css`, `app.js`, `components/chart.js`).
+- Link them from `index.html` using `<link rel="stylesheet" href="styles.css">` and `<script src="app.js"></script>`.
+- Use `app_file_list` to see all files in an app.
+- Use `app_file_read` to read any file with line numbers (helpful before making edits).
 
 Use `app_delete` to start over. Use `app_list` to check existing apps. Use `app_query` to inspect app data.
 
