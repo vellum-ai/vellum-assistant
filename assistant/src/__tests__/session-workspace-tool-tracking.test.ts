@@ -172,7 +172,9 @@ describe('Session workspace dirty on file mutations', () => {
     expect(session.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
-  test('failed file_write does NOT mark workspace dirty', async () => {
+  test('file_write with isError still marks workspace dirty (secret-detection block)', async () => {
+    // ToolExecutor can physically write the file and then flip isError=true
+    // in secret-detection block mode — the filesystem has changed.
     const session = makeSession();
     await session.loadFromDb();
 
@@ -181,11 +183,11 @@ describe('Session workspace dirty on file mutations', () => {
 
     agentLoopScript = (onEvent) => {
       onEvent({ type: 'tool_use', id: 'tu_3', name: 'file_write', input: { path: '/tmp/a.txt', content: 'hi' } });
-      onEvent({ type: 'tool_result', toolUseId: 'tu_3', content: 'Permission denied', isError: true });
+      onEvent({ type: 'tool_result', toolUseId: 'tu_3', content: 'Blocked: secret detected', isError: true });
     };
 
     await session.processMessage('Write a file', [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test('successful bash marks workspace dirty', async () => {
