@@ -2399,13 +2399,13 @@ export class Session {
       return 'Submitted';
     }
     if (surfaceType === 'list' && data) {
-      const selected = data.selectedId as string | undefined;
-      if (selected) return `Selected: ${selected}`;
       const selectedIds = data.selectedIds as string[] | undefined;
+      if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}`;
       if (selectedIds?.length) return `Selected ${selectedIds.length} items`;
     }
     if (surfaceType === 'table' && data) {
       const selectedIds = data.selectedIds as string[] | undefined;
+      if (selectedIds?.length === 1) return `Selected 1 row`;
       if (selectedIds?.length) return `Selected ${selectedIds.length} rows`;
     }
     return actionId.charAt(0).toUpperCase() + actionId.slice(1);
