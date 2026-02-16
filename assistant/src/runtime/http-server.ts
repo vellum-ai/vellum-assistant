@@ -5,6 +5,8 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
+import { Database } from 'bun:sqlite';
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
@@ -18,11 +20,21 @@ import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, loadRawConfig } from '../config/loader.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getApp } from '../memory/app-store.js';
 import * as sharedAppLinksStore from '../memory/shared-app-links-store.js';
+import {
+  getRootDir,
+  getDataDir,
+  getDbPath,
+  getLogPath,
+  getSocketPath,
+  getWorkspaceDir,
+  getWorkspaceSkillsDir,
+  getWorkspaceHooksDir,
+} from '../util/platform.js';
 import JSZip from 'jszip';
 import type { AppManifest } from '../bundler/manifest.js';
 
@@ -183,6 +195,9 @@ export class RuntimeHttpServer {
     if (!match) {
       if (path === '/healthz' && req.method === 'GET') {
         return this.handleHealth();
+      }
+      if (path === '/doctor' && req.method === 'GET') {
+        return this.handleDoctor();
       }
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
@@ -1154,5 +1169,136 @@ ${app.htmlDefinition}
       return Response.json({ error: 'Shared app not found' }, { status: 404 });
     }
     return Response.json({ success: true });
+  }
+
+  private handleDoctor(): Response {
+    const checks: Array<{ label: string; status: 'pass' | 'fail'; detail?: string }> = [];
+
+    checks.push({ label: 'Daemon running', status: 'pass' });
+
+    const raw = loadRawConfig();
+    const provider = typeof raw.provider === 'string' ? raw.provider : 'anthropic';
+    const providerEnvVar: Record<string, string> = {
+      anthropic: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      gemini: 'GEMINI_API_KEY',
+      ollama: 'OLLAMA_API_KEY',
+      fireworks: 'FIREWORKS_API_KEY',
+    };
+    const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[provider];
+    const envVar = providerEnvVar[provider];
+    const envKey = envVar ? process.env[envVar] : undefined;
+    if (provider === 'ollama') {
+      checks.push({ label: 'API key configured', status: 'pass', detail: 'Ollama; API key optional' });
+    } else if (envKey || configKey) {
+      checks.push({ label: 'API key configured', status: 'pass' });
+    } else {
+      checks.push({ label: 'API key configured', status: 'fail', detail: envVar ? `set ${envVar}` : `set API key for provider "${provider}"` });
+    }
+
+    const dbPath = getDbPath();
+    if (existsSync(dbPath)) {
+      try {
+        const db = new Database(dbPath, { readonly: true });
+        db.query('SELECT 1').get();
+        const integrity = db.query('PRAGMA integrity_check').get() as { integrity_check: string } | null;
+        db.close();
+        checks.push({ label: 'Database readable', status: 'pass' });
+        if (integrity?.integrity_check === 'ok') {
+          checks.push({ label: 'Database integrity', status: 'pass' });
+        } else {
+          checks.push({ label: 'Database integrity', status: 'fail', detail: integrity?.integrity_check ?? 'unknown' });
+        }
+      } catch {
+        checks.push({ label: 'Database readable', status: 'fail', detail: 'file exists but cannot be read' });
+      }
+    } else {
+      checks.push({ label: 'Database readable', status: 'fail', detail: `not found at ${dbPath}` });
+    }
+
+    const rootDir = getRootDir();
+    const dataDir = getDataDir();
+    const workspaceDir = getWorkspaceDir();
+    const requiredDirs = [rootDir, workspaceDir, dataDir, `${dataDir}/db`, `${dataDir}/logs`, getWorkspaceSkillsDir(), getWorkspaceHooksDir(), `${rootDir}/protected`];
+    const missingDirs = requiredDirs.filter((d) => !existsSync(d));
+    if (missingDirs.length === 0) {
+      checks.push({ label: 'Directory structure', status: 'pass' });
+    } else {
+      checks.push({ label: 'Directory structure', status: 'fail', detail: `missing: ${missingDirs.join(', ')}` });
+    }
+
+    try {
+      const output = execSync(`df -k "${rootDir}"`, { stdio: 'pipe', encoding: 'utf-8' });
+      const lines = output.trim().split('\n');
+      if (lines.length >= 2) {
+        const cols = lines[1].trim().split(/\s+/);
+        const availKB = parseInt(cols[3], 10);
+        if (isNaN(availKB)) {
+          checks.push({ label: 'Disk space', status: 'fail', detail: 'could not parse available space' });
+        } else if (availKB < 100 * 1024) {
+          checks.push({ label: 'Disk space', status: 'fail', detail: `only ${Math.round(availKB / 1024)}MB free (< 100MB)` });
+        } else {
+          checks.push({ label: 'Disk space', status: 'pass', detail: `${Math.round(availKB / 1024)}MB free` });
+        }
+      }
+    } catch {
+      checks.push({ label: 'Disk space', status: 'fail', detail: 'could not check disk space' });
+    }
+
+    const logPath = getLogPath();
+    if (existsSync(logPath)) {
+      try {
+        const logStat = statSync(logPath);
+        const logSizeMB = logStat.size / (1024 * 1024);
+        if (logSizeMB > 50) {
+          checks.push({ label: 'Log file size', status: 'fail', detail: `${logSizeMB.toFixed(1)}MB (> 50MB)` });
+        } else {
+          checks.push({ label: 'Log file size', status: 'pass', detail: `${logSizeMB.toFixed(1)}MB` });
+        }
+      } catch {
+        checks.push({ label: 'Log file size', status: 'fail', detail: 'could not stat log file' });
+      }
+    } else {
+      checks.push({ label: 'Log file size', status: 'pass', detail: 'no log file yet' });
+    }
+
+    const sockPath = getSocketPath();
+    if (existsSync(sockPath)) {
+      try {
+        const sockStat = statSync(sockPath);
+        const mode = sockStat.mode & 0o777;
+        if (mode === 0o600 || mode === 0o700) {
+          checks.push({ label: 'Socket permissions', status: 'pass', detail: mode.toString(8).padStart(4, '0') });
+        } else {
+          checks.push({ label: 'Socket permissions', status: 'fail', detail: `expected 0600 or 0700, got 0${mode.toString(8)}` });
+        }
+      } catch {
+        checks.push({ label: 'Socket permissions', status: 'fail', detail: 'could not stat socket' });
+      }
+    }
+
+    const trustPath = `${rootDir}/protected/trust.json`;
+    if (existsSync(trustPath)) {
+      try {
+        const trustRaw = readFileSync(trustPath, 'utf-8');
+        const data = JSON.parse(trustRaw);
+        if (typeof data !== 'object' || data === null || typeof data.version !== 'number' || !Array.isArray(data.rules)) {
+          checks.push({ label: 'Trust rule syntax', status: 'fail', detail: 'invalid structure' });
+        } else {
+          checks.push({ label: 'Trust rule syntax', status: 'pass', detail: `${data.rules.length} rule(s)` });
+        }
+      } catch (err) {
+        checks.push({ label: 'Trust rule syntax', status: 'fail', detail: err instanceof Error ? err.message : 'could not parse' });
+      }
+    } else {
+      checks.push({ label: 'Trust rule syntax', status: 'pass', detail: 'no trust.json yet' });
+    }
+
+    const allPassed = checks.every((c) => c.status === 'pass');
+    return Response.json({
+      status: allPassed ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      checks,
+    });
   }
 }
