@@ -380,8 +380,12 @@ export class Session {
    * Redirect the user to the secure credential prompt after an ingress block.
    * If the user enters a value, it is stored in the vault (or injected as
    * transient) so the credential is available for later tool use.
+   *
+   * @param onComplete Called after the prompt resolves (success, cancel, or
+   *   timeout) so the caller can clean up ephemeral resources like placeholder
+   *   conversations.
    */
-  redirectToSecurePrompt(detectedTypes: string[]): void {
+  redirectToSecurePrompt(detectedTypes: string[], onComplete?: () => void): void {
     const service = 'detected';
     const field = detectedTypes.join(',');
     this.secretPrompter.prompt(
@@ -402,11 +406,17 @@ export class Session {
         log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
       } else {
         const key = `credential:${service}:${field}`;
-        setSecureKey(key, result.value);
-        try { upsertCredentialMetadata(service, field, {}); } catch {}
-        log.info({ service, field }, 'Ingress redirect: credential stored');
+        const stored = setSecureKey(key, result.value);
+        if (stored) {
+          try { upsertCredentialMetadata(service, field, {}); } catch {}
+          log.info({ service, field }, 'Ingress redirect: credential stored');
+        } else {
+          log.warn({ service, field }, 'Ingress redirect: secure storage write failed');
+        }
       }
-    }).catch(() => { /* prompt timeout or cancel is fine */ });
+    }).catch(() => { /* prompt timeout or cancel is fine */ }).finally(() => {
+      onComplete?.();
+    });
   }
 
   isProcessing(): boolean {
