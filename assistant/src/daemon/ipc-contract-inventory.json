@@ -64,6 +64,7 @@
     "UpdateTrustRule",
     "UsageRequest",
     "UserMessage",
+    "VercelApiConfigRequest",
     "WatchObservation"
   ],
   "serverMessageTypes": [
@@ -134,6 +135,7 @@
     "UnpublishPageResponse",
     "UsageResponse",
     "UsageUpdate",
+    "VercelApiConfigResponse",
     "WatchCompleteRequest",
     "WatchStarted"
   ],
@@ -202,6 +204,7 @@
     "update_trust_rule",
     "usage_request",
     "user_message",
+    "vercel_api_config",
     "watch_observation"
   ],
   "serverWireTypes": [
@@ -271,6 +274,7 @@
     "unpublish_page_response",
     "usage_response",
     "usage_update",
+    "vercel_api_config_response",
     "watch_complete_request",
     "watch_started"
   ]

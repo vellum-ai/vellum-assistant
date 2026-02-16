@@ -90,8 +90,6 @@ import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedP
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { credentialBroker } from '../tools/credentials/broker.js';
-import { setSecureKey } from '../security/secure-keys.js';
-import { upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
@@ -2611,7 +2609,16 @@ function handleVercelApiConfig(
         });
         return;
       }
-      setSecureKey('credential:vercel:api_token', msg.apiToken);
+      const stored = setSecureKey('credential:vercel:api_token', msg.apiToken);
+      if (!stored) {
+        ctx.send(socket, {
+          type: 'vercel_api_config_response',
+          hasToken: false,
+          success: false,
+          error: 'Failed to store API token in secure storage',
+        });
+        return;
+      }
       upsertCredentialMetadata('vercel', 'api_token', {
         allowedTools: ['publish_page', 'unpublish_page'],
       });
