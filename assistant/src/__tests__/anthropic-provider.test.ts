@@ -363,6 +363,8 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     // The second user message (after assistant) should now contain a synthetic tool_result
     const userAfterAssistant = sent[2];
     expect(userAfterAssistant.role).toBe('user');
+    // Anthropic expects tool_result blocks to start the immediate next user message.
+    expect(userAfterAssistant.content[0].type).toBe('tool_result');
     const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
     expect(toolResults).toHaveLength(1);
     expect(toolResults[0].tool_use_id).toBe('tu_1');
@@ -409,6 +411,54 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(toolResults[0].tool_use_id).toBe('tu_ok');
   });
 
+  test('reconstructs collapsed assistant/tool_result/user timeline before sending', async () => {
+    const messages: Message[] = [
+      userMsg('Read files'),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Working on it.' },
+          { type: 'tool_use', id: 'tu_a', name: 'file_read', input: {} },
+          { type: 'tool_use', id: 'tu_b', name: 'bash', input: {} },
+          { type: 'text', text: 'One moment.' },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\n</workspace_top_level>' },
+          { type: 'tool_result', tool_use_id: 'tu_b', content: 'result B', is_error: false },
+          { type: 'text', text: 'continue please' },
+          { type: 'tool_result', tool_use_id: 'tu_a', content: 'result A', is_error: false },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string; text?: string }>;
+    }>;
+
+    // Input had 3 messages, but the collapsed history shape should be expanded:
+    // user, assistant(tool_use...), user(tool_results), assistant(carryover text), user(remaining text)
+    expect(sent).toHaveLength(5);
+
+    expect(sent[1].role).toBe('assistant');
+    expect(sent[1].content.map((b) => b.type)).toEqual(['text', 'tool_use', 'tool_use']);
+
+    expect(sent[2].role).toBe('user');
+    expect(sent[2].content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_a' });
+    expect(sent[2].content[1]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_b' });
+    expect(sent[2].content).toHaveLength(2);
+
+    expect(sent[3].role).toBe('assistant');
+    expect(sent[3].content.map((b) => b.type)).toEqual(['text']);
+
+    expect(sent[4].role).toBe('user');
+    expect(sent[4].content.map((b) => b.type)).toEqual(['text', 'text']);
+  });
+
   test('multiple tool_use with partial results gets missing ones filled', async () => {
     const messages: Message[] = [
       userMsg('Do things'),
@@ -433,6 +483,9 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     const userAfterAssistant = sent[2];
     const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
     expect(toolResults).toHaveLength(3);
+    expect(userAfterAssistant.content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_a' });
+    expect(userAfterAssistant.content[1]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_b' });
+    expect(userAfterAssistant.content[2]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu_c' });
 
     // tu_a: original result
     expect(toolResults.find((r) => r.tool_use_id === 'tu_a')!.is_error).toBeFalsy();

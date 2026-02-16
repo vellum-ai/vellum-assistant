@@ -54,6 +54,119 @@ function summarizeMessages(messages: Anthropic.MessageParam[]): string[] {
   });
 }
 
+function buildSyntheticToolResult(toolUseId: string): Anthropic.ToolResultBlockParam {
+  return {
+    type: 'tool_result',
+    tool_use_id: toolUseId,
+    content: SYNTHETIC_RESULT,
+    is_error: true,
+  };
+}
+
+function getOrderedToolUseIds(content: Anthropic.ContentBlockParam[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const block of content) {
+    if (!isToolUseBlock(block)) continue;
+    if (seen.has(block.id)) continue;
+    seen.add(block.id);
+    ids.push(block.id);
+  }
+  return ids;
+}
+
+function hasOrderedToolResultPrefix(
+  content: Anthropic.ContentBlockParam[],
+  orderedToolUseIds: string[],
+): boolean {
+  if (content.length < orderedToolUseIds.length) return false;
+  for (let idx = 0; idx < orderedToolUseIds.length; idx++) {
+    const block = content[idx];
+    if (!isToolResultBlock(block)) return false;
+    if (block.tool_use_id !== orderedToolUseIds[idx]) return false;
+  }
+  return true;
+}
+
+function splitAssistantForToolPairing(
+  content: Anthropic.ContentBlockParam[],
+): {
+  pairedContent: Anthropic.ContentBlockParam[];
+  carryoverContent: Anthropic.ContentBlockParam[];
+  toolUseIds: string[];
+} {
+  const leading: Anthropic.ContentBlockParam[] = [];
+  const toolUseBlocks: Anthropic.ToolUseBlockParam[] = [];
+  const carryover: Anthropic.ContentBlockParam[] = [];
+  let seenToolUse = false;
+
+  for (const block of content) {
+    if (isToolUseBlock(block)) {
+      seenToolUse = true;
+      toolUseBlocks.push(block);
+      continue;
+    }
+    if (!seenToolUse) {
+      leading.push(block);
+    } else {
+      carryover.push(block);
+    }
+  }
+
+  if (toolUseBlocks.length === 0) {
+    return {
+      pairedContent: content,
+      carryoverContent: [],
+      toolUseIds: [],
+    };
+  }
+
+  const pairedContent: Anthropic.ContentBlockParam[] = [...leading, ...toolUseBlocks];
+  return {
+    pairedContent,
+    carryoverContent: carryover,
+    toolUseIds: getOrderedToolUseIds(pairedContent),
+  };
+}
+
+function normalizeFollowingUserContent(
+  nextContent: Anthropic.ContentBlockParam[],
+  orderedToolUseIds: string[],
+): {
+  toolResultPrefix: Anthropic.ContentBlockParam[];
+  remainingContent: Anthropic.ContentBlockParam[];
+  missingIds: string[];
+  hadOrderedPrefix: boolean;
+} {
+  const pendingIds = new Set(orderedToolUseIds);
+  const matchedById = new Map<string, Anthropic.ToolResultBlockParam>();
+  const remaining: Anthropic.ContentBlockParam[] = [];
+
+  for (const block of nextContent) {
+    if (
+      isToolResultBlock(block)
+      && pendingIds.has(block.tool_use_id)
+      && !matchedById.has(block.tool_use_id)
+    ) {
+      matchedById.set(block.tool_use_id, block);
+      continue;
+    }
+    remaining.push(block);
+  }
+
+  const missingIds = orderedToolUseIds.filter((id) => !matchedById.has(id));
+  const orderedResults = orderedToolUseIds.map(
+    (id) => matchedById.get(id) ?? buildSyntheticToolResult(id),
+  );
+
+  return {
+    toolResultPrefix: orderedResults,
+    remainingContent: remaining,
+    missingIds,
+    hadOrderedPrefix: hasOrderedToolResultPrefix(nextContent, orderedToolUseIds),
+  };
+}
+
 /**
  * Last-line-of-defense fix that ensures every assistant message with tool_use
  * blocks has matching tool_result blocks in the immediately following user
@@ -77,69 +190,101 @@ function ensureToolPairing(
       continue;
     }
 
-    // Assistant message — push it and check for tool_use blocks
-    result.push(msg);
     const content = Array.isArray(msg.content) ? msg.content : [];
-    const toolUseIds = new Set<string>();
-    for (const block of content) {
-      if (isToolUseBlock(block)) toolUseIds.add(block.id);
-    }
+    const {
+      pairedContent,
+      carryoverContent,
+      toolUseIds,
+    } = splitAssistantForToolPairing(content);
 
-    if (toolUseIds.size === 0) {
+    if (toolUseIds.length === 0) {
+      result.push(msg);
       i++;
       continue;
+    }
+
+    // Assistant message — push the paired portion (pre-tool text + tool_use blocks)
+    result.push({
+      role: 'assistant' as const,
+      content: pairedContent,
+    });
+
+    if (carryoverContent.length > 0) {
+      log.debug(
+        { msgIndex: i, carryoverBlocks: carryoverContent.length, totalToolUse: toolUseIds.length },
+        'Split assistant trailing non-tool blocks into post-tool carryover message',
+      );
     }
 
     // There are tool_use blocks — ensure the next message has matching tool_results
     const next = messages[i + 1];
     if (next && next.role === 'user') {
       const nextContent = Array.isArray(next.content) ? next.content : [];
-      const matchedIds = new Set<string>();
-      for (const block of nextContent) {
-        if (isToolResultBlock(block) && toolUseIds.has(block.tool_use_id)) {
-          matchedIds.add(block.tool_use_id);
-        }
-      }
-
-      const missingIds = [...toolUseIds].filter((id) => !matchedIds.has(id));
-      if (missingIds.length > 0) {
+      const normalized = normalizeFollowingUserContent(nextContent, toolUseIds);
+      if (normalized.missingIds.length > 0) {
         log.warn(
-          { missingCount: missingIds.length, missingIds, totalToolUse: toolUseIds.size, msgIndex: i },
+          {
+            missingCount: normalized.missingIds.length,
+            missingIds: normalized.missingIds,
+            totalToolUse: toolUseIds.length,
+            msgIndex: i,
+          },
           'Injecting synthetic tool_result blocks in Anthropic client',
         );
-        // Push a new user message that merges the original content with synthetic results
+      }
+      if (!normalized.hadOrderedPrefix) {
+        log.debug(
+          { msgIndex: i, totalToolUse: toolUseIds.length },
+          'Reordered user message so tool_result blocks immediately follow assistant tool_use',
+        );
+      }
+
+      if (carryoverContent.length > 0) {
+        // Reconstruct collapsed chronology:
+        // assistant(tool_use...) -> user(tool_result...) -> assistant(trailing text) -> user(remaining text)
         result.push({
           role: 'user' as const,
-          content: [
-            ...nextContent,
-            ...missingIds.map((id) => ({
-              type: 'tool_result' as const,
-              tool_use_id: id,
-              content: SYNTHETIC_RESULT,
-              is_error: true,
-            })),
-          ],
+          content: normalized.toolResultPrefix,
         });
-        i += 2; // skip both assistant (already pushed) and original user (replaced)
+        result.push({
+          role: 'assistant' as const,
+          content: carryoverContent,
+        });
+        if (normalized.remainingContent.length > 0) {
+          result.push({
+            role: 'user' as const,
+            content: normalized.remainingContent,
+          });
+        }
       } else {
-        // All tool_use IDs matched — next message is fine, will be pushed next iteration
-        i++;
+        // No carryover assistant text to restore, so preserve existing behavior
+        // and keep additional user blocks in the same message.
+        result.push({
+          role: 'user' as const,
+          content: [...normalized.toolResultPrefix, ...normalized.remainingContent],
+        });
       }
+      i += 2; // skip both assistant (already pushed) and original user (replaced)
     } else {
       // No following user message or next is assistant — inject synthetic user
       log.warn(
-        { toolUseCount: toolUseIds.size, toolUseIds: [...toolUseIds], msgIndex: i, nextRole: next?.role },
+        { toolUseCount: toolUseIds.length, toolUseIds, msgIndex: i, nextRole: next?.role },
         'Injecting synthetic tool_result user message in Anthropic client',
       );
       result.push({
         role: 'user' as const,
-        content: [...toolUseIds].map((id) => ({
-          type: 'tool_result' as const,
-          tool_use_id: id,
-          content: SYNTHETIC_RESULT,
-          is_error: true,
-        })),
+        content: toolUseIds.map((id) => buildSyntheticToolResult(id)),
       });
+
+      // If the assistant contained collapsed post-tool text, preserve it as a
+      // separate assistant message after synthetic tool_result repair.
+      if (carryoverContent.length > 0) {
+        result.push({
+          role: 'assistant' as const,
+          content: carryoverContent,
+        });
+      }
+
       i++; // advance past the assistant; next message (if any) processed next iteration
     }
   }
@@ -149,23 +294,19 @@ function ensureToolPairing(
     const m = result[j];
     if (m.role !== 'assistant') continue;
     const c = Array.isArray(m.content) ? m.content : [];
-    const ids = new Set<string>();
-    for (const block of c) {
-      if (isToolUseBlock(block)) ids.add(block.id);
-    }
-    if (ids.size === 0) continue;
+    const ids = getOrderedToolUseIds(c);
+    if (ids.length === 0) continue;
 
     const nxt = result[j + 1];
     const nxtContent = nxt && nxt.role === 'user' && Array.isArray(nxt.content) ? nxt.content : [];
-    const matched = new Set<string>();
-    for (const block of nxtContent) {
-      if (isToolResultBlock(block) && ids.has(block.tool_use_id)) matched.add(block.tool_use_id);
-    }
-    const still = [...ids].filter((id) => !matched.has(id));
-    if (still.length > 0) {
+    if (!hasOrderedToolResultPrefix(nxtContent, ids)) {
+      const unmatchedIds = ids.filter((id, idx) => {
+        const block = nxtContent[idx];
+        return !(isToolResultBlock(block) && block.tool_use_id === id);
+      });
       log.error(
-        { unmatchedIds: still, msgIndex: j, messageSummary: summarizeMessages(result) },
-        'ensureToolPairing self-validation FAILED — tool_use IDs still unmatched after repair',
+        { unmatchedIds, msgIndex: j, messageSummary: summarizeMessages(result) },
+        'ensureToolPairing self-validation FAILED — tool_result prefix mismatch after repair',
       );
     }
   }
