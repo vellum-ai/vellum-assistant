@@ -108,8 +108,10 @@ describe('migration ordering: ensureDataDir before migration', () => {
     expect(existsSync(join(root, 'data'))).toBe(true);
     expect(existsSync(join(ws, 'data', 'db', 'assistant.db'))).toBe(false);
 
-    // hooks/ move is skipped because workspace/hooks/ already exists
+    // hooks/ directory move is skipped because workspace/hooks/ already exists,
+    // but mergeLegacyHooks() moves individual hook files into workspace/hooks/
     expect(existsSync(join(root, 'hooks'))).toBe(true);
+    expect(readFileSync(join(ws, 'hooks', 'on-start.sh'), 'utf-8')).toBe('#!/bin/bash');
 
     // skills/ move is skipped because workspace/skills/ already exists
     expect(existsSync(join(root, 'skills'))).toBe(true);
@@ -202,10 +204,13 @@ describe('migration ordering: ensureDataDir before migration', () => {
     expect(readFileSync(join(ws, 'USER.md'), 'utf-8')).toBe('# User');
 
     // Directories that ensureDataDir pre-creates are the problem:
-    // data/, hooks/, skills/ are NOT migrated because destination exists
+    // data/ is NOT migrated because destination exists
     expect(existsSync(join(root, 'data', 'db', 'assistant.db'))).toBe(true);
-    expect(existsSync(join(root, 'hooks', 'on-start.sh'))).toBe(true);
-    expect(existsSync(join(root, 'skills', 'search.json'))).toBe(true);
+
+    // hooks/ and skills/ directory moves are skipped, but their contents
+    // are merged by mergeLegacyHooks() and mergeLegacySkills()
+    expect(readFileSync(join(ws, 'hooks', 'on-start.sh'), 'utf-8')).toBe('#!/bin/bash');
+    expect(readFileSync(join(ws, 'skills', 'search.json'), 'utf-8')).toBe('{}');
 
     rmSync(base, { recursive: true, force: true });
   });
