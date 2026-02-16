@@ -73,7 +73,9 @@ function listAction(): ToolExecutionResult {
   const lines = all.map((r) => {
     const status = r.status === 'fired'
       ? `fired at ${formatLocalDate(r.firedAt!)}`
-      : r.status;
+      : r.status === 'firing'
+        ? 'firing'
+        : r.status;
     return `  - [${r.id}] "${r.label}" — ${formatLocalDate(r.fireAt)} (${r.mode}, ${status})`;
   });
 

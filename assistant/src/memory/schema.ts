@@ -225,7 +225,7 @@ export const reminders = sqliteTable('reminders', {
   message: text('message').notNull(),
   fireAt: integer('fire_at').notNull(),           // epoch ms, absolute timestamp
   mode: text('mode').notNull(),                   // 'notify' | 'execute'
-  status: text('status').notNull(),               // 'pending' | 'fired' | 'cancelled'
+  status: text('status').notNull(),               // 'pending' | 'firing' | 'fired' | 'cancelled'
   firedAt: integer('fired_at'),
   conversationId: text('conversation_id'),
   createdAt: integer('created_at').notNull(),
