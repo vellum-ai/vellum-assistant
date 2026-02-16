@@ -77,6 +77,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_surface_dismiss` message.
     public var onSurfaceDismiss: ((UiSurfaceDismissMessage) -> Void)?
 
+    /// Called when the daemon sends a `ui_surface_complete` message.
+    public var onSurfaceComplete: ((UiSurfaceCompleteMessage) -> Void)?
+
     /// Called when the daemon sends an `app_data_response` message.
     public var onAppDataResponse: ((AppDataResponseMessage) -> Void)?
 
@@ -893,6 +896,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceUpdate?(msg)
         case .uiSurfaceDismiss(let msg):
             onSurfaceDismiss?(msg)
+        case .uiSurfaceComplete(let msg):
+            onSurfaceComplete?(msg)
         case .uiLayoutConfig(let msg):
             onLayoutConfig?(msg)
         case .appDataResponse(let msg):
