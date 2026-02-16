@@ -414,6 +414,7 @@ export class ComputerUseSession {
             params.service, params.field, params.label,
             params.description, params.placeholder,
             this.sessionId,
+            params.purpose, params.allowedTools, params.allowedDomains,
           );
         },
       });
