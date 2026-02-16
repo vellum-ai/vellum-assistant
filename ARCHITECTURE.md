@@ -1808,7 +1808,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
 | Credential secrets | macOS Keychain (or encrypted file fallback) | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
-| Integration OAuth tokens | macOS Keychain (via `secure-keys.ts`) | Encrypted binary | `TokenManager` auto-refresh | Until disconnected or revoked |
+| Integration OAuth tokens | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary | `TokenManager` auto-refresh | Until disconnected or revoked |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
 | Conversations & messages | `~/.vellum/workspace/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
