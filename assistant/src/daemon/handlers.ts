@@ -2952,7 +2952,7 @@ async function handleIntegrationConnect(
   try {
     const oauthConfig = { ...def.oauth2Config, clientId };
     const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
-      openUrl: (url) => ctx.broadcast({ type: 'open_url', url, title: `Connect ${def.name}` }),
+      openUrl: (url) => ctx.send(socket, { type: 'open_url', url, title: `Connect ${def.name}` }),
     });
 
     // Store tokens in vault
