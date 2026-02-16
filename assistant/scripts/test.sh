@@ -19,6 +19,7 @@ EXPERIMENTAL_FILES=(
 
 found_test=0
 any_failed=0
+failed_files=()
 while IFS= read -r test_file; do
   found_test=1
 
@@ -35,11 +36,13 @@ while IFS= read -r test_file; do
     echo "==> Running ${test_file}"
     if ! bun test --test-name-pattern '^(?!.*\[experimental\])' "${test_file}"; then
       any_failed=1
+      failed_files+=("${test_file}")
     fi
   else
     echo "==> Running ${test_file}"
     if ! bun test "${test_file}"; then
       any_failed=1
+      failed_files+=("${test_file}")
     fi
   fi
 done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
@@ -51,6 +54,12 @@ fi
 
 if [[ ${any_failed} -ne 0 ]]; then
   echo ""
-  echo "Some test files had failures (see above)."
+  echo "========================================"
+  echo "  FAILED TEST FILES (${#failed_files[@]}):"
+  echo "========================================"
+  for f in "${failed_files[@]}"; do
+    echo "  ✗ ${f}"
+  done
+  echo "========================================"
   exit 1
 fi
