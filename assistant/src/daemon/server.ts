@@ -55,6 +55,7 @@ export class DaemonServer {
   private lastConfigRefreshTime = 0;
   private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
+  private static readonly MAX_CONNECTIONS = 50;
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -415,6 +416,13 @@ export class DaemonServer {
   }
 
   private handleConnection(socket: net.Socket): void {
+    if (this.connectedSockets.size >= DaemonServer.MAX_CONNECTIONS) {
+      log.warn({ current: this.connectedSockets.size, max: DaemonServer.MAX_CONNECTIONS }, 'Connection limit reached, rejecting client');
+      socket.write(serialize({ type: 'error', message: `Connection limit reached (max ${DaemonServer.MAX_CONNECTIONS})` }));
+      socket.destroy();
+      return;
+    }
+
     log.info('Client connected');
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
