@@ -2,6 +2,7 @@ import { readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
+import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 
 const log = getLogger('system-prompt');
@@ -55,7 +56,11 @@ export function buildSystemPrompt(): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  parts.push(buildConfigSection(getWorkspaceDir()));
+  const config = getConfig();
+  const visibleDir = config.sandbox.enabled && config.sandbox.backend === 'docker'
+    ? '/workspace'
+    : getWorkspaceDir();
+  parts.push(buildConfigSection(visibleDir));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildToolPermissionSection());

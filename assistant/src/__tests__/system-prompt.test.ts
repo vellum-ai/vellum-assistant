@@ -44,6 +44,12 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    sandbox: { enabled: true, backend: 'docker' },
+  }),
+}));
+
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } = await import('../config/system-prompt.js');
 
@@ -152,6 +158,11 @@ describe('buildSystemPrompt', () => {
     const result = buildSystemPrompt();
     expect(result).toContain('## Parallel Task Orchestration');
     expect(result).toContain('swarm_delegate');
+  });
+
+  test('config section uses /workspace when Docker sandbox is enabled', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('Your configuration directory is `/workspace/`');
   });
 
   test('omits user skills from catalog when none are configured', () => {
