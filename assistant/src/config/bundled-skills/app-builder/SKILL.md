@@ -1200,7 +1200,7 @@ When the user requests changes to an existing app, prefer **`app_file_edit`** ov
 
 #### Metadata vs code changes
 
-- **`app_update`** — use for metadata changes only: `name`, `description`, `icon`, `preview`. Do not use it for code changes.
+- **`app_update`** — use for metadata changes only: `name`, `description`, and `schema_json`. Do not use it for code changes.
 - **`app_file_edit`** / **`app_file_write`** — use for all code changes (HTML, CSS, JS).
 - Call `app_open` after edits to refresh the view.
 - If schema changes affect existing records, mention this.
