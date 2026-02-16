@@ -410,9 +410,11 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
             if (resultEntry.imageData) unresolved.imageData = resultEntry.imageData;
           }
         }
+        // Only suppress this internal user message if we successfully merged into a preceding assistant message
+        continue;
       }
-      // Suppress this internal user message from the visible history
-      continue;
+      // If there's no preceding assistant message to merge into, preserve the tool_result message
+      // so the results aren't lost (e.g., cancellation/error/handoff before follow-up assistant turn)
     }
 
     result.push({ ...msg, toolCalls: msg.toolCalls.map((tc) => ({ ...tc })) });
