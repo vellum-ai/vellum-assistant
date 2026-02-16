@@ -392,6 +392,10 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
+        .onDisappear {
+            daemonClient?.onIntegrationListResponse = nil
+            daemonClient?.onIntegrationConnectResult = nil
+        }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
                 TrustRulesView(daemonClient: daemonClient)
@@ -444,7 +448,11 @@ struct SettingsPanel: View {
                 } else {
                     VButton(label: "Connect", style: .primary) {
                         connectingIntegration = integration.id
-                        try? daemonClient?.sendIntegrationConnect(integrationId: integration.id)
+                        do {
+                            try daemonClient?.sendIntegrationConnect(integrationId: integration.id)
+                        } catch {
+                            connectingIntegration = nil
+                        }
                     }
                 }
             }
