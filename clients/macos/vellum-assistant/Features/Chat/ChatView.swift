@@ -774,6 +774,8 @@ private struct ChatBubble: View {
             Image(systemName: "arrow.trianglehead.counterclockwise")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(VColor.textMuted)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Regenerate response")
