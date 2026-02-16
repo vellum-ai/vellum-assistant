@@ -375,14 +375,11 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
   }
 
-  // Include attachment descriptions in textSegments so that
-  // textSegments.join('') matches the rendered text field.
-  if (attachmentParts.length > 0) {
-    const attachmentText = attachmentParts.join('\n');
-    const prefix = textParts.length > 0 ? '\n' : '';
-    ensureSegment();
-    currentSegmentParts.push(prefix + attachmentText);
-  }
+  // Attachment descriptions are NOT included in textSegments — they are
+  // rendered separately as attachment chips/images in the UI.  Including
+  // them would cause the "last text segment" heuristic to surface an
+  // attachment descriptor instead of the assistant's actual narrative text
+  // in interleaved history messages.
 
   finalizeSegment();
 
