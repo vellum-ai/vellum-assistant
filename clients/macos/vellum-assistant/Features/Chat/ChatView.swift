@@ -340,7 +340,7 @@ struct ChatView: View {
                                 && !message.isStreaming
                                 && (index == messages.count - 1
                                     || (index == messages.count - 2
-                                        && messages[messages.count - 1].confirmation?.state != .pending))
+                                        && messages[messages.count - 1].confirmation != nil && messages[messages.count - 1].confirmation?.state != .pending))
                                 && !isSending
                                 && !isThinking
 
