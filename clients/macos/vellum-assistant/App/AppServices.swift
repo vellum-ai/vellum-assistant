@@ -14,7 +14,6 @@ public final class AppServices {
     /// Shared settings state consumed by both SettingsView and SettingsPanel.
     /// Lazy because it needs `ambientAgent` and `daemonClient` which are set above.
     public lazy var settingsStore: SettingsStore = SettingsStore(
-        ambientAgent: ambientAgent,
         daemonClient: daemonClient
     )
 

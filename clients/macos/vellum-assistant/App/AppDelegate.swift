@@ -268,7 +268,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let overlay = SessionOverlayWindow(session: session)
         overlay.show()
         self.overlayWindow = overlay
-        self.ambientAgent.pause()
 
         // Close the text response window but keep the text session reference
         // (no de-escalation for MVP — text session is effectively done)
@@ -282,7 +281,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.overlayWindow = nil
             self.currentSession = nil
             self.currentTextSession = nil
-            self.ambientAgent.resume()
         }
     }
 
@@ -621,12 +619,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let ambientEnabled = ambientAgent.isEnabled
-        let ambientTitle = ambientEnabled ? "Disable Ambient Agent" : "Enable Ambient Agent"
-        let ambientItem = NSMenuItem(title: ambientTitle, action: #selector(toggleAmbientAgent), keyEquivalent: "")
-        ambientItem.target = self
-        ambientItem.image = NSImage(systemSymbolName: ambientEnabled ? "eye.slash" : "eye", accessibilityDescription: nil)
-        menu.addItem(ambientItem)
+        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: #selector(showRideShotgunInvitation), keyEquivalent: "")
+        rideShotgunItem.target = self
+        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
+        rideShotgunItem.isEnabled = ambientAgent.currentSession == nil
+        menu.addItem(rideShotgunItem)
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
@@ -666,9 +663,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         updateManager.checkForUpdates()
     }
 
-    @objc private func toggleAmbientAgent() {
-        ambientAgent.isEnabled = !ambientAgent.isEnabled
-        updateMenuBarIcon()
+    @objc private func showRideShotgunInvitation() {
+        ambientAgent.showInvitation()
     }
 
     @objc private func toggleSkill(_ sender: NSMenuItem) {
@@ -819,11 +815,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupAmbientAgent() {
         ambientAgent.appDelegate = self
         ambientAgent.daemonClient = daemonClient
-
-        if ambientAgent.isEnabled && daemonClient.isConnected {
-            ambientAgent.start()
-            updateMenuBarIcon()
-        }
+        ambientAgent.setupRideShotgun()
     }
 
     func updateMenuBarIcon() {
@@ -996,7 +988,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let hostingController = NSHostingController(rootView: SettingsView(store: services.settingsStore, ambientAgent: services.ambientAgent, daemonClient: services.daemonClient))
+        let hostingController = NSHostingController(rootView: SettingsView(store: services.settingsStore, daemonClient: services.daemonClient))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -1133,13 +1125,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 let overlay = SessionOverlayWindow(session: session)
                 overlay.show()
                 self.overlayWindow = overlay
-                self.ambientAgent.pause()
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
                 self.overlayWindow = nil
                 self.currentSession = nil
-                self.ambientAgent.resume()
 
             default: // text_qa
                 let session = TextSession(
@@ -1155,14 +1145,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 let window = TextResponseWindow(session: session, inputState: inputState)
                 window.show()
                 self.textResponseWindow = window
-                self.ambientAgent.pause()
 
                 // Clean up when the user closes the panel
                 window.onClose = { [weak self] in
                     self?.currentTextSession?.cancel()
                     self?.textResponseWindow = nil
                     self?.currentTextSession = nil
-                    self?.ambientAgent.resume()
                 }
 
                 await session.run()
@@ -1204,14 +1192,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        let approveAction = UNNotificationAction(identifier: "APPROVE_ACTION", title: "Approve", options: [])
-        let dismissAction = UNNotificationAction(identifier: "DISMISS_ACTION", title: "Dismiss", options: [])
-        let automationCategory = UNNotificationCategory(
-            identifier: "AUTOMATION_INSIGHT",
-            actions: [approveAction, dismissAction],
-            intentIdentifiers: []
-        )
-
         let viewAction = UNNotificationAction(
             identifier: "VIEW_ACTIVITY",
             title: "View Results",
@@ -1224,7 +1204,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             options: []
         )
 
-        center.setNotificationCategories([automationCategory, activityCategory])
+        center.setNotificationCategories([activityCategory])
     }
 
     private func registerBundledFonts() {
@@ -1408,7 +1388,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusIconCancellable?.cancel()
         voiceInput?.stop()
-        ambientAgent.stop()
+        ambientAgent.teardown()
         surfaceManager.dismissAll()
         toolConfirmationManager.dismissAll()
         secretPromptManager.dismissAll()
@@ -1428,54 +1408,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let userInfo = response.notification.request.content.userInfo
         let categoryId = response.notification.request.content.categoryIdentifier
 
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
             await MainActor.run {
-                // Show main window
                 self.showMainWindow()
-
-                // Optional: Navigate to the completed session/thread
-                // if let sessionId = userInfo["sessionId"] as? String {
-                //     // Navigate to thread containing this session
-                // }
             }
             return
         }
-
-        // Handle automation insight notifications
-        guard categoryId == "AUTOMATION_INSIGHT",
-              let insightId = userInfo["insightId"] as? String,
-              let insightTitle = userInfo["insightTitle"] as? String,
-              let description = userInfo["insightDescription"] as? String else {
-            return
-        }
-
-        let approved: Bool
-        switch response.actionIdentifier {
-        case "APPROVE_ACTION":
-            approved = true
-        case "DISMISS_ACTION":
-            approved = false
-        default:
-            return  // Ignore default tap and other actions
-        }
-
-        let schedule = ScheduleParser.parse(from: description)
-
-        let decision = AutomationDecision(
-            insightId: insightId,
-            insightTitle: insightTitle,
-            description: description,
-            schedule: schedule,
-            approved: approved,
-            reason: nil,
-            source: ProcessInfo.processInfo.hostName
-        )
-
-        let syncClient = await MainActor.run { ambientAgent.syncClient }
-        await syncClient?.sendDecision(decision)
     }
 }

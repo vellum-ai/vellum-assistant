@@ -17,18 +17,6 @@ public final class SettingsStore: ObservableObject {
     @Published var maxSteps: Double {
         didSet { UserDefaults.standard.set(maxSteps, forKey: "maxStepsPerSession") }
     }
-    @Published var ambientEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(ambientEnabled, forKey: "ambientAgentEnabled")
-            ambientAgent?.isEnabled = ambientEnabled
-        }
-    }
-    @Published var ambientInterval: Double {
-        didSet {
-            UserDefaults.standard.set(ambientInterval, forKey: "ambientCaptureInterval")
-            ambientAgent?.captureIntervalSeconds = ambientInterval
-        }
-    }
     @Published var activityNotificationsEnabled: Bool {
         didSet {
             UserDefaults.standard.set(activityNotificationsEnabled, forKey: "activityNotificationsEnabled")
@@ -44,12 +32,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Private
 
-    private weak var ambientAgent: AmbientAgent?
     private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
 
-    init(ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
-        self.ambientAgent = ambientAgent
+    init(daemonClient: DaemonClient? = nil) {
         self.daemonClient = daemonClient
 
         // Seed from UserDefaults / Keychain
@@ -58,11 +44,6 @@ public final class SettingsStore: ObservableObject {
 
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
-
-        self.ambientEnabled = UserDefaults.standard.bool(forKey: "ambientAgentEnabled")
-
-        let storedInterval = UserDefaults.standard.double(forKey: "ambientCaptureInterval")
-        self.ambientInterval = storedInterval == 0 ? 30 : storedInterval
 
         // Default to enabled for notifications
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true

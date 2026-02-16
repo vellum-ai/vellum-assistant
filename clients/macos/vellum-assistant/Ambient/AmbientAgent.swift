@@ -169,19 +169,4 @@ public final class AmbientAgent: ObservableObject {
         window.show()
     }
 
-    // MARK: - Compatibility stubs (removed in M6)
-    var isEnabled: Bool {
-        get { false }
-        set { /* no-op */ }
-    }
-    func start() { setupRideShotgun() }
-    func stop() { teardown() }
-    func pause() { /* no-op */ }
-    func resume() { /* no-op */ }
-    var syncClient: AmbientSyncClient? { nil }
-    var insightStore: InsightStore? { nil }
-    var captureIntervalSeconds: Double {
-        get { 30 }
-        set { /* no-op */ }
-    }
 }

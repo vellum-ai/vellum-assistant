@@ -147,22 +147,19 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
 
-                // AMBIENT AGENT section
+                // RIDE SHOTGUN section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("AMBIENT AGENT")
+                    Text("RIDE SHOTGUN")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    HStack {
-                        Text("Enable ambient screen watching")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                        Spacer()
-                        VToggle(isOn: $store.ambientEnabled)
-                    }
+                    Text("Ride Shotgun lets the assistant watch how you work for a few minutes, then offers to help based on what it observed.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    Text("Use the menu bar icon or wait for the assistant to offer.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
@@ -354,7 +351,7 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: 0) {
-                        privacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable ambient mode")
+                        privacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable Ride Shotgun sessions")
                         Divider().background(VColor.surfaceBorder)
                         privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
                         Divider().background(VColor.surfaceBorder)
@@ -426,11 +423,10 @@ struct SettingsPanel: View {
 }
 
 #Preview("SettingsPanel") {
-    let agent = AmbientAgent()
     let dc = DaemonClient()
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsPanel(onClose: {}, store: SettingsStore(ambientAgent: agent), threadManager: ThreadManager(daemonClient: dc))
+        SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc))
     }
     .frame(width: 600, height: 700)
 }

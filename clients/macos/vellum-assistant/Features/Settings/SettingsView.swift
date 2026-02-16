@@ -17,12 +17,10 @@ public struct SettingsView: View {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         return ActivationKey(rawValue: stored) ?? .fn
     }()
-    var ambientAgent: AmbientAgent
     var daemonClient: DaemonClient?
 
-    public init(store: SettingsStore, ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
+    public init(store: SettingsStore, daemonClient: DaemonClient? = nil) {
         self.store = store
-        self.ambientAgent = ambientAgent
         self.daemonClient = daemonClient
     }
 
@@ -151,25 +149,14 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Ambient Agent") {
-                Toggle("Enable ambient screen watching", isOn: $store.ambientEnabled)
+            Section("Ride Shotgun") {
+                Text("Ride Shotgun lets the assistant watch how you work for a few minutes, then offers to help based on what it observed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                if store.ambientEnabled {
-                    HStack {
-                        Text("Capture interval")
-                        Spacer()
-                        Text("\(Int(store.ambientInterval))s")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $store.ambientInterval, in: 10...120, step: 5)
-
-                    KnowledgeSection(store: ambientAgent.knowledgeStore)
-
-                    if let insightStore = ambientAgent.insightStore {
-                        InsightsSection(store: insightStore)
-                    }
-                }
+                Text("Use the menu bar icon or wait for the assistant to offer.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Permissions") {
@@ -236,7 +223,7 @@ public struct SettingsView: View {
             }
 
             Section("Privacy & Security") {
-                PrivacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable ambient mode")
+                PrivacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable Ride Shotgun sessions")
                 PrivacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
                 PrivacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
                 PrivacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
@@ -317,116 +304,6 @@ private struct KnowledgeSection: View {
     }
 }
 
-// MARK: - Insights Section
-
-private struct InsightsSection: View {
-    @ObservedObject var store: InsightStore
-    @State private var showingInsights = false
-
-    var body: some View {
-        HStack {
-            Text("Insights found")
-            Spacer()
-            Text("\(store.insightCount)")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-
-        HStack {
-            Button("View Insights") {
-                showingInsights = true
-            }
-            .disabled(store.insights.isEmpty)
-
-            Spacer()
-
-            Button("Clear All") {
-                store.clearAll()
-            }
-            .tint(.red)
-            .disabled(store.insights.isEmpty)
-        }
-        .sheet(isPresented: $showingInsights) {
-            InsightsListView(store: store)
-        }
-    }
-}
-
-private struct InsightsListView: View {
-    @ObservedObject var store: InsightStore
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Knowledge Insights (\(store.insightCount))")
-                    .font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }
-            }
-            .padding()
-
-            Divider()
-
-            if store.insights.isEmpty {
-                Spacer()
-                Text("No insights yet")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else {
-                List {
-                    ForEach(store.insights.reversed()) { insight in
-                        HStack(alignment: .top, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Text(insight.title)
-                                        .fontWeight(.bold)
-                                    Text(insight.category.rawValue.capitalized)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(categoryColor(insight.category).opacity(0.2))
-                                        .foregroundStyle(categoryColor(insight.category))
-                                        .clipShape(Capsule())
-                                }
-                                Text(insight.description)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 4) {
-                                    Text(insight.timestamp, style: .relative)
-                                    Text("ago")
-                                    Text("\u{00b7}")
-                                    Text("\(Int(insight.confidence * 100))%")
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                            }
-                            Spacer()
-                            Button {
-                                store.dismissInsight(id: insight.id)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                        .padding(.vertical, 2)
-                        .opacity(insight.dismissed ? 0.5 : 1.0)
-                    }
-                }
-            }
-        }
-        .frame(width: 550, height: 450)
-    }
-
-    private func categoryColor(_ category: InsightCategory) -> Color {
-        switch category {
-        case .pattern: return Indigo._600
-        case .automation: return Emerald._600
-        case .insight: return Amber._600
-        }
-    }
-}
-
 // MARK: - Privacy & Security
 
 private struct PrivacyBullet: View {
@@ -465,7 +342,7 @@ private struct PrivacyDetailView: View {
                     privacySection(
                         title: "How Velly Works",
                         items: [
-                            "Velly only activates AI when you explicitly trigger a task, use voice input, or enable the ambient agent. It does not run in the background unless you opt in.",
+                            "Velly only activates AI when you explicitly trigger a task, use voice input, or accept a Ride Shotgun invitation. It does not run in the background unless you opt in.",
                             "You are always in control. You can disable the ambient agent, revoke permissions, or clear stored data at any time from Settings.",
                         ]
                     )
@@ -474,7 +351,7 @@ private struct PrivacyDetailView: View {
                         title: "What Data Leaves Your Mac",
                         items: [
                             "When you run a task: screenshots (compressed, max 1280x720) and UI element data (window titles, button labels, text field values) are sent to the Anthropic API over HTTPS.",
-                            "When ambient mode is on: extracted on-screen text (via on-device OCR) and the active app name are sent to Anthropic for analysis. If sync is enabled, ambient observations and insights are also sent to the Velly backend.",
+                            "When Ride Shotgun is active: screenshots and UI element data from the current session are sent to Anthropic for analysis.",
                             "Voice input: speech is transcribed on-device using Apple Speech Recognition. Only the final text is sent to Anthropic as part of the task.",
                         ]
                     )
@@ -522,7 +399,6 @@ private struct PrivacyDetailView: View {
                         items: [
                             "API key: Settings > Anthropic API Key > Clear",
                             "Knowledge entries: Settings > Ambient Agent > Clear All",
-                            "Insights: Settings > Ambient Agent > Clear All",
                             "Session logs: delete files in ~/Library/Application Support/vellum-assistant/logs/",
                         ]
                     )
@@ -612,6 +488,5 @@ private struct KnowledgeEntriesView: View {
 }
 
 #Preview {
-    let agent = AmbientAgent()
-    SettingsView(store: SettingsStore(ambientAgent: agent), ambientAgent: agent)
+    SettingsView(store: SettingsStore())
 }

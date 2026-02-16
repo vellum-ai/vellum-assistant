@@ -1185,8 +1185,7 @@ private struct DrawerMenuItem: View {
 
 #Preview {
     let dc = DaemonClient()
-    let agent = AmbientAgent()
-    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: agent, settingsStore: SettingsStore(ambientAgent: agent, daemonClient: dc), windowState: MainWindowState())
+    MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
         .frame(width: 900, height: 600)
         .padding(.top, 36)
 }
