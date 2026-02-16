@@ -609,6 +609,36 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[2].content[0].text).toBe('Continue');
   });
 
+  test('empty assistant followed by empty user does not produce consecutive same-role messages', async () => {
+    // Edge case: an empty assistant turn gets a placeholder injected, but if
+    // the following user turn also filters to empty (e.g. whitespace-only),
+    // the user turn is dropped and the placeholder ends up adjacent to the
+    // next real assistant turn — producing consecutive assistant roles.
+    const messages: Message[] = [
+      userMsg('Start'),
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '   ' }], // whitespace-only → empty after filtering
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '  \n  ' }], // whitespace-only → empty after filtering
+      },
+      assistantMsg('Real response'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // Verify strict role alternation: no two adjacent messages share the same role
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role).not.toBe(sent[i - 1].role);
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Workspace context injection + cache control
   // -----------------------------------------------------------------------
