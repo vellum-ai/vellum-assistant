@@ -972,23 +972,17 @@ private struct ChatBubble: View {
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
 
+        // Only show the last non-empty text segment — each new step overrides the previous.
+        if let lastText = message.textSegments.lazy
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .last(where: { !$0.isEmpty }) {
+            textBubble(for: lastText)
+        }
+
+        // Surfaces still render in order
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-            switch group {
-            case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        textBubble(for: segmentText)
-                    }
-                }
-            case .toolCalls:
-                // Tool calls are rendered as a single unified status at the
-                // bottom of the message — skip them in the interleaved flow.
-                EmptyView()
-            case .surface(let i):
-                if i < message.inlineSurfaces.count {
-                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
-                }
+            if case .surface(let i) = group, i < message.inlineSurfaces.count {
+                InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
             }
         }
 
