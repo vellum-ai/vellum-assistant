@@ -125,10 +125,10 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
  */
 export function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
   const db = getDb();
-  const tokens = query
+  const tokens = [...new Set(query
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/g)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2))];
   if (tokens.length === 0) return [];
 
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
