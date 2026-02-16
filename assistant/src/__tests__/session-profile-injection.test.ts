@@ -7,7 +7,7 @@ let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
 let profileEnabled = true;
 let memoryEnabled = true;
-let profileText = '[Dynamic User Profile]\n- timezone: America/Los_Angeles';
+let profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles';
 
 const persistedMessages: Array<{ id: string; role: string; content: string; createdAt: number }> = [];
 
@@ -257,7 +257,7 @@ describe('Session dynamic profile injection', () => {
     profileCompilerCalls = 0;
     profileEnabled = true;
     memoryEnabled = true;
-    profileText = '[Dynamic User Profile]\n- timezone: America/Los_Angeles';
+    profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles';
   });
 
   test('injects profile context for runtime and strips it from persisted history', async () => {
@@ -271,17 +271,17 @@ describe('Session dynamic profile injection', () => {
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     expect(runtimeUser.role).toBe('user');
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).toContain('[Dynamic profile context start]');
-    expect(runtimeText).toContain('[Dynamic User Profile]');
-    expect(runtimeText).toContain('[Dynamic profile context end]');
+    expect(runtimeText).toContain('<dynamic-profile-context>');
+    expect(runtimeText).toContain('<dynamic-user-profile>');
+    expect(runtimeText).toContain('</dynamic-profile-context>');
 
     const persistedUser = session.getMessages().find((message) => message.role === 'user');
     expect(persistedUser).toBeDefined();
     if (persistedUser) {
       const persistedText = messageText(persistedUser);
-      expect(persistedText).not.toContain('[Dynamic profile context start]');
-      expect(persistedText).not.toContain('[Dynamic User Profile]');
-      expect(persistedText).not.toContain('[Dynamic profile context end]');
+      expect(persistedText).not.toContain('<dynamic-profile-context>');
+      expect(persistedText).not.toContain('<dynamic-user-profile>');
+      expect(persistedText).not.toContain('</dynamic-profile-context>');
       // No empty text blocks should remain after stripping
       const emptyBlocks = persistedUser.content.filter(
         (b) => b.type === 'text' && (b as { text: string }).text === '',
@@ -311,10 +311,10 @@ describe('Session dynamic profile injection', () => {
 
   test('strip only targets the last user message, not earlier ones', () => {
     const profile = 'timezone: US/Pacific';
-    const profileMarker = '[Dynamic profile context start]';
+    const profileMarker = '<dynamic-profile-context>';
     const earlyUser: Message = {
       role: 'user',
-      content: [{ type: 'text', text: `I pasted: ${profileMarker}\ntimezone: US/Pacific\n[Dynamic profile context end]` }],
+      content: [{ type: 'text', text: `I pasted: ${profileMarker}\ntimezone: US/Pacific\n</dynamic-profile-context>` }],
     };
     const assistant: Message = {
       role: 'assistant',
@@ -335,7 +335,7 @@ describe('Session dynamic profile injection', () => {
 
   test('strip finds injected message even when tool_result user messages follow it', () => {
     const profile = 'timezone: US/Pacific';
-    const profileMarker = '[Dynamic profile context start]';
+    const profileMarker = '<dynamic-profile-context>';
     const injectedUser = injectDynamicProfileIntoUserMessage(
       { role: 'user', content: [{ type: 'text', text: 'hello' }] },
       profile,
@@ -367,7 +367,7 @@ describe('Session dynamic profile injection', () => {
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).not.toContain('[Dynamic profile context start]');
+    expect(runtimeText).not.toContain('<dynamic-profile-context>');
     expect(profileCompilerCalls).toBe(0);
   });
 
@@ -381,7 +381,7 @@ describe('Session dynamic profile injection', () => {
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
     const runtimeText = messageText(runtimeUser);
-    expect(runtimeText).not.toContain('[Dynamic profile context start]');
+    expect(runtimeText).not.toContain('<dynamic-profile-context>');
     expect(profileCompilerCalls).toBe(0);
   });
 });
