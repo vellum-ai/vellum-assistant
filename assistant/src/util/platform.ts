@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 /**
@@ -233,6 +233,36 @@ function mergeSkippedConfigKeys(legacyPath: string, workspacePath: string): void
 }
 
 /**
+ * When migratePath skips the skills directory because the workspace copy
+ * already exists (e.g. pre-created by ensureDataDir), the legacy skills
+ * directory may still contain individual skill subdirectories that were
+ * never moved. This merges any missing skill subdirectories from the
+ * legacy path into the workspace skills path so they are not stranded.
+ */
+function mergeLegacySkills(legacyDir: string, workspaceDir: string): void {
+  if (!existsSync(legacyDir) || !existsSync(workspaceDir)) return;
+
+  let entries: import('node:fs').Dirent[];
+  try {
+    entries = readdirSync(legacyDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const src = join(legacyDir, entry.name);
+    const dest = join(workspaceDir, entry.name);
+    if (existsSync(dest)) continue; // already present in workspace
+    try {
+      renameSync(src, dest);
+      migrationLog('info', 'Merged legacy skill into workspace', { from: src, to: dest });
+    } catch (err) {
+      migrationLog('warn', 'Failed to merge legacy skill', { err: String(err), from: src, to: dest });
+    }
+  }
+}
+
+/**
  * Migrate from the flat ~/.vellum layout to the workspace-based layout.
  *
  * Step (a) is special: if the workspace dir doesn't exist yet but the old
@@ -269,6 +299,7 @@ export function migrateToWorkspaceLayout(): void {
   migratePath(join(root, 'hooks'), join(ws, 'hooks'));
   migratePath(join(root, 'IDENTITY.md'), join(ws, 'IDENTITY.md'));
   migratePath(join(root, 'skills'), join(ws, 'skills'));
+  mergeLegacySkills(join(root, 'skills'), join(ws, 'skills'));
   migratePath(join(root, 'SOUL.md'), join(ws, 'SOUL.md'));
   migratePath(join(root, 'USER.md'), join(ws, 'USER.md'));
 }

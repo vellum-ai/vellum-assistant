@@ -318,17 +318,99 @@ describe('migrateToWorkspaceLayout', () => {
       'ws-db',
     );
 
-    // Legacy hooks/skills/data should remain at root (not moved due to conflict)
+    // Legacy hooks/data should remain at root (not moved due to conflict)
     expect(existsSync(join(root, 'hooks', 'legacy-hook.sh'))).toBe(true);
     expect(readFileSync(join(root, 'hooks', 'legacy-hook.sh'), 'utf-8')).toBe(
       'root-hook',
     );
-    expect(existsSync(join(root, 'skills', 'legacy-skill.json'))).toBe(true);
+    // Legacy skills entries are merged into workspace (not stranded)
+    expect(existsSync(join(root, 'skills', 'legacy-skill.json'))).toBe(false);
     expect(
-      readFileSync(join(root, 'skills', 'legacy-skill.json'), 'utf-8'),
+      readFileSync(join(ws, 'skills', 'legacy-skill.json'), 'utf-8'),
     ).toBe('root-skill');
     // data dir is also left in place
     expect(existsSync(join(root, 'data', 'logs', 'vellum.log'))).toBe(true);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('legacy skills are merged when workspace/skills was pre-created by ensureDataDir', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    // ensureDataDir pre-created an empty workspace/skills directory
+    mkdirSync(join(ws, 'skills'), { recursive: true });
+
+    // Legacy skills directory has actual skill subdirectories
+    mkdirSync(join(root, 'skills', 'web-search'), { recursive: true });
+    writeFileSync(
+      join(root, 'skills', 'web-search', 'SKILL.md'),
+      '---\nname: Web Search\ndescription: Search the web\n---\nBody',
+    );
+    mkdirSync(join(root, 'skills', 'code-review'), { recursive: true });
+    writeFileSync(
+      join(root, 'skills', 'code-review', 'SKILL.md'),
+      '---\nname: Code Review\ndescription: Review code\n---\nBody',
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Legacy skills should be merged into workspace/skills
+    expect(existsSync(join(ws, 'skills', 'web-search', 'SKILL.md'))).toBe(true);
+    expect(
+      readFileSync(join(ws, 'skills', 'web-search', 'SKILL.md'), 'utf-8'),
+    ).toContain('Web Search');
+    expect(existsSync(join(ws, 'skills', 'code-review', 'SKILL.md'))).toBe(true);
+    expect(
+      readFileSync(join(ws, 'skills', 'code-review', 'SKILL.md'), 'utf-8'),
+    ).toContain('Code Review');
+
+    // Legacy skill dirs should be moved out
+    expect(existsSync(join(root, 'skills', 'web-search'))).toBe(false);
+    expect(existsSync(join(root, 'skills', 'code-review'))).toBe(false);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('legacy skill merge does not overwrite existing workspace skills', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    // Workspace already has a skill with the same ID
+    mkdirSync(join(ws, 'skills', 'web-search'), { recursive: true });
+    writeFileSync(
+      join(ws, 'skills', 'web-search', 'SKILL.md'),
+      'workspace-version',
+    );
+
+    // Legacy also has the same skill and one unique skill
+    mkdirSync(join(root, 'skills', 'web-search'), { recursive: true });
+    writeFileSync(
+      join(root, 'skills', 'web-search', 'SKILL.md'),
+      'legacy-version',
+    );
+    mkdirSync(join(root, 'skills', 'unique-skill'), { recursive: true });
+    writeFileSync(
+      join(root, 'skills', 'unique-skill', 'SKILL.md'),
+      'unique-content',
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Workspace version should not be overwritten
+    expect(
+      readFileSync(join(ws, 'skills', 'web-search', 'SKILL.md'), 'utf-8'),
+    ).toBe('workspace-version');
+
+    // Unique skill from legacy should be merged in
+    expect(existsSync(join(ws, 'skills', 'unique-skill', 'SKILL.md'))).toBe(true);
+    expect(
+      readFileSync(join(ws, 'skills', 'unique-skill', 'SKILL.md'), 'utf-8'),
+    ).toBe('unique-content');
 
     rmSync(base, { recursive: true, force: true });
   });
