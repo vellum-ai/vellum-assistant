@@ -1004,11 +1004,13 @@ private struct ChatBubble: View {
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
 
-        // Only show the last non-empty text segment — each new step overrides the previous.
-        if let lastText = message.textSegments.lazy
+        // Show the first non-empty text segment — the assistant's narrative text.
+        // Attachment descriptions are appended as trailing segments, so picking the
+        // first ensures those descriptors don't replace the actual response text.
+        if let firstText = message.textSegments.lazy
             .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .last(where: { !$0.isEmpty }) {
-            textBubble(for: lastText)
+            .first(where: { !$0.isEmpty }) {
+            textBubble(for: firstText)
         }
 
         // Surfaces still render in order

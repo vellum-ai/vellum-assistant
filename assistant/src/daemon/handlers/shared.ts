@@ -358,11 +358,16 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
   }
 
-  // Attachment descriptions are NOT included in textSegments — they are
-  // rendered separately as attachment chips/images in the UI.  Including
-  // them would cause the "last text segment" heuristic to surface an
-  // attachment descriptor instead of the assistant's actual narrative text
-  // in interleaved history messages.
+  // Include attachment descriptions in textSegments so that clients without
+  // separate attachment UI (e.g. iOS) can display them via `message.text`.
+  // The macOS client handles this by selecting the *first* non-empty text
+  // segment in interleaved content, so trailing attachment segments are safe.
+  if (attachmentParts.length > 0) {
+    const attachmentText = attachmentParts.join('\n');
+    const prefix = textParts.length > 0 ? '\n' : '';
+    ensureSegment();
+    currentSegmentParts.push(prefix + attachmentText);
+  }
 
   finalizeSegment();
 
