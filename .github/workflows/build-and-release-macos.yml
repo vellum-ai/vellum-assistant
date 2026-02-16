@@ -403,10 +403,6 @@ jobs:
 
           REPO="vellum-ai/velly"
 
-          # Delete existing 'latest' release and tag if they exist
-          gh release delete latest --repo "$REPO" --yes 2>/dev/null || true
-          gh api "repos/$REPO/git/refs/tags/latest" -X DELETE 2>/dev/null || true
-
           # Build asset list from available files
           ASSETS=()
 
@@ -428,15 +424,22 @@ jobs:
 
           echo "Release assets: ${ASSETS[*]}"
 
-          gh release create latest \
-            "${ASSETS[@]}" \
-            --repo "$REPO" \
-            --title "Vellum $VERSION" \
-            --notes-file "$NOTES_FILE" \
-            --latest
+          VERSION_TAG="v${VERSION}"
+
+          # Create version-tagged release
+          if ! gh release view "$VERSION_TAG" --repo "$REPO" &>/dev/null; then
+            gh release create "$VERSION_TAG" \
+              "${ASSETS[@]}" \
+              --repo "$REPO" \
+              --title "Vellum $VERSION" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+            echo "Release created at https://github.com/$REPO/releases/tag/$VERSION_TAG"
+          else
+            echo "Release $VERSION_TAG already exists, skipping"
+          fi
 
           rm -f "$NOTES_FILE"
-          echo "Release created at https://github.com/$REPO/releases/tag/latest"
 
   notify-failure:
     if: >-
