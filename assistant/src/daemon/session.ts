@@ -1031,7 +1031,7 @@ export class Session {
             directiveWarnings.push(...msgWarnings);
 
             // Add surface blocks to content for persistence
-            const contentWithSurfaces: ContentBlock[] = [...cleanedContent];
+            const contentWithSurfaces: ContentBlock[] = [...cleanedContent as ContentBlock[]];
             for (const surface of this.currentTurnSurfaces) {
               contentWithSurfaces.push({
                 type: 'ui_surface' as any,

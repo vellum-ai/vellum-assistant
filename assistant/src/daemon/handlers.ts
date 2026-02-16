@@ -50,6 +50,9 @@ import type {
   ForkSharedAppRequest,
   ShareAppCloudRequest,
   UiSurfaceShow,
+  SurfaceType,
+  SurfaceData,
+  SurfaceAction,
   IpcBlobProbe,
   GalleryInstallRequest,
   ShareToSlackRequest,
@@ -968,13 +971,13 @@ function handleHistoryRequest(
               type: 'ui_surface_show',
               sessionId: msg.sessionId,
               surfaceId: block.surfaceId as string,
-              surfaceType: block.surfaceType as SurfaceType,
-              title: block.title as string | undefined,
-              data: block.data as SurfaceData,
-              actions: block.actions as Array<{ id: string; label: string; style?: string }> | undefined,
-              display: block.display as string | undefined,
-              messageId: dbMsg.id,  // Add messageId so client can match surface to message
-            });
+              surfaceType: block.surfaceType,
+              title: block.title,
+              data: block.data,
+              actions: block.actions,
+              display: block.display,
+              messageId: dbMsg.id,
+            } as UiSurfaceShow);
           }
         }
       }
