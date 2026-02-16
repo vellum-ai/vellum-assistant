@@ -238,6 +238,17 @@ export class CredentialBroker {
       };
     }
 
+    // Domain policy enforcement — credentials with domain restrictions are
+    // scoped to browser use on those domains and cannot be used server-side.
+    if (metadata.allowedDomains.length > 0) {
+      return {
+        success: false,
+        reason: `Credential ${request.service}/${request.field} has domain restrictions ` +
+          `(${metadata.allowedDomains.join(', ')}) and cannot be used server-side. ` +
+          'Remove domain restrictions or use a separate credential without domain policy.',
+      };
+    }
+
     const storageKey = `credential:${request.service}:${request.field}`;
     const transient = this.transientValues.get(storageKey);
     const value = transient ?? getSecureKey(storageKey);

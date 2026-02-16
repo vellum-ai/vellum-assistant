@@ -173,4 +173,44 @@ describe('CredentialBroker.serverUse', () => {
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain('test-vercel-token');
   });
+
+  test('denies when credential has domain restrictions', async () => {
+    upsertCredentialMetadata('vercel', 'api_token', {
+      allowedTools: ['publish_page'],
+      allowedDomains: ['vercel.com'],
+    });
+    setSecureKey('credential:vercel:api_token', 'test-vercel-token');
+
+    const result = await broker.serverUse({
+      service: 'vercel',
+      field: 'api_token',
+      toolName: 'publish_page',
+      execute: async () => { throw new Error('should not be called'); },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('domain restrictions');
+    expect(result.reason).toContain('vercel.com');
+  });
+
+  test('allows when credential has no domain restrictions', async () => {
+    upsertCredentialMetadata('vercel', 'api_token', {
+      allowedTools: ['publish_page'],
+      allowedDomains: [],
+    });
+    setSecureKey('credential:vercel:api_token', 'test-vercel-token');
+
+    const result = await broker.serverUse({
+      service: 'vercel',
+      field: 'api_token',
+      toolName: 'publish_page',
+      execute: async (token) => {
+        expect(token).toBe('test-vercel-token');
+        return { ok: true };
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ ok: true });
+  });
 });
