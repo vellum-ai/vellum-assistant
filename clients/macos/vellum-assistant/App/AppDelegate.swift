@@ -724,6 +724,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
                     self?.currentTextSession?.cancel()
+                    self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationManager.dismissAll()
                     self?.secretPromptManager.dismissAll()
