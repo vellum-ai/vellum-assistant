@@ -274,6 +274,19 @@ struct MainWindowView: View {
                 threadManager.activeViewModel?.activeSurfaceId = surfaceId
             }
         }
+        .onChange(of: threadManager.activeViewModel?.messages) { _, _ in
+            // Close activity panel if the referenced message no longer exists
+            // (e.g., after regenerate, undo, or message rebuild flows)
+            if let messageId = windowState.activityMessageId,
+               windowState.activePanel == .activity,
+               let viewModel = threadManager.activeViewModel {
+                let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
+                if !messageExists {
+                    windowState.activePanel = nil
+                    windowState.activityMessageId = nil
+                }
+            }
+        }
         .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
             systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
