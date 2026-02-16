@@ -96,6 +96,7 @@ import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
 import type { UserMessageAttachment } from './ipc-contract.js';
+import { listStatuses as listIntegrationStatuses, disconnect as disconnectIntegration } from '../integrations/registry.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -555,6 +556,18 @@ const handlers: DispatchMap = {
       return;
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
+  },
+  integration_list: (_msg, socket, ctx) => {
+    const statuses = listIntegrationStatuses();
+    ctx.send(socket, { type: 'integration_list_response', integrations: statuses });
+  },
+  integration_connect: (msg, socket, ctx) => {
+    // TODO: Implement credential prompt flow for connecting integrations.
+    ctx.send(socket, { type: 'integration_connect_result', integrationId: msg.integrationId, success: false, error: 'Not yet implemented' });
+  },
+  integration_disconnect: (msg, socket, ctx) => {
+    disconnectIntegration(msg.integrationId);
+    ctx.send(socket, { type: 'integration_connect_result', integrationId: msg.integrationId, success: true });
   },
 };
 

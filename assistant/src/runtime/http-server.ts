@@ -306,6 +306,7 @@ export class RuntimeHttpServer {
         toolCallsBeforeText: rendered.toolCallsBeforeText,
         textSegments: rendered.textSegments,
         contentOrder: rendered.contentOrder,
+        surfaces: rendered.surfaces,
         id: msg.id,
       };
     });
