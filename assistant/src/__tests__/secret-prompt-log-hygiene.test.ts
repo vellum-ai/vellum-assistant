@@ -24,6 +24,17 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+// Use a tiny timeout so the setTimeout branch fires quickly in tests
+const mockConfig = {
+  timeouts: { permissionTimeoutSec: 0.01 },
+  secretDetection: { allowOneTimeSend: false },
+};
+mock.module('../config/loader.js', () => ({
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+}));
+
 // Import after mock so SecretPrompter picks up the captured logger
 const { SecretPrompter } = await import('../permissions/secret-prompter.js');
 
@@ -66,17 +77,20 @@ describe('secret prompt log hygiene', () => {
   });
 
   test('prompt timeout logs only metadata, not the secret value', async () => {
-    const promise = prompter.prompt('svc', 'key', 'Label');
-    const requestId = (sentMessages[0] as SecretRequest).requestId;
+    // Let the setTimeout branch in SecretPrompter.prompt() actually fire
+    // (mockConfig sets permissionTimeoutSec to 0.01s = 10ms)
+    const result = await prompter.prompt('svc', 'key', 'Label');
 
-    // Simulate a normal resolve (timeout would also log metadata only)
-    prompter.resolveSecret(requestId, undefined);
-    await promise;
+    // Timeout resolves with null value
+    expect(result.value).toBeNull();
 
-    // Verify no log contains any value-like content beyond metadata
+    // A warn log should have been emitted for the timeout
+    expect(logCalls.some((c) => c.level === 'warn')).toBe(true);
+
+    // The timeout log must only contain metadata (requestId, service, field),
+    // never a "value" key
     for (const call of logCalls) {
       const serialized = JSON.stringify(call.args);
-      // Metadata fields are fine
       expect(serialized).not.toContain('"value"');
     }
   });
