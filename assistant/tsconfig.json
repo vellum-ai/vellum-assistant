@@ -13,8 +13,9 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
+    "jsx": "react-jsx",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist", "drizzle"]
 }

@@ -16,7 +16,7 @@ import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from '.
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
-import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.js';
+import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.jsx';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
