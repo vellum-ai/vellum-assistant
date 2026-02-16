@@ -22,6 +22,10 @@ enum ActivationKey: String, CaseIterable {
 @Observable
 @MainActor
 final class OnboardingState {
+    /// Bump this version whenever the default-flow step order changes so that
+    /// persisted step indices from a previous layout are not consumed as-is.
+    private static let currentFlowVersion = 2
+
     var currentStep: Int = 0
     var assistantName: String = ""
     var chosenKey: ActivationKey = .fn
@@ -69,8 +73,18 @@ final class OnboardingState {
     /// kills the app when toggling screen-recording permission).
     init() {
         let saved = UserDefaults.standard.integer(forKey: "onboarding.step")
+        let storedFlowVersion = UserDefaults.standard.integer(forKey: "onboarding.flowVersion")
+
         if saved > 0 {
-            currentStep = saved
+            // If the flow layout changed since the step was persisted, the
+            // stored index no longer maps to the same stage. Reset to the
+            // beginning so the user doesn't land on the wrong step.
+            if storedFlowVersion != Self.currentFlowVersion {
+                currentStep = 0
+                UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
+            } else {
+                currentStep = saved
+            }
             assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? ""
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
@@ -110,10 +124,11 @@ final class OnboardingState {
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
+        UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

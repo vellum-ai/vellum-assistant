@@ -65,7 +65,7 @@ struct APIKeyStepView: View {
                 OnboardingButton(
                     title: "Save & Continue",
                     style: .primary,
-                    disabled: apiKey.trimmingCharacters(in: .whitespaces).isEmpty
+                    disabled: apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ) {
                     saveAndContinue()
                 }
@@ -102,7 +102,7 @@ struct APIKeyStepView: View {
     }
 
     private func saveAndContinue() {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
         state.advance()
