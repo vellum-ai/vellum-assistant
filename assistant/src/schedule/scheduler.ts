@@ -97,9 +97,14 @@ async function runScheduleOnce(
         failReminder(reminder.id);
       }
     } else {
-      log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');
-      notifyReminder({ id: reminder.id, label: reminder.label, message: reminder.message });
-      completeReminder(reminder.id);
+      try {
+        log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');
+        notifyReminder({ id: reminder.id, label: reminder.label, message: reminder.message });
+        completeReminder(reminder.id);
+      } catch (err) {
+        log.warn({ err, reminderId: reminder.id }, 'Reminder notification failed, reverting to pending');
+        failReminder(reminder.id);
+      }
     }
     processed += 1;
   }
