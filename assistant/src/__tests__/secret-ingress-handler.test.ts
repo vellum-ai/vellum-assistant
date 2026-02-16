@@ -82,4 +82,12 @@ describe('secret ingress handler', () => {
     const result = checkIngressForSecrets('');
     expect(result.blocked).toBe(false);
   });
+
+  test('respects configured entropyThreshold from config', () => {
+    // Pattern-matched secrets (AWS keys) should still be caught regardless of threshold
+    mockConfig.secretDetection.entropyThreshold = 100.0;
+    const result = checkIngressForSecrets(`Here is my key: ${AWS_KEY}`);
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain('AWS Access Key');
+  });
 });
