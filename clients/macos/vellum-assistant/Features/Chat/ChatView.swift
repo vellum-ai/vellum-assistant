@@ -152,7 +152,7 @@ struct ChatView: View {
         let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
         let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + VSpacing.sm + contentHeight + buttonRow
-        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 44
+        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
         let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
         return base + attachments + error + queue
