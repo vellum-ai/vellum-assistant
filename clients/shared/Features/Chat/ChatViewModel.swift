@@ -1072,6 +1072,7 @@ public final class ChatViewModel: ObservableObject {
                 let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
                 messages[index].contentOrder.append(.surface(surfIdx))
+                lastContentWasToolCall = true
             } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
                       let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
                 // Scope to the current turn so we never attach to an assistant message
@@ -1079,6 +1080,7 @@ public final class ChatViewModel: ObservableObject {
                 let surfIdx = messages[idx].inlineSurfaces.count
                 messages[idx].inlineSurfaces.append(inlineSurface)
                 messages[idx].contentOrder.append(.surface(surfIdx))
+                lastContentWasToolCall = true
             } else {
                 var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
                 newMsg.contentOrder = [.surface(0)]

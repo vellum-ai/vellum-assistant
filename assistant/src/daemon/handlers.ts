@@ -359,6 +359,15 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
   }
 
+  // Include attachment descriptions in textSegments so that
+  // textSegments.join('') matches the rendered text field.
+  if (attachmentParts.length > 0) {
+    const attachmentText = attachmentParts.join('\n');
+    const prefix = textParts.length > 0 ? '\n' : '';
+    ensureSegment();
+    currentSegmentParts.push(prefix + attachmentText);
+  }
+
   finalizeSegment();
 
   const text = textParts.join('');

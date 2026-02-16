@@ -726,6 +726,19 @@ private struct ChatBubble: View {
                 }
             }
         }
+
+        // Attachments are not part of contentOrder but must still be rendered
+        let partitioned = partitionedAttachments
+        if !partitioned.images.isEmpty {
+            attachmentImageGrid(partitioned.images)
+        }
+        if !partitioned.files.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(partitioned.files) { attachment in
+                    fileAttachmentChip(attachment)
+                }
+            }
+        }
     }
 
     /// Render a single text segment as a styled bubble.
