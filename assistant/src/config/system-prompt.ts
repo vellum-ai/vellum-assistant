@@ -62,6 +62,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildWorkspaceReflectionSection());
+  parts.push(buildPostToolResponseSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
 }
@@ -258,6 +259,16 @@ function buildWorkspaceReflectionSection(): string {
     '- Did you adapt your style in a way that worked well and should persist?',
     '',
     'If yes, briefly explain what you\'re updating, then update the relevant workspace file (USER.md, SOUL.md, or IDENTITY.md) as part of your response.',
+  ].join('\n');
+}
+
+function buildPostToolResponseSection(): string {
+  return [
+    '## Post-Tool Response',
+    '',
+    'After executing tools, ALWAYS provide a brief text response to the user summarizing what you found or did.',
+    'Never end your turn with only tool calls and no text. The user needs to know what happened.',
+    'Keep your summary concise and conversational.',
   ].join('\n');
 }
 

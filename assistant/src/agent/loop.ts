@@ -69,6 +69,7 @@ export class AgentLoop {
   ): Promise<Message[]> {
     const history = [...messages];
     let toolUseTurns = 0;
+    let nudgedForEmptyResponse = false;
     const debug = isDebug();
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -192,6 +193,29 @@ export class AgentLoop {
         );
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
+          // Check if the LLM returned no text after tool results — nudge it to respond
+          const hasTextBlock = response.content.some(
+            (block) => block.type === 'text' && block.text.trim().length > 0,
+          );
+          const lastUserMsg = history.length >= 2 ? history[history.length - 2] : undefined;
+          const lastWasToolResult =
+            lastUserMsg?.role === 'user' &&
+            lastUserMsg.content.some((block) => block.type === 'tool_result');
+
+          if (!hasTextBlock && lastWasToolResult && !nudgedForEmptyResponse) {
+            nudgedForEmptyResponse = true;
+            history.push({
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: '<system_notice>You executed tools but didn\'t tell the user what happened. Provide a brief, conversational summary of the results.</system_notice>',
+                },
+              ],
+            });
+            continue;
+          }
+
           // No tool calls or no executor — done
           break;
         }
