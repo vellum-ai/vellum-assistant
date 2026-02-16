@@ -45,9 +45,8 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install bun in runner stage too
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+# Copy bun binary from builder instead of re-installing
+COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
@@ -70,8 +69,6 @@ ENV BUN_INSTALL="/data/.bun"
 ENV PATH="${BUN_INSTALL}/bin:${PATH}"
 ENV PYTHONUSERBASE="/data/.python"
 ENV PATH="${PYTHONUSERBASE}/bin:${PATH}"
-RUN mv /root/.bun/bin/bun /usr/local/bin/bun && \
-    rm -rf /root/.bun
 
 # Configure apt/dpkg to install future packages to /data
 RUN mkdir -p /data/dpkg/info /data/dpkg/updates /data/dpkg/triggers && \
