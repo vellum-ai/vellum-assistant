@@ -213,6 +213,12 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { oldId, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
+            // Close the activity panel when switching threads — the stored messageId
+            // belongs to the previous thread and won't exist in the new one.
+            if windowState.activePanel == .activity {
+                windowState.activePanel = nil
+                windowState.activityMessageId = nil
+            }
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
                 threadManager.clearActiveSurface(threadId: oldId)
