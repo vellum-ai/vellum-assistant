@@ -24,13 +24,15 @@ graph TB
             WAIT["WAIT<br/>Adaptive UI settle<br/>AX tree polling"]
         end
 
-        subgraph "Ambient Agent"
-            WATCH["Watch Loop<br/>every 30s"]
-            AX_CAP["AX Capture<br/>shallow tree depth 4"]
-            OCR_CAP["Screenshot + OCR<br/>Vision framework fallback"]
-            KNOWLEDGE["KnowledgeStore<br/>JSON file, max 500"]
-            INSIGHT_CRON["KnowledgeCron<br/>every 5 observations<br/>Haiku direct call"]
-            INSIGHT_STORE["InsightStore<br/>JSON file, max 50"]
+        subgraph "Ride Shotgun (Ambient Agent)"
+            RS_TRIGGER["RideShotgunTrigger<br/>timer-based auto-invitation<br/>eligibility checks"]
+            RS_SESSION["RideShotgunSession<br/>time-boxed observation<br/>daemon IPC + WatchSession"]
+            RS_INVITE["RideShotgunInvitationWindow"]
+            RS_PROGRESS["RideShotgunProgressWindow"]
+            RS_SUMMARY["RideShotgunSummaryWindow"]
+            WATCH["WatchSession<br/>timed capture loop"]
+            AX_CAP["AmbientAXCapture<br/>shallow tree depth 4"]
+            OCR_CAP["ScreenOCR<br/>Vision framework fallback"]
         end
 
         subgraph "Text Q&A Session"
@@ -154,8 +156,6 @@ graph TB
         KEYCHAIN["Keychain<br/>API key storage"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
-        KNOWLEDGE_JSON["knowledge.json"]
-        INSIGHTS_JSON["insights.json"]
         SESSION_LOGS["logs/session-*.json"]
     end
 
@@ -188,15 +188,16 @@ graph TB
     IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
 
-    %% Ambient flow
+    %% Ride Shotgun flow
+    RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT
+    AMBIENT -->|"show"| RS_INVITE
+    RS_INVITE -->|"accepted"| RS_SESSION
+    RS_SESSION --> WATCH
     WATCH --> AX_CAP
     WATCH -.->|"fallback"| OCR_CAP
-    AX_CAP -->|"AmbientObservation"| IPC_SERVER
-    OCR_CAP -->|"AmbientObservation"| IPC_SERVER
-    IPC_SERVER -->|"AmbientResult<br/>observe"| KNOWLEDGE
-    IPC_SERVER -->|"AmbientResult<br/>suggest"| UI
-    KNOWLEDGE --> INSIGHT_CRON
-    INSIGHT_CRON --> INSIGHT_STORE
+    RS_SESSION -->|"observations via<br/>daemon IPC"| IPC_SERVER
+    RS_SESSION -->|"progress"| RS_PROGRESS
+    RS_SESSION -->|"summary"| RS_SUMMARY
 
     %% Dynamic Workspace flow
     IPC_SERVER -->|"ui_surface_show"| SURFACE_MGR
@@ -268,10 +269,6 @@ graph TB
     TRACE_STORE --> DEBUG_PANEL
 
     %% Local storage
-    KNOWLEDGE --> KNOWLEDGE_JSON
-    INSIGHT_STORE --> INSIGHTS_JSON
-    APP_SUPPORT --- KNOWLEDGE_JSON
-    APP_SUPPORT --- INSIGHTS_JSON
     APP_SUPPORT --- SESSION_LOGS
 
     classDef swift fill:#f9a825,stroke:#f57f17,color:#000
@@ -295,7 +292,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 | Service | Type | Purpose |
 |---------|------|---------|
 | `daemonClient` | `DaemonClient` | Unix socket IPC to daemon |
-| `ambientAgent` | `AmbientAgent` | Background ambient observation loop |
+| `ambientAgent` | `AmbientAgent` | Coordinates Ride Shotgun trigger, session, and floating windows |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
@@ -348,8 +345,6 @@ graph LR
 
     subgraph "~/Library/Application Support/vellum-assistant/"
         direction TB
-        KJ["knowledge.json<br/>───────────────<br/>Max 500 entries, FIFO eviction<br/>Dedup: 70% Jaccard similarity<br/>Fields: category, observation,<br/>sourceApp, confidence,<br/>bundleIdentifier"]
-        IJ["insights.json<br/>───────────────<br/>Max 50 entries, FIFO eviction<br/>Dedup: 70% title similarity<br/>Categories: pattern,<br/>automation, insight"]
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
@@ -497,74 +492,67 @@ sequenceDiagram
 
 ---
 
-## Ambient Agent — Detailed Data Flow
+## Ride Shotgun — Detailed Data Flow
+
+The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.
 
 ```mermaid
 sequenceDiagram
-    participant Timer as Watch Loop (30s)
+    participant Trigger as RideShotgunTrigger<br/>(1-min timer)
     participant Agent as AmbientAgent
+    participant InviteWin as RideShotgunInvitationWindow
+    participant Session as RideShotgunSession
+    participant WS as WatchSession
     participant AXC as AmbientAXCapture
     participant OCR as ScreenOCR
     participant DC as DaemonClient
     participant Daemon as Daemon
-    participant KS as KnowledgeStore
-    participant KC as KnowledgeCron
-    participant IS as InsightStore
-    participant Sync as AmbientSyncClient
-    participant UI as SuggestionWindow
-    participant FS as ~/Library/App Support/
+    participant ProgressWin as RideShotgunProgressWindow
+    participant SummaryWin as RideShotgunSummaryWindow
 
-    Timer->>Agent: tick (skip if paused/disabled)
+    Trigger->>Trigger: evaluate() every 60s
+    Note over Trigger: Eligibility checks:<br/>≥15 min since launch<br/><3 auto-offer sessions<br/>24h cooldown after decline/complete
 
-    alt AX Capture (preferred)
-        Agent->>AXC: capture()
-        Note over AXC: Shallow tree (depth 4, max 50)<br/>Filter decoration roles<br/>Capture focused element<br/>Must yield ≥3 elements in <500ms
-        AXC-->>Agent: screen content text
-    else Screenshot + OCR (fallback)
-        Agent->>OCR: recognizeText(screenshot)
-        Note over OCR: Vision VNRecognizeTextRequest<br/>accurate + language correction
-        OCR-->>Agent: recognized text
-    end
+    Trigger->>Agent: shouldShowInvitation = true
+    Agent->>InviteWin: show invitation
 
-    Note over Agent: Jaccard similarity check<br/>Skip if >85% similar to last capture
+    alt User accepts
+        InviteWin->>Agent: accepted
+        Agent->>Session: start(daemonClient)
+        Agent->>ProgressWin: show progress
 
-    Agent->>DC: send(AmbientObservationMessage)
-    DC->>Daemon: IPC
-    Note over Daemon: Claude analyzes screen content<br/>Returns: ignore | observe | suggest
-    Daemon-->>DC: AmbientResultMessage
-    DC-->>Agent: decision + content
+        Session->>WS: start (timed capture loop)
 
-    alt decision = ignore
-        Note over Agent: No action
-    else decision = observe
-        Agent->>KS: addEntry(observation)
-        KS->>FS: write knowledge.json
-        Note over KS: Max 500, FIFO eviction<br/>Dedup: 70% similarity check
-
-        KS-->>KC: observation count check
-        opt Every 5 observations
-            KC->>KC: Call Haiku directly
-            Note over KC: report_insights tool<br/>Analyze patterns, automations
-            KC->>IS: addInsight(insight)
-            IS->>FS: write insights.json
-            Note over IS: Max 50, FIFO eviction
-        end
-
-        Agent->>Sync: POST /api/observation
-        Note over Sync: Optional remote sync<br/>Retry queue (max 100)<br/>Disabled if no AMBIENT_SYNC_URL
-    else decision = suggest
-        Agent->>Sync: GET /api/rejections
-        Note over Agent: Check 50% similarity<br/>to past rejections
-        alt not suppressed
-            Agent->>UI: show suggestion
-            alt User accepts
-                UI->>Agent: accept
-                Agent->>Agent: startSession(suggestion)
-            else User dismisses
-                UI->>Agent: dismiss
-                Agent->>Sync: POST /api/decision
+        loop Until duration expires
+            alt AX Capture (preferred)
+                WS->>AXC: capture()
+                Note over AXC: Shallow tree (depth 4, max 50)<br/>Filter decoration roles<br/>Capture focused element
+                AXC-->>WS: screen content text
+            else Screenshot + OCR (fallback)
+                WS->>OCR: recognizeText(screenshot)
+                Note over OCR: Vision VNRecognizeTextRequest<br/>accurate + language correction
+                OCR-->>WS: recognized text
             end
+
+            WS-->>Session: observation data
+            Session->>DC: send observation via IPC
+            DC->>Daemon: process observation
+            Daemon-->>DC: result
+            DC-->>Session: observation processed
+            Session-->>ProgressWin: update (elapsed, captures, app)
         end
+
+        Session->>Session: summarizing
+        Session->>DC: request summary via IPC
+        Daemon-->>DC: summary text
+        DC-->>Session: summary
+        Session-->>Agent: state = .complete
+        Agent->>SummaryWin: show summary
+        Agent->>ProgressWin: close
+    else User declines
+        InviteWin->>Agent: declined
+        Agent->>Trigger: recordDecline()
+        Note over Trigger: 24h cooldown starts
     end
 ```
 
@@ -1715,8 +1703,6 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | Credential secrets | macOS Keychain (or encrypted file fallback) | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
-| Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
-| Ambient insights | `~/Library/.../insights.json` | JSON array | Swift Codable | Max 50 entries, FIFO |
 | Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
 | Conversations & messages | `~/.vellum/workspace/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
 | Memory segments & FTS | `~/.vellum/workspace/data/db/assistant.db` | SQLite FTS5 | Drizzle ORM | Permanent |
