@@ -39,6 +39,8 @@ export interface ConsumeResult {
   success: boolean;
   /** The storage key to read the secret from (only present on success). */
   storageKey?: string;
+  /** The resolved value when a transient (one-time) credential was consumed. */
+  value?: string;
   /** Error reason if consumption failed. */
   reason?: string;
 }

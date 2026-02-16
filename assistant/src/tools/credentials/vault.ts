@@ -7,7 +7,7 @@ import {
   listSecureKeys,
   getBackendType,
 } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput } from './policy-types.js';
 import { credentialBroker } from './broker.js';
@@ -233,12 +233,20 @@ class CredentialStoreTool implements Tool {
           }
           // Inject into broker for one-time use by the next tool call, then discard
           credentialBroker.injectTransient(service, field, result.value);
-          // Also upsert metadata so broker policy checks can find the credential
-          upsertCredentialMetadata(service, field, {
-            allowedTools: promptPolicy.allowedTools,
-            allowedDomains: promptPolicy.allowedDomains,
-            usageDescription: promptPolicy.usageDescription,
-          });
+          // Ensure metadata exists so broker policy checks work, but don't
+          // overwrite an existing record — a stored credential's policy should
+          // not be silently replaced by the transient prompt's policy.
+          if (!getCredentialMetadata(service, field)) {
+            try {
+              upsertCredentialMetadata(service, field, {
+                allowedTools: promptPolicy.allowedTools,
+                allowedDomains: promptPolicy.allowedDomains,
+                usageDescription: promptPolicy.usageDescription,
+              });
+            } catch (err) {
+              log.warn({ service, field, err }, 'metadata write failed for transient credential');
+            }
+          }
           log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
           return {
             content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,

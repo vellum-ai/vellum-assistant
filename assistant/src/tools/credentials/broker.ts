@@ -99,15 +99,16 @@ export class CredentialBroker {
 
     token.consumed = true;
     const storageKey = `credential:${token.service}:${token.field}`;
-    // Check for transient value first (one-time send) — consume and discard
+    // Check for transient value first (one-time send) — consume and return the value
+    // directly since transient values are never persisted to secure storage.
     const transient = this.transientValues.get(storageKey);
     if (transient !== undefined) {
       this.transientValues.delete(storageKey);
       log.info({ tokenId, storageKey, transient: true }, 'Usage token consumed (transient)');
-    } else {
-      log.info({ tokenId, storageKey }, 'Usage token consumed');
+      return { success: true, storageKey, value: transient };
     }
 
+    log.info({ tokenId, storageKey }, 'Usage token consumed');
     return { success: true, storageKey };
   }
 
@@ -180,12 +181,11 @@ export class CredentialBroker {
     }
 
     const storageKey = `credential:${request.service}:${request.field}`;
-    // Check transient values first (one-time send), then fall back to keychain
+    // Check transient values first (one-time send), then fall back to keychain.
+    // Deletion is deferred until after a successful fill so the value survives
+    // transient failures (e.g. stale element, page navigation, Playwright timeout).
     const transient = this.transientValues.get(storageKey);
     const value = transient ?? getSecureKey(storageKey);
-    if (transient !== undefined) {
-      this.transientValues.delete(storageKey);
-    }
     if (!value) {
       return {
         success: false,
@@ -195,6 +195,10 @@ export class CredentialBroker {
 
     try {
       await request.fill(value);
+      // Only discard the transient value after a successful fill
+      if (transient !== undefined) {
+        this.transientValues.delete(storageKey);
+      }
       log.info(
         { service: request.service, field: request.field, tool: request.toolName },
         'Browser fill completed',
@@ -254,9 +258,6 @@ export class CredentialBroker {
     const storageKey = `credential:${request.service}:${request.field}`;
     const transient = this.transientValues.get(storageKey);
     const value = transient ?? getSecureKey(storageKey);
-    if (transient !== undefined) {
-      this.transientValues.delete(storageKey);
-    }
     if (!value) {
       return {
         success: false,
@@ -266,6 +267,9 @@ export class CredentialBroker {
 
     try {
       const result = await request.execute(value);
+      if (transient !== undefined) {
+        this.transientValues.delete(storageKey);
+      }
       log.info(
         { service: request.service, field: request.field, tool: request.toolName },
         'Server-side credential use completed',
