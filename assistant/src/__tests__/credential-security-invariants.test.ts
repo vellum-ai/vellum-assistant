@@ -199,8 +199,8 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
 
     for (const filePath of allFiles) {
       const content = readFileSync(filePath, 'utf-8');
-      // Check for imports of getSecureKey (named import or namespace)
-      if (content.match(/\bgetSecureKey\b/) && content.match(/from\s+['"].*secure-keys/)) {
+      // Check for imports of getSecureKey via static import, dynamic import(), or require()
+      if (content.match(/\bgetSecureKey\b/) && (content.match(/from\s+['"].*secure-keys/) || content.match(/(?:import|require)\s*\(\s*['"].*secure-keys/))) {
         const relative = filePath.slice(srcDir.length + 1);
         if (!ALLOWED_IMPORTERS.has(relative)) {
           unauthorizedImporters.push(relative);
