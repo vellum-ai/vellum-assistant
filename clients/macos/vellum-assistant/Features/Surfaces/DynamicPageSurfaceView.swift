@@ -246,6 +246,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         contentController.addUserScript(themeScript)
         contentController.addUserScript(designSystemScript)
         contentController.addUserScript(widgetScript)
+
+        // Edit animator — DOM morphing with animation (runs at document end so window.vellum exists).
+        if let animatorURL = ResourceBundle.bundle.url(forResource: "vellum-edit-animator", withExtension: "js"),
+           let animatorJS = try? String(contentsOf: animatorURL) {
+            let animatorScript = WKUserScript(source: animatorJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+            contentController.addUserScript(animatorScript)
+        }
+
         contentController.add(context.coordinator, name: "vellumBridge")
 
         let configuration = WKWebViewConfiguration()
@@ -308,6 +316,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     (function() {
                         var style = document.createElement('style');
                         style.id = 'vellum-content-insets';
+                        style.setAttribute('data-vellum-injected', '1');
                         style.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
                         (document.head || document.documentElement).appendChild(style);
                         if (\(bottom) > 0) {
@@ -316,6 +325,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                                 if (!fade) {
                                     fade = document.createElement('div');
                                     fade.id = 'vellum-bottom-fade';
+                                    fade.setAttribute('data-vellum-injected', '1');
                                     fade.style.cssText = 'position:fixed;bottom:0;left:0;right:0;pointer-events:none;z-index:99999;';
                                     document.body.appendChild(fade);
                                 }
@@ -344,6 +354,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                         if (document.getElementById('vellum-branding')) return;
                         var el = document.createElement('div');
                         el.id = 'vellum-branding';
+                        el.setAttribute('data-vellum-injected', '1');
                         el.innerHTML = 'Built on <a onclick="event.preventDefault(); if(window.vellum&&vellum.openLink){vellum.openLink(\\'https://vellum.ai\\',{provider:\\'vellum\\',type:\\'branding\\'})}else{window.open(\\'https://vellum.ai\\',\\'_blank\\')}" href="https://vellum.ai">Vellum</a>';
                         document.body.appendChild(el);
                     }
@@ -363,6 +374,16 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         webView.loadHTMLString(data.html, baseURL: URL(string: origin))
 
         return webView
+    }
+
+    private func fullReload(_ webView: WKWebView, html: String, origin: String, coordinator: Coordinator) {
+        let htmlToLoad = html
+        webView.evaluateJavaScript("JSON.stringify({x: window.scrollX, y: window.scrollY})") { result, _ in
+            guard htmlToLoad == coordinator.currentHTML else { return }
+            let scrollState = result as? String
+            coordinator.pendingScrollRestore = scrollState
+            webView.loadHTMLString(htmlToLoad, baseURL: URL(string: origin))
+        }
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
@@ -392,17 +413,32 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 // First load — no scroll to preserve
                 webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
-                // Subsequent update — save scroll, reload, restore scroll after load.
-                // Capture the HTML we intend to load so we can detect staleness.
-                let htmlToLoad = data.html
-                webView.evaluateJavaScript("JSON.stringify({x: window.scrollX, y: window.scrollY})") { result, _ in
-                    // If another update arrived while we were waiting for the scroll
-                    // position, currentHTML will have moved on. Skip this stale load
-                    // so we don't overwrite the newer render.
-                    guard htmlToLoad == context.coordinator.currentHTML else { return }
-                    let scrollState = result as? String
-                    context.coordinator.pendingScrollRestore = scrollState
-                    webView.loadHTMLString(htmlToLoad, baseURL: URL(string: origin))
+                // Subsequent update — try animated morph, fall back to full reload.
+                context.coordinator.morphGeneration += 1
+                let currentGen = context.coordinator.morphGeneration
+                let htmlForMorph = data.html
+                webView.callAsyncJavaScript(
+                    "return await window.vellum.morphWithAnimation(newHTML)",
+                    arguments: ["newHTML": htmlForMorph],
+                    in: nil,
+                    contentWorld: .page
+                ) { result in
+                    // Stale callback — a newer update has arrived
+                    guard context.coordinator.morphGeneration == currentGen else { return }
+
+                    switch result {
+                    case .success(let value):
+                        let dict = value as? [String: Any]
+                        if dict?["success"] as? Bool == true {
+                            // Morph succeeded — trigger snapshot since didFinish won't fire
+                            context.coordinator.captureSnapshotAfterMorph(generation: currentGen)
+                        } else {
+                            // Fallback or cancelled
+                            self.fullReload(webView, html: htmlForMorph, origin: origin, coordinator: context.coordinator)
+                        }
+                    case .failure:
+                        self.fullReload(webView, html: htmlForMorph, origin: origin, coordinator: context.coordinator)
+                    }
                 }
             }
         }
@@ -415,7 +451,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             let js = """
                 (function() {
                     var el = document.getElementById('vellum-content-insets');
-                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                    if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; el.setAttribute('data-vellum-injected', '1'); (document.head || document.documentElement).appendChild(el); }
                     el.textContent = 'body { padding-top: \(newTop)px; padding-bottom: \(newBottom)px; }';
                     var fade = document.getElementById('vellum-bottom-fade');
                     if (fade) {
@@ -453,6 +489,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         /// JSON string with {x, y} scroll position to restore after the next page load.
         var pendingScrollRestore: String?
         var hasCapturedSnapshot = false
+        var morphGeneration: Int = 0
 
         init(
             onAction: @escaping (String, Any?) -> Void,
@@ -677,6 +714,17 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
         }
 
+        func captureSnapshotAfterMorph(generation: Int) {
+            guard let onSnapshotCaptured else { return }
+            hasCapturedSnapshot = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, self.morphGeneration == generation else { return }
+                self.captureSnapshot { base64 in
+                    if let base64 { onSnapshotCaptured(base64) }
+                }
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Restore scroll position if this load was a refinement update.
             if let scrollJSON = pendingScrollRestore {
@@ -709,7 +757,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 let js = """
                     (function() {
                         var el = document.getElementById('vellum-content-insets');
-                        if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; (document.head || document.documentElement).appendChild(el); }
+                        if (!el) { el = document.createElement('style'); el.id = 'vellum-content-insets'; el.setAttribute('data-vellum-injected', '1'); (document.head || document.documentElement).appendChild(el); }
                         el.textContent = 'body { padding-top: \(top)px; padding-bottom: \(bottom)px; }';
                         var fade = document.getElementById('vellum-bottom-fade');
                         if (fade) {
