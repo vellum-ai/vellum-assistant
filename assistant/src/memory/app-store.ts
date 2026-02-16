@@ -292,3 +292,201 @@ export function deleteAppRecord(appId: string, recordId: string): void {
     unlinkSync(filePath);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Home Base Reserved App
+// ---------------------------------------------------------------------------
+
+export const HOME_BASE_APP_ID = '__home_base__';
+
+export interface HomeBaseTheme {
+  accentColor?: string;
+  accentColorName?: string;
+  cardRadius?: string;
+}
+
+export interface StarterTask {
+  id: string;
+  status: 'pending' | 'in_progress' | 'done' | 'deferred_to_dashboard';
+}
+
+export interface DeferredPermissionTask {
+  id: string;
+  status: 'pending' | 'done';
+}
+
+export interface HomeBaseLocale {
+  city?: string;
+  region?: string;
+  country?: string;
+  timezone?: string;
+}
+
+export interface WeatherConfig {
+  enabled: boolean;
+  location?: string;
+}
+
+export interface HomeBaseData {
+  theme: HomeBaseTheme;
+  starterTasks: StarterTask[];
+  deferredPermissionTasks: DeferredPermissionTask[];
+  locale: HomeBaseLocale;
+  weatherConfig: WeatherConfig;
+}
+
+const DEFAULT_HOME_BASE_DATA: HomeBaseData = {
+  theme: {},
+  starterTasks: [
+    { id: 'make_it_yours', status: 'pending' },
+    { id: 'research_topic', status: 'pending' },
+    { id: 'research_to_ui', status: 'pending' },
+  ],
+  deferredPermissionTasks: [],
+  locale: {},
+  weatherConfig: { enabled: false },
+};
+
+const HOME_BASE_SCHEMA_JSON = JSON.stringify({
+  type: 'object',
+  properties: {
+    theme: {
+      type: 'object',
+      properties: {
+        accentColor: { type: 'string' },
+        accentColorName: { type: 'string' },
+        cardRadius: { type: 'string' },
+      },
+    },
+    starterTasks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'in_progress', 'done', 'deferred_to_dashboard'] },
+        },
+        required: ['id', 'status'],
+      },
+    },
+    deferredPermissionTasks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'done'] },
+        },
+        required: ['id', 'status'],
+      },
+    },
+    locale: {
+      type: 'object',
+      properties: {
+        city: { type: 'string' },
+        region: { type: 'string' },
+        country: { type: 'string' },
+        timezone: { type: 'string' },
+      },
+    },
+    weatherConfig: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean' },
+        location: { type: 'string' },
+      },
+      required: ['enabled'],
+    },
+  },
+  required: ['theme', 'starterTasks', 'deferredPermissionTasks', 'locale', 'weatherConfig'],
+});
+
+const HOME_BASE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home Base</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--v-bg);
+      color: var(--v-text);
+      padding: var(--v-spacing-xl);
+    }
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      margin-bottom: var(--v-spacing-lg);
+      color: var(--v-text);
+    }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: var(--v-spacing-lg);
+    }
+    .v-card {
+      background: var(--v-surface);
+      border: 1px solid var(--v-surface-border);
+      border-radius: var(--v-radius-lg);
+      padding: var(--v-spacing-lg);
+    }
+    .v-card h2 {
+      font-size: 1.5rem;
+      margin-bottom: var(--v-spacing-md);
+    }
+  </style>
+</head>
+<body>
+  <h1>Home Base</h1>
+  <div class="dashboard-grid">
+    <div class="v-card">
+      <h2>Welcome</h2>
+      <p>Your persistent dashboard experience.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+/**
+ * Get or create the reserved Home Base app.
+ * This function is idempotent: it will return the existing Home Base app if it exists,
+ * or create it with default values if it doesn't.
+ */
+export function getOrCreateHomeBase(): { app: AppDefinition; record: AppRecord } {
+  const dir = getAppsDir();
+  const appPath = join(dir, `${HOME_BASE_APP_ID}.json`);
+
+  // Check if Home Base app already exists
+  let app = getApp(HOME_BASE_APP_ID);
+
+  if (!app) {
+    // Create the Home Base app with a deterministic ID
+    const now = Date.now();
+    app = {
+      id: HOME_BASE_APP_ID,
+      name: 'Home Base',
+      description: 'Your persistent dashboard experience',
+      icon: '🏠',
+      schemaJson: HOME_BASE_SCHEMA_JSON,
+      htmlDefinition: HOME_BASE_HTML,
+      createdAt: now,
+      updatedAt: now,
+    };
+    writeFileSync(appPath, JSON.stringify(app, null, 2));
+  }
+
+  // Get or create the single Home Base record
+  const records = queryAppRecords(HOME_BASE_APP_ID);
+  let record: AppRecord;
+
+  if (records.length === 0) {
+    // Create the default Home Base record
+    record = createAppRecord(HOME_BASE_APP_ID, DEFAULT_HOME_BASE_DATA as unknown as Record<string, unknown>);
+  } else {
+    // Return the existing record (there should only be one)
+    record = records[0];
+  }
+
+  return { app, record };
+}
