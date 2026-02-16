@@ -26,19 +26,20 @@ export function listIntegrations(): IntegrationDefinition[] {
   return [...integrations.values()];
 }
 
-/** Derive connection status from vault presence. */
+/** Derive connection status from vault presence using the first credential field. */
 export function getStatus(id: string): IntegrationStatus {
   const def = integrations.get(id);
   if (!def) {
     return { id, connected: false, error: 'Integration not found' };
   }
 
-  const accessToken = getSecureKey(`integration:${id}:access_token`);
-  if (!accessToken) {
+  const primaryField = def.credentialFields[0];
+  const primaryKey = getSecureKey(`integration:${id}:${primaryField}`);
+  if (!primaryKey) {
     return { id, connected: false };
   }
 
-  const metadata = getCredentialMetadata(`integration:${id}`, 'access_token');
+  const metadata = getCredentialMetadata(`integration:${id}`, primaryField);
   return {
     id,
     connected: true,
@@ -52,13 +53,19 @@ export function listStatuses(): IntegrationStatus[] {
   return listIntegrations().map((def) => getStatus(def.id));
 }
 
-/** Remove all credentials for an integration from the vault. */
+/**
+ * Remove all credentials for an integration from the vault.
+ * Secure keys are deleted first in a separate pass so that a failure in
+ * metadata deletion cannot leave secrets partially cleaned up.
+ */
 export function disconnect(id: string): void {
   const def = integrations.get(id);
   if (!def) return;
 
   for (const field of def.credentialFields) {
     deleteSecureKey(`integration:${id}:${field}`);
+  }
+  for (const field of def.credentialFields) {
     deleteCredentialMetadata(`integration:${id}`, field);
   }
 }
