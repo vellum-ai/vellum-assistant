@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { formatWriteSummary } from '../shared/filesystem/format-diff.js';
 import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
 
 class FileWriteTool implements Tool {
@@ -64,7 +65,7 @@ class FileWriteTool implements Tool {
 
     const { filePath, oldContent, newContent, isNewFile } = result.value;
     return {
-      content: `Successfully wrote to ${filePath}`,
+      content: `Successfully wrote to ${filePath} ${formatWriteSummary(oldContent, newContent, isNewFile)}`,
       isError: false,
       diff: { filePath, oldContent, newContent, isNewFile },
     };
