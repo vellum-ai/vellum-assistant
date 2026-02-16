@@ -81,6 +81,7 @@ final class OnboardingState {
             // beginning so the user doesn't land on the wrong step.
             if storedFlowVersion != Self.currentFlowVersion {
                 currentStep = 0
+                UserDefaults.standard.set(0, forKey: "onboarding.step")
                 UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
             } else {
                 currentStep = saved
