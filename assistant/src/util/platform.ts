@@ -428,11 +428,11 @@ export function migrateToDataLayout(): void {
   function migrateItem(oldPath: string, newPath: string): void {
     if (!existsSync(oldPath)) return;
     if (existsSync(newPath)) return;
-    const newDir = dirname(newPath);
-    if (!existsSync(newDir)) {
-      mkdirSync(newDir, { recursive: true });
-    }
     try {
+      const newDir = dirname(newPath);
+      if (!existsSync(newDir)) {
+        mkdirSync(newDir, { recursive: true });
+      }
       renameSync(oldPath, newPath);
       migrationLog('info', 'Migrated path', { from: oldPath, to: newPath });
     } catch (err) {
