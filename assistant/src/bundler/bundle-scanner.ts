@@ -317,53 +317,53 @@ async function scanHtmlEntry(
   // --- Warn-level: suspicious JS patterns ---
 
   const warnPatterns: { pattern: RegExp; code: string; message: string }[] = [
-    { pattern: /\bfetch\s*\(/g, code: "network_fetch", message: "Use of fetch() detected" },
-    { pattern: /\bXMLHttpRequest\b/g, code: "network_xhr", message: "Use of XMLHttpRequest detected" },
-    { pattern: /\bnew\s+WebSocket\b/g, code: "network_websocket", message: "Use of WebSocket detected" },
-    { pattern: /\bEventSource\b/g, code: "network_eventsource", message: "Use of EventSource detected" },
-    { pattern: /\bdocument\.cookie\b/g, code: "cookie_access", message: "Access to document.cookie detected" },
-    { pattern: /\beval\s*\(/g, code: "eval_usage", message: "Use of eval() detected" },
-    { pattern: /\bFunction\s*\(/g, code: "function_constructor", message: "Use of Function() constructor detected" },
+    { pattern: /\bfetch\s*\(/g, code: "network_fetch", message: "Makes network requests \u2014 could send or receive data from external servers" },
+    { pattern: /\bXMLHttpRequest\b/g, code: "network_xhr", message: "Makes network requests \u2014 could send or receive data from external servers" },
+    { pattern: /\bnew\s+WebSocket\b/g, code: "network_websocket", message: "Uses WebSocket connections \u2014 could maintain persistent communication with a server" },
+    { pattern: /\bEventSource\b/g, code: "network_eventsource", message: "Uses server-sent events \u2014 could receive live data from a server" },
+    { pattern: /\bdocument\.cookie\b/g, code: "cookie_access", message: "Accesses browser cookies \u2014 could read or store tracking data" },
+    { pattern: /\beval\s*\(/g, code: "eval_usage", message: "Uses dynamic code execution \u2014 could run code not visible in the source" },
+    { pattern: /\bFunction\s*\(/g, code: "function_constructor", message: "Uses dynamic code execution \u2014 could run code not visible in the source" },
     {
       pattern: /\bsetTimeout\s*\(\s*["'`]/g,
       code: "settimeout_string",
-      message: "setTimeout with string argument detected",
+      message: "Uses string-based code execution \u2014 could run code not visible in the source",
     },
     {
       pattern: /\bsetInterval\s*\(\s*["'`]/g,
       code: "setinterval_string",
-      message: "setInterval with string argument detected",
+      message: "Uses string-based code execution \u2014 could run code not visible in the source",
     },
-    { pattern: /\bwindow\.open\s*\(/g, code: "window_open", message: "Use of window.open() detected" },
+    { pattern: /\bwindow\.open\s*\(/g, code: "window_open", message: "Opens new windows \u2014 could navigate to external sites" },
     {
       pattern: /\bwindow\.location\s*=/g,
       code: "window_location_assign",
-      message: "Assignment to window.location detected",
+      message: "Redirects the page \u2014 could navigate away from the app",
     },
     {
       pattern: /\bon(?:error|load|focus|blur|mouseover|mouseout|click|dblclick|submit|input|change|keydown|keyup|keypress)\s*=/g,
       code: "html_event_handler",
-      message: "HTML event handler attribute detected",
+      message: "Uses inline event handlers \u2014 standard for interactive apps",
     },
     {
       pattern: /@import\s+(?:url\s*\(|['"]https?:\/\/)/g,
       code: "css_import",
-      message: "CSS @import with external URL detected",
+      message: "Loads external stylesheet \u2014 could connect to an external server",
     },
     {
       pattern: /url\s*\(\s*['"]?https?:\/\//g,
       code: "css_external_url",
-      message: "CSS url() with external URL detected (potential tracking pixel)",
+      message: "References external URL in CSS \u2014 could load resources from an external server",
     },
     {
       pattern: /(?:src|href)\s*=\s*["']data:/g,
       code: "data_uri",
-      message: "data: URI in src/href attribute detected",
+      message: "Uses embedded data URI \u2014 contains inline encoded content",
     },
     {
       pattern: /(?:href|src|action)\s*=\s*["']javascript:/g,
       code: "javascript_uri",
-      message: "javascript: URI detected",
+      message: "Uses javascript: URI \u2014 could execute code on interaction",
     },
   ];
 
