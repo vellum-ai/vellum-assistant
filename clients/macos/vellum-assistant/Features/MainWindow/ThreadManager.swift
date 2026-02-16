@@ -239,6 +239,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         chatViewModels.removeValue(forKey: threadId)
     }
 
+    /// Called when the user responds to a confirmation via the inline chat UI.
+    /// The app layer uses this to dismiss the native notification and resume
+    /// the notification service continuation. Receives (requestId, decision).
+    var onInlineConfirmationResponse: ((String, String) -> Void)?
+
     /// The ambient agent instance, set by the app layer so watch session callbacks
     /// can create and manage WatchSession objects.
     weak var ambientAgent: AmbientAgent?
@@ -264,6 +269,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
+        }
+        viewModel.onInlineConfirmationResponse = { [weak self] requestId, decision in
+            // The decision was already sent to the daemon by ChatViewModel.
+            // Forward to the app layer so it can dismiss the native notification
+            // and resume the notification service continuation.
+            self?.onInlineConfirmationResponse?(requestId, decision)
         }
         viewModel.onWatchStarted = { [weak self] msg, client in
             guard let self else { return }

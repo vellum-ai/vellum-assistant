@@ -389,15 +389,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                             requestId: msg.requestId,
                             decision: decision
                         )
+                        // Only sync the inline message state if the IPC send succeeded.
+                        self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                            requestId: msg.requestId,
+                            decision: decision
+                        )
                     } catch {
                         log.error("Failed to send confirmation response: \(error.localizedDescription)")
                     }
-                    // Sync the inline message state across ALL ChatViewModels so the
-                    // originating thread is updated even if the user switched threads.
-                    self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
-                        requestId: msg.requestId,
-                        decision: decision
-                    )
                 }
             }
         }
@@ -968,6 +967,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let main = MainWindow(services: services)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
+        }
+        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
+            guard let self else { return }
+            // Resume the notification service continuation so it doesn't hang
+            // (no-op if no pending request for this requestId).
+            self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
+            // Remove the delivered notification from Notification Center
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: ["tool-confirm-\(requestId)"]
+            )
         }
         main.show()
         mainWindow = main
