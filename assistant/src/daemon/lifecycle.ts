@@ -117,8 +117,20 @@ export async function startDaemon(): Promise<{
 
   const child = spawn('bun', ['run', mainPath], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
     env: { ...process.env },
+  });
+
+  const stderrChunks: Buffer[] = [];
+  child.stderr!.on('data', (chunk: Buffer) => {
+    stderrChunks.push(chunk);
+  });
+
+  let childExited = false;
+  let childExitCode: number | null = null;
+  child.on('exit', (code) => {
+    childExited = true;
+    childExitCode = code;
   });
 
   child.unref();
@@ -136,12 +148,24 @@ export async function startDaemon(): Promise<{
   let waited = 0;
   while (waited < maxWait) {
     if (existsSync(socketPath)) {
+      child.stderr!.destroy();
       return { pid, alreadyRunning: false };
+    }
+    if (childExited) {
+      cleanupPidFile();
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      const detail = stderr
+        ? `\n${stderr}`
+        : `\nCheck logs at ~/.vellum/workspace/data/logs/ for details.`;
+      throw new DaemonError(
+        `Daemon exited immediately (code ${childExitCode ?? 'unknown'}).${detail}`,
+      );
     }
     await new Promise((r) => setTimeout(r, interval));
     waited += interval;
   }
 
+  child.stderr!.destroy();
   throw new DaemonError(
     'Daemon started but socket not available after 5 seconds',
   );
