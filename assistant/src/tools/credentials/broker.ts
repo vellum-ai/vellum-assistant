@@ -195,8 +195,10 @@ export class CredentialBroker {
 
     try {
       await request.fill(value);
-      // Only discard the transient value after a successful fill
-      if (transient !== undefined) {
+      // Only discard the transient value after a successful fill, and only if
+      // the map still holds the same reference — a concurrent injectTransient()
+      // call during the async fill could have replaced it with a new value.
+      if (transient !== undefined && this.transientValues.get(storageKey) === transient) {
         this.transientValues.delete(storageKey);
       }
       log.info(
@@ -267,7 +269,7 @@ export class CredentialBroker {
 
     try {
       const result = await request.execute(value);
-      if (transient !== undefined) {
+      if (transient !== undefined && this.transientValues.get(storageKey) === transient) {
         this.transientValues.delete(storageKey);
       }
       log.info(

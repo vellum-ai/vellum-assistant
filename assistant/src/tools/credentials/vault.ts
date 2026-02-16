@@ -239,11 +239,11 @@ class CredentialStoreTool implements Tool {
               isError: true,
             };
           }
-          // Inject into broker for one-time use by the next tool call, then discard
-          credentialBroker.injectTransient(service, field, result.value);
           // Ensure metadata exists so broker policy checks work, but don't
           // overwrite an existing record — a stored credential's policy should
           // not be silently replaced by the transient prompt's policy.
+          // Metadata must be written before injecting the transient value so
+          // we never leave a dangling value that fails policy checks.
           if (!getCredentialMetadata(service, field)) {
             try {
               upsertCredentialMetadata(service, field, {
@@ -252,9 +252,17 @@ class CredentialStoreTool implements Tool {
                 usageDescription: promptPolicy.usageDescription,
               });
             } catch (err) {
-              log.warn({ service, field, err }, 'metadata write failed for transient credential');
+              // Without metadata the broker's policy checks will reject usage,
+              // so the transient value would be silently unusable. Fail loudly.
+              log.error({ service, field, err }, 'metadata write failed for transient credential');
+              return {
+                content: `Error: failed to write credential metadata for ${service}/${field}; the one-time value was discarded.`,
+                isError: true,
+              };
             }
           }
+          // Inject into broker for one-time use by the next tool call, then discard
+          credentialBroker.injectTransient(service, field, result.value);
           log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
           return {
             content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
