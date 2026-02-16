@@ -11,7 +11,7 @@ public struct FormSurfaceView: View {
 
     private var safePageIndex: Int {
         guard let pages = data.pages, !pages.isEmpty else { return 0 }
-        return min(currentPageIndex, pages.count - 1)
+        return max(0, min(currentPageIndex, pages.count - 1))
     }
 
     public init(data: FormSurfaceData, onSubmit: @escaping ([String: Any]?) -> Void) {

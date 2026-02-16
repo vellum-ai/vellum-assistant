@@ -8,6 +8,9 @@ import type {
   ContentBlock,
 } from "../types.js";
 import { ProviderError } from "../../util/errors.js";
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('anthropic-client');
 
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
@@ -20,6 +23,79 @@ function sanitizeToolId(id: string): string {
     const hex = ch.charCodeAt(0).toString(16).padStart(4, '0');
     return `x${hex}`;
   });
+}
+
+const SYNTHETIC_RESULT = '<synthesized_result>tool result missing from history</synthesized_result>';
+
+/**
+ * Last-line-of-defense validation that ensures every assistant message with
+ * tool_use blocks has matching tool_result blocks in the immediately following
+ * user message.  Runs on the FINAL Anthropic-formatted messages after block
+ * conversion, filtering, and message filtering — catching any edge case that
+ * the upstream repairHistory logic misses.
+ */
+function ensureToolPairing(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  const result: Anthropic.MessageParam[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    result.push(msg);
+
+    if (msg.role !== 'assistant') continue;
+    const content = Array.isArray(msg.content) ? msg.content : [];
+    const toolUseIds = new Set<string>();
+    for (const block of content) {
+      if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_use') {
+        toolUseIds.add((block as Anthropic.ToolUseBlockParam).id);
+      }
+    }
+    if (toolUseIds.size === 0) continue;
+
+    // Check the next message for matching tool_result blocks
+    const next = messages[i + 1];
+    if (next && next.role === 'user') {
+      const nextContent = Array.isArray(next.content) ? next.content : [];
+      const matchedIds = new Set<string>();
+      for (const block of nextContent) {
+        if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_result') {
+          const trId = (block as Anthropic.ToolResultBlockParam).tool_use_id;
+          if (toolUseIds.has(trId)) matchedIds.add(trId);
+        }
+      }
+      const missingIds = [...toolUseIds].filter((id) => !matchedIds.has(id));
+      if (missingIds.length > 0) {
+        log.warn({ missingCount: missingIds.length, totalToolUse: toolUseIds.size }, 'Injecting synthetic tool_result blocks in Anthropic client');
+        // Inject synthetic tool_result blocks into the existing next user message
+        const patchedContent = [
+          ...nextContent,
+          ...missingIds.map((id) => ({
+            type: 'tool_result' as const,
+            tool_use_id: id,
+            content: SYNTHETIC_RESULT,
+            is_error: true,
+          })),
+        ];
+        // Replace the next message in-place — it hasn't been pushed to result yet
+        messages[i + 1] = { role: 'user', content: patchedContent };
+      }
+    } else {
+      // No following user message, or next message is assistant — inject one
+      log.warn({ toolUseCount: toolUseIds.size }, 'Injecting synthetic tool_result user message in Anthropic client');
+      const syntheticContent = [...toolUseIds].map((id) => ({
+        type: 'tool_result' as const,
+        tool_use_id: id,
+        content: SYNTHETIC_RESULT,
+        is_error: true,
+      }));
+      // Insert a synthetic user message right after the assistant message.
+      // Splice into the source array so subsequent iterations see the updated structure.
+      messages.splice(i + 1, 0, { role: 'user', content: syntheticContent });
+    }
+  }
+
+  return result;
 }
 
 export class AnthropicProvider implements Provider {
@@ -40,15 +116,18 @@ export class AnthropicProvider implements Provider {
   ): Promise<ProviderResponse> {
     const { config, onEvent, signal } = options ?? {};
     try {
+      const formatted = messages.map((m) => ({
+        role: m.role,
+        content: m.content
+          .map((block) => this.toAnthropicBlockSafe(block))
+          .filter((block): block is Anthropic.ContentBlockParam => block !== null)
+          .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim())),
+      })).filter((m) => m.content.length > 0);
+
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
         max_tokens: 64000,
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.content
-            .map((block) => this.toAnthropicBlock(block))
-            .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim())),
-        })).filter((m) => m.content.length > 0),
+        messages: ensureToolPairing(formatted),
         ...config,
       };
 
@@ -131,9 +210,15 @@ export class AnthropicProvider implements Provider {
     }
   }
 
-  private toAnthropicBlock(
+  /**
+   * Convert a content block to Anthropic format, returning null for unknown
+   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
+   * in DB) are silently dropped so they don't prevent the request from being
+   * sent or break tool_use/tool_result pairing.
+   */
+  private toAnthropicBlockSafe(
     block: ContentBlock,
-  ): Anthropic.ContentBlockParam {
+  ): Anthropic.ContentBlockParam | null {
     switch (block.type) {
       case "text":
         return { type: "text", text: block.text };
@@ -204,8 +289,8 @@ export class AnthropicProvider implements Provider {
         };
       }
       default: {
-        const _exhaustive: never = block;
-        throw new Error(`Unsupported content block type: ${(_exhaustive as ContentBlock).type}`);
+        log.warn({ blockType: (block as { type: string }).type }, 'Dropping unknown content block type');
+        return null;
       }
     }
   }

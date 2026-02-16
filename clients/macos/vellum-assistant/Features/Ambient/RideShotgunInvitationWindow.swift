@@ -123,7 +123,7 @@ private struct RideShotgunInvitationView: View {
                 }
                 .keyboardShortcut(.escape, modifiers: [])
 
-                Button("Let's go") {
+                Button("Let's ride") {
                     onAccept(selectedDuration)
                 }
                 .keyboardShortcut(.return, modifiers: [])

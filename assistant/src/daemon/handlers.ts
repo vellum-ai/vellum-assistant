@@ -970,7 +970,7 @@ function handleHistoryRequest(
             ctx.send(socket, {
               type: 'ui_surface_show',
               sessionId: msg.sessionId,
-              surfaceId: block.surfaceId as string,
+              surfaceId: block.surfaceId,
               surfaceType: block.surfaceType,
               title: block.title,
               data: block.data,

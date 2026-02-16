@@ -688,6 +688,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     label: 'Call Sidd',
     message: 'Remember to call Sidd about the project',
   },
+  schedule_complete: {
+    type: 'schedule_complete',
+    scheduleId: 'sched-001',
+    name: 'Daily backup',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
@@ -924,11 +929,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   unpublish_page_response: {
     type: 'unpublish_page_response',
     success: true,
-  },
-  schedule_complete: {
-    type: 'schedule_complete',
-    scheduleId: 'sched-001',
-    name: 'Daily standup reminder',
   },
   integration_list_response: {
     type: 'integration_list_response',

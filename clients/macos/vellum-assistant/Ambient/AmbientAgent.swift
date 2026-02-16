@@ -119,11 +119,10 @@ public final class AmbientAgent: ObservableObject {
         case .complete:
             progressWindow?.close()
             progressWindow = nil
-            if let summary = currentSession?.summary, !summary.isEmpty {
-                showSummary(summary)
-            } else {
-                currentSession = nil
-            }
+            let summary = currentSession?.summary ?? ""
+            showSummary(summary.isEmpty
+                ? "I watched your screen but wasn't able to generate a report. This can happen if the analysis timed out or there was an API error."
+                : summary)
             rideShotgunTrigger.recordCompleted()
             sessionCancellable?.cancel()
             sessionCancellable = nil

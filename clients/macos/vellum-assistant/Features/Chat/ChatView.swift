@@ -261,7 +261,7 @@ struct ChatView: View {
         let previous = messages[index - 1].timestamp
         // Always show a divider when crossing a calendar-day boundary (in local timezone)
         var calendar = Calendar.current
-        calendar.timeZone = .current
+        calendar.timeZone = .autoupdatingCurrent
         if !calendar.isDate(current, inSameDayAs: previous) { return true }
         let gap = current.timeIntervalSince(previous)
         return gap > 300
@@ -297,8 +297,30 @@ struct ChatView: View {
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
-                            // Decided confirmations are rendered as compact chips
-                            // on the preceding assistant message's ChatBubble — skip here.
+                            // Decided confirmations are normally rendered as compact chips
+                            // on the preceding assistant message's ChatBubble. But if there
+                            // is no preceding assistant message, render them inline so they
+                            // don't disappear entirely.
+                            else {
+                                let hasPrecedingAssistant: Bool = {
+                                    guard index > 0 else { return false }
+                                    return messages[index - 1].role == .assistant
+                                }()
+
+                                if !hasPrecedingAssistant {
+                                    ToolConfirmationBubble(
+                                        confirmation: confirmation,
+                                        showDescription: true,
+                                        onAllow: { onConfirmationAllow(confirmation.requestId) },
+                                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                                        onAddTrustRule: onAddTrustRule
+                                    )
+                                    .id(message.id)
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                }
+                                // When there IS a preceding assistant message, the decided
+                                // confirmation is rendered as a chip on that bubble — skip here.
+                            }
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.
@@ -316,7 +338,9 @@ struct ChatView: View {
 
                             let isLastAssistant = message.role == .assistant
                                 && !message.isStreaming
-                                && index == messages.count - 1
+                                && (index == messages.count - 1
+                                    || (index == messages.count - 2
+                                        && messages[messages.count - 1].confirmation?.state != .pending))
                                 && !isSending
                                 && !isThinking
 
@@ -340,6 +364,10 @@ struct ChatView: View {
                             .id("thinking-indicator")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
+
+                    // Invisible anchor at the very bottom of all content
+                    Color.clear.frame(height: 1)
+                        .id("scroll-bottom-anchor")
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
@@ -351,14 +379,12 @@ struct ChatView: View {
             .scrollDisabled(messages.isEmpty && !isThinking)
             .onAppear {
                 // Scroll to bottom on initial load
-                if let lastMessage = messages.last {
-                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                }
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             .onChange(of: isThinking) {
                 if isThinking {
                     withAnimation(VAnimation.standard) {
-                        proxy.scrollTo("thinking-indicator", anchor: .bottom)
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
                 } else {
                     // Thinking finished — mark flag so next message shows "Thinking"
@@ -369,9 +395,12 @@ struct ChatView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 withAnimation(VAnimation.fast) {
-                    if let lastMessage = messages.last {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+            }
+            .onChange(of: messages.count) {
+                withAnimation(VAnimation.fast) {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             }
         }
@@ -612,7 +641,7 @@ private struct ChatBubble: View {
     }
 
     private var formattedTimestamp: String {
-        let tz = TimeZone.current
+        let tz = TimeZone.autoupdatingCurrent
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()
@@ -792,7 +821,7 @@ private struct ChatBubble: View {
             onOpenActivity(message.id)
         } label: {
             HStack(spacing: VSpacing.xs) {
-                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName)))
+                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
                 let primary = uniqueNames.first ?? "Tool"
 
                 Image(systemName: Self.friendlyToolIcon(primary))
@@ -948,23 +977,17 @@ private struct ChatBubble: View {
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
 
+        // Only show the last non-empty text segment — each new step overrides the previous.
+        if let lastText = message.textSegments.lazy
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .last(where: { !$0.isEmpty }) {
+            textBubble(for: lastText)
+        }
+
+        // Surfaces still render in order
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-            switch group {
-            case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        textBubble(for: segmentText)
-                    }
-                }
-            case .toolCalls:
-                // Tool calls are rendered as a single unified status at the
-                // bottom of the message — skip them in the interleaved flow.
-                EmptyView()
-            case .surface(let i):
-                if i < message.inlineSurfaces.count {
-                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
-                }
+            if case .surface(let i) = group, i < message.inlineSurfaces.count {
+                InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
             }
         }
 
@@ -1363,7 +1386,7 @@ private struct TimestampDivider: View {
     let date: Date
 
     private var formattedTime: String {
-        let tz = TimeZone.current
+        let tz = TimeZone.autoupdatingCurrent
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()

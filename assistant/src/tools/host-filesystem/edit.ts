@@ -2,6 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
+import { formatEditDiff } from '../shared/filesystem/format-diff.js';
 import { hostPolicy } from '../shared/filesystem/path-policy.js';
 
 class HostFileEditTool implements Tool {
@@ -93,9 +94,11 @@ class HostFileEditTool implements Tool {
 
     const { filePath, matchCount, oldContent, newContent, matchMethod, similarity } = result.value;
 
+    const diffText = formatEditDiff(oldString as string, newString as string);
+
     if (replaceAll) {
       return {
-        content: `Successfully replaced ${matchCount} occurrence${matchCount > 1 ? 's' : ''} in ${filePath}`,
+        content: `Successfully replaced ${matchCount} occurrence${matchCount > 1 ? 's' : ''} in ${filePath}\n${diffText}`,
         isError: false,
         diff: { filePath, oldContent, newContent, isNewFile: false },
       };
@@ -108,7 +111,7 @@ class HostFileEditTool implements Tool {
         : ` (fuzzy matched, ${Math.round(similarity * 100)}% similar)`;
 
     return {
-      content: `Successfully edited ${filePath}${methodNote}`,
+      content: `Successfully edited ${filePath}${methodNote}\n${diffText}`,
       isError: false,
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };

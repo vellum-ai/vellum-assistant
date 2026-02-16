@@ -1122,6 +1122,14 @@ exports[`IPC message snapshots ServerMessage types reminder_fired serializes to 
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
+{
+  "name": "Daily backup",
+  "scheduleId": "sched-001",
+  "type": "schedule_complete",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types watch_started serializes to expected JSON 1`] = `
 {
   "durationSeconds": 300,
@@ -1450,14 +1458,6 @@ exports[`IPC message snapshots ServerMessage types unpublish_page_response seria
 {
   "success": true,
   "type": "unpublish_page_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
-{
-  "name": "Daily standup reminder",
-  "scheduleId": "sched-001",
-  "type": "schedule_complete",
 }
 `;
 

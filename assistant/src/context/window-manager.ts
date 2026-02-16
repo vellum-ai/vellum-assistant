@@ -360,11 +360,15 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
   return starts;
 }
 
+/**
+ * Count messages that have DB counterparts.  Context-summary messages are
+ * in-memory-only and excluded; ALL other messages (including tool-result-only
+ * user messages) have a corresponding row in the DB and must be counted so
+ * that `contextCompactedMessageCount` indexes the DB array correctly.
+ */
 function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
-    if (message.role === 'assistant') return true;
-    if (getSummaryFromContextMessage(message) !== null) return false;
-    return !isToolResultOnly(message);
+    return getSummaryFromContextMessage(message) === null;
   }).length;
 }
 
