@@ -41,9 +41,10 @@ All UI and feature code lives in `Features/`, organized by domain:
 
 | Module | Purpose |
 |--------|---------|
-| `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
-| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, 6 side panels |
-| `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
+| `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model, ChatPanelView (docked/pop-out), ChatWindow (pop-out NSWindow) |
+| `MainWindow/` | MainWindowView shell (dashboard-first via ContentMode), ThreadTabBar, NavigationToolbar, ThreadManager, 6 side panels |
+| `MainWindow/Dashboard/` | Dashboard cards (DashboardView, DashboardTaskCard, DashboardWeatherCard, theme color persistence) |
+| `Onboarding/` | Simplified 6-step first-launch flow (naming, Accessibility — mic/screen-recording deferred) |
 | `Session/` | Session overlay UI for computer-use task execution |
 | `Settings/` | API key entry, hotkey config, permission status |
 | `Ambient/` | Background screen monitoring UI |
@@ -56,8 +57,10 @@ All UI and feature code lives in `Features/`, organized by domain:
 **Main window layout** (`MainWindowView`):
 ```
 ThreadTabBar          (row 1 — thread tabs, extends into titlebar)
-NavigationToolbar     (row 2 — Chat tab + panel toggle buttons)
-VSplitView            (row 3 — ChatView + optional side panel)
+NavigationToolbar     (row 2 — Dashboard/Chat tab + panel toggle buttons)
+ContentMode.dashboard → DashboardView (default on launch)
+ContentMode.chat      → VSplitView (ChatView + optional side panel)
+Chat can also pop out via ChatWindow (separate NSWindow with ChatPanelView)
 ```
 
 **Data flow**: `ThreadManager` (`@MainActor ObservableObject`) owns `[ThreadModel]` and a dictionary of `ChatViewModel` instances keyed by thread ID. `MainWindowView` binds to the active `ChatViewModel` via `threadManager.activeViewModel`. ThreadManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
@@ -113,7 +116,7 @@ The package is split into two targets for Xcode Preview support:
 
 ### Onboarding
 
-`Features/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
+`Features/Onboarding/` — simplified 6-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, Accessibility permission, Fn key setup, and an alive-check step. Microphone and screen recording permissions are deferred to dashboard task cards (trust-earned onboarding). Shown on first launch; skip with `--skip-onboarding` in debug. Onboarding state (locale, color preference, tasks, trust stage) is owned by the assistant's `USER.md`, not the Swift client.
 
 ## Design System (`DesignSystem/`)
 

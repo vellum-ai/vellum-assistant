@@ -187,26 +187,29 @@ The app will auto-reconnect if the daemon restarts. For development, `bun run de
 
 ## Permissions
 
-The app requires three macOS permissions:
-- **Accessibility** — For reading UI element trees and injecting mouse/keyboard events
-- **Screen Recording** — For capturing screenshots (vision fallback when AX tree is sparse)
-- **Microphone** — For voice input via speech recognition
+The app requests macOS permissions progressively based on trust stage, not all at once during onboarding:
 
-Grant these in System Settings → Privacy & Security.
+- **Accessibility** — Requested during onboarding (required for reading UI element trees and injecting mouse/keyboard events)
+- **Screen Recording** — Deferred to dashboard task cards (needed for capturing screenshots when AX tree is sparse)
+- **Microphone** — Deferred to dashboard task cards (needed for voice input via speech recognition)
+
+Grant these in System Settings → Privacy & Security when prompted. Screen Recording and Microphone are only requested after the user has completed their first conversation (trust-earned, not upfront).
 
 ## Usage
 
-1. Launch the app — an onboarding flow guides you through permissions and setup on first run
+1. Launch the app — a simplified onboarding flow guides you through naming and Accessibility permission on first run
 2. The app appears as a sparkles icon in your menu bar
 3. Open Settings (click icon → gear) and enter your Anthropic API key
-4. Click the menu bar icon or press `⌘⇧G` to open the task input
-5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
-6. Or hold the Fn key to dictate a task via voice
-7. Watch the overlay as vellum-assistant works through the task
-8. Press Escape at any time to cancel
-9. The main window shows a chat interface — type a message to start a conversation
-10. Responses stream in real-time from the daemon
-11. Click the stop button to cancel an in-progress generation
+4. The main window opens to a **dashboard** with a greeting, weather card, and starter task cards
+5. Use the starter task cards to personalise your dashboard (accent color), research a topic, or build a UI
+6. Chat is available as a docked panel in the main window or as a pop-out window
+7. Click the menu bar icon or press `⌘⇧G` to open the task input
+8. Type a task (e.g., "Fill in the name field with John Smith") and press Go
+9. Or hold the Fn key to dictate a task via voice
+10. Watch the overlay as vellum-assistant works through the task
+11. Press Escape at any time to cancel
+12. Responses stream in real-time from the daemon
+13. Click the stop button to cancel an in-progress generation
 
 ### Opportunistic Message Queueing
 
@@ -313,16 +316,24 @@ Ambient/              Background screen-watching agent
   KnowledgeCron       Triggers periodic insight analysis
   InsightStore        Higher-level insights derived from observations
   ScreenOCR           Vision framework OCR
-Features/Chat/        Main window chat interface
+Features/Chat/        Chat interface (docked panel or pop-out window)
   ChatMessage         Message model (role, text, streaming state)
   ChatView            Presentational view (bubbles, composer, thinking, error banner)
   ChatViewModel       Session bootstrap, streaming, cancel via daemon IPC
+  ChatPanelView       Reusable chat panel (shared between docked and pop-out modes)
+  ChatWindow          Pop-out NSWindow for standalone chat
 Features/MainWindow/Panels/
   DebugPanel          Real-time trace viewer (metrics strip + timeline)
   TraceTimelineView   Events grouped by requestId with status indicators
   TraceRowView        Individual trace event display
+Features/MainWindow/Dashboard/
+  DashboardView       Main dashboard (greeting, weather, task cards, theme color)
+  DashboardTaskCard   Starter task CTA card
+  DashboardTaskModel  Task model and definitions
+  DashboardWeatherCard Weather display card
+  DashboardWeatherService Locale-aware weather data
 UI/                   SwiftUI views + overlay windows
-  Onboarding/         First-launch setup flow (permissions, naming, Fn key)
+  Onboarding/         First-launch setup flow (naming, Accessibility — 6 steps)
 Logging/
   TraceStore          In-memory trace event store (per-session, dedup, retention cap)
   Session recording   JSON logs to ~/Library/App Support/
