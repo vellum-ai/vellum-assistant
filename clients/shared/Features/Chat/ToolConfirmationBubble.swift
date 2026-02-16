@@ -79,6 +79,10 @@ public struct ToolConfirmationBubble: View {
                 VButton(label: "I\u{2019}ve granted it", style: .ghost) {
                     onAllow()
                 }
+
+                VButton(label: "Skip", style: .ghost) {
+                    onDeny()
+                }
             }
         }
         .padding(VSpacing.lg)
