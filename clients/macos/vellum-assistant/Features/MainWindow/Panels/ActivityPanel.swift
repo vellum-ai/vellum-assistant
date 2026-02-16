@@ -53,7 +53,7 @@ struct ActivityPanel: View {
 
 struct ActivityStepView: View {
     let toolCall: ToolCallData
-    @State private var isResultExpanded = false
+    @State private var isResultExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
