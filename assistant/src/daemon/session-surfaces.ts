@@ -240,7 +240,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
 /**
  * After an app_update, refresh any active surface that displays the updated app.
  */
-export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string): void {
+export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string, opts?: { fileChange?: boolean; status?: string }): void {
   const app = getApp(appId);
   if (!app) return;
 
@@ -253,7 +253,12 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string)
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
     // Update in-memory surface state so the next refinement gets fresh HTML
-    const updatedData: DynamicPageSurfaceData = { ...data, html: app.htmlDefinition };
+    const updatedData: DynamicPageSurfaceData = {
+      ...data,
+      html: app.htmlDefinition,
+      ...(opts?.fileChange ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 } : {}),
+      status: opts?.status,
+    };
     stored.data = updatedData;
 
     // Push the update to the client
