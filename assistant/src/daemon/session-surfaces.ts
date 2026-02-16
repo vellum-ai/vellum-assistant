@@ -257,7 +257,7 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
       ...data,
       html: app.htmlDefinition,
       ...(opts?.fileChange ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 } : {}),
-      status: opts?.status,
+      ...(opts?.status !== undefined ? { status: opts.status } : {}),
     };
     stored.data = updatedData;
 
