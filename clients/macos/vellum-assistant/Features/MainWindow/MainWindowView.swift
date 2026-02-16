@@ -401,7 +401,7 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let sidePanelVisible = windowState.activePanel != nil && !(windowState.isDynamicExpanded && windowState.activePanel == .generated)
+                        let sidePanelVisible = windowState.activePanel != nil && !(windowState.isDynamicExpanded && windowState.activePanel == .generated) && windowState.activePanel != .directory
                         let activePanelWidth: CGFloat = sidePanelVisible ? sidePanelWidth : 0
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
