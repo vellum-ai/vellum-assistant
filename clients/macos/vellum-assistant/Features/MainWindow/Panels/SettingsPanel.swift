@@ -15,6 +15,7 @@ struct SettingsPanel: View {
     @State private var showingReminders = false
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
+    @State private var integrationError: (id: String, message: String)?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -430,6 +431,11 @@ struct SettingsPanel: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
+                if let error = integrationError, error.id == integration.id {
+                    Text(error.message)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
             }
 
             Spacer()
@@ -447,6 +453,7 @@ struct SettingsPanel: View {
                         .controlSize(.small)
                 } else {
                     VButton(label: "Connect", style: .primary) {
+                        integrationError = nil
                         connectingIntegration = integration.id
                         do {
                             try daemonClient?.sendIntegrationConnect(integrationId: integration.id)
@@ -484,6 +491,11 @@ struct SettingsPanel: View {
         daemonClient?.onIntegrationConnectResult = { [self] result in
             Task { @MainActor in
                 self.connectingIntegration = nil
+                if !result.success, let error = result.error {
+                    self.integrationError = (id: result.integrationId, message: error)
+                } else {
+                    self.integrationError = nil
+                }
                 // Refresh the list after connect/disconnect
                 try? self.daemonClient?.sendIntegrationList()
             }
