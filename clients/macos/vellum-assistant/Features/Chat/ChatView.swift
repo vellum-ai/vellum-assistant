@@ -624,7 +624,7 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
-    @State private var isExpanded = false
+    @State private var isExpanded = true
     private let truncationLimit = 2000  // Character limit before truncation
     private let lineLimit = 50  // Maximum lines before truncation
 
