@@ -35,6 +35,7 @@ export const eagerModules: string[] = [
   './schedule/list.js',
   './schedule/update.js',
   './schedule/delete.js',
+  './gmail/executors.js',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────

@@ -13,6 +13,8 @@ struct SettingsPanel: View {
     @State private var showingTrustRules = false
     @State private var showingScheduledTasks = false
     @State private var showingReminders = false
+    @State private var integrations: [IPCIntegrationListResponseIntegration] = []
+    @State private var connectingIntegration: String?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -122,6 +124,27 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
+
+                // INTEGRATIONS section
+                if daemonClient != nil {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("INTEGRATIONS")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        if integrations.isEmpty {
+                            Text("No integrations available")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        } else {
+                            ForEach(integrations, id: \.id) { integration in
+                                integrationRow(integration)
+                            }
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: VColor.surfaceSubtle)
+                }
 
                 // COMPUTER USAGE section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -366,6 +389,8 @@ struct SettingsPanel: View {
         }
         .onAppear {
             store.refreshAPIKeyState()
+            setupIntegrationCallbacks()
+            try? daemonClient?.sendIntegrationList()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -380,6 +405,79 @@ struct SettingsPanel: View {
         .sheet(isPresented: $showingReminders) {
             if let daemonClient {
                 RemindersView(daemonClient: daemonClient)
+            }
+        }
+    }
+
+    // MARK: - Integration Row
+
+    private func integrationRow(_ integration: IPCIntegrationListResponseIntegration) -> some View {
+        HStack(spacing: VSpacing.md) {
+            Text(integrationIcon(integration.id))
+                .font(.system(size: 14))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(integrationDisplayName(integration.id))
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                if let account = integration.accountInfo {
+                    Text(account)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+
+            Spacer()
+
+            if integration.connected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(VColor.success)
+                    .font(.system(size: 14))
+                VButton(label: "Disconnect", style: .danger) {
+                    try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
+                }
+            } else {
+                if connectingIntegration == integration.id {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    VButton(label: "Connect", style: .primary) {
+                        connectingIntegration = integration.id
+                        try? daemonClient?.sendIntegrationConnect(integrationId: integration.id)
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.md)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func integrationDisplayName(_ id: String) -> String {
+        switch id {
+        case "gmail": return "Gmail"
+        default: return id.capitalized
+        }
+    }
+
+    private func integrationIcon(_ id: String) -> String {
+        switch id {
+        case "gmail": return "\u{1F4E7}"
+        default: return "\u{1F517}"
+        }
+    }
+
+    private func setupIntegrationCallbacks() {
+        daemonClient?.onIntegrationListResponse = { [self] response in
+            Task { @MainActor in
+                self.integrations = response.integrations
+            }
+        }
+        daemonClient?.onIntegrationConnectResult = { [self] result in
+            Task { @MainActor in
+                self.connectingIntegration = nil
+                // Refresh the list after connect/disconnect
+                try? self.daemonClient?.sendIntegrationList()
             }
         }
     }

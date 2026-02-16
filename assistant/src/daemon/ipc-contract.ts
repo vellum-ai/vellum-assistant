@@ -546,6 +546,42 @@ export interface UiSurfaceUndoRequest {
   surfaceId: string;
 }
 
+// === Integration messages ===
+
+export interface IntegrationListRequest {
+  type: 'integration_list';
+}
+
+export interface IntegrationConnectRequest {
+  type: 'integration_connect';
+  integrationId: string;
+}
+
+export interface IntegrationDisconnectRequest {
+  type: 'integration_disconnect';
+  integrationId: string;
+}
+
+export interface IntegrationListResponse {
+  type: 'integration_list_response';
+  integrations: Array<{
+    id: string;
+    connected: boolean;
+    accountInfo?: string;
+    connectedAt?: number;
+    lastUsed?: number;
+    error?: string;
+  }>;
+}
+
+export interface IntegrationConnectResult {
+  type: 'integration_connect_result';
+  integrationId: string;
+  success: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface PublishPageRequest {
   type: 'publish_page';
   html: string;
@@ -636,6 +672,9 @@ export type ClientMessage =
   | GalleryListRequest
   | GalleryInstallRequest
   | AppUpdatePreviewRequest
+  | IntegrationListRequest
+  | IntegrationConnectRequest
+  | IntegrationDisconnectRequest
   | PublishPageRequest
   | UnpublishPageRequest;
 
@@ -1434,6 +1473,8 @@ export type ServerMessage =
   | SlackWebhookConfigResponse
   | VercelApiConfigResponse
   | OpenUrl
+  | IntegrationListResponse
+  | IntegrationConnectResult
   | AppUpdatePreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse;
