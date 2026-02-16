@@ -5,11 +5,12 @@ const MAX_DIFF_LINES = 8;
  * Lines are prefixed with - / + and truncated if the change is large.
  */
 export function formatEditDiff(oldString: string, newString: string): string {
-  const oldLines = oldString.split('\n');
-  const newLines = newString.split('\n');
-
-  const removed = truncateLines(oldLines, MAX_DIFF_LINES).map(l => `- ${l}`);
-  const added = truncateLines(newLines, MAX_DIFF_LINES).map(l => `+ ${l}`);
+  const removed = oldString.length > 0
+    ? truncateLines(oldString.split('\n'), MAX_DIFF_LINES).map(l => `- ${l}`)
+    : [];
+  const added = newString.length > 0
+    ? truncateLines(newString.split('\n'), MAX_DIFF_LINES).map(l => `+ ${l}`)
+    : [];
 
   return [...removed, ...added].join('\n');
 }

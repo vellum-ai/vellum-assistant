@@ -207,6 +207,8 @@ export class FileSystemOps {
         newContent: result.updatedContent,
         matchMethod: result.matchMethod,
         similarity: result.similarity,
+        actualOld: result.actualOld,
+        actualNew: result.actualNew,
       },
     };
   }

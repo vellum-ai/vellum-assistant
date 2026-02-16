@@ -95,9 +95,9 @@ class FileEditTool implements Tool {
       }
     }
 
-    const { filePath, matchCount, oldContent, newContent, matchMethod, similarity } = result.value;
+    const { filePath, matchCount, oldContent, newContent, matchMethod, similarity, actualOld, actualNew } = result.value;
 
-    const diffText = formatEditDiff(oldString as string, newString as string);
+    const diffText = formatEditDiff(actualOld, actualNew);
 
     if (replaceAll) {
       return {
