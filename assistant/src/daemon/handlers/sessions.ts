@@ -200,7 +200,6 @@ export async function handleSessionCreate(
   const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
-    transport: msg.transport,
   });
   wireEscalationHandler(session, socket, ctx);
   ctx.send(socket, {
