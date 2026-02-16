@@ -38,7 +38,7 @@ The `CredentialBroker` enforces these policies at use time. Requests outside the
 
 | Component | Location | Contents |
 |-----------|----------|----------|
-| Secret values | macOS Keychain | Encrypted values keyed as `credential:{service}:{field}` |
+| Secret values | macOS Keychain (primary) or encrypted file fallback | Encrypted values keyed as `credential:{service}:{field}`. On Linux/headless or when Keychain is unavailable, `secure-keys.ts` falls back to an encrypted file backend. |
 | Credential metadata | JSON file (`~/.vellum/data/credentials/metadata.json`) | Service, field, label, usage policy, timestamps |
 | Config | `~/.vellum/config.*` | `secretDetection` settings |
 
@@ -51,7 +51,7 @@ This split means the daemon process can enumerate credentials and check policies
 3. The macOS client shows a floating `SecretPromptView` panel with a `SecureField`.
 4. The user enters the value and clicks "Save" (or "Send Once" if enabled).
 5. The client sends `secret_response` back via IPC.
-6. The vault tool stores the value in the Keychain (for "store" delivery) or injects it into the `CredentialBroker` for immediate one-time use (for "transient_send" delivery). The broker holds the value in memory and discards it after the next `consume` or `browserFill` call.
+6. For "store" delivery, the vault tool stores the value in the Keychain. For "transient_send" delivery, the vault tool hands the value to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call and then discards it. Note: the value is never returned to the vault tool's output or passed back to the model.
 7. The tool returns a metadata-only confirmation to the model.
 
 ### Secret ingress blocking
@@ -87,7 +87,7 @@ All credential security settings live under `secretDetection` in the assistant c
 ### Operator guidance
 
 - **Default posture is strict**: `action: "block"` and `allowOneTimeSend: false` ensure secrets always go through the Keychain.
-- **Relaxing `action` to `"warn"` or `"redact"`**: Allows secrets in messages but logs a warning or masks them. Useful during migration but reduces security.
+- **Relaxing `action` to `"warn"` or `"redact"`**: These modes do **not** block inbound messages. When set to `"warn"`, a warning is logged but the message passes through to the model unchanged. When set to `"redact"`, detected secrets are masked in logs but the message itself still passes through. Only `"block"` prevents secrets from reaching the model context. Useful during migration but significantly reduces security.
 - **Enabling `allowOneTimeSend`**: Adds a "Send Once" button to the secret prompt. The value is used for one operation and then discarded. Useful for temporary tokens. The value is still never shown to the model.
 
 ## Rollback

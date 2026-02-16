@@ -334,7 +334,7 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 graph LR
     subgraph "macOS Keychain"
         K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts"]
+        K2["Credential Secrets<br/>key: credential:{service}:{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -1638,6 +1638,7 @@ sequenceDiagram
         UI->>IPC: secret_response {requestId, value, delivery: "transient_send"}
         IPC->>Prompter: resolve(value, "transient_send")
         Prompter->>Vault: {value, delivery: "transient_send"}
+        Note over Vault: Hands value to CredentialBroker<br/>for single-use consumption
         Vault->>Model: "One-time credential provided" (no value in output)
     else Cancel
         UI->>IPC: secret_response {requestId, value: null}
@@ -1676,16 +1677,17 @@ graph TB
 
 The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send Once" button in the secret prompt UI. When used:
 
-- The secret value is forwarded to the requesting tool for immediate use
+- The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call
 - The value is **not** persisted to the keychain
-- The tool output confirms delivery without including the secret value
+- The broker discards the value after a single use
+- The vault tool output confirms delivery without including the secret value — the value is never returned to the model
 - The config gate must be explicitly enabled by the operator
 
 ### Storage Layout
 
 | Component | Location | What it stores |
 |-----------|----------|----------------|
-| Secret values | macOS Keychain | Encrypted credential values keyed as `credential:{service}:{field}` |
+| Secret values | macOS Keychain (primary) or encrypted file fallback | Encrypted credential values keyed as `credential:{service}:{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
 | Config | `~/.vellum/workspace/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
 
@@ -1710,7 +1712,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | What | Where | Format | ORM/Driver | Retention |
 |------|-------|--------|-----------|-----------|
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
-| Credential secrets | macOS Keychain | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
+| Credential secrets | macOS Keychain (or encrypted file fallback) | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Ambient observations | `~/Library/.../knowledge.json` | JSON array | Swift Codable | Max 500 entries, FIFO |
