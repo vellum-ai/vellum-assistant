@@ -47,6 +47,8 @@ export async function handlePublishPage(
         publicUrl: result.url,
         pageTitle: msg.title,
         htmlHash,
+        appId: msg.appId,
+        projectSlug: name,
       });
 
       return { url: result.url, deploymentId: result.deploymentId };

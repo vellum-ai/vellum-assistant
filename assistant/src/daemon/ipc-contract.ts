@@ -588,6 +588,7 @@ export interface PublishPageRequest {
   type: 'publish_page';
   html: string;
   title?: string;
+  appId?: string;
 }
 
 export interface PublishPageResponse {
