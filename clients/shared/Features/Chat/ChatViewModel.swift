@@ -107,6 +107,8 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingAttachments: [ChatAttachment] = []
     @Published public var isRecording: Bool = false
     @Published public var isWorkspaceRefinementInFlight: Bool = false
+    @Published public var refinementMessagePreview: String?   // user's sent text
+    @Published public var refinementStreamingText: String?     // AI response as it streams
     /// Tracks whether a cancel was initiated during a workspace refinement.
     /// Used by `messageComplete` to correctly suppress refinement side-effects
     /// even though `isWorkspaceRefinementInFlight` is cleared immediately for UI.
@@ -664,6 +666,8 @@ public final class ChatViewModel: ObservableObject {
             }
         } else {
             isWorkspaceRefinementInFlight = true
+            refinementMessagePreview = text
+            refinementStreamingText = nil
             refinementTextBuffer = ""
             refinementReceivedSurfaceUpdate = false
             refinementFailureText = nil
@@ -934,6 +938,7 @@ public final class ChatViewModel: ObservableObject {
             guard !isCancelling else { return }
             if isWorkspaceRefinementInFlight {
                 refinementTextBuffer += delta.text
+                refinementStreamingText = refinementTextBuffer
                 return
             }
             isThinking = false
@@ -979,9 +984,20 @@ public final class ChatViewModel: ObservableObject {
             }
             // Surface the AI's text response when a refinement produced no update
             if wasRefinement {
-                if !refinementReceivedSurfaceUpdate && !refinementTextBuffer.isEmpty {
+                if refinementReceivedSurfaceUpdate {
+                    // Surface updated — auto-dismiss the activity feed after 2s
+                    refinementFailureDismissTask?.cancel()
+                    refinementFailureDismissTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard let self, !Task.isCancelled else { return }
+                        self.refinementMessagePreview = nil
+                        self.refinementStreamingText = nil
+                    }
+                } else if !refinementTextBuffer.isEmpty {
                     let text = refinementTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty {
+                        refinementStreamingText = text
+                        // Keep refinementFailureText for backward compat (M3 will remove usage)
                         refinementFailureText = text
                         refinementFailureDismissTask?.cancel()
                         refinementFailureDismissTask = Task { [weak self] in
@@ -1055,6 +1071,8 @@ public final class ChatViewModel: ObservableObject {
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             cancelledDuringRefinement = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
@@ -1141,6 +1159,8 @@ public final class ChatViewModel: ObservableObject {
         case .error(let err):
             log.error("Server error: \(err.message)")
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
             let wasCancelling = isCancelling
@@ -1421,6 +1441,8 @@ public final class ChatViewModel: ObservableObject {
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
             let wasCancelling = isCancelling
@@ -1494,6 +1516,8 @@ public final class ChatViewModel: ObservableObject {
         pendingUserMessage = nil
         pendingUserAttachments = nil
         isWorkspaceRefinementInFlight = false
+        refinementMessagePreview = nil
+        refinementStreamingText = nil
         isThinking = false
         isSending = false
     }
@@ -1510,6 +1534,8 @@ public final class ChatViewModel: ObservableObject {
             pendingUserAttachments = nil
             bootstrapCorrelationId = nil
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             isThinking = false
             isSending = false
             return
@@ -1522,6 +1548,8 @@ public final class ChatViewModel: ObservableObject {
         guard daemonClient.isConnected else {
             log.warning("Cannot send cancel: daemon not connected")
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             cancelledDuringRefinement = false
             isSending = false
             isThinking = false
@@ -1558,6 +1586,8 @@ public final class ChatViewModel: ObservableObject {
             // messageComplete event will arrive from the daemon. Reset
             // all transient state now to avoid stuck UI.
             isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
             cancelledDuringRefinement = false
             isSending = false
             isThinking = false
@@ -1618,6 +1648,8 @@ public final class ChatViewModel: ObservableObject {
             guard self.isCancelling else { return }
             log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
             self.isWorkspaceRefinementInFlight = false
+            self.refinementMessagePreview = nil
+            self.refinementStreamingText = nil
             self.cancelledDuringRefinement = false
             self.isCancelling = false
             self.isSending = false
