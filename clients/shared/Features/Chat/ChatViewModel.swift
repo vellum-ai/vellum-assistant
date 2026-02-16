@@ -2015,15 +2015,18 @@ public final class ChatViewModel: ObservableObject {
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
 
-            // Use daemon-provided segments/order when available; fall back to legacy
-            if let segments = item.textSegments, let orderStrings = item.contentOrder, !segments.isEmpty {
+            // Use daemon-provided segments/order when available; fall back to legacy.
+            // The daemon always provides contentOrder when there are any content blocks,
+            // so we should use it even when textSegments is empty (e.g., widget-only turns).
+            if let segments = item.textSegments, let orderStrings = item.contentOrder {
                 chatMsg.textSegments = segments
                 chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
             } else {
                 chatMsg.contentOrder = ChatMessage.buildDefaultContentOrder(
                     textSegmentCount: chatMsg.textSegments.count,
                     toolCallCount: toolCalls.count,
-                    arrivedBeforeText: toolsBeforeText
+                    arrivedBeforeText: toolsBeforeText,
+                    surfaceCount: inlineSurfaces.count
                 )
             }
 

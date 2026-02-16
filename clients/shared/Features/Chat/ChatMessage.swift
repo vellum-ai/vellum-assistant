@@ -512,15 +512,18 @@ public struct ChatMessage: Identifiable {
     public static func buildDefaultContentOrder(
         textSegmentCount: Int,
         toolCallCount: Int,
-        arrivedBeforeText: Bool
+        arrivedBeforeText: Bool,
+        surfaceCount: Int = 0
     ) -> [ContentBlockRef] {
         var order: [ContentBlockRef] = []
         if arrivedBeforeText {
             for i in 0..<toolCallCount { order.append(.toolCall(i)) }
             for i in 0..<textSegmentCount { order.append(.text(i)) }
+            for i in 0..<surfaceCount { order.append(.surface(i)) }
         } else {
             for i in 0..<textSegmentCount { order.append(.text(i)) }
             for i in 0..<toolCallCount { order.append(.toolCall(i)) }
+            for i in 0..<surfaceCount { order.append(.surface(i)) }
         }
         return order
     }
