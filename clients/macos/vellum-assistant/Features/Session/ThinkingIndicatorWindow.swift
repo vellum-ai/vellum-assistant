@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import AppKit
 import SwiftUI
 
@@ -16,6 +17,7 @@ struct ThinkingIndicatorView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .vPanelBackground()
     }
 }
 

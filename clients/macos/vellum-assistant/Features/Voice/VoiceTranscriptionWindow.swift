@@ -73,6 +73,7 @@ struct VoiceTranscriptionView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(width: 320)
+        .vPanelBackground()
         .onChange(of: viewModel.transcriptionText) {
             if viewModel.transcriptionText.isEmpty {
                 viewModel.contentHeight = 0

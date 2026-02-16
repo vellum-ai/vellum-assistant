@@ -132,5 +132,6 @@ private struct RideShotgunInvitationView: View {
         }
         .padding()
         .frame(width: 380)
+        .vPanelBackground()
     }
 }

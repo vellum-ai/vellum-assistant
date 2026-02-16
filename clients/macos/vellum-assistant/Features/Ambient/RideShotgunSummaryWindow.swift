@@ -115,5 +115,6 @@ private struct RideShotgunSummaryView: View {
         }
         .padding()
         .frame(width: 420)
+        .vPanelBackground()
     }
 }

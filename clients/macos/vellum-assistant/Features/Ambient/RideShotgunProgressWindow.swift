@@ -96,5 +96,6 @@ private struct RideShotgunProgressView: View {
         }
         .padding()
         .frame(width: 300)
+        .vPanelBackground()
     }
 }
