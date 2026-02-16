@@ -177,6 +177,9 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'tools/credentials/vault.ts',    // credential store tool
       'tools/credentials/broker.ts',   // brokered credential access
       'tools/network/web-search.ts',   // web search API key lookup
+      'daemon/handlers.ts',            // Vercel API token + integration OAuth
+      'integrations/registry.ts',      // integration connection status check
+      'integrations/token-manager.ts', // OAuth token refresh flow
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
