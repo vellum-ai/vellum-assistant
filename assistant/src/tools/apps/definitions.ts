@@ -503,11 +503,12 @@ export const appFileEditTool: Tool = {
     const replaceAll = (input.replace_all as boolean | undefined) ?? false;
 
     if (!oldString) {
-      return { content: 'old_string must not be empty', isError: true };
+      return { content: JSON.stringify({ error: 'old_string must not be empty' }), isError: true };
     }
 
+    const status = input.status as string | undefined;
     const result = appStore.editAppFile(appId, path, oldString, newString, replaceAll);
-    return { content: JSON.stringify(result), isError: false };
+    return { content: JSON.stringify(result), isError: false, status };
   },
 };
 
@@ -559,11 +560,12 @@ export const appFileWriteTool: Tool = {
 
     const app = appStore.getApp(appId);
     if (!app) {
-      return { content: `App not found: ${appId}`, isError: true };
+      return { content: JSON.stringify({ error: `App '${appId}' not found` }), isError: true };
     }
 
+    const status = input.status as string | undefined;
     appStore.writeAppFile(appId, path, content);
-    return { content: JSON.stringify({ written: true, path }), isError: false };
+    return { content: JSON.stringify({ written: true, path }), isError: false, status };
   },
 };
 
