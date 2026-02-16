@@ -417,26 +417,26 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 context.coordinator.morphGeneration += 1
                 let currentGen = context.coordinator.morphGeneration
                 let htmlForMorph = data.html
-                webView.callAsyncJavaScript(
-                    "return await window.vellum.morphWithAnimation(newHTML)",
-                    arguments: ["newHTML": htmlForMorph],
-                    in: nil,
-                    contentWorld: .page
-                ) { result in
-                    // Stale callback — a newer update has arrived
-                    guard context.coordinator.morphGeneration == currentGen else { return }
+                Task { @MainActor in
+                    do {
+                        let value = try await webView.callAsyncJavaScript(
+                            "return await window.vellum.morphWithAnimation(newHTML)",
+                            arguments: ["newHTML": htmlForMorph],
+                            in: nil,
+                            contentWorld: .page
+                        )
+                        // Stale callback — a newer update has arrived
+                        guard context.coordinator.morphGeneration == currentGen else { return }
 
-                    switch result {
-                    case .success(let value):
                         let dict = value as? [String: Any]
                         if dict?["success"] as? Bool == true {
                             // Morph succeeded — trigger snapshot since didFinish won't fire
                             context.coordinator.captureSnapshotAfterMorph(generation: currentGen)
                         } else {
-                            // Fallback or cancelled
                             self.fullReload(webView, html: htmlForMorph, origin: origin, coordinator: context.coordinator)
                         }
-                    case .failure:
+                    } catch {
+                        guard context.coordinator.morphGeneration == currentGen else { return }
                         self.fullReload(webView, html: htmlForMorph, origin: origin, coordinator: context.coordinator)
                     }
                 }
