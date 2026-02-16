@@ -104,12 +104,12 @@ struct MainWindowView: View {
                     HStack(spacing: 0) {
                         // Left: Full-height sidebar (always rendered, width collapses to 0)
                         threadDrawerView
-                            .frame(width: sidebarOpen ? threadDrawerWidth : 0, alignment: .leading)
+                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
                             .clipped()
                             .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
                             .animation(nil, value: threadDrawerWidth)
 
-                        if sidebarOpen {
+                        if sidebarOpen && windowState.layoutConfig.left.visible {
                             drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                         }
 
@@ -117,7 +117,7 @@ struct MainWindowView: View {
                         chatContentView(geometry: geometry)
                             .overlay(alignment: .topLeading) {
                                 // Toggle button when sidebar is hidden
-                                if !sidebarOpen {
+                                if !sidebarOpen && windowState.layoutConfig.left.visible {
                                     HStack(spacing: 0) {
                                         VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -365,7 +365,7 @@ struct MainWindowView: View {
                 onDoctor: { windowState.togglePanel(.doctor) }
             )
         }
-        .frame(width: threadDrawerWidth)
+        .frame(width: windowState.layoutConfig.left.width ?? threadDrawerWidth)
         .background(VColor.backgroundSubtle)
     }
 
@@ -425,6 +425,111 @@ struct MainWindowView: View {
             }
     }
 
+    // MARK: - Config-Driven Slot Rendering
+
+    @ViewBuilder
+    private func slotView(for content: SlotContent) -> some View {
+        switch content {
+        case .native(let panelId): nativePanelView(panelId)
+        case .surface(let surfaceId): surfaceSlotView(surfaceId: surfaceId)
+        case .empty: EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func nativePanelView(_ panelId: NativePanelId) -> some View {
+        switch panelId {
+        case .chat:
+            chatView
+        case .activity:
+            if let viewModel = threadManager.activeViewModel,
+               let messageId = windowState.activityMessageId {
+                ActivityPanel(
+                    viewModel: viewModel,
+                    messageId: messageId,
+                    onClose: { windowState.activePanel = nil }
+                )
+            }
+        case .settings:
+            SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+        case .agent:
+            AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
+                if threadManager.activeViewModel == nil {
+                    threadManager.createThread()
+                }
+                if let viewModel = threadManager.activeViewModel {
+                    viewModel.pendingSkillInvocation = SkillInvocationData(
+                        name: skill.name,
+                        emoji: skill.emoji,
+                        description: skill.description
+                    )
+                    viewModel.inputText = "Use the \(skill.name) skill"
+                    viewModel.sendMessage()
+                    viewModel.pendingSkillInvocation = nil
+                }
+                windowState.activePanel = nil
+            }, daemonClient: daemonClient)
+        case .debug:
+            DebugPanel(
+                traceStore: traceStore,
+                daemonClient: daemonClient,
+                activeSessionId: threadManager.activeViewModel?.sessionId,
+                onClose: { windowState.activePanel = nil }
+            )
+        case .doctor:
+            DoctorPanel(onClose: { windowState.activePanel = nil })
+        case .directory:
+            AppDirectoryView(
+                daemonClient: daemonClient,
+                onBack: { windowState.activePanel = nil },
+                onOpenApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    windowState.activePanel = .generated
+                    windowState.isDynamicExpanded = true
+                }
+            )
+        case .generated:
+            GeneratedPanel(
+                onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                isExpanded: $windowState.isDynamicExpanded,
+                daemonClient: daemonClient,
+                onOpenApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                }
+            )
+        case .threadList:
+            threadDrawerView
+        }
+    }
+
+    @ViewBuilder
+    private func surfaceSlotView(surfaceId: String) -> some View {
+        if let surface = surfaceManager.activeSurfaces[surfaceId],
+           case .dynamicPage(let dpData) = surface.data {
+            DynamicPageSurfaceView(
+                data: dpData,
+                onAction: { actionId, actionData in
+                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                },
+                onLinkOpen: { url, metadata in
+                    surfaceManager.onLinkOpen?(url, metadata)
+                }
+            )
+        } else {
+            VStack {
+                Spacer()
+                Text("Surface not available")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(VColor.background)
+        }
+    }
+
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
         if windowState.activePanel == .directory {
@@ -459,19 +564,17 @@ struct MainWindowView: View {
             // Full-window panels: settings, skills, debug, doctor
             fullWindowPanel(panel)
         } else {
-            VSplitView(panelWidth: $sidePanelWidth, showPanel: windowState.activePanel == .activity, main: {
-                chatView
-            }, panel: {
-                if windowState.activePanel == .activity,
-                   let viewModel = threadManager.activeViewModel,
-                   let messageId = windowState.activityMessageId {
-                    ActivityPanel(
-                        viewModel: viewModel,
-                        messageId: messageId,
-                        onClose: { windowState.activePanel = nil }
-                    )
-                }
-            })
+            let config = windowState.layoutConfig
+            let rightVisible = config.right.visible || windowState.activePanel == .activity
+            let rightContent: SlotContent = windowState.activePanel == .activity
+                ? .native(.activity) : config.right.content
+
+            VSplitView(
+                panelWidth: $sidePanelWidth,
+                showPanel: rightVisible && rightContent != .empty,
+                main: { slotView(for: config.center.content) },
+                panel: { slotView(for: rightContent) }
+            )
         }
     }
 
