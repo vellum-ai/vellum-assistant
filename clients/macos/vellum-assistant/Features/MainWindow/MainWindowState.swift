@@ -6,6 +6,7 @@ import VellumAssistantShared
 @MainActor
 final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
+    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = true
     @Published var activePanel: SidePanelType? {
         didSet {
             // Persist non-activity panels only (activity is message-specific)
@@ -74,6 +75,9 @@ final class MainWindowState: ObservableObject {
 
     /// Restore the last active panel from UserDefaults
     func restoreLastActivePanel() {
+        // Dashboard-first mode should always bootstrap into Home Base rather than
+        // resurrecting a stale side-panel route from a prior session.
+        guard !homeBaseDashboardDefaultEnabled else { return }
         guard let savedPanelString = lastActivePanelString,
               let panel = SidePanelType(rawValue: savedPanelString) else { return }
 

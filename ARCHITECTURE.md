@@ -206,6 +206,7 @@ graph TB
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
     IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
+    MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| IPC_SERVER
 
     %% Ride Shotgun flow
     RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT

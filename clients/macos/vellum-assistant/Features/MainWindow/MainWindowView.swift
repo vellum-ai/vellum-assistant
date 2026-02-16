@@ -16,6 +16,7 @@ struct MainWindowView: View {
     @State private var publishedUrl: String?
     @State private var publishError: String?
     @State private var isHoveredThread: UUID?
+    @State private var requestedHomeBaseAtLaunch = false
 
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
@@ -23,6 +24,7 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
+    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = true
     @State private var drawerDragStartWidth: Double?
     @State private var drawerDragStartAvailableWidth: CGFloat?
     @State private var isDrawerDragging: Bool = false
@@ -114,6 +116,32 @@ struct MainWindowView: View {
         }
     }
 
+    private func requestHomeBaseDashboardIfNeeded() {
+        guard homeBaseDashboardDefaultEnabled else { return }
+        guard daemonClient.isConnected else { return }
+        guard !requestedHomeBaseAtLaunch else { return }
+        guard !windowState.isDynamicExpanded else {
+            requestedHomeBaseAtLaunch = true
+            return
+        }
+
+        daemonClient.onHomeBaseGetResponse = { response in
+            guard let homeBase = response.homeBase else { return }
+            if self.windowState.isDynamicExpanded { return }
+            if let activePanel = self.windowState.activePanel, activePanel != .generated {
+                return
+            }
+            try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
+        }
+
+        do {
+            try daemonClient.sendHomeBaseGet(ensureLinked: true)
+            requestedHomeBaseAtLaunch = true
+        } catch {
+            // Leave false so reconnect can retry.
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Group {
@@ -192,12 +220,14 @@ struct MainWindowView: View {
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
+            requestHomeBaseDashboardIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+            requestHomeBaseDashboardIfNeeded()
         }
         .onChange(of: windowState.activePanel) { _, newPanel in
             // Reset expanded state and active surface when navigating away from the
