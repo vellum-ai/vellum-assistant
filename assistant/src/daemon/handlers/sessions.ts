@@ -1,0 +1,396 @@
+import * as net from 'node:net';
+import { v4 as uuid } from 'uuid';
+import * as conversationStore from '../../memory/conversation-store.js';
+import { checkIngressForSecrets } from '../../security/secret-ingress.js';
+import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
+import { getAttachmentsForMessageUnscoped } from '../../memory/attachments-store.js';
+import type { UserMessageAttachment } from '../ipc-contract.js';
+import type {
+  UserMessage,
+  ConfirmationResponse,
+  SecretResponse,
+  SessionCreateRequest,
+  SessionSwitchRequest,
+  CancelRequest,
+  HistoryRequest,
+  UndoRequest,
+  RegenerateRequest,
+  UsageRequest,
+  SandboxSetRequest,
+  ServerMessage,
+} from '../ipc-protocol.js';
+import { getConfig } from '../../config/loader.js';
+import {
+  log,
+  wireEscalationHandler,
+  renderHistoryContent,
+  mergeToolResults,
+  pendingStandaloneSecrets,
+  type HandlerContext,
+  type HistoryToolCall,
+  type HistorySurface,
+  type ParsedHistoryMessage,
+} from './shared.js';
+
+export async function handleUserMessage(
+  msg: UserMessage,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const requestId = uuid();
+  const rlog = log.child({ sessionId: msg.sessionId, requestId });
+  try {
+    ctx.socketToSession.set(socket, msg.sessionId);
+    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, socket, ctx);
+    }
+
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+
+    // Block inbound messages that contain secrets and redirect to secure prompt
+    const ingressCheck = checkIngressForSecrets(msg.content ?? '');
+    if (ingressCheck.blocked) {
+      rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
+      ctx.send(socket, {
+        type: 'error',
+        message: ingressCheck.userNotice!,
+      });
+      // Redirect: trigger a secure prompt so the user can enter the secret safely
+      session.redirectToSecurePrompt(ingressCheck.detectedTypes);
+      return;
+    }
+
+    session.traceEmitter.emit('request_received', 'User message received', {
+      requestId,
+      status: 'info',
+      attributes: { source: 'user_message' },
+    });
+
+    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage);
+    if (result.rejected) {
+      rlog.warn('Message rejected — queue is full');
+      session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
+        requestId,
+        status: 'error',
+        attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth() },
+      });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
+        code: 'QUEUE_FULL',
+        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
+        retryable: true,
+        debugDetails: 'Message rejected — session queue is full',
+      }));
+      return;
+    }
+    if (result.queued) {
+      const position = session.getQueueDepth();
+      rlog.info({ position }, 'Message queued (session busy)');
+      session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
+        requestId,
+        status: 'info',
+        attributes: { position },
+      });
+      ctx.send(socket, {
+        type: 'message_queued',
+        sessionId: msg.sessionId,
+        requestId,
+        position,
+      });
+      return; // Don't await — message will be processed when current one finishes
+    }
+
+    rlog.info('Processing user message');
+    // Fire-and-forget: don't block the IPC handler so the connection can
+    // continue receiving messages (e.g. cancel, confirmations, or
+    // additional user_message that will be queued by the session).
+    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      rlog.error({ err }, 'Error processing user message (session or provider failure)');
+      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+      const classified = classifySessionError(err, { phase: 'agent_loop' });
+      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    rlog.error({ err }, 'Error setting up user message processing');
+    ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+    const classified = classifySessionError(err, { phase: 'handler' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+  }
+}
+
+export function handleConfirmationResponse(
+  msg: ConfirmationResponse,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const sessionId = ctx.socketToSession.get(socket);
+  if (sessionId) {
+    const session = ctx.sessions.get(sessionId);
+    if (session) {
+      session.handleConfirmationResponse(
+        msg.requestId,
+        msg.decision as 'allow' | 'always_allow' | 'deny',
+        msg.selectedPattern,
+        msg.selectedScope,
+      );
+    }
+  }
+}
+
+export function handleSecretResponse(
+  msg: SecretResponse,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  // Check standalone (non-session) prompts first, since they use a dedicated
+  // requestId that won't collide with session prompts.
+  const standalone = pendingStandaloneSecrets.get(msg.requestId);
+  if (standalone) {
+    clearTimeout(standalone.timer);
+    pendingStandaloneSecrets.delete(msg.requestId);
+    standalone.resolve({ value: msg.value ?? null, delivery: msg.delivery ?? 'store' });
+    return;
+  }
+
+  // Otherwise route to the session's secret prompter
+  const sessionId = ctx.socketToSession.get(socket);
+  if (sessionId) {
+    const session = ctx.sessions.get(sessionId);
+    if (session) {
+      session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
+    }
+  }
+}
+
+export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
+  const conversations = conversationStore.listConversations(50);
+  ctx.send(socket, {
+    type: 'session_list_response',
+    sessions: conversations.map((c) => ({
+      id: c.id,
+      title: c.title ?? 'Untitled',
+      updatedAt: c.updatedAt,
+    })),
+  });
+}
+
+export function handleSessionsClear(socket: net.Socket, ctx: HandlerContext): void {
+  const cleared = ctx.clearAllSessions();
+  // Also clear DB conversations. When a new IPC connection triggers
+  // sendInitialSession, it auto-creates a conversation if none exist.
+  // Without this DB clear, that auto-created row survives, contradicting
+  // the "clear all conversations" intent.
+  conversationStore.clearAll();
+  ctx.send(socket, { type: 'sessions_clear_response', cleared });
+}
+
+export async function handleSessionCreate(
+  msg: SessionCreateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const conversation = conversationStore.createConversation(
+    msg.title ?? 'New Conversation',
+  );
+  const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
+    systemPromptOverride: msg.systemPromptOverride,
+    maxResponseTokens: msg.maxResponseTokens,
+  });
+  wireEscalationHandler(session, socket, ctx);
+  ctx.send(socket, {
+    type: 'session_info',
+    sessionId: conversation.id,
+    title: conversation.title ?? 'New Conversation',
+    ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
+  });
+}
+
+export async function handleSessionSwitch(
+  msg: SessionSwitchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const conversation = conversationStore.getConversation(msg.sessionId);
+  if (!conversation) {
+    ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
+    return;
+  }
+  ctx.socketToSession.set(socket, msg.sessionId);
+  const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+  // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+  // sets a handler with the client's actual screen dimensions, and overwriting it
+  // here would replace those dimensions with the daemon's defaults.
+  if (!session.hasEscalationHandler()) {
+    wireEscalationHandler(session, socket, ctx);
+  }
+  ctx.send(socket, {
+    type: 'session_info',
+    sessionId: conversation.id,
+    title: conversation.title ?? 'Untitled',
+  });
+}
+
+export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: HandlerContext): void {
+  const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
+  if (sessionId) {
+    const session = ctx.sessions.get(sessionId);
+    if (session) {
+      session.abort();
+    }
+  }
+}
+
+export function handleHistoryRequest(
+  msg: HistoryRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const dbMessages = conversationStore.getMessages(msg.sessionId);
+  const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
+    let text = '';
+    let toolCalls: HistoryToolCall[] = [];
+    let toolCallsBeforeText = false;
+    let textSegments: string[] = [];
+    let contentOrder: string[] = [];
+    let surfaces: HistorySurface[] = [];
+    try {
+      const content = JSON.parse(m.content);
+      const rendered = renderHistoryContent(content);
+      text = rendered.text;
+      toolCalls = rendered.toolCalls;
+      toolCallsBeforeText = rendered.toolCallsBeforeText;
+      textSegments = rendered.textSegments;
+      contentOrder = rendered.contentOrder;
+      surfaces = rendered.surfaces;
+      if (m.role === 'assistant' && toolCalls.length > 0) {
+        log.info({ messageId: m.id, toolCallCount: toolCalls.length, text: text.substring(0, 100) }, 'History message with tool calls');
+      }
+    } catch (err) {
+      log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
+      text = m.content;
+      textSegments = text ? [text] : [];
+      contentOrder = text ? ['text:0'] : [];
+      surfaces = [];
+    }
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
+  });
+
+  // Merge tool_result data from user messages into the preceding assistant
+  // message's toolCalls, and suppress user messages that only contain
+  // tool_result blocks (internal agent-loop turns).
+  const merged = mergeToolResults(parsed);
+
+  const historyMessages = merged.map((m) => {
+    let attachments: UserMessageAttachment[] | undefined;
+    if (m.role === 'assistant' && m.id) {
+      const linked = getAttachmentsForMessageUnscoped(m.id);
+      if (linked.length > 0) {
+        attachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        }));
+      }
+    }
+    return {
+      ...(m.id ? { id: m.id } : {}),
+      role: m.role,
+      text: m.text,
+      timestamp: m.timestamp,
+      ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
+      ...(attachments ? { attachments } : {}),
+      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
+      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+    };
+  });
+  ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
+
+  // Surfaces are now included directly in the history_response message (in the surfaces array),
+  // so we no longer emit separate ui_surface_show messages during history loading.
+}
+
+export function handleUndo(
+  msg: UndoRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.sessions.get(msg.sessionId);
+  if (!session) {
+    ctx.send(socket, { type: 'error', message: 'No active session' });
+    return;
+  }
+  const removedCount = session.undo();
+  ctx.send(socket, { type: 'undo_complete', removedCount, sessionId: msg.sessionId });
+}
+
+export async function handleRegenerate(
+  msg: RegenerateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const session = ctx.sessions.get(msg.sessionId);
+  if (!session) {
+    ctx.send(socket, { type: 'error', message: 'No active session' });
+    return;
+  }
+
+  const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+  const requestId = uuid();
+  session.traceEmitter.emit('request_received', 'Regenerate requested', {
+    requestId,
+    status: 'info',
+    attributes: { source: 'regenerate' },
+  });
+  try {
+    await session.regenerate(sendEvent, requestId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
+    session.traceEmitter.emit('request_error', message.slice(0, 200), {
+      requestId,
+      status: 'error',
+      attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
+    });
+    ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
+    const classified = classifySessionError(err, { phase: 'regenerate' });
+    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+  }
+}
+
+export function handleUsageRequest(
+  msg: UsageRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const conversation = conversationStore.getConversation(msg.sessionId);
+  if (!conversation) {
+    ctx.send(socket, { type: 'error', message: 'No active session' });
+    return;
+  }
+  const config = getConfig();
+  ctx.send(socket, {
+    type: 'usage_response',
+    totalInputTokens: conversation.totalInputTokens,
+    totalOutputTokens: conversation.totalOutputTokens,
+    estimatedCost: conversation.totalEstimatedCost,
+    model: config.model,
+  });
+}
+
+export function handleSandboxSet(
+  msg: SandboxSetRequest,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  log.warn(
+    { enabled: msg.enabled },
+    'Received deprecated sandbox_set message. Runtime sandbox overrides are ignored.',
+  );
+}
