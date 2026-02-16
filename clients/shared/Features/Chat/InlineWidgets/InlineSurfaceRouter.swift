@@ -109,6 +109,18 @@ public struct InlineSurfaceRouter: View {
                 }
                 onAction(surface.id, actionId, payload)
             }
+        case .form(let data):
+            FormSurfaceView(data: data) { values in
+                var payload: [String: AnyCodable]? = nil
+                if let values {
+                    payload = values.mapValues { AnyCodable($0) }
+                }
+                onAction(surface.id, "submit", payload)
+            }
+        case .confirmation(let data):
+            ConfirmationSurfaceView(data: data, actions: surface.actions) { actionId in
+                onAction(surface.id, actionId, nil)
+            }
         default:
             InlineFallbackChip(surfaceType: surface.surfaceType)
         }

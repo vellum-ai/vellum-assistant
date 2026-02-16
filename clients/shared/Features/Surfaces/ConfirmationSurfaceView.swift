@@ -1,10 +1,15 @@
-import VellumAssistantShared
 import SwiftUI
 
-struct ConfirmationSurfaceView: View {
-    let data: ConfirmationSurfaceData
-    let actions: [SurfaceActionButton]
-    let onAction: (String) -> Void
+public struct ConfirmationSurfaceView: View {
+    public let data: ConfirmationSurfaceData
+    public let actions: [SurfaceActionButton]
+    public let onAction: (String) -> Void
+
+    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], onAction: @escaping (String) -> Void) {
+        self.data = data
+        self.actions = actions
+        self.onAction = onAction
+    }
 
     /// The action ID to emit when the user cancels.
     /// Uses the first server-provided action ID if exactly 2 actions are defined, otherwise defaults to "cancel".
@@ -24,7 +29,7 @@ struct ConfirmationSurfaceView: View {
         return "confirm"
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header with icon
             HStack(spacing: VSpacing.md) {
@@ -63,37 +68,4 @@ struct ConfirmationSurfaceView: View {
             }
         }
     }
-}
-
-#Preview("Default") {
-    ConfirmationSurfaceView(
-        data: ConfirmationSurfaceData(
-            message: "Delete this file?",
-            detail: "This action cannot be undone. The file will be permanently removed.",
-            confirmLabel: "Delete",
-            cancelLabel: "Keep",
-            destructive: true
-        ),
-        actions: [
-            SurfaceActionButton(id: "cancel", label: "Keep", style: .secondary),
-            SurfaceActionButton(id: "confirm", label: "Delete", style: .destructive),
-        ],
-        onAction: { _ in }
-    )
-    .padding()
-}
-
-#Preview("Non-destructive") {
-    ConfirmationSurfaceView(
-        data: ConfirmationSurfaceData(
-            message: "Submit this form?",
-            detail: "Your responses will be sent to the server.",
-            confirmLabel: nil,
-            cancelLabel: nil,
-            destructive: false
-        ),
-        actions: [],
-        onAction: { _ in }
-    )
-    .padding()
 }

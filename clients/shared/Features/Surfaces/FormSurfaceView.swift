@@ -1,16 +1,20 @@
-import VellumAssistantShared
 import SwiftUI
 
-struct FormSurfaceView: View {
-    let data: FormSurfaceData
-    let onSubmit: ([String: Any]?) -> Void
+public struct FormSurfaceView: View {
+    public let data: FormSurfaceData
+    public let onSubmit: ([String: Any]?) -> Void
 
     @State private var textValues: [String: String] = [:]
     @State private var toggleValues: [String: Bool] = [:]
     @State private var selectValues: [String: String] = [:]
     @State private var currentPageIndex: Int = 0
 
-    var body: some View {
+    public init(data: FormSurfaceData, onSubmit: @escaping ([String: Any]?) -> Void) {
+        self.data = data
+        self.onSubmit = onSubmit
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if let pages = data.pages, !pages.isEmpty {
                 // Multi-page mode
@@ -258,26 +262,4 @@ struct FormSurfaceView: View {
         }
         onSubmit(values)
     }
-}
-
-#Preview {
-    FormSurfaceView(
-        data: FormSurfaceData(
-            description: "Configure your assistant preferences.",
-            fields: [
-                FormField(id: "name", type: .text, label: "Name", placeholder: "Enter your name", required: true, defaultValue: nil, options: nil),
-                FormField(id: "bio", type: .textarea, label: "Bio", placeholder: "Tell us about yourself", required: false, defaultValue: nil, options: nil),
-                FormField(id: "role", type: .select, label: "Role", placeholder: "Select a role", required: true, defaultValue: nil, options: [
-                    FormFieldOption(label: "Developer", value: "dev"),
-                    FormFieldOption(label: "Designer", value: "design"),
-                    FormFieldOption(label: "Manager", value: "pm"),
-                ]),
-                FormField(id: "notifications", type: .toggle, label: "Enable notifications", placeholder: nil, required: false, defaultValue: .boolean(true), options: nil),
-            ],
-            submitLabel: "Save"
-        ),
-        onSubmit: { _ in }
-    )
-    .padding()
-    .frame(width: 380)
 }

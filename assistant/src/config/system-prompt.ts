@@ -175,6 +175,16 @@ function buildDynamicUiSection(): string {
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a visual output rather than displaying raw tool outputs.',
     '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` or `app_create` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished output — use `app_create` for custom UIs, or `ui_show` with domain component classes for predefined data types.',
+    '',
+    '### Presenting choices to the user',
+    'When you need the user to make a choice or provide structured input, prefer interactive UI surfaces over plain text:',
+    '- **Simple option selection** (2-8 choices): Use a `list` surface with `selectionMode: "single"`',
+    '- **Structured input** (names, settings, config): Use a `form` surface with typed fields',
+    '- **Complex configuration** (many fields, logical grouping): Use a multi-page `form` with `pages` array',
+    '- **Destructive or important actions**: Use a `confirmation` surface',
+    '- **Data review/selection**: Use a `table` surface with selectable rows',
+    '',
+    'Interactive surfaces provide a better user experience than asking the user to type their choice. Only fall back to plain text when the interaction is conversational or doesn\'t fit a structured format.',
   ].join('\n');
 }
 
