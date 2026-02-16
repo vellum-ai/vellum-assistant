@@ -1342,6 +1342,19 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
 
+        case .uiSurfaceComplete(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find the inline surface across all messages and set its completionState
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    messages[msgIndex].inlineSurfaces[surfaceIndex].completionState = SurfaceCompletionState(
+                        summary: msg.summary,
+                        submittedData: msg.submittedData
+                    )
+                    return
+                }
+            }
+
         case .sessionError(let msg):
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
