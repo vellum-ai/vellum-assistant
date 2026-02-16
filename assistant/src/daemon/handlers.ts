@@ -96,7 +96,9 @@ import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
 import type { UserMessageAttachment } from './ipc-contract.js';
-import { listStatuses as listIntegrationStatuses, disconnect as disconnectIntegration } from '../integrations/registry.js';
+import { listStatuses, getIntegration, disconnect as disconnectIntegration } from '../integrations/registry.js';
+import { startOAuth2Flow } from '../integrations/oauth2.js';
+import type { IntegrationConnectRequest, IntegrationDisconnectRequest } from './ipc-contract.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
@@ -558,16 +560,13 @@ const handlers: DispatchMap = {
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
   },
   integration_list: (_msg, socket, ctx) => {
-    const statuses = listIntegrationStatuses();
-    ctx.send(socket, { type: 'integration_list_response', integrations: statuses });
+    handleIntegrationList(socket, ctx);
   },
   integration_connect: (msg, socket, ctx) => {
-    // TODO: Implement credential prompt flow for connecting integrations.
-    ctx.send(socket, { type: 'integration_connect_result', integrationId: msg.integrationId, success: false, error: 'Not yet implemented' });
+    handleIntegrationConnect(msg as IntegrationConnectRequest, socket, ctx);
   },
   integration_disconnect: (msg, socket, ctx) => {
-    disconnectIntegration(msg.integrationId);
-    ctx.send(socket, { type: 'integration_connect_result', integrationId: msg.integrationId, success: true });
+    handleIntegrationDisconnect(msg as IntegrationDisconnectRequest, socket, ctx);
   },
 };
 
@@ -2887,4 +2886,144 @@ function handleLinkOpenRequest(
   // V1: passthrough. Future: affiliate param injection based on metadata
   const finalUrl = msg.url;
   ctx.send(socket, { type: 'open_url', url: finalUrl });
+}
+
+// ─── Integration handlers ────────────────────────────────────────────────────
+
+function handleIntegrationList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const statuses = listStatuses();
+  ctx.send(socket, {
+    type: 'integration_list_response',
+    integrations: statuses.map((s) => ({
+      id: s.id,
+      connected: s.connected,
+      accountInfo: s.accountInfo,
+      connectedAt: s.connectedAt,
+      lastUsed: s.lastUsed,
+      error: s.error,
+    })),
+  });
+}
+
+async function handleIntegrationConnect(
+  msg: IntegrationConnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const def = getIntegration(msg.integrationId);
+  if (!def) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" not found`,
+    });
+    return;
+  }
+
+  if (def.authType !== 'oauth2' || !def.oauth2Config) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" does not support OAuth2`,
+    });
+    return;
+  }
+
+  // Load clientId from config
+  const config = getConfig();
+  const integrationConfig = config.integrations[msg.integrationId];
+  const clientId = integrationConfig?.clientId || def.oauth2Config.clientId;
+
+  if (!clientId) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `No clientId configured for "${msg.integrationId}". Set integrations.${msg.integrationId}.clientId in config.`,
+    });
+    return;
+  }
+
+  try {
+    const oauthConfig = { ...def.oauth2Config, clientId };
+    const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
+      openUrl: (url) => ctx.broadcast({ type: 'open_url', url, title: `Connect ${def.name}` }),
+    });
+
+    // Store tokens in vault
+    const tokenStored = setSecureKey(`integration:${def.id}:access_token`, tokens.accessToken);
+    if (!tokenStored) {
+      ctx.send(socket, {
+        type: 'integration_connect_result',
+        integrationId: msg.integrationId,
+        success: false,
+        error: 'Failed to store access token in secure storage',
+      });
+      return;
+    }
+
+    const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
+
+    // Fetch account info (email) if userinfo scope was granted
+    let accountInfo: string | undefined;
+    if (grantedScopes.some((s) => s.includes('userinfo'))) {
+      try {
+        const resp = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        });
+        if (resp.ok) {
+          const info = await resp.json() as { email?: string };
+          accountInfo = info.email;
+        }
+      } catch {
+        // Non-fatal — account info is optional
+      }
+    }
+
+    upsertCredentialMetadata(`integration:${def.id}`, 'access_token', {
+      allowedTools: def.allowedTools,
+      expiresAt,
+      grantedScopes,
+      accountInfo,
+    });
+
+    if (tokens.refreshToken) {
+      if (!setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken)) {
+        log.warn({ integrationId: def.id }, 'Failed to store refresh token in secure storage');
+      }
+      upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
+    }
+
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: def.id,
+      success: true,
+      accountInfo,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
+    log.error({ err, integrationId: msg.integrationId }, 'Integration connect failed');
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleIntegrationDisconnect(
+  msg: IntegrationDisconnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  disconnectIntegration(msg.integrationId);
+  log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
+  // Send updated list so the client refreshes
+  handleIntegrationList(socket, ctx);
 }

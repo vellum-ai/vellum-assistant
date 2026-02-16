@@ -20,6 +20,7 @@ export interface CredentialMetadata {
   usageDescription?: string;
   expiresAt?: number;
   grantedScopes?: string[];
+  accountInfo?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -112,6 +113,7 @@ export function upsertCredentialMetadata(
     /** Pass `null` to explicitly clear a previously-set expiry. */
     expiresAt?: number | null;
     grantedScopes?: string[];
+    accountInfo?: string;
   },
 ): CredentialMetadata {
   const result = loadFile();
@@ -137,6 +139,7 @@ export function upsertCredentialMetadata(
       }
     }
     if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
+    if (policy?.accountInfo !== undefined) existing.accountInfo = policy.accountInfo;
     existing.updatedAt = now;
     saveFile(data);
     return existing;
@@ -151,6 +154,7 @@ export function upsertCredentialMetadata(
     usageDescription: policy?.usageDescription,
     expiresAt: policy?.expiresAt ?? undefined,
     grantedScopes: policy?.grantedScopes,
+    accountInfo: policy?.accountInfo,
     createdAt: now,
     updatedAt: now,
   };
