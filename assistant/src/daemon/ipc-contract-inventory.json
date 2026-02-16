@@ -73,6 +73,7 @@
   ],
   "serverMessageTypes": [
     "AppDataResponse",
+    "AppFilesChanged",
     "AppUpdatePreviewResponse",
     "AppsListResponse",
     "AssistantTextDelta",
@@ -224,6 +225,7 @@
   ],
   "serverWireTypes": [
     "app_data_response",
+    "app_files_changed",
     "app_update_preview_response",
     "apps_list_response",
     "assistant_text_delta",

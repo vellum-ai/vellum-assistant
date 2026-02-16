@@ -750,7 +750,8 @@ struct MainWindowView: View {
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
                 onToggleChatDock: { windowState.toggleChatDock() },
-                onMicrophoneToggle: onMicrophoneToggle
+                onMicrophoneToggle: onMicrophoneToggle,
+                onClose: { windowState.closeDynamicPanel() }
             )
         }
     }
@@ -1042,6 +1043,7 @@ private struct DynamicWorkspaceWrapper: View {
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
+    var onClose: (() -> Void)?
 
     private var composerReservedHeight: CGFloat {
         guard !isChatDockOpen else { return 0 }
@@ -1251,6 +1253,22 @@ private struct DynamicWorkspaceWrapper: View {
                             )
                             .frame(width: 1, height: 1)
                         )
+                    }
+
+                    if onClose != nil {
+                        Button(action: { onClose?() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close dashboard")
                     }
                 }
                 .padding(.leading, trafficLightPadding)

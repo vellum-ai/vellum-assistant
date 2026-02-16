@@ -718,6 +718,7 @@ public struct IPCPublishPageRequest: Codable, Sendable {
     public let type: String
     public let html: String
     public let title: String?
+    public let appId: String?
 }
 
 public struct IPCPublishPageResponse: Codable, Sendable {
