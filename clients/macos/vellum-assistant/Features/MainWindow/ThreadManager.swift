@@ -6,7 +6,8 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
 
-/// Model used for generating conversation titles from the first user message.
+/// Haiku is used for title generation because it's cost-effective and fast enough
+/// for simple summarization tasks without sacrificing quality.
 private let titleGenerationModel = "claude-haiku-4-5-20251001"
 
 @MainActor
