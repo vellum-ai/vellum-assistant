@@ -1,8 +1,22 @@
 import SwiftUI
 import VellumAssistantShared
+#if os(macOS)
+import AppKit
+#endif
 
 struct ComposerView: View {
-    private let composerVerticalTextInset: CGFloat = 2
+    private let composerCompactHeight: CGFloat = 34
+    private let composerMaxHeight: CGFloat = 200
+    private let composerActionButtonSize: CGFloat = 34
+    private let composerActionIconSize: CGFloat = 14
+    private let compactActionOpticalYOffset: CGFloat = 0
+
+    private enum ComposerActionFocus: Hashable {
+        case stop
+        case send
+        case microphone
+        case attachment
+    }
 
     @Binding var inputText: String
     let hasAPIKey: Bool
@@ -25,11 +39,13 @@ struct ComposerView: View {
     /// sticky expansion state (set true when text wraps, reset when text clears).
     @Binding var isComposerExpanded: Bool
 
-    @State private var composerScrollOffset: CGFloat = 0
-    @State private var shouldRefocus = false
-    /// Where to place the cursor after re-focus. `nil` means end-of-text.
-    @State private var pendingCursorPosition: Int?
-    @FocusState private var isComposerFocused: Bool
+    @State private var composerFocusRequestID: Int = 0
+    @State private var isStopHovered = false
+    @State private var isSendHovered = false
+    @State private var isMicrophoneHovered = false
+    @State private var isAttachmentHovered = false
+    @State private var isComposerFocused = false
+    @FocusState private var focusedComposerAction: ComposerActionFocus?
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -37,7 +53,7 @@ struct ComposerView: View {
     /// once the TextEditor scrolls internally.
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
-        guard editorContentHeight <= 200 else { return nil }
+        guard editorContentHeight <= composerMaxHeight else { return nil }
         if suggestion.hasPrefix(inputText) {
             let suffix = String(suggestion.dropFirst(inputText.count))
             return suffix.isEmpty ? nil : suffix
@@ -54,76 +70,60 @@ struct ComposerView: View {
 
             if isComposerExpanded {
                 // Expanded: text area on top, buttons on bottom row
-                ZStack(alignment: .bottom) {
-                    composerTextField
-                        .frame(height: min(max(editorContentHeight, 28), 200))
+                composerTextField
+                    .frame(height: clampedComposerHeight)
 
-                    if editorContentHeight > 200, !isScrolledToBottom {
-                        LinearGradient(
-                            colors: [VColor.surface.opacity(0), VColor.surface],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 20)
-                        .allowsHitTesting(false)
-                    }
-                }
-
-                HStack(spacing: VSpacing.sm) {
+                HStack(spacing: VSpacing.md) {
                     Spacer()
                     composerActionButtons
                 }
                 .padding(.top, VSpacing.xs)
             } else {
                 // Compact: text and buttons on the same row
-                HStack(alignment: .center, spacing: VSpacing.sm) {
+                HStack(alignment: .center, spacing: VSpacing.md) {
                     composerTextField
-                        .frame(height: min(max(editorContentHeight, 28), 200))
+                        .frame(height: clampedComposerHeight)
+                        .frame(maxHeight: .infinity, alignment: .center)
                     composerActionButtons
+                        .frame(maxHeight: .infinity, alignment: .center)
+                        .offset(y: compactActionOpticalYOffset)
                 }
+                .frame(height: compactRowHeight, alignment: .center)
             }
         }
-        .padding(.top, isComposerExpanded ? VSpacing.lg : VSpacing.sm)
-        .padding(.bottom, VSpacing.sm)
+        .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
+        .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
         .padding(.leading, VSpacing.lg)
-        .padding(.trailing, VSpacing.md)
-        .background(VColor.surface)
+        .padding(.trailing, VSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surfaceSubtle.opacity(0.4))
+                )
+        )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
+                .stroke(
+                    isComposerFocused ? VColor.accent.opacity(0.68) : VColor.surfaceBorder.opacity(0.95),
+                    lineWidth: isComposerFocused ? 1.5 : 1
+                )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.accent.opacity(isComposerFocused ? 0.18 : 0), lineWidth: 4)
+        )
+        .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .padding(.bottom, VSpacing.md)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: editorContentHeight)
-        .onAppear { isComposerFocused = true }
-        .onChange(of: isComposerFocused) { _, focused in
-            // Only re-focus when an action explicitly requests it (send or
-            // shift+enter). Without the guard, every focus loss while the
-            // window is key would steal first responder from side-panel
-            // inputs (settings, etc.).
-            if !focused, shouldRefocus {
-                shouldRefocus = false
-                let targetPos = pendingCursorPosition
-                pendingCursorPosition = nil
-                DispatchQueue.main.async {
-                    isComposerFocused = true
-                    // After re-focus, NSTextField selects all text by default.
-                    // Clear the selection and place the cursor at the target
-                    // position (or end-of-text when nil).
-                    DispatchQueue.main.async {
-                        if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-                            let end = (textView.string as NSString).length
-                            let pos = min(targetPos ?? end, end)
-                            textView.setSelectedRange(NSRange(location: pos, length: 0))
-                        }
-                    }
-                }
-            }
-        }
+        .animation(VAnimation.fast, value: isComposerFocused)
+        .onAppear { composerFocusRequestID += 1 }
     }
 
     // isComposerExpanded is a @Binding — sticky latch set true when text
@@ -131,251 +131,184 @@ struct ComposerView: View {
     // oscillation and keeps ChatView.composerReservedHeight in sync.
 
     private var clampedComposerHeight: CGFloat {
-        min(max(editorContentHeight, 28), 200)
+        min(max(editorContentHeight, composerCompactHeight), composerMaxHeight)
     }
 
-    private var isScrolledToBottom: Bool {
-        let maxOffset = editorContentHeight - 200
-        return maxOffset <= 0 || composerScrollOffset >= maxOffset - 5
+    private var compactRowHeight: CGFloat {
+        max(clampedComposerHeight, composerActionButtonSize)
     }
 
     private var composerTextField: some View {
-        ScrollViewReader { proxy in
-        ScrollView(.vertical, showsIndicators: false) {
-            Color.clear
-                .frame(height: 0)
-                .id("composer-top")
-
-            ZStack(alignment: .leading) {
-                TextField(
-                    "",
-                    text: $inputText,
-                    axis: .vertical
+        ComposerTextView(
+            text: $inputText,
+            placeholder: ghostSuffix == nil ? placeholderText : nil,
+            hasGhostSuffix: ghostSuffix != nil,
+            isEnabled: hasAPIKey,
+            minHeight: composerCompactHeight,
+            maxHeight: composerMaxHeight,
+            focusRequestID: composerFocusRequestID,
+            onHeightChange: { height in
+                editorContentHeight = height
+            },
+            onFocusChange: { focused in
+                isComposerFocused = focused
+            },
+            onSubmit: {
+                inputText = inputText.replacingOccurrences(
+                    of: "\\n$", with: "", options: .regularExpression
                 )
-                .overlay(alignment: .topLeading) {
-                    if inputText.isEmpty && ghostSuffix == nil {
-                        Text(placeholderText)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textFieldStyle(.plain)
-                .lineLimit(1...)
-                .focused($isComposerFocused)
-                .disabled(!hasAPIKey)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel("Message")
-                .overlay(alignment: .topLeading) {
-                    if let ghostSuffix {
-                        (Text(inputText)
-                            .font(VFont.body)
-                            .foregroundColor(.clear)
-                        + Text(ghostSuffix)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted.opacity(0.5)))
-                            .lineLimit(1...)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                // AppKit's multiline TextField can under-report its rendered height,
-                // which clips the bottom row when the composer is tightly framed.
-                .padding(.vertical, composerVerticalTextInset)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { editorContentHeight = geo.size.height }
-                            .onChange(of: geo.size.height) { _, h in
-                                editorContentHeight = h
-                            }
-                    }
-                )
+                if canSend { onSend() }
+            },
+            onAcceptSuggestion: onAcceptSuggestion,
+            onPaste: onPaste
+        )
+        .accessibilityLabel("Message")
+        .overlay(alignment: .leading) {
+            if let ghostSuffix {
+                (Text(inputText)
+                    .font(VFont.body)
+                    .foregroundColor(.clear)
+                + Text(ghostSuffix)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary.opacity(0.55)))
+                    .lineLimit(1...12)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-            // Keep the measured text content pinned to the top of the scroll view.
-            // An unbounded max-height here can retain stale internal offsets after
-            // multiline edits and clip the first visible line.
-            .frame(minHeight: clampedComposerHeight, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ScrollOffsetReader(offset: $composerScrollOffset))
-
-            // Invisible anchor for auto-scroll; extra height provides breathing room
-            // so the last line isn't clipped by the fade gradient.
-            Color.clear
-                .frame(height: editorContentHeight > 200 ? 20 : 1)
-                .id("composer-bottom")
         }
-        .overlay(alignment: .topTrailing) {
-            composerScrollIndicator
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollDisabled(editorContentHeight <= 200)
-        .onAppear {
-            syncComposerScrollPosition(proxy)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: inputText) {
-            syncComposerScrollPosition(proxy)
             if inputText.isEmpty { isComposerExpanded = false }
         }
         .onChange(of: editorContentHeight) {
-            syncComposerScrollPosition(proxy)
-            if editorContentHeight > 28 { isComposerExpanded = true }
-        }
-        .onKeyPress(.tab, phases: .down) { keyPress in
-            if !keyPress.modifiers.contains(.shift), ghostSuffix != nil {
-                onAcceptSuggestion()
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.return, phases: .down) { keyPress in
-            if keyPress.modifiers == .shift {
-                let cursorRange: NSRange
-                if let textView = NSApp.keyWindow?.firstResponder as? NSTextView {
-                    cursorRange = textView.selectedRange()
-                } else {
-                    let len = (inputText as NSString).length
-                    cursorRange = NSRange(location: len, length: 0)
-                }
-                // Insert through the binding so SwiftUI stays in sync.
-                // Use the full selection range so that selected text is
-                // replaced by the newline instead of inserting alongside it.
-                let ns = inputText as NSString
-                let loc = min(cursorRange.location, ns.length)
-                let selLen = min(cursorRange.length, ns.length - loc)
-                inputText = ns.replacingCharacters(
-                    in: NSRange(location: loc, length: selLen),
-                    with: "\n"
-                ) as String
-                // If the text mutation causes a focus loss, the onChange
-                // handler will re-focus and place the cursor here.
-                shouldRefocus = true
-                pendingCursorPosition = loc + 1
-                // Clear the flag on the next run-loop tick if focus was
-                // never actually lost, preventing a stale refocus request
-                // from stealing first responder later.
-                DispatchQueue.main.async {
-                    if isComposerFocused {
-                        shouldRefocus = false
-                        pendingCursorPosition = nil
-                    }
-                }
-                return .handled
-            }
-            guard keyPress.modifiers.isEmpty else { return .ignored }
-            inputText = inputText.replacingOccurrences(
-                of: "\\n$", with: "", options: .regularExpression
-            )
-            if canSend {
-                shouldRefocus = true
-                onSend()
-            }
-            return .handled
-        }
-        .onKeyPress(characters: CharacterSet(charactersIn: "v"), phases: .down) { keyPress in
-            if keyPress.modifiers.contains(.command) {
-                onPaste()
-                return .ignored
-            }
-            return .ignored
-        }
-        } // ScrollViewReader
-    }
-
-    private func syncComposerScrollPosition(_ proxy: ScrollViewProxy) {
-        if editorContentHeight > 200 {
-            proxy.scrollTo("composer-bottom", anchor: .bottom)
-            return
-        }
-        proxy.scrollTo("composer-top", anchor: .top)
-        composerScrollOffset = 0
-    }
-
-    @ViewBuilder
-    private var composerScrollIndicator: some View {
-        let visibleHeight = min(max(editorContentHeight, 28), 200)
-        let totalHeight = editorContentHeight
-
-        if totalHeight > visibleHeight {
-            let thumbRatio = visibleHeight / totalHeight
-            let thumbHeight = max(thumbRatio * visibleHeight, 20)
-            let maxScrollOffset = totalHeight - visibleHeight
-            let progress = maxScrollOffset > 0
-                ? min(max(composerScrollOffset / maxScrollOffset, 0), 1)
-                : 0
-            let thumbTravel = visibleHeight - thumbHeight - 4 // 2pt inset top+bottom
-            let yOffset = 2 + progress * thumbTravel
-
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Slate._400.opacity(0.5))
-                .frame(width: 4, height: thumbHeight)
-                .padding(.top, yOffset)
-                .padding(.trailing, 4)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .animation(VAnimation.fast, value: composerScrollOffset)
+            if editorContentHeight > composerCompactHeight { isComposerExpanded = true }
         }
     }
 
     @ViewBuilder
     private var composerActionButtons: some View {
-        Group {
+        HStack(spacing: VSpacing.md) {
             if isSending {
                 Button(action: onStop) {
                     ZStack {
                         Circle()
                             .fill(VColor.textPrimary)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 30, height: 30)
                         RoundedRectangle(cornerRadius: VRadius.xs)
                             .fill(VColor.surface)
                             .frame(width: 10, height: 10)
                     }
                 }
-                .buttonStyle(.plain)
-                .frame(height: 28)
+                .buttonStyle(ComposerActionButtonStyle(
+                    isHovered: isStopHovered,
+                    isFocused: focusedComposerAction == .stop,
+                    size: composerActionButtonSize
+                ))
+                .focused($focusedComposerAction, equals: .stop)
+                .focusable(true)
+                .onHover { hovering in
+                    handleComposerButtonHover(
+                        hovering,
+                        state: $isStopHovered
+                    )
+                }
                 .accessibilityLabel("Stop generation")
             } else {
                 if canSend {
                     Button {
-                        shouldRefocus = true
+                        composerFocusRequestID += 1
                         onSend()
                     } label: {
                         ZStack {
                             Circle()
                                 .fill(VColor.accent)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 30, height: 30)
                             Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.white)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .frame(height: 28)
+                    .buttonStyle(ComposerActionButtonStyle(
+                        isHovered: isSendHovered,
+                        isFocused: focusedComposerAction == .send,
+                        size: composerActionButtonSize
+                    ))
+                    .focused($focusedComposerAction, equals: .send)
+                    .focusable(true)
+                    .onHover { hovering in
+                        handleComposerButtonHover(
+                            hovering,
+                            state: $isSendHovered
+                        )
+                    }
                     .accessibilityLabel("Send message")
                     .transition(.scale.combined(with: .opacity))
                 } else {
-                    MicrophoneButton(isRecording: isRecording, action: onMicrophoneToggle)
+                    MicrophoneButton(
+                        isRecording: isRecording,
+                        iconSize: composerActionIconSize,
+                        action: onMicrophoneToggle
+                    )
+                        .buttonStyle(ComposerActionButtonStyle(
+                            isHovered: isMicrophoneHovered,
+                            isFocused: focusedComposerAction == .microphone,
+                            size: composerActionButtonSize
+                        ))
+                        .focused($focusedComposerAction, equals: .microphone)
+                        .focusable(true)
+                        .onHover { hovering in
+                            handleComposerButtonHover(
+                                hovering,
+                                state: $isMicrophoneHovered,
+                                isEnabled: hasAPIKey
+                            )
+                        }
                         .disabled(!hasAPIKey)
-                        .frame(height: 28)
                         .transition(.scale.combined(with: .opacity))
                 }
 
                 Button(action: onAttach) {
                     Image(systemName: "paperclip")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: composerActionIconSize, weight: .regular))
+                        .foregroundColor(VColor.textSecondary.opacity(0.82))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ComposerActionButtonStyle(
+                    isHovered: isAttachmentHovered,
+                    isFocused: focusedComposerAction == .attachment,
+                    size: composerActionButtonSize
+                ))
+                .focused($focusedComposerAction, equals: .attachment)
+                .focusable(true)
+                .onHover { hovering in
+                    handleComposerButtonHover(
+                        hovering,
+                        state: $isAttachmentHovered,
+                        isEnabled: hasAPIKey
+                    )
+                }
                 .accessibilityLabel("Attach file")
                 .disabled(!hasAPIKey)
             }
         }
+        .padding(.trailing, VSpacing.xs)
         .animation(VAnimation.spring, value: canSend)
+    }
+
+    private func handleComposerButtonHover(
+        _ hovering: Bool,
+        state: Binding<Bool>,
+        isEnabled: Bool = true
+    ) {
+        let resolvedHover = isEnabled && hovering
+        state.wrappedValue = resolvedHover
+        #if os(macOS)
+        if resolvedHover {
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+        #endif
     }
 
     // MARK: - Attachment Preview Strip
@@ -479,10 +412,238 @@ struct ComposerView: View {
     }
 }
 
+private struct ComposerTextView: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String?
+    let hasGhostSuffix: Bool
+    let isEnabled: Bool
+    let minHeight: CGFloat
+    let maxHeight: CGFloat
+    let focusRequestID: Int
+    let onHeightChange: (CGFloat) -> Void
+    let onFocusChange: (Bool) -> Void
+    let onSubmit: () -> Void
+    let onAcceptSuggestion: () -> Void
+    let onPaste: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = ComposerNativeTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isEditable = isEnabled
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.allowsUndo = true
+        textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
+        textView.textColor = NSColor(VColor.textPrimary)
+        textView.insertionPointColor = NSColor(VColor.accent)
+        textView.textContainerInset = NSSize(width: 0, height: 7)
+        textView.string = text
+
+        if let container = textView.textContainer {
+            container.lineFragmentPadding = 0
+            container.widthTracksTextView = true
+            container.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
+        }
+
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        context.coordinator.configureCallbacks()
+        context.coordinator.syncHeight()
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.configureCallbacks()
+
+        guard let textView = context.coordinator.textView else { return }
+
+        textView.isEditable = isEnabled
+        textView.placeholderText = placeholder
+        textView.placeholderColor = NSColor(VColor.textSecondary).withAlphaComponent(0.92)
+        textView.hasGhostSuffix = hasGhostSuffix
+
+        if context.coordinator.isWritingFromView == false, textView.string != text {
+            textView.string = text
+            textView.needsDisplay = true
+        }
+
+        if context.coordinator.lastFocusRequestID != focusRequestID {
+            context.coordinator.lastFocusRequestID = focusRequestID
+            DispatchQueue.main.async {
+                guard textView.window?.firstResponder !== textView else { return }
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+
+        context.coordinator.syncHeight()
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: ComposerTextView
+        weak var textView: ComposerNativeTextView?
+        var isWritingFromView = false
+        var lastFocusRequestID = -1
+        private var lastReportedHeight: CGFloat = 0
+
+        init(parent: ComposerTextView) {
+            self.parent = parent
+        }
+
+        func configureCallbacks() {
+            guard let textView else { return }
+            textView.onSubmit = { [weak self] in
+                self?.parent.onSubmit()
+            }
+            textView.onAcceptSuggestion = { [weak self] in
+                self?.parent.onAcceptSuggestion()
+            }
+            textView.onPaste = { [weak self] in
+                self?.parent.onPaste()
+            }
+            textView.onFocusChange = { [weak self] focused in
+                self?.parent.onFocusChange(focused)
+            }
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView else { return }
+            isWritingFromView = true
+            parent.text = textView.string
+            isWritingFromView = false
+            syncHeight()
+        }
+
+        func syncHeight() {
+            guard let textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let rawHeight = ceil(usedRect.height + (textView.textContainerInset.height * 2))
+            let clampedHeight = min(max(rawHeight, parent.minHeight), parent.maxHeight)
+
+            if abs(lastReportedHeight - clampedHeight) > 0.5 {
+                lastReportedHeight = clampedHeight
+                parent.onHeightChange(clampedHeight)
+            }
+        }
+    }
+}
+
+private final class ComposerNativeTextView: NSTextView {
+    private let placeholderVerticalOffset: CGFloat = 0
+    var onSubmit: (() -> Void)?
+    var onAcceptSuggestion: (() -> Void)?
+    var onPaste: (() -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
+    var placeholderText: String?
+    var placeholderColor: NSColor = .placeholderTextColor
+    var hasGhostSuffix = false
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard string.isEmpty,
+              let placeholderText,
+              !placeholderText.isEmpty else { return }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 13),
+            .foregroundColor: placeholderColor,
+            .paragraphStyle: paragraph,
+        ]
+
+        let linePadding = textContainer?.lineFragmentPadding ?? 0
+        let x = textContainerInset.width + linePadding
+        let y = textContainerInset.height + placeholderVerticalOffset
+        let width = max(0, bounds.width - x - textContainerInset.width - linePadding)
+        let height = max(0, bounds.height - (textContainerInset.height * 2))
+        let rect = NSRect(x: x, y: y, width: width, height: height)
+
+        (placeholderText as NSString).draw(in: rect, withAttributes: attributes)
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
+
+        // Tab accepts ghost suggestions in-place when available.
+        if event.keyCode == 48, !modifiers.contains(.shift), hasGhostSuffix {
+            onAcceptSuggestion?()
+            return
+        }
+
+        // Enter sends; Shift+Enter inserts newline.
+        if event.keyCode == 36 || event.keyCode == 76 {
+            if modifiers == [.shift] {
+                insertNewline(nil)
+                return
+            }
+            if modifiers.isEmpty {
+                onSubmit?()
+                return
+            }
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "v" {
+            onPaste?()
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let focused = super.becomeFirstResponder()
+        if focused { onFocusChange?(true) }
+        return focused
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
+    }
+}
+
 // MARK: - Microphone Button
 
 private struct MicrophoneButton: View {
     let isRecording: Bool
+    let iconSize: CGFloat
     let action: () -> Void
     @State private var isPulsing = false
 
@@ -499,12 +660,10 @@ private struct MicrophoneButton: View {
                 }
 
                 Image(systemName: isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isRecording ? VColor.error : VColor.textSecondary)
-                    .padding(6)
+                    .font(.system(size: iconSize, weight: .regular))
+                    .foregroundColor(isRecording ? VColor.error : VColor.textSecondary.opacity(0.82))
             }
         }
-        .buttonStyle(.plain)
         .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
         .onChange(of: isRecording) {
             isPulsing = isRecording
@@ -515,47 +674,39 @@ private struct MicrophoneButton: View {
     }
 }
 
-// MARK: - Composer Scroll Tracking
+private struct ComposerActionButtonStyle: ButtonStyle {
+    let isHovered: Bool
+    let isFocused: Bool
+    let size: CGFloat
 
-/// Reads the enclosing NSScrollView's content offset in real-time via AppKit notifications.
-struct ScrollOffsetReader: NSViewRepresentable {
-    @Binding var offset: CGFloat
+    @Environment(\.isEnabled) private var isEnabled
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            guard let scrollView = view.enclosingScrollView else { return }
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            NotificationCenter.default.addObserver(
-                context.coordinator,
-                selector: #selector(Coordinator.boundsDidChange(_:)),
-                name: NSView.boundsDidChangeNotification,
-                object: scrollView.contentView
+    func makeBody(configuration: Configuration) -> some View {
+        let isInteractive = isEnabled && (isHovered || configuration.isPressed || isFocused)
+        let backgroundOpacity: Double = {
+            if !isInteractive { return 0 }
+            return configuration.isPressed ? 0.5 : 0.28
+        }()
+
+        return configuration.label
+            .frame(width: size, height: size)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBorder.opacity(backgroundOpacity))
             )
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(offset: $offset)
-    }
-
-    class Coordinator: NSObject {
-        var offset: Binding<CGFloat>
-
-        init(offset: Binding<CGFloat>) {
-            self.offset = offset
-        }
-
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        @objc func boundsDidChange(_ notification: Notification) {
-            guard let clipView = notification.object as? NSClipView else { return }
-            offset.wrappedValue = clipView.bounds.origin.y
-        }
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(
+                        isEnabled && isFocused
+                            ? VColor.accent.opacity(0.72)
+                            : VColor.surfaceBorder.opacity(isEnabled && isHovered ? 0.5 : 0),
+                        lineWidth: isEnabled && isFocused ? 1.25 : 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(VAnimation.fast, value: configuration.isPressed)
+            .animation(VAnimation.fast, value: isHovered)
+            .animation(VAnimation.fast, value: isFocused)
     }
 }
