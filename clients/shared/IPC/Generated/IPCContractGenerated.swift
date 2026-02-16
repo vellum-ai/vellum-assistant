@@ -1176,6 +1176,13 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let source: String?
 }
 
+public struct IPCToolInputDelta: Codable, Sendable {
+    public let type: String
+    public let toolName: String
+    public let content: String
+    public let sessionId: String?
+}
+
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String

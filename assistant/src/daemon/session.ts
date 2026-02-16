@@ -953,6 +953,9 @@ export class Session {
           case 'tool_output_chunk':
             onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
             break;
+          case 'input_json_delta':
+            onEvent({ type: 'tool_input_delta', toolName: event.toolName, content: event.accumulatedJson, sessionId: this.conversationId });
+            break;
           case 'tool_result': {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });

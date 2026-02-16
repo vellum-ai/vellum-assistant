@@ -1484,3 +1484,12 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "type": "integration_connect_result",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types tool_input_delta serializes to expected JSON 1`] = `
+{
+  "content": "{"html": "<div>Hello</div>"}",
+  "sessionId": "sess-001",
+  "toolName": "app_create",
+  "type": "tool_input_delta",
+}
+`;

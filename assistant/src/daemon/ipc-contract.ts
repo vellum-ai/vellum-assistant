@@ -703,6 +703,13 @@ export interface ToolOutputChunk {
   chunk: string;
 }
 
+export interface ToolInputDelta {
+  type: 'tool_input_delta';
+  toolName: string;
+  content: string;
+  sessionId?: string;
+}
+
 export interface ToolResult {
   type: 'tool_result';
   toolName: string;
@@ -1419,6 +1426,7 @@ export type ServerMessage =
   | AssistantThinkingDelta
   | ToolUseStart
   | ToolOutputChunk
+  | ToolInputDelta
   | ToolResult
   | ConfirmationRequest
   | SecretRequest

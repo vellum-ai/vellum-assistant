@@ -853,6 +853,39 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Extract a code preview from accumulated tool input JSON.
+    /// For app_create/app_update: shows the raw JSON immediately, then switches
+    /// to showing just the HTML once the `html` field starts streaming.
+    static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
+        guard !accumulatedJson.isEmpty else { return nil }
+        let isAppTool = toolName == "app_create" || toolName == "app_update"
+        guard isAppTool else { return nil }
+
+        // Once the html field appears, show just the HTML content
+        let markers = ["\"html\": \"", "\"html\":\""]
+        for marker in markers {
+            if let range = accumulatedJson.range(of: marker) {
+                var html = String(accumulatedJson[range.upperBound...])
+                // Strip trailing JSON delimiters
+                if html.hasSuffix("\"}") {
+                    html = String(html.dropLast(2))
+                } else if html.hasSuffix("\"") {
+                    html = String(html.dropLast(1))
+                }
+                // Unescape JSON string escapes
+                html = html
+                    .replacingOccurrences(of: "\\n", with: "\n")
+                    .replacingOccurrences(of: "\\t", with: "\t")
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                    .replacingOccurrences(of: "\\\\", with: "\\")
+                return html.isEmpty ? nil : html
+            }
+        }
+
+        // Before the html field appears, show the raw JSON being generated
+        return accumulatedJson
+    }
+
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -973,6 +1006,8 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
                 // Check if this message has completed tool calls
                 let toolCalls = messages[index].toolCalls
                 if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
@@ -1208,6 +1243,22 @@ public final class ChatViewModel: ObservableObject {
                 messages.append(newMsg)
             }
             lastContentWasToolCall = true
+
+        case .toolInputDelta(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
+            if let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[msgIndex].streamingCodePreview = preview
+                messages[msgIndex].streamingCodeToolName = msg.toolName
+            } else {
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true)
+                newMsg.streamingCodePreview = preview
+                newMsg.streamingCodeToolName = msg.toolName
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
 
         case .toolOutputChunk:
             // Streaming output — ignore for now, we show the final result
