@@ -27,6 +27,11 @@ function sanitizeToolId(id: string): string {
 
 const SYNTHETIC_RESULT = '<synthesized_result>tool result missing from history</synthesized_result>';
 
+// Null-byte prefix makes these placeholders impossible to produce via normal
+// model output or user input, preventing false positives in isPlaceholder().
+export const PLACEHOLDER_EMPTY_TURN = '\x00__PLACEHOLDER__[empty assistant turn]';
+export const PLACEHOLDER_BLOCKS_OMITTED = '\x00__PLACEHOLDER__[internal blocks omitted]';
+
 /** Type-guard for tool_use blocks in Anthropic-formatted content. */
 function isToolUseBlock(block: unknown): block is Anthropic.ToolUseBlockParam {
   return typeof block === 'object' && block !== null && (block as { type: string }).type === 'tool_use';
@@ -357,7 +362,7 @@ export class AnthropicProvider implements Provider {
         if (content.length === 0 && m.role === 'assistant' && droppedUnknownBlock) {
           return {
             role: m.role as 'assistant',
-            content: [{ type: 'text' as const, text: '[internal blocks omitted]' }],
+            content: [{ type: 'text' as const, text: PLACEHOLDER_BLOCKS_OMITTED }],
           };
         }
 
@@ -377,7 +382,7 @@ export class AnthropicProvider implements Provider {
         if (m.role === 'assistant' && prev && prev.role !== 'assistant') {
           acc.push({
             role: 'assistant' as const,
-            content: [{ type: 'text' as const, text: '[empty assistant turn]' }],
+            content: [{ type: 'text' as const, text: PLACEHOLDER_EMPTY_TURN }],
           });
         }
         return acc;
@@ -394,9 +399,11 @@ export class AnthropicProvider implements Provider {
         if (formatted[i].role === 'assistant') {
           const iContent = Array.isArray(formatted[i].content) ? formatted[i].content : [];
           const prevContent = Array.isArray(formatted[i - 1].content) ? formatted[i - 1].content : [];
-          const isPlaceholder = (c: typeof iContent) =>
-            c.length === 1 && typeof c[0] !== 'string' && c[0].type === 'text' &&
-            (c[0] as { text?: string }).text === '[empty assistant turn]';
+          const isPlaceholder = (c: typeof iContent) => {
+            if (c.length !== 1 || typeof c[0] === 'string' || c[0].type !== 'text') return false;
+            const text = (c[0] as { text?: string }).text;
+            return text === PLACEHOLDER_EMPTY_TURN || text === PLACEHOLDER_BLOCKS_OMITTED;
+          };
           if (isPlaceholder(iContent)) {
             formatted.splice(i, 1);
           } else if (isPlaceholder(prevContent)) {

@@ -55,7 +55,7 @@ mock.module('@anthropic-ai/sdk', () => ({
 }));
 
 // Import after mocking
-import { AnthropicProvider } from '../providers/anthropic/client.js';
+import { AnthropicProvider, PLACEHOLDER_EMPTY_TURN, PLACEHOLDER_BLOCKS_OMITTED } from '../providers/anthropic/client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -546,7 +546,7 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[1].role).toBe('assistant');
     expect(sent[1].content).toHaveLength(1);
     expect(sent[1].content[0].type).toBe('text');
-    expect(sent[1].content[0].text).toBe('[internal blocks omitted]');
+    expect(sent[1].content[0].text).toBe(PLACEHOLDER_BLOCKS_OMITTED);
     expect(sent[2].role).toBe('user');
   });
 
@@ -604,9 +604,39 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[1].role).toBe('assistant');
     expect(sent[1].content).toHaveLength(1);
     expect(sent[1].content[0].type).toBe('text');
-    expect(sent[1].content[0].text).toBe('[empty assistant turn]');
+    expect(sent[1].content[0].text).toBe(PLACEHOLDER_EMPTY_TURN);
     expect(sent[2].role).toBe('user');
     expect(sent[2].content[0].text).toBe('Continue');
+  });
+
+  test('unknown-blocks-only assistant followed by empty user does not produce consecutive same-role messages', async () => {
+    // Same edge case as the empty-assistant test below, but triggered by an
+    // assistant turn whose blocks are all unknown (e.g. ui_surface). The turn
+    // becomes a [internal blocks omitted] placeholder which must also be
+    // removed when adjacent to a real assistant message.
+    const messages: Message[] = [
+      userMsg('Start'),
+      {
+        role: 'assistant',
+        content: [{ type: 'ui_surface' as 'text', text: 'invisible' }], // unknown → placeholder
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: '  \n  ' }], // whitespace-only → empty after filtering
+      },
+      assistantMsg('Real response'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // Verify strict role alternation: no two adjacent messages share the same role
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role).not.toBe(sent[i - 1].role);
+    }
   });
 
   test('empty assistant followed by empty user does not produce consecutive same-role messages', async () => {
