@@ -577,7 +577,7 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[1].content[1].text).toBe('More valid text');
   });
 
-  test('assistant message with only whitespace text does not get placeholder', async () => {
+  test('assistant message with only whitespace text gets placeholder to preserve alternation', async () => {
     const messages: Message[] = [
       userMsg('Start'),
       {
@@ -596,12 +596,17 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
       content: Array<{ type: string; text?: string }>;
     }>;
 
-    // Whitespace-only assistant messages should be dropped entirely, not replaced with placeholder
-    expect(sent).toHaveLength(2);
+    // Whitespace-only assistant messages between user messages must be preserved
+    // with a placeholder to maintain Anthropic's strict role alternation
+    expect(sent).toHaveLength(3);
     expect(sent[0].role).toBe('user');
     expect(sent[0].content[0].text).toBe('Start');
-    expect(sent[1].role).toBe('user');
-    expect(sent[1].content[0].text).toBe('Continue');
+    expect(sent[1].role).toBe('assistant');
+    expect(sent[1].content).toHaveLength(1);
+    expect(sent[1].content[0].type).toBe('text');
+    expect(sent[1].content[0].text).toBe('[empty assistant turn]');
+    expect(sent[2].role).toBe('user');
+    expect(sent[2].content[0].text).toBe('Continue');
   });
 
   // -----------------------------------------------------------------------

@@ -356,7 +356,7 @@ export class AnthropicProvider implements Provider {
         // Anthropic's role alternation requirement.
         if (content.length === 0 && m.role === 'assistant' && droppedUnknownBlock) {
           return {
-            role: m.role,
+            role: m.role as 'assistant',
             content: [{ type: 'text' as const, text: '[internal blocks omitted]' }],
           };
         }
@@ -364,8 +364,24 @@ export class AnthropicProvider implements Provider {
         return {
           role: m.role,
           content,
-        };
-      }).filter((m) => m.content.length > 0);
+        } as Anthropic.MessageParam;
+      }).reduce<Anthropic.MessageParam[]>((acc, m) => {
+        if (m.content.length > 0) {
+          acc.push(m);
+          return acc;
+        }
+        // Dropping an empty assistant message between two user messages (or vice
+        // versa) would create consecutive same-role messages, violating
+        // Anthropic's role alternation requirement. Inject a placeholder instead.
+        const prev = acc[acc.length - 1];
+        if (m.role === 'assistant' && prev && prev.role !== 'assistant') {
+          acc.push({
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: '[empty assistant turn]' }],
+          });
+        }
+        return acc;
+      }, []);
 
       sentMessages = ensureToolPairing(formatted);
       const params: Anthropic.MessageCreateParams = {
