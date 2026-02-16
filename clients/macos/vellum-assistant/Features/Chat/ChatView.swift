@@ -24,7 +24,7 @@ private enum ChatTimestampTimeZone {
             observer = NotificationCenter.default.addObserver(
                 forName: NSNotification.Name.NSSystemTimeZoneDidChange,
                 object: nil,
-                queue: nil
+                queue: .main
             ) { _ in
                 cachedZone = nil
                 cacheTimestamp = nil
