@@ -225,6 +225,32 @@ When enabling memory features on a new deployment, follow this order to minimize
 - **Cross-project memory leaks**: Switch `scopePolicy` from `allow_global_fallback` to `strict`.
 - **High latency**: Disable LLM re-ranking (`reranking.enabled: false`) or reduce `lexicalTopK`/`semanticTopK`.
 
+## Runtime Context Injections
+
+Beyond memory recall, the session injects additional runtime-only context into user messages before each model call. These blocks are stripped from the persisted conversation history after the agent loop completes.
+
+### Workspace Top-Level Context
+
+A listing of top-level directories in the sandbox workspace is prepended to the user message, giving the model structural awareness of available files. Key properties:
+
+- **Non-recursive**: Only immediate children of the workspace root are listed.
+- **Bounded**: Capped at 120 entries to avoid excessive token usage.
+- **Cached**: Computed once on the first turn, then refreshed only when a successful mutation tool (`file_edit`, `file_write`, `bash`) marks the cache dirty.
+- **Cache-safe**: Prepended as the first content block so Anthropic cache breakpoints (placed on the last content block of the last two user turns) are unaffected.
+
+### Dynamic Profile
+
+A compiled user profile block (preferences, constraints, instructions) is appended to the user message. See the Memory System section for details on profile compilation and token budgeting.
+
+### Injection Order
+
+The `applyRuntimeInjections()` function processes injections in this order:
+1. Soft conflict instruction (appended)
+2. Active surface context (prepended)
+3. Workspace top-level context (prepended — appears first in final content)
+
+All injected blocks have corresponding strip functions that run after the agent loop to prevent persistence.
+
 ## Next Steps
 
 High-impact follow-ups for month/year sessions at very large scale:

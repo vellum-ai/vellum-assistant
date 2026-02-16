@@ -759,6 +759,68 @@ Runtime profile flow (per turn):
 
 ---
 
+## Workspace Context Injection — Runtime-Only Directory Awareness
+
+The session injects a workspace top-level directory listing into every user message at runtime, giving the model awareness of the sandbox filesystem structure without persisting it in conversation history.
+
+### Lifecycle
+
+```mermaid
+graph TB
+    subgraph "Per-Turn Flow"
+        CHECK{"workspaceTopLevelDirty<br/>OR first turn?"}
+        SCAN["scanTopLevelDirectories(workingDir)<br/>→ TopLevelSnapshot"]
+        RENDER["renderWorkspaceTopLevelContext(snapshot)<br/>→ XML text block"]
+        CACHE["Cache rendered text<br/>workspaceTopLevelDirty = false"]
+        INJECT["applyRuntimeInjections<br/>prepend workspace block<br/>to user message"]
+        AGENT["AgentLoop.run(runMessages)"]
+        STRIP["stripWorkspaceTopLevelContext<br/>remove block from persisted history"]
+    end
+
+    subgraph "Dirty Triggers (tool_result handler)"
+        FILE_EDIT["file_edit (success)"]
+        FILE_WRITE["file_write (success)"]
+        BASH["bash (success)"]
+        DIRTY["markWorkspaceTopLevelDirty()"]
+    end
+
+    CHECK -->|dirty or null| SCAN
+    CHECK -->|clean| INJECT
+    SCAN --> RENDER
+    RENDER --> CACHE
+    CACHE --> INJECT
+    INJECT --> AGENT
+    AGENT --> STRIP
+
+    FILE_EDIT --> DIRTY
+    FILE_WRITE --> DIRTY
+    BASH --> DIRTY
+```
+
+### Key design decisions
+
+- **Scope**: Sandbox workspace only (`~/.vellum/workspace`). Non-recursive — only top-level directories.
+- **Bounded**: Maximum 120 directory entries (`MAX_TOP_LEVEL_ENTRIES`). Excess is truncated with a note.
+- **Prepend, not append**: The workspace block is prepended to the user message content so that Anthropic cache breakpoints continue to land on the trailing user text block, preserving prompt cache efficiency.
+- **Runtime-only**: The injected `<workspace_top_level>` block is stripped from `this.messages` after the agent loop completes. It never persists in conversation history or the database.
+- **Dirty-refresh**: The scanner runs once on the first turn, then only re-runs after a successful mutation tool (`file_edit`, `file_write`, `bash`). Failed tool results do not trigger a refresh.
+- **Injection ordering**: Workspace context is injected after other runtime injections (soft conflict instruction, active surface) via `applyRuntimeInjections`, but because it is **prepended** to content blocks, it appears first in the final message.
+
+### Cache compatibility
+
+The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **last content block** of the last two user turns. Since workspace context is prepended (first block), the cache breakpoint correctly lands on the trailing user text or dynamic profile block. This is validated by dedicated cache-compatibility tests.
+
+### Key files
+
+| File | Role |
+|------|------|
+| `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
+| `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
+| `assistant/src/daemon/session-runtime-assembly.ts` | `injectWorkspaceTopLevelContext()` and `stripWorkspaceTopLevelContext()` |
+| `assistant/src/daemon/session.ts` | Cache state, dirty marking, refresh logic, runtime wiring |
+
+---
+
 ## Web Server — Connection Modes
 
 ```mermaid
