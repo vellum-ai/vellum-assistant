@@ -2,6 +2,21 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
+private enum ChatTimestampTimeZone {
+    /// Prefer the host's configured timezone over process-level TZ overrides
+    /// so chat dividers stay in the user's real local timezone.
+    static func resolve() -> TimeZone {
+        if let symlink = try? FileManager.default.destinationOfSymbolicLink(atPath: "/etc/localtime"),
+           let markerRange = symlink.range(of: "/zoneinfo/") {
+            let identifier = String(symlink[markerRange.upperBound...])
+            if let tz = TimeZone(identifier: identifier) {
+                return tz
+            }
+        }
+        return .autoupdatingCurrent
+    }
+}
+
 struct ChatView: View {
     let messages: [ChatMessage]
     @Binding var inputText: String
@@ -261,7 +276,7 @@ struct ChatView: View {
         let previous = messages[index - 1].timestamp
         // Always show a divider when crossing a calendar-day boundary (in local timezone)
         var calendar = Calendar.current
-        calendar.timeZone = .autoupdatingCurrent
+        calendar.timeZone = ChatTimestampTimeZone.resolve()
         if !calendar.isDate(current, inSameDayAs: previous) { return true }
         let gap = current.timeIntervalSince(previous)
         return gap > 300
@@ -641,7 +656,7 @@ private struct ChatBubble: View {
     }
 
     private var formattedTimestamp: String {
-        let tz = TimeZone.autoupdatingCurrent
+        let tz = ChatTimestampTimeZone.resolve()
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()
@@ -1386,7 +1401,7 @@ private struct TimestampDivider: View {
     let date: Date
 
     private var formattedTime: String {
-        let tz = TimeZone.autoupdatingCurrent
+        let tz = ChatTimestampTimeZone.resolve()
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()
