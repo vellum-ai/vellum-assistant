@@ -106,9 +106,13 @@ struct TrustRulesView: View {
     }
 
     @MainActor private func deleteRule(id: String) {
-        try? daemonClient.sendRemoveTrustRule(id: id)
-        withAnimation {
-            rules.removeAll { $0.id == id }
+        do {
+            try daemonClient.sendRemoveTrustRule(id: id)
+            withAnimation {
+                rules.removeAll { $0.id == id }
+            }
+        } catch {
+            // IPC failed — keep the rule visible
         }
     }
 
