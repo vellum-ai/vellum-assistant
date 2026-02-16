@@ -9,6 +9,11 @@ public struct FormSurfaceView: View {
     @State private var selectValues: [String: String] = [:]
     @State private var currentPageIndex: Int = 0
 
+    private var safePageIndex: Int {
+        guard let pages = data.pages, !pages.isEmpty else { return 0 }
+        return min(currentPageIndex, pages.count - 1)
+    }
+
     public init(data: FormSurfaceData, onSubmit: @escaping ([String: Any]?) -> Void) {
         self.data = data
         self.onSubmit = onSubmit
@@ -18,9 +23,9 @@ public struct FormSurfaceView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             if let pages = data.pages, !pages.isEmpty {
                 // Multi-page mode
-                pageIndicator(currentPage: currentPageIndex, totalPages: pages.count)
+                pageIndicator(currentPage: safePageIndex, totalPages: pages.count)
 
-                let page = pages[currentPageIndex]
+                let page = pages[safePageIndex]
                 Text(page.title)
                     .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
@@ -35,7 +40,7 @@ public struct FormSurfaceView: View {
                     fieldView(for: field)
                 }
 
-                pageNavigation(currentPage: currentPageIndex, totalPages: pages.count)
+                pageNavigation(currentPage: safePageIndex, totalPages: pages.count)
             } else {
                 // Single-page mode (existing behavior)
                 if let description = data.description {
