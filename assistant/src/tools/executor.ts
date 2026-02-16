@@ -441,10 +441,12 @@ async function executeWithTimeout(
   timeoutMs: number,
   toolName: string,
 ): Promise<ToolExecutionResult> {
+  let timeoutHandle: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-    setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
   });
   const result = await Promise.race([promise, timeoutPromise]);
+  clearTimeout(timeoutHandle!);
   if (result === TIMEOUT_SENTINEL) {
     const sec = Math.round(timeoutMs / 1000);
     return {

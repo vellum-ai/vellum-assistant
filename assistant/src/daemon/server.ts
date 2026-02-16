@@ -196,14 +196,15 @@ export class DaemonServer {
           if (!filename) return;
           const file = String(filename);
           if (!handlers[file]) return;
-          const existing = this.debounceTimers.get(file);
+          const key = `file:${file}`;
+          const existing = this.debounceTimers.get(key);
           if (existing) clearTimeout(existing);
           const timer = setTimeout(() => {
-            this.debounceTimers.delete(file);
+            this.debounceTimers.delete(key);
             log.info({ file }, 'File changed, reloading');
             handlers[file]();
           }, 200);
-          this.debounceTimers.set(file, timer);
+          this.debounceTimers.set(key, timer);
           this.enforceDebounceLimit();
         });
         this.watchers.push(watcher);
@@ -298,8 +299,10 @@ export class DaemonServer {
   }
 
   /**
-   * Evict the oldest debounce entries when the map exceeds the safety cap.
+   * Evict the oldest file-watcher debounce entries when the map exceeds the safety cap.
    * Map iteration order follows insertion order, so the first keys are oldest.
+   * Protects system timers (keys starting with '__') from eviction, so critical
+   * timers like '__suppress_reset__' are never cleared during bursts of file events.
    */
   private enforceDebounceLimit(): void {
     if (this.debounceTimers.size <= DaemonServer.MAX_DEBOUNCE_ENTRIES) return;
@@ -307,6 +310,8 @@ export class DaemonServer {
     let removed = 0;
     for (const [key, timer] of this.debounceTimers) {
       if (removed >= excess) break;
+      // Skip system timers (those with keys starting with '__')
+      if (key.startsWith('__')) continue;
       clearTimeout(timer);
       this.debounceTimers.delete(key);
       removed++;

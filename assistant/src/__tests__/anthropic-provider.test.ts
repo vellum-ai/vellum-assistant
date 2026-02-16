@@ -523,6 +523,60 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[4].content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'tu_2')).toBe(true);
   });
 
+  test('assistant message with only unknown blocks gets placeholder text', async () => {
+    const messages: Message[] = [
+      userMsg('Start'),
+      // Assistant message with only ui_surface (unknown type) — will be filtered
+      {
+        role: 'assistant',
+        content: [{ type: 'ui_surface' as 'text', text: 'this will be filtered' }],
+      },
+      userMsg('Continue'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // Should preserve alternation: user, assistant (with placeholder), user
+    expect(sent).toHaveLength(3);
+    expect(sent[0].role).toBe('user');
+    expect(sent[1].role).toBe('assistant');
+    expect(sent[1].content).toHaveLength(1);
+    expect(sent[1].content[0].type).toBe('text');
+    expect(sent[1].content[0].text).toBe('[internal blocks omitted]');
+    expect(sent[2].role).toBe('user');
+  });
+
+  test('assistant message with mix of known and unknown blocks keeps known blocks', async () => {
+    const messages: Message[] = [
+      userMsg('Start'),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Valid text' },
+          { type: 'ui_surface' as 'text', text: 'this will be filtered' },
+          { type: 'text', text: 'More valid text' },
+        ],
+      },
+      userMsg('Continue'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].role).toBe('assistant');
+    expect(sent[1].content).toHaveLength(2);
+    expect(sent[1].content[0].text).toBe('Valid text');
+    expect(sent[1].content[1].text).toBe('More valid text');
+  });
+
   // -----------------------------------------------------------------------
   // Workspace context injection + cache control
   // -----------------------------------------------------------------------
