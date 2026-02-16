@@ -258,14 +258,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // NWConnection.cancel() are safe from any thread.
         //
         // We must finish subscriber continuations to prevent hanging `for await` loops.
-        // To safely access the @MainActor-isolated `subscribers` dictionary from deinit,
-        // we use MainActor.assumeIsolated, which is safe here because:
-        // 1. deinit only runs when the last reference is released
-        // 2. No other code can be concurrently accessing this instance's isolated state
-        // 3. The class is marked @MainActor, so all references must be released from MainActor
-        MainActor.assumeIsolated {
-            for continuation in subscribers.values {
-                continuation.finish()
+        // deinit is nonisolated in Swift 5.9+, so we check if we're on the main thread.
+        // If we are, we can safely access the @MainActor-isolated subscribers.
+        // If not, we skip cleanup here since disconnect() should have already handled it.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                for continuation in subscribers.values {
+                    continuation.finish()
+                }
             }
         }
 
