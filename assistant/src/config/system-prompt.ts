@@ -35,27 +35,46 @@ export function ensurePromptFiles(): void {
 }
 
 /**
+ * Returns true when BOOTSTRAP.md has been deleted from the workspace,
+ * signalling the first-run ritual is complete.
+ */
+export function isOnboardingComplete(): boolean {
+  const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
+  return !existsSync(bootstrapPath);
+}
+
+/**
  * Build the system prompt from ~/.vellum prompt files,
  * then append a generated skills catalog (if any skills are available).
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
- *   3. Append skills catalog from ~/.vellum/workspace/skills
+ *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
+ *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
 export function buildSystemPrompt(): string {
   const soulPath = getWorkspacePromptPath('SOUL.md');
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   const userPath = getWorkspacePromptPath('USER.md');
+  const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
+  const bootstrap = readPromptFile(bootstrapPath);
 
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
+  if (bootstrap) {
+    parts.push(
+      '# First-Run Ritual\n\n'
+      + 'BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n'
+      + bootstrap,
+    );
+  }
   parts.push(buildConfigSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
