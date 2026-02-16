@@ -1,5 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
-import { getLogger } from '../../util/logger.js';
+import { eq } from 'drizzle-orm';
 import { getDb } from '../db.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import {
@@ -8,10 +7,8 @@ import {
   memorySegments,
   memorySummaries,
 } from '../schema.js';
-import type { Candidate, CandidateType } from './types.js';
+import type { Candidate } from './types.js';
 import { computeRecencyScore } from './ranking.js';
-
-const log = getLogger('memory-retriever');
 
 export async function semanticSearch(
   queryVector: number[],

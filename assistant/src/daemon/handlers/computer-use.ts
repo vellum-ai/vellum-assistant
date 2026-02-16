@@ -3,7 +3,7 @@ import { getConfig } from '../../config/loader.js';
 import { getFailoverProvider } from '../../providers/registry.js';
 import { RateLimitProvider } from '../../providers/ratelimit.js';
 import { ComputerUseSession } from '../computer-use-session.js';
-import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from '../ipc-blob-store.js';
+import { readBlob, deleteBlob, validateBlobKindEncoding } from '../ipc-blob-store.js';
 import type {
   CuSessionCreate,
   CuSessionAbort,

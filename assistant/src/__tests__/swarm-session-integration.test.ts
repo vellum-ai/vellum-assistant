@@ -22,6 +22,7 @@ let hasApiKey = true;
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     provider: 'anthropic',
+    providerOrder: ['anthropic'],
     apiKeys: { anthropic: hasApiKey ? 'test-key' : '' },
     swarm: {
       enabled: swarmEnabled,
@@ -35,18 +36,20 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
+const mockTestProvider = {
+  name: 'test',
+  async sendMessage() {
+    return {
+      content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
+      model: 'test',
+      usage: { inputTokens: 10, outputTokens: 10 },
+      stopReason: 'end_turn',
+    };
+  },
+};
 mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({
-    name: 'test',
-    async sendMessage() {
-      return {
-        content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
-        model: 'test',
-        usage: { inputTokens: 10, outputTokens: 10 },
-        stopReason: 'end_turn',
-      };
-    },
-  }),
+  getProvider: () => mockTestProvider,
+  getFailoverProvider: () => mockTestProvider,
 }));
 
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({
