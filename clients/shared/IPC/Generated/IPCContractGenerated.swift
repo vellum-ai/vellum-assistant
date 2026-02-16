@@ -280,6 +280,8 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let height: Int?
     public let appId: String?
     public let appType: String?
+    public let reloadGeneration: Double?
+    public let status: String?
     public let preview: IPCDynamicPagePreview?
 }
 
