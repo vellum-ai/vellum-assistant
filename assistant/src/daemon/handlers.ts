@@ -59,7 +59,6 @@ import type {
   PublishPageRequest,
   UnpublishPageRequest,
   LinkOpenRequest,
-  IntegrationListRequest,
   IntegrationConnectRequest,
   IntegrationDisconnectRequest,
 } from './ipc-protocol.js';

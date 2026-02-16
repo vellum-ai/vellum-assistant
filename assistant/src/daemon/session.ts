@@ -1033,15 +1033,16 @@ export class Session {
             // Add surface blocks to content for persistence
             const contentWithSurfaces: ContentBlock[] = [...cleanedContent as ContentBlock[]];
             for (const surface of this.currentTurnSurfaces) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- custom block type for persistence
               contentWithSurfaces.push({
-                type: 'ui_surface' as any,
+                type: 'ui_surface',
                 surfaceId: surface.surfaceId,
                 surfaceType: surface.surfaceType,
                 title: surface.title,
                 data: surface.data,
                 actions: surface.actions,
                 display: surface.display,
-              } as any);
+              } as unknown as ContentBlock);
             }
 
             // Save assistant message with cleaned content (tags stripped) plus surfaces
@@ -1418,7 +1419,7 @@ export class Session {
       try {
         const content = JSON.parse(msg.content);
         if (Array.isArray(content)) {
-          const toolUseBlocks = content.filter((b: any) => b.type === 'tool_use');
+          const toolUseBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_use');
           log.info({ messageId: msg.id, blockCount: content.length, toolUseCount: toolUseBlocks.length }, 'Consolidating assistant message content');
           consolidatedContent.push(...content);
         }
