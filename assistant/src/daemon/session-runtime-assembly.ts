@@ -143,7 +143,7 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
       if (additionalSize + primaryContent.length > MAX_CONTEXT_LENGTH - schemaSize) {
         additionalPageBlocks.length = 0;
       } else {
-        mainBudget = MAX_CONTEXT_LENGTH - schemaSize - additionalSize;
+        mainBudget = Math.floor((MAX_CONTEXT_LENGTH - schemaSize - additionalSize) * 0.85);
       }
     }
 
