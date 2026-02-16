@@ -2,6 +2,7 @@ import Foundation
 import VellumAssistantShared
 import AppKit
 import Combine
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAgent")
@@ -19,7 +20,6 @@ public final class AmbientAgent: ObservableObject {
     let rideShotgunTrigger = RideShotgunTrigger()
     @Published var currentSession: RideShotgunSession?
 
-    private var invitationWindow: RideShotgunInvitationWindow?
     private var progressWindow: RideShotgunProgressWindow?
     private var summaryWindow: RideShotgunSummaryWindow?
     private var triggerCancellable: AnyCancellable?
@@ -53,7 +53,7 @@ public final class AmbientAgent: ObservableObject {
         rideShotgunTrigger.stop()
         currentSession?.cancel()
         currentSession = nil
-        invitationWindow?.close()
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["ride-shotgun-invitation"])
         progressWindow?.close()
         summaryWindow?.close()
         triggerCancellable?.cancel()
@@ -63,20 +63,31 @@ public final class AmbientAgent: ObservableObject {
     // MARK: - Ride Shotgun Flow
 
     func showInvitation() {
-        guard invitationWindow == nil else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Ride Shotgun"
+        content.body = """
+        I'll watch your screen briefly to learn how you work:
+        • Pick up patterns in your workflow
+        • Spot where I can save you time
+        • Get context so my suggestions are relevant
+        """
+        content.categoryIdentifier = "RIDE_SHOTGUN"
+        content.sound = .default
 
-        let window = RideShotgunInvitationWindow(
-            onAccept: { [weak self] durationSeconds in
-                self?.invitationWindow = nil
-                self?.startRideShotgun(durationSeconds: durationSeconds)
-            },
-            onDecline: { [weak self] in
-                self?.invitationWindow = nil
-                self?.rideShotgunTrigger.recordDeclined()
-            }
+        let request = UNNotificationRequest(
+            identifier: "ride-shotgun-invitation",
+            content: content,
+            trigger: nil
         )
-        invitationWindow = window
-        window.show()
+
+        Task {
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                log.info("Posted ride shotgun invitation notification")
+            } catch {
+                log.error("Failed to post ride shotgun notification: \(error.localizedDescription)")
+            }
+        }
     }
 
     func startRideShotgun(durationSeconds: Int) {

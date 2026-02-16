@@ -378,25 +378,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupToolConfirmationNotifications() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
             guard let self else { return }
-            let mainWindowVisible = self.mainWindow?.isVisible == true && NSApp.isActive
-            let workspaceExpanded = self.mainWindow?.windowState.isDynamicExpanded == true
-            // Post a native notification when the window isn't visible or workspace is expanded
-            if !mainWindowVisible || workspaceExpanded {
-                Task { @MainActor in
-                    let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
-                    do {
-                        try self.daemonClient.sendConfirmationResponse(
-                            requestId: msg.requestId,
-                            decision: decision
-                        )
-                        // Only sync the inline message state if the IPC send succeeded.
-                        self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
-                            requestId: msg.requestId,
-                            decision: decision
-                        )
-                    } catch {
-                        log.error("Failed to send confirmation response: \(error.localizedDescription)")
-                    }
+            Task { @MainActor in
+                let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+                do {
+                    try self.daemonClient.sendConfirmationResponse(
+                        requestId: msg.requestId,
+                        decision: decision
+                    )
+                    // Only sync the inline message state if the IPC send succeeded.
+                    self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                        requestId: msg.requestId,
+                        decision: decision
+                    )
+                } catch {
+                    log.error("Failed to send confirmation response: \(error.localizedDescription)")
                 }
             }
         }
@@ -1218,14 +1213,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Notifications
 
     private func setupNotifications() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
 
         let center = UNUserNotificationCenter.current()
         center.delegate = self
 
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
-                print("Notification authorization error: \(error.localizedDescription)")
+                log.error("Notification authorization error: \(error.localizedDescription)")
             }
         }
 
@@ -1258,7 +1252,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             options: [.customDismissAction]
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory])
+        // Ride Shotgun invitation — duration choices
+        let shotgun1Action = UNNotificationAction(identifier: "SHOTGUN_1MIN", title: "1 min", options: [])
+        let shotgun3Action = UNNotificationAction(identifier: "SHOTGUN_3MIN", title: "3 min", options: [])
+        let shotgun5Action = UNNotificationAction(identifier: "SHOTGUN_5MIN", title: "5 min", options: [])
+        let rideShotgunCategory = UNNotificationCategory(
+            identifier: "RIDE_SHOTGUN",
+            actions: [shotgun1Action, shotgun3Action, shotgun5Action],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory])
     }
 
     private func registerBundledFonts() {
@@ -1491,6 +1496,32 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             }
             await MainActor.run {
                 self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
+            }
+            return
+        }
+
+        // Handle ride shotgun invitation notifications
+        if categoryId == "RIDE_SHOTGUN" {
+            let durationSeconds: Int?
+            switch response.actionIdentifier {
+            case "SHOTGUN_1MIN":
+                durationSeconds = 60
+            case "SHOTGUN_3MIN":
+                durationSeconds = 180
+            case "SHOTGUN_5MIN":
+                durationSeconds = 300
+            case UNNotificationDismissActionIdentifier:
+                durationSeconds = nil
+            default:
+                // Clicked the banner itself — start with default 3 min
+                durationSeconds = 180
+            }
+            await MainActor.run {
+                if let durationSeconds {
+                    self.ambientAgent.startRideShotgun(durationSeconds: durationSeconds)
+                } else {
+                    self.ambientAgent.rideShotgunTrigger.recordDeclined()
+                }
             }
             return
         }
