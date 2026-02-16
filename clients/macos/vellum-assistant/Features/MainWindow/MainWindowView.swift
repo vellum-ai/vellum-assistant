@@ -592,58 +592,11 @@ struct MainWindowView: View {
     @ViewBuilder
     private var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
-            ChatView(
-                messages: viewModel.messages,
-                inputText: Binding(
-                    get: { viewModel.inputText },
-                    set: { viewModel.inputText = $0 }
-                ),
-                hasAPIKey: windowState.hasAPIKey,
-                isThinking: viewModel.isThinking,
-                isSending: viewModel.isSending,
-                errorText: viewModel.errorText,
-                pendingQueuedCount: viewModel.pendingQueuedCount,
-                suggestion: viewModel.suggestion,
-                pendingAttachments: viewModel.pendingAttachments,
-                isRecording: viewModel.isRecording,
-                onOpenSettings: {
-                    windowState.activePanel = .settings
-                },
-                onSend: viewModel.sendMessage,
-                onStop: viewModel.stopGenerating,
-                onDismissError: viewModel.dismissError,
-                onAcceptSuggestion: viewModel.acceptSuggestion,
-                onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                onDropImageData: { data, name in
-                    let filename: String
-                    if let name {
-                        let basename = (name as NSString).lastPathComponent
-                        let base = (basename as NSString).deletingPathExtension
-                        filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                    } else {
-                        filename = "Dropped Image.png"
-                    }
-                    viewModel.addAttachment(imageData: data, filename: filename)
-                },
-                onPaste: { viewModel.addAttachmentFromPasteboard() },
-                onMicrophoneToggle: onMicrophoneToggle,
-                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
-                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                onRegenerate: { viewModel.regenerateLastMessage() },
-                sessionError: viewModel.sessionError,
-                onRetry: { viewModel.retryAfterSessionError() },
-                onDismissSessionError: { viewModel.dismissSessionError() },
-                onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                watchSession: ambientAgent.activeWatchSession,
-                onStopWatch: { viewModel.stopWatchSession() },
-                onOpenActivity: { messageId in
-                    windowState.toggleActivityPanel(with: messageId)
-                },
-                isActivityPanelOpen: windowState.activePanel == .activity
+            ActiveChatViewWrapper(
+                viewModel: viewModel,
+                windowState: windowState,
+                ambientAgent: ambientAgent,
+                onMicrophoneToggle: onMicrophoneToggle
             )
         }
     }
@@ -690,333 +643,32 @@ struct MainWindowView: View {
         }
     }
 
-    @MainActor
-    private static func openFilePicker(viewModel: ChatViewModel) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [
-            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
-            UTType("net.daringfireball.markdown") ?? .plainText,
-        ]
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            viewModel.addAttachment(url: url)
-        }
-    }
-
     // MARK: - Dynamic Workspace
-
-    /// Height reserved at the bottom so HTML content scrolls past the floating composer.
-    private var workspaceComposerReservedHeight: CGFloat {
-        let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
-        let contentHeight = max(editorClamped, 28)
-        let expanded = windowState.workspaceComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
-        let hasAttachments = !(threadManager.activeViewModel?.pendingAttachments.isEmpty ?? true)
-        let attachmentStrip: CGFloat = hasAttachments ? VSpacing.sm + 36 + VSpacing.xs : 0
-        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
-    }
 
     @ViewBuilder
     private func dynamicWorkspaceView(surface: Surface, data: DynamicPageSurfaceData) -> some View {
-        ZStack {
-            // Full-bleed WebView with CSS content insets
-            DynamicPageSurfaceView(
+        if let viewModel = threadManager.activeViewModel {
+            DynamicWorkspaceWrapper(
+                viewModel: viewModel,
+                surface: surface,
                 data: data,
-                onAction: { actionId, actionData in
-                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
-                },
-                appId: data.appId,
-                onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
-                    guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
-                    surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
-                } : nil,
-                onCoordinatorReady: data.appId != nil ? { coordinator in
-                    surfaceManager.surfaceCoordinators[surface.id] = coordinator
-                } : nil,
-                onPageChanged: { [weak viewModel = threadManager.activeViewModel] page in
-                    viewModel?.currentPage = page
-                },
-                onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
-                    guard let appId = data.appId else { return }
-                    try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
-                } : nil,
-                onLinkOpen: { url, metadata in
-                    surfaceManager.onLinkOpen?(url, metadata)
-                },
-                topContentInset: 56,
-                bottomContentInset: workspaceComposerReservedHeight
+                windowState: windowState,
+                surfaceManager: surfaceManager,
+                daemonClient: daemonClient,
+                trafficLightPadding: trafficLightPadding,
+                isPublishing: $isPublishing,
+                publishedUrl: $publishedUrl,
+                publishError: $publishError,
+                isBundling: $isBundling,
+                showSharePicker: $showSharePicker,
+                shareFileURL: $shareFileURL,
+                workspaceEditorContentHeight: $workspaceEditorContentHeight,
+                onPublishPage: publishPage,
+                onBundleAndShare: bundleAndShare,
+                onMicrophoneToggle: onMicrophoneToggle
             )
-
-            // Floating overlays
-            VStack(spacing: 0) {
-                // Top bar: back button + share button
-                HStack {
-                    // "< Chat" pill button — single exit action
-                    Button(action: {
-                        showSharePicker = false
-                        windowState.closeDynamicPanel()
-                    }) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Chat")
-                                .font(VFont.bodyMedium)
-                        }
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(
-                            Capsule()
-                                .fill(VColor.surface.opacity(0.85))
-                                .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Back to chat")
-
-                    Spacer()
-
-                    // Undo button — revert the last refinement on this surface
-                    if let viewModel = threadManager.activeViewModel,
-                       viewModel.surfaceUndoCount > 0 {
-                        Button(action: {
-                            viewModel.undoSurfaceRefinement()
-                        }) {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textPrimary)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Circle()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Undo")
-                        .transition(.opacity)
-                        .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
-                    }
-
-                    // Publish button — for static pages or site-type apps
-                    if data.appId == nil || data.appType == "site" {
-                        Button(action: {
-                            publishPage(html: data.html, title: data.preview?.title)
-                        }) {
-                            Group {
-                                if isPublishing {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.7)
-                                } else if publishedUrl != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12, weight: .medium))
-                                } else {
-                                    Image(systemName: "globe")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                            }
-                            .foregroundColor(publishedUrl != nil ? VColor.success : VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isPublishing)
-                        .accessibilityLabel(publishedUrl != nil ? "Published" : "Publish")
-
-                        // Show URL pill after publishing
-                        if let url = publishedUrl {
-                            Button(action: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url, forType: .string)
-                            }) {
-                                HStack(spacing: VSpacing.xs) {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.system(size: 10, weight: .medium))
-                                    Text(url)
-                                        .font(VFont.caption)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                .foregroundColor(VColor.textSecondary)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xs)
-                                .background(
-                                    Capsule()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy published URL")
-                            .frame(maxWidth: 200)
-                        }
-
-                        // Show error pill on publish failure
-                        if let error = publishError {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text(error)
-                                    .font(VFont.caption)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .foregroundColor(VColor.error)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(
-                                Capsule()
-                                    .fill(VColor.error.opacity(0.15))
-                                    .overlay(Capsule().stroke(VColor.error.opacity(0.3), lineWidth: 1))
-                            )
-                            .frame(maxWidth: 200)
-                            .transition(.opacity)
-                        }
-                    }
-
-                    // Share button — bundle app and share via system share sheet
-                    if let appId = data.appId {
-                        Button(action: {
-                            bundleAndShare(appId: appId)
-                        }) {
-                            Group {
-                                if isBundling {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                            }
-                            .foregroundColor(VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isBundling)
-                        .accessibilityLabel("Share")
-                        .background(
-                            ShareSheetButton(
-                                items: shareFileURL != nil ? [shareFileURL!] : [],
-                                isPresented: Binding(
-                                    get: { showSharePicker },
-                                    set: { newValue in
-                                        showSharePicker = newValue
-                                        if !newValue { shareFileURL = nil }
-                                    }
-                                )
-                            )
-                            .frame(width: 1, height: 1)
-                        )
-                    }
-                }
-                .padding(.leading, trafficLightPadding)
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.md)
-
-                Spacer()
-
-                // Workspace refinement indicator
-                if let viewModel = threadManager.activeViewModel, viewModel.isWorkspaceRefinementInFlight {
-                    HStack(spacing: VSpacing.sm) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(VColor.accent)
-                        Text("Refining...")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.sm)
-                    .background(
-                        Capsule()
-                            .fill(VColor.surface.opacity(0.9))
-                            .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .animation(VAnimation.standard, value: viewModel.isWorkspaceRefinementInFlight)
-                }
-
-                // Refinement failure toast — shown when the AI responded with text
-                // but didn't actually update the surface
-                if let viewModel = threadManager.activeViewModel,
-                   let failureText = viewModel.refinementFailureText {
-                    HStack(alignment: .top, spacing: VSpacing.sm) {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 13, weight: .medium))
-                            .padding(.top, 1)
-                        Text(failureText)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(4)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                        Button {
-                            viewModel.refinementFailureText = nil
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .frame(maxWidth: 480)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surface.opacity(0.95))
-                            .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.surfaceBorder, lineWidth: 1))
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    .animation(VAnimation.standard, value: viewModel.refinementFailureText != nil)
-                }
-
-                // Floating composer — fade is handled inside the WebView via CSS
-                if let viewModel = threadManager.activeViewModel {
-                    let placeholder = data.appId != nil
-                        ? "Describe changes to \(surface.title ?? "this app")..."
-                        : "Describe changes to this page..."
-                    ComposerView(
-                        inputText: Binding(
-                            get: { viewModel.inputText },
-                            set: { viewModel.inputText = $0 }
-                        ),
-                        hasAPIKey: windowState.hasAPIKey,
-                        isSending: viewModel.isSending,
-                        isRecording: viewModel.isRecording,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        onSend: viewModel.sendMessage,
-                        onStop: viewModel.stopGenerating,
-                        onAcceptSuggestion: viewModel.acceptSuggestion,
-                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        placeholderText: placeholder,
-                        editorContentHeight: $workspaceEditorContentHeight,
-                        isComposerExpanded: $windowState.workspaceComposerExpanded
-                    )
-                }
-            }
         }
     }
-
 }
 
 private struct ZoomIndicatorView: View {
@@ -1197,6 +849,404 @@ private struct DrawerMenuItem: View {
     }
 }
 
+
+// MARK: - File Picker Helper
+
+@MainActor
+private func openFilePicker(viewModel: ChatViewModel) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = false
+    panel.allowedContentTypes = [
+        .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+        UTType("net.daringfireball.markdown") ?? .plainText,
+    ]
+    guard panel.runModal() == .OK else { return }
+    for url in panel.urls {
+        viewModel.addAttachment(url: url)
+    }
+}
+
+// MARK: - Wrapper Views
+// These observe the ChatViewModel directly so that only the views that
+// actually need ChatViewModel state are invalidated on change, instead
+// of propagating every change up through ThreadManager.
+
+/// Observes the active ChatViewModel and renders the chat interface.
+private struct ActiveChatViewWrapper: View {
+    @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var windowState: MainWindowState
+    let ambientAgent: AmbientAgent
+    let onMicrophoneToggle: () -> Void
+
+    var body: some View {
+        ChatView(
+            messages: viewModel.messages,
+            inputText: Binding(
+                get: { viewModel.inputText },
+                set: { viewModel.inputText = $0 }
+            ),
+            hasAPIKey: windowState.hasAPIKey,
+            isThinking: viewModel.isThinking,
+            isSending: viewModel.isSending,
+            errorText: viewModel.errorText,
+            pendingQueuedCount: viewModel.pendingQueuedCount,
+            suggestion: viewModel.suggestion,
+            pendingAttachments: viewModel.pendingAttachments,
+            isRecording: viewModel.isRecording,
+            onOpenSettings: {
+                windowState.activePanel = .settings
+            },
+            onSend: viewModel.sendMessage,
+            onStop: viewModel.stopGenerating,
+            onDismissError: viewModel.dismissError,
+            onAcceptSuggestion: viewModel.acceptSuggestion,
+            onAttach: { openFilePicker(viewModel: viewModel) },
+            onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+            onDropImageData: { data, name in
+                let filename: String
+                if let name {
+                    let basename = (name as NSString).lastPathComponent
+                    let base = (basename as NSString).deletingPathExtension
+                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                } else {
+                    filename = "Dropped Image.png"
+                }
+                viewModel.addAttachment(imageData: data, filename: filename)
+            },
+            onPaste: { viewModel.addAttachmentFromPasteboard() },
+            onMicrophoneToggle: onMicrophoneToggle,
+            onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+            onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+            onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+            onRegenerate: { viewModel.regenerateLastMessage() },
+            sessionError: viewModel.sessionError,
+            onRetry: { viewModel.retryAfterSessionError() },
+            onDismissSessionError: { viewModel.dismissSessionError() },
+            onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+            watchSession: ambientAgent.activeWatchSession,
+            onStopWatch: { viewModel.stopWatchSession() },
+            onOpenActivity: { messageId in
+                windowState.toggleActivityPanel(with: messageId)
+            },
+            isActivityPanelOpen: windowState.activePanel == .activity
+        )
+    }
+}
+
+/// Observes the active ChatViewModel and renders the dynamic workspace overlays.
+private struct DynamicWorkspaceWrapper: View {
+    @ObservedObject var viewModel: ChatViewModel
+    let surface: Surface
+    let data: DynamicPageSurfaceData
+    @ObservedObject var windowState: MainWindowState
+    let surfaceManager: SurfaceManager
+    let daemonClient: DaemonClient
+    let trafficLightPadding: CGFloat
+    @Binding var isPublishing: Bool
+    @Binding var publishedUrl: String?
+    @Binding var publishError: String?
+    @Binding var isBundling: Bool
+    @Binding var showSharePicker: Bool
+    @Binding var shareFileURL: URL?
+    @Binding var workspaceEditorContentHeight: CGFloat
+    let onPublishPage: (String, String?) -> Void
+    let onBundleAndShare: (String) -> Void
+    let onMicrophoneToggle: () -> Void
+
+    private var composerReservedHeight: CGFloat {
+        let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
+        let contentHeight = max(editorClamped, 28)
+        let expanded = windowState.workspaceComposerExpanded
+        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
+        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
+        let hasAttachments = !viewModel.pendingAttachments.isEmpty
+        let attachmentStrip: CGFloat = hasAttachments ? VSpacing.sm + 36 + VSpacing.xs : 0
+        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
+    }
+
+    var body: some View {
+        ZStack {
+            DynamicPageSurfaceView(
+                data: data,
+                onAction: { actionId, actionData in
+                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                },
+                appId: data.appId,
+                onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
+                    guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
+                    surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
+                } : nil,
+                onCoordinatorReady: data.appId != nil ? { coordinator in
+                    surfaceManager.surfaceCoordinators[surface.id] = coordinator
+                } : nil,
+                onPageChanged: { [weak viewModel] page in
+                    viewModel?.currentPage = page
+                },
+                onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                    guard let appId = data.appId else { return }
+                    try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                } : nil,
+                onLinkOpen: { url, metadata in
+                    surfaceManager.onLinkOpen?(url, metadata)
+                },
+                topContentInset: 56,
+                bottomContentInset: composerReservedHeight
+            )
+
+            VStack(spacing: 0) {
+                HStack {
+                    Button(action: {
+                        showSharePicker = false
+                        windowState.closeDynamicPanel()
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Chat")
+                                .font(VFont.bodyMedium)
+                        }
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(
+                            Capsule()
+                                .fill(VColor.surface.opacity(0.85))
+                                .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to chat")
+
+                    Spacer()
+
+                    if viewModel.surfaceUndoCount > 0 {
+                        Button(action: {
+                            viewModel.undoSurfaceRefinement()
+                        }) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Undo")
+                        .transition(.opacity)
+                        .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
+                    }
+
+                    if data.appId == nil || data.appType == "site" {
+                        Button(action: {
+                            onPublishPage(data.html, data.preview?.title)
+                        }) {
+                            Group {
+                                if isPublishing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else if publishedUrl != nil {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                } else {
+                                    Image(systemName: "globe")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                            }
+                            .foregroundColor(publishedUrl != nil ? VColor.success : VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isPublishing)
+                        .accessibilityLabel(publishedUrl != nil ? "Published" : "Publish")
+
+                        if let url = publishedUrl {
+                            Button(action: {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            }) {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(url)
+                                        .font(VFont.caption)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                                .foregroundColor(VColor.textSecondary)
+                                .padding(.horizontal, VSpacing.sm)
+                                .padding(.vertical, VSpacing.xs)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy published URL")
+                            .frame(maxWidth: 200)
+                        }
+
+                        if let error = publishError {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text(error)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .foregroundColor(VColor.error)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(
+                                Capsule()
+                                    .fill(VColor.error.opacity(0.15))
+                                    .overlay(Capsule().stroke(VColor.error.opacity(0.3), lineWidth: 1))
+                            )
+                            .frame(maxWidth: 200)
+                            .transition(.opacity)
+                        }
+                    }
+
+                    if let appId = data.appId {
+                        Button(action: {
+                            onBundleAndShare(appId)
+                        }) {
+                            Group {
+                                if isBundling {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                            }
+                            .foregroundColor(VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBundling)
+                        .accessibilityLabel("Share")
+                        .background(
+                            ShareSheetButton(
+                                items: shareFileURL != nil ? [shareFileURL!] : [],
+                                isPresented: Binding(
+                                    get: { showSharePicker },
+                                    set: { newValue in
+                                        showSharePicker = newValue
+                                        if !newValue { shareFileURL = nil }
+                                    }
+                                )
+                            )
+                            .frame(width: 1, height: 1)
+                        )
+                    }
+                }
+                .padding(.leading, trafficLightPadding)
+                .padding(.trailing, VSpacing.xl)
+                .padding(.top, VSpacing.md)
+
+                Spacer()
+
+                if viewModel.isWorkspaceRefinementInFlight {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(VColor.accent)
+                        Text("Refining...")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        Capsule()
+                            .fill(VColor.surface.opacity(0.9))
+                            .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .animation(VAnimation.standard, value: viewModel.isWorkspaceRefinementInFlight)
+                }
+
+                if let failureText = viewModel.refinementFailureText {
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.top, 1)
+                        Text(failureText)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(4)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Button {
+                            viewModel.refinementFailureText = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .frame(maxWidth: 480)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.surface.opacity(0.95))
+                            .overlay(RoundedRectangle(cornerRadius: VRadius.lg).stroke(VColor.surfaceBorder, lineWidth: 1))
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .animation(VAnimation.standard, value: viewModel.refinementFailureText != nil)
+                }
+
+                let placeholder = data.appId != nil
+                    ? "Describe changes to \(surface.title ?? "this app")..."
+                    : "Describe changes to this page..."
+                ComposerView(
+                    inputText: Binding(
+                        get: { viewModel.inputText },
+                        set: { viewModel.inputText = $0 }
+                    ),
+                    hasAPIKey: windowState.hasAPIKey,
+                    isSending: viewModel.isSending,
+                    isRecording: viewModel.isRecording,
+                    suggestion: viewModel.suggestion,
+                    pendingAttachments: viewModel.pendingAttachments,
+                    onSend: viewModel.sendMessage,
+                    onStop: viewModel.stopGenerating,
+                    onAcceptSuggestion: viewModel.acceptSuggestion,
+                    onAttach: { openFilePicker(viewModel: viewModel) },
+                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                    onPaste: { viewModel.addAttachmentFromPasteboard() },
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    placeholderText: placeholder,
+                    editorContentHeight: $workspaceEditorContentHeight,
+                    isComposerExpanded: $windowState.workspaceComposerExpanded
+                )
+            }
+        }
+    }
+}
 
 #Preview {
     let dc = DaemonClient()

@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 import Foundation
@@ -17,7 +16,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published var threads: [ThreadModel] = []
     @Published var activeThreadId: UUID? {
         didSet {
-            subscribeToActiveViewModel()
             if let activeThreadId {
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
                 lastActiveThreadIdString = activeThreadId.uuidString
@@ -29,7 +27,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     private var chatViewModels: [UUID: ChatViewModel] = [:]
     private let daemonClient: DaemonClient
-    private var viewModelCancellable: AnyCancellable?
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
 
@@ -391,15 +388,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: archivedSessionsKey)
-        }
-    }
-
-    /// Subscribe to the active ChatViewModel's objectWillChange so that
-    /// SwiftUI re-evaluates views when the nested view model publishes
-    /// changes (new messages, thinking state, errors, etc.).
-    private func subscribeToActiveViewModel() {
-        viewModelCancellable = activeViewModel?.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
         }
     }
 
