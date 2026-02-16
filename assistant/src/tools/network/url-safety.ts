@@ -145,7 +145,8 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
     host === 'localhost' ||
     host === 'localhost.localdomain' ||
     host === '0.0.0.0' ||
-    host.endsWith('.localhost')
+    host.endsWith('.localhost') ||
+    host.endsWith('.local')
   ) {
     return true;
   }
