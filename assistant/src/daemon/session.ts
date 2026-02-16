@@ -84,6 +84,7 @@ import {
   surfaceProxyResolver,
 } from './session-surfaces.js';
 import { prepareMemoryContext } from './session-memory.js';
+import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import {
   approveHostAttachmentRead,
   formatAttachmentWarnings,
@@ -286,6 +287,7 @@ export class Session {
         if (appId) {
           refreshSurfacesForApp(this, appId);
           this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
+          void updatePublishedAppDeployment(appId);
         }
       }
 
@@ -296,6 +298,7 @@ export class Session {
         if (appId) {
           refreshSurfacesForApp(this, appId, { fileChange: true, status });
           this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
+          void updatePublishedAppDeployment(appId);
         }
       }
 
