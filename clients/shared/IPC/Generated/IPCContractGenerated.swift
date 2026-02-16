@@ -77,6 +77,7 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let createdAt: Int
     public let version: String?
     public let contentId: String?
+    public let appType: String?
 }
 
 public struct IPCAppUpdatePreviewRequest: Codable, Sendable {

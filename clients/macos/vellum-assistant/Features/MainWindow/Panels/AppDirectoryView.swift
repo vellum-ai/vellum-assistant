@@ -204,6 +204,16 @@ struct AppDirectoryView: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
+                    if item.appType == "site" {
+                        Text("Site")
+                            .font(VFont.small)
+                            .foregroundColor(Emerald._400)
+                            .padding(.horizontal, VSpacing.xs)
+                            .padding(.vertical, 1)
+                            .background(Emerald._900.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                    }
+
                     if item.isShared {
                         HStack(spacing: 2) {
                             Image(systemName: "person.2.fill")
@@ -319,6 +329,7 @@ struct AppDirectoryView: View {
                 preview: app.preview,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
+                appType: app.appType,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
@@ -333,6 +344,7 @@ struct AppDirectoryView: View {
                 preview: app.preview,
                 dateLabel: formatISO(app.installedAt),
                 isShared: true,
+                appType: nil,
                 localAppId: nil,
                 sharedUUID: app.uuid
             ))
@@ -408,6 +420,7 @@ private struct DirectoryAppItem: Identifiable {
     let preview: String?
     let dateLabel: String
     let isShared: Bool
+    let appType: String?
     let localAppId: String?
     let sharedUUID: String?
 }

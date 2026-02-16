@@ -14,6 +14,7 @@ private struct DisplayAppItem: Identifiable {
     let signerDisplayName: String?
     let version: String?
     let updateAvailable: Bool?
+    let appType: String?
 
     /// For local apps: the app store ID used for bundling.
     let localAppId: String?
@@ -210,6 +211,16 @@ struct GeneratedPanel: View {
 
                     if let tier = item.trustTier {
                         trustBadge(tier: tier)
+                    }
+
+                    if item.appType == "site" {
+                        Text("Site")
+                            .font(VFont.small)
+                            .foregroundColor(Emerald._400)
+                            .padding(.horizontal, VSpacing.xs)
+                            .padding(.vertical, 1)
+                            .background(Emerald._900.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
                     }
 
                     if item.updateAvailable == true {
@@ -522,6 +533,7 @@ struct GeneratedPanel: View {
                 signerDisplayName: nil,
                 version: app.version,
                 updateAvailable: nil,
+                appType: app.appType,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
@@ -541,6 +553,7 @@ struct GeneratedPanel: View {
                 signerDisplayName: app.signerDisplayName,
                 version: app.version,
                 updateAvailable: app.updateAvailable,
+                appType: nil,
                 localAppId: nil,
                 sharedUUID: app.uuid
             ))
