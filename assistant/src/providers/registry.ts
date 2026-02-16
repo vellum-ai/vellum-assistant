@@ -17,6 +17,8 @@ const DEFAULT_MODELS: Record<string, string> = {
 };
 
 const providers = new Map<string, Provider>();
+let cachedFailoverProvider: FailoverProvider | null = null;
+let cachedFailoverKey: string | null = null;
 
 export function registerProvider(name: string, provider: Provider): void {
   providers.set(name, provider);
@@ -36,6 +38,7 @@ export function getProvider(name: string): Provider {
  * Build a provider that tries the primary provider first, then falls back to
  * others in the configured order. If providerOrder is empty or only contains
  * the primary, returns the primary provider directly (no wrapper overhead).
+ * Caches the FailoverProvider instance so health state persists across calls.
  */
 export function getFailoverProvider(primaryName: string, providerOrder: string[]): Provider {
   const primary = getProvider(primaryName);
@@ -57,7 +60,14 @@ export function getFailoverProvider(primaryName: string, providerOrder: string[]
     return primary;
   }
 
-  return new FailoverProvider(orderedProviders);
+  const cacheKey = `${primaryName}:${providerOrder.join(',')}`;
+  if (cachedFailoverProvider && cachedFailoverKey === cacheKey) {
+    return cachedFailoverProvider;
+  }
+
+  cachedFailoverProvider = new FailoverProvider(orderedProviders);
+  cachedFailoverKey = cacheKey;
+  return cachedFailoverProvider;
 }
 
 export function listProviders(): string[] {
@@ -84,6 +94,8 @@ function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAUL
 
 export function initializeProviders(config: ProvidersConfig): void {
   providers.clear();
+  cachedFailoverProvider = null;
+  cachedFailoverKey = null;
 
   if (config.apiKeys.anthropic) {
     const model = resolveModel(config, 'anthropic');
