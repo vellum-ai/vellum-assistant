@@ -7,7 +7,7 @@ import {
   listSecureKeys,
   getBackendType,
 } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata } from './metadata-store.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput } from './policy-types.js';
 import { credentialBroker } from './broker.js';
@@ -108,20 +108,22 @@ class CredentialStoreTool implements Tool {
         }
         const policy = toPolicyFromInput(policyInput);
 
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+        }
+
         const key = `credential:${service}:${field}`;
         const ok = setSecureKey(key, value);
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        try {
-          upsertCredentialMetadata(service, field, {
-            allowedTools: policy.allowedTools,
-            allowedDomains: policy.allowedDomains,
-            usageDescription: policy.usageDescription,
-          });
-        } catch (err) {
-          log.warn({ service, field, err }, 'metadata write failed after storing credential');
-        }
+        upsertCredentialMetadata(service, field, {
+          allowedTools: policy.allowedTools,
+          allowedDomains: policy.allowedDomains,
+          usageDescription: policy.usageDescription,
+        });
         return { content: `Stored credential for ${service}/${field}.`, isError: false };
       }
 
@@ -158,16 +160,18 @@ class CredentialStoreTool implements Tool {
           return { content: 'Error: field is required for delete action', isError: true };
         }
 
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot delete credentials', isError: true };
+        }
+
         const key = `credential:${service}:${field}`;
         const ok = deleteSecureKey(key);
         if (!ok) {
           return { content: `Error: credential ${service}/${field} not found`, isError: true };
         }
-        try {
-          deleteCredentialMetadata(service, field);
-        } catch (err) {
-          log.warn({ service, field, err }, 'metadata cleanup failed after deleting credential');
-        }
+        deleteCredentialMetadata(service, field);
         return { content: `Deleted credential for ${service}/${field}.`, isError: false };
       }
 
@@ -201,6 +205,12 @@ class CredentialStoreTool implements Tool {
         }
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+        }
+
         const result = await context.requestSecret({
           service, field, label, description, placeholder,
           purpose: promptPolicy.usageDescription,
@@ -224,15 +234,11 @@ class CredentialStoreTool implements Tool {
           // Inject into broker for one-time use by the next tool call, then discard
           credentialBroker.injectTransient(service, field, result.value);
           // Also upsert metadata so broker policy checks can find the credential
-          try {
-            upsertCredentialMetadata(service, field, {
-              allowedTools: promptPolicy.allowedTools,
-              allowedDomains: promptPolicy.allowedDomains,
-              usageDescription: promptPolicy.usageDescription,
-            });
-          } catch (err) {
-            log.warn({ service, field, err }, 'metadata write failed for transient credential');
-          }
+          upsertCredentialMetadata(service, field, {
+            allowedTools: promptPolicy.allowedTools,
+            allowedDomains: promptPolicy.allowedDomains,
+            usageDescription: promptPolicy.usageDescription,
+          });
           log.info({ service, field, delivery: 'transient_send' }, 'One-time secret delivery used');
           return {
             content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
@@ -246,15 +252,11 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        try {
-          upsertCredentialMetadata(service, field, {
-            allowedTools: promptPolicy.allowedTools,
-            allowedDomains: promptPolicy.allowedDomains,
-            usageDescription: promptPolicy.usageDescription,
-          });
-        } catch (err) {
-          log.warn({ service, field, err }, 'metadata write failed after storing credential');
-        }
+        upsertCredentialMetadata(service, field, {
+          allowedTools: promptPolicy.allowedTools,
+          allowedDomains: promptPolicy.allowedDomains,
+          usageDescription: promptPolicy.usageDescription,
+        });
         return { content: `Credential stored for ${service}/${field}.`, isError: false };
       }
 
