@@ -197,6 +197,15 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   const requestId = uuid();
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
+  // Echo the user's prompt to the client so it appears in the chat UI
+  if (shouldRelayPrompt && prompt) {
+    ctx.sendToClient({
+      type: 'user_message_echo',
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+  }
+
   ctx.traceEmitter.emit('request_received', 'Surface action received', {
     requestId,
     status: 'info',

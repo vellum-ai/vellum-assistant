@@ -354,6 +354,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
 
 type ServerMessageType = ServerMessage['type'];
 const serverMessages: Record<ServerMessageType, ServerMessage> = {
+  user_message_echo: {
+    type: 'user_message_echo',
+    text: 'Check the weather for me',
+    sessionId: 'sess-001',
+  },
   assistant_text_delta: {
     type: 'assistant_text_delta',
     text: 'Here is some output',

@@ -654,6 +654,10 @@ extension IPCCuError {
     }
 }
 
+/// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
+/// Backed by generated `IPCUserMessageEcho`.
+public typealias UserMessageEchoMessage = IPCUserMessageEcho
+
 /// Streamed text delta from the assistant's response.
 /// Backed by generated `IPCAssistantTextDelta`.
 public typealias AssistantTextDeltaMessage = IPCAssistantTextDelta
@@ -1465,6 +1469,7 @@ public enum ServerMessage: Decodable, Sendable {
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
+    case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
@@ -1552,6 +1557,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_error":
             let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
+        case "user_message_echo":
+            let message = try UserMessageEchoMessage(from: decoder)
+            self = .userMessageEcho(message)
         case "assistant_text_delta":
             let message = try AssistantTextDeltaMessage(from: decoder)
             self = .assistantTextDelta(message)

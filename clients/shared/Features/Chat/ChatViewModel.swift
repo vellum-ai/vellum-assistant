@@ -926,6 +926,13 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
 
+        case .userMessageEcho(let echo):
+            guard belongsToSession(echo.sessionId) else { return }
+            let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+            messages.append(userMsg)
+            isSending = true
+            isThinking = true
+
         case .assistantThinkingDelta:
             // Stay in thinking state
             break

@@ -1499,6 +1499,12 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let extractedText: String?
 }
 
+public struct IPCUserMessageEcho: Codable, Sendable {
+    public let type: String
+    public let text: String
+    public let sessionId: String?
+}
+
 public struct IPCVercelApiConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String

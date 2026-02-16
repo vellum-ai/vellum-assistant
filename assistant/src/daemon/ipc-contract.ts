@@ -706,6 +706,12 @@ export type ClientMessage =
 
 // === Server → Client messages ===
 
+export interface UserMessageEcho {
+  type: 'user_message_echo';
+  text: string;
+  sessionId?: string;
+}
+
 export interface AssistantTextDelta {
   type: 'assistant_text_delta';
   text: string;
@@ -1466,6 +1472,7 @@ export interface UiSurfaceUndoResult {
 }
 
 export type ServerMessage =
+  | UserMessageEcho
   | AssistantTextDelta
   | AssistantThinkingDelta
   | ToolUseStart

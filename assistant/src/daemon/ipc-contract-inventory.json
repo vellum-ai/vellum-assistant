@@ -145,6 +145,7 @@
     "UnpublishPageResponse",
     "UsageResponse",
     "UsageUpdate",
+    "UserMessageEcho",
     "VercelApiConfigResponse",
     "WatchCompleteRequest",
     "WatchStarted"
@@ -294,6 +295,7 @@
     "unpublish_page_response",
     "usage_response",
     "usage_update",
+    "user_message_echo",
     "vercel_api_config_response",
     "watch_complete_request",
     "watch_started"
