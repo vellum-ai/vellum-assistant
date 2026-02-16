@@ -126,6 +126,7 @@ export class Session {
   private pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
+  private lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   /** Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
   private surfaceUndoStacks = new Map<string, string[]>();
@@ -1543,6 +1544,7 @@ export class Session {
       log.debug({ surfaceId, data }, 'Selection changed (non-terminal, not forwarding)');
       return;
     }
+    this.lastSurfaceAction.set(surfaceId, { actionId, data });
     const content = JSON.stringify({
       surfaceAction: true,
       surfaceId,
@@ -2071,15 +2073,29 @@ export class Session {
 
     if (toolName === 'ui_dismiss') {
       const surfaceId = input.surface_id as string;
-      this.sendToClient({
-        type: 'ui_surface_dismiss',
-        sessionId: this.conversationId,
-        surfaceId,
-      });
+      const lastAction = this.lastSurfaceAction.get(surfaceId);
+      const stored = this.surfaceState.get(surfaceId);
+      if (lastAction) {
+        const summary = this.buildCompletionSummary(stored?.surfaceType, lastAction.actionId, lastAction.data);
+        this.sendToClient({
+          type: 'ui_surface_complete',
+          sessionId: this.conversationId,
+          surfaceId,
+          summary,
+          submittedData: lastAction.data,
+        });
+      } else {
+        this.sendToClient({
+          type: 'ui_surface_dismiss',
+          sessionId: this.conversationId,
+          surfaceId,
+        });
+      }
       this.pendingSurfaceActions.delete(surfaceId);
       this.surfaceState.delete(surfaceId);
       this.surfaceUndoStacks.delete(surfaceId);
-      return { content: 'Surface dismissed', isError: false };
+      this.lastSurfaceAction.delete(surfaceId);
+      return { content: lastAction ? 'Surface completed' : 'Surface dismissed', isError: false };
     }
 
     if (toolName === 'request_computer_control') {
@@ -2211,6 +2227,26 @@ export class Session {
       conversationStore.updateConversationTitle(this.conversationId, title);
       log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
     }
+  }
+
+  private buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
+    if (surfaceType === 'confirmation') {
+      return actionId === 'cancel' ? 'Cancelled' : 'Confirmed';
+    }
+    if (surfaceType === 'form') {
+      return 'Submitted';
+    }
+    if (surfaceType === 'list' && data) {
+      const selected = data.selectedId as string | undefined;
+      if (selected) return `Selected: ${selected}`;
+      const selectedIds = data.selectedIds as string[] | undefined;
+      if (selectedIds?.length) return `Selected ${selectedIds.length} items`;
+    }
+    if (surfaceType === 'table' && data) {
+      const selectedIds = data.selectedIds as string[] | undefined;
+      if (selectedIds?.length) return `Selected ${selectedIds.length} rows`;
+    }
+    return actionId.charAt(0).toUpperCase() + actionId.slice(1);
   }
 }
 

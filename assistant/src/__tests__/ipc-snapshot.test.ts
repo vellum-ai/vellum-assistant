@@ -596,6 +596,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     surfaceId: 'surface-001',
   },
+  ui_surface_complete: {
+    type: 'ui_surface_complete',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    summary: 'Confirmed',
+  },
   app_data_response: {
     type: 'app_data_response',
     surfaceId: 'surface-001',
