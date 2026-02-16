@@ -445,16 +445,19 @@ async function executeWithTimeout(
   const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
     timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
   });
-  const result = await Promise.race([promise, timeoutPromise]);
-  clearTimeout(timeoutHandle!);
-  if (result === TIMEOUT_SENTINEL) {
-    const sec = Math.round(timeoutMs / 1000);
-    return {
-      content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
-      isError: true,
-    };
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    if (result === TIMEOUT_SENTINEL) {
+      const sec = Math.round(timeoutMs / 1000);
+      return {
+        content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
+        isError: true,
+      };
+    }
+    return result;
+  } finally {
+    clearTimeout(timeoutHandle!);
   }
-  return result;
 }
 
 function resolveExecutionTarget(toolName: string): ExecutionTarget {
