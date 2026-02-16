@@ -161,19 +161,20 @@ export class CredentialBroker {
     }
 
     // Domain policy enforcement — deny if the page domain is not in the credential's allowed list
-    if (metadata.allowedDomains.length > 0) {
+    const browserDomains = metadata.allowedDomains ?? [];
+    if (browserDomains.length > 0) {
       if (!request.domain) {
         return {
           success: false,
           reason: `Credential ${request.service}/${request.field} has a domain policy but no page domain was provided. ` +
-            `Allowed domains: ${metadata.allowedDomains.join(', ')}.`,
+            `Allowed domains: ${browserDomains.join(', ')}.`,
         };
       }
-      if (!isDomainAllowed(request.domain, metadata.allowedDomains)) {
+      if (!isDomainAllowed(request.domain, browserDomains)) {
         return {
           success: false,
           reason: `Domain "${request.domain}" is not allowed for credential ${request.service}/${request.field}. ` +
-            `Allowed domains: ${metadata.allowedDomains.join(', ')}.`,
+            `Allowed domains: ${browserDomains.join(', ')}.`,
         };
       }
     }
@@ -240,11 +241,12 @@ export class CredentialBroker {
 
     // Domain policy enforcement — credentials with domain restrictions are
     // scoped to browser use on those domains and cannot be used server-side.
-    if (metadata.allowedDomains.length > 0) {
+    const serverDomains = metadata.allowedDomains ?? [];
+    if (serverDomains.length > 0) {
       return {
         success: false,
         reason: `Credential ${request.service}/${request.field} has domain restrictions ` +
-          `(${metadata.allowedDomains.join(', ')}) and cannot be used server-side. ` +
+          `(${serverDomains.join(', ')}) and cannot be used server-side. ` +
           'Remove domain restrictions or use a separate credential without domain policy.',
       };
     }
