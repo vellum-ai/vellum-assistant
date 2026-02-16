@@ -113,7 +113,7 @@ struct ComposerView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.accent.opacity(isComposerFocused ? 0.18 : 0), lineWidth: 4)
+                .stroke(VColor.accent.opacity(isComposerFocused ? 0.14 : 0), lineWidth: 3)
         )
         .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
         .padding(.horizontal, VSpacing.lg)
@@ -449,7 +449,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
         textView.textColor = NSColor(VColor.textPrimary)
         textView.insertionPointColor = NSColor(VColor.accent)
-        textView.textContainerInset = NSSize(width: 0, height: 7)
+        textView.textContainerInset = NSSize(width: 0, height: 8)
         textView.string = text
 
         if let container = textView.textContainer {
