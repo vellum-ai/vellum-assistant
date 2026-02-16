@@ -5,7 +5,7 @@ import {
   createScheduleRun,
   completeScheduleRun,
 } from './schedule-store.js';
-import { claimDueReminders, setReminderConversationId } from '../tools/reminder/reminder-store.js';
+import { claimDueReminders, setReminderConversationId, requeueReminder } from '../tools/reminder/reminder-store.js';
 
 const log = getLogger('scheduler');
 
@@ -92,7 +92,8 @@ async function runScheduleOnce(
         log.info({ reminderId: reminder.id, label: reminder.label, conversationId: conversation.id }, 'Executing reminder');
         await processMessage(conversation.id, reminder.message);
       } catch (err) {
-        log.warn({ err, reminderId: reminder.id }, 'Reminder execution failed');
+        log.warn({ err, reminderId: reminder.id }, 'Reminder execution failed, requeueing');
+        requeueReminder(reminder.id);
       }
     } else {
       log.info({ reminderId: reminder.id, label: reminder.label }, 'Firing reminder notification');

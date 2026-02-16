@@ -105,6 +105,21 @@ export function claimDueReminders(now: number): ReminderRow[] {
   return claimed;
 }
 
+/**
+ * Reset a fired reminder back to pending so it can be retried on the next tick.
+ * Used when execute-mode reminder processing fails transiently.
+ */
+export function requeueReminder(id: string): boolean {
+  const db = getDb();
+  const now = Date.now();
+  const result = db
+    .update(reminders)
+    .set({ status: 'pending', firedAt: null, conversationId: null, updatedAt: now })
+    .where(and(eq(reminders.id, id), eq(reminders.status, 'fired')))
+    .run() as unknown as { changes?: number };
+  return (result.changes ?? 0) > 0;
+}
+
 export function setReminderConversationId(id: string, conversationId: string): void {
   const db = getDb();
   db.update(reminders)
