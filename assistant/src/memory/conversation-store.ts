@@ -9,6 +9,20 @@ import { deleteOrphanAttachments } from './attachments-store.js';
 
 const log = getLogger('conversation-store');
 
+/**
+ * Monotonic timestamp source for message ordering. Two messages saved within
+ * the same millisecond (e.g., tool_results user message + assistant message in
+ * message_complete) would get the same Date.now(), making their reload order
+ * non-deterministic. This counter ensures every call returns a strictly
+ * increasing value so insertion order is always preserved.
+ */
+let lastTimestamp = 0;
+function monotonicNow(): number {
+  const now = Date.now();
+  lastTimestamp = Math.max(now, lastTimestamp + 1);
+  return lastTimestamp;
+}
+
 export function createConversation(title?: string) {
   const db = getDb();
   const now = Date.now();
@@ -75,7 +89,7 @@ export function getLatestConversation() {
 
 export function addMessage(conversationId: string, role: string, content: string) {
   const db = getDb();
-  const now = Date.now();
+  const now = monotonicNow();
   const message = {
     id: uuid(),
     conversationId,

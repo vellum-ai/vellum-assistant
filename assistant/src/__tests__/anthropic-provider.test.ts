@@ -343,6 +343,137 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(user.content[2].cache_control).toEqual({ type: 'ephemeral' });
   });
 
+  // -----------------------------------------------------------------------
+  // ensureToolPairing — tool_use / tool_result pairing repair
+  // -----------------------------------------------------------------------
+
+  test('tool_use with missing tool_result gets synthetic result injected', async () => {
+    const messages: Message[] = [
+      userMsg('Do something'),
+      toolUseMsg('tu_1', 'file_read'),
+      userMsg('Thanks'),   // user text but no tool_result for tu_1
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string; is_error?: boolean }>;
+    }>;
+
+    // The second user message (after assistant) should now contain a synthetic tool_result
+    const userAfterAssistant = sent[2];
+    expect(userAfterAssistant.role).toBe('user');
+    const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].tool_use_id).toBe('tu_1');
+    expect(toolResults[0].is_error).toBe(true);
+  });
+
+  test('tool_use at end of messages gets synthetic user message appended', async () => {
+    const messages: Message[] = [
+      userMsg('Read file'),
+      toolUseMsg('tu_end', 'file_read'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // A synthetic user message should have been appended
+    expect(sent).toHaveLength(3);
+    expect(sent[2].role).toBe('user');
+    const toolResults = sent[2].content.filter((b) => b.type === 'tool_result');
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].tool_use_id).toBe('tu_end');
+  });
+
+  test('tool_use with matching tool_result passes through unchanged', async () => {
+    const messages: Message[] = [
+      userMsg('Read file'),
+      toolUseMsg('tu_ok', 'file_read'),
+      toolResultMsg('tu_ok', 'file contents'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // No synthetic messages or blocks added
+    expect(sent).toHaveLength(3);
+    const toolResults = sent[2].content.filter((b) => b.type === 'tool_result');
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].tool_use_id).toBe('tu_ok');
+  });
+
+  test('multiple tool_use with partial results gets missing ones filled', async () => {
+    const messages: Message[] = [
+      userMsg('Do things'),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'tu_a', name: 'file_read', input: {} },
+          { type: 'tool_use', id: 'tu_b', name: 'file_write', input: {} },
+          { type: 'tool_use', id: 'tu_c', name: 'bash', input: {} },
+        ],
+      },
+      // Only tu_a has a result
+      toolResultMsg('tu_a', 'result A'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string; is_error?: boolean }>;
+    }>;
+
+    const userAfterAssistant = sent[2];
+    const toolResults = userAfterAssistant.content.filter((b) => b.type === 'tool_result');
+    expect(toolResults).toHaveLength(3);
+
+    // tu_a: original result
+    expect(toolResults.find((r) => r.tool_use_id === 'tu_a')!.is_error).toBeFalsy();
+    // tu_b and tu_c: synthetic
+    expect(toolResults.find((r) => r.tool_use_id === 'tu_b')!.is_error).toBe(true);
+    expect(toolResults.find((r) => r.tool_use_id === 'tu_c')!.is_error).toBe(true);
+  });
+
+  test('consecutive assistant messages with tool_use each get synthetic results', async () => {
+    const messages: Message[] = [
+      userMsg('Start'),
+      toolUseMsg('tu_1', 'file_read'),
+      // missing tool_result for tu_1, then another assistant
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu_2', name: 'bash', input: {} }],
+      },
+      userMsg('Done'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // Should be: user, assistant(tu_1), synthetic_user(tu_1), assistant(tu_2), user_with_synthetic(tu_2)
+    expect(sent).toHaveLength(5);
+    expect(sent[0].role).toBe('user');
+    expect(sent[1].role).toBe('assistant');
+    expect(sent[2].role).toBe('user');
+    expect(sent[2].content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'tu_1')).toBe(true);
+    expect(sent[3].role).toBe('assistant');
+    expect(sent[4].role).toBe('user');
+    expect(sent[4].content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'tu_2')).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // Workspace context injection + cache control
+  // -----------------------------------------------------------------------
+
   test('multi-turn with workspace injection: cache on last two user turns only', async () => {
     const messages: Message[] = [
       // Turn 1: workspace + user text (should NOT get cache - it's the 3rd-to-last user turn)
