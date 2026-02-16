@@ -758,8 +758,17 @@ private struct ChatBubble: View {
         let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
         let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
         let hasPermission = decidedConfirmation != nil
+        let hasStreamingCode = message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
 
-        if hasInProgressTools && !permissionWasDenied {
+        if hasStreamingCode {
+            let rawName = message.streamingCodeToolName ?? ""
+            let displayName = rawName.replacingOccurrences(of: "_", with: " ")
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                RunningIndicator(label: Self.friendlyRunningLabel(displayName))
+                CodePreviewView(code: message.streamingCodePreview!)
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+        } else if hasInProgressTools && !permissionWasDenied {
             // In progress — show single running indicator
             let current = message.toolCalls.first(where: { !$0.isComplete }) ?? message.toolCalls.last
             RunningIndicator(label: Self.friendlyRunningLabel(current?.toolName ?? ""))
@@ -812,6 +821,9 @@ private struct ChatBubble: View {
         case "browser navigate":                            return "Opening a page"
         case "browser click":                               return "Clicking on the page"
         case "browser screenshot":                          return "Taking a screenshot"
+        case "app create":                                  return "Building your app"
+        case "app update":                                  return "Updating your app"
+        case "skill load":                                  return "Loading a skill"
         default:                                            return "Running \(toolName)"
         }
     }
@@ -1334,6 +1346,35 @@ private struct RunningIndicator: View {
                 phase = (phase + 1) % 3
             }
         }
+    }
+}
+
+private struct CodePreviewView: View {
+    let code: String
+
+    var body: some View {
+        ScrollView {
+            Text(displayCode)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.sm)
+        }
+        .frame(maxHeight: 120)
+        .background(VColor.background.opacity(0.6))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+    }
+
+    private var displayCode: String {
+        let lines = code.components(separatedBy: "\n")
+        if lines.count > 30 {
+            return lines.suffix(30).joined(separator: "\n")
+        }
+        return code
     }
 }
 

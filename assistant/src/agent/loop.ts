@@ -27,6 +27,7 @@ export type AgentEvent =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_output_chunk'; toolUseId: string; chunk: string }
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }
+  | { type: 'input_json_delta'; toolName: string; accumulatedJson: string }
   | { type: 'error'; error: Error }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; model: string; providerDurationMs: number };
 
@@ -131,6 +132,8 @@ export class AgentLoop {
                 onEvent({ type: 'text_delta', text: event.text });
               } else if (event.type === 'thinking_delta') {
                 onEvent({ type: 'thinking_delta', thinking: event.thinking });
+              } else if (event.type === 'input_json_delta') {
+                onEvent({ type: 'input_json_delta', toolName: event.toolName, accumulatedJson: event.accumulatedJson });
               }
             },
             signal,

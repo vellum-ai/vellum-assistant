@@ -394,6 +394,54 @@ export class AnthropicProvider implements Provider {
         onEvent?.({ type: "thinking_delta", thinking });
       });
 
+      // Track which tool is currently streaming so we can attribute inputJson deltas.
+      let currentStreamingToolName: string | undefined;
+      let accumulatedInputJson = '';
+      let lastInputJsonEmitMs = 0;
+      let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
+
+      stream.on("streamEvent", (event) => {
+        if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+          currentStreamingToolName = event.content_block.name;
+          accumulatedInputJson = '';
+          lastInputJsonEmitMs = 0;
+        }
+        if (event.type === 'content_block_stop') {
+          if (pendingInputJsonFlush) {
+            clearTimeout(pendingInputJsonFlush);
+            pendingInputJsonFlush = undefined;
+          }
+          if (currentStreamingToolName && accumulatedInputJson) {
+            onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+          }
+          currentStreamingToolName = undefined;
+          accumulatedInputJson = '';
+        }
+      });
+
+      stream.on("inputJson", (partialJson) => {
+        if (!currentStreamingToolName) return;
+        accumulatedInputJson += partialJson;
+        const now = Date.now();
+        if (now - lastInputJsonEmitMs >= 150) {
+          lastInputJsonEmitMs = now;
+          if (pendingInputJsonFlush) {
+            clearTimeout(pendingInputJsonFlush);
+            pendingInputJsonFlush = undefined;
+          }
+          onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+        } else if (!pendingInputJsonFlush) {
+          const toolName = currentStreamingToolName;
+          pendingInputJsonFlush = setTimeout(() => {
+            pendingInputJsonFlush = undefined;
+            lastInputJsonEmitMs = Date.now();
+            if (currentStreamingToolName === toolName) {
+              onEvent?.({ type: "input_json_delta", toolName, accumulatedJson: accumulatedInputJson });
+            }
+          }, 150);
+        }
+      });
+
       const response = await stream.finalMessage();
 
       return {

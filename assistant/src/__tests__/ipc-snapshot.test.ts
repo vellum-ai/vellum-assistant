@@ -363,6 +363,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'tool_output_chunk',
     chunk: 'file1.ts\nfile2.ts\n',
   },
+  tool_input_delta: {
+    type: 'tool_input_delta',
+    toolName: 'app_create',
+    content: '{"html": "<div>Hello</div>"}',
+    sessionId: 'sess-001',
+  },
   tool_result: {
     type: 'tool_result',
     toolName: 'bash',

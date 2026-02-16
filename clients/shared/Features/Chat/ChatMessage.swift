@@ -483,6 +483,10 @@ public struct ChatMessage: Identifiable {
     public var attachments: [ChatAttachment]
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]
+    /// Streaming code preview from tool input generation (e.g. app_create HTML).
+    public var streamingCodePreview: String?
+    /// Tool name associated with the streaming code preview.
+    public var streamingCodeToolName: String?
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {

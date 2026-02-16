@@ -1171,6 +1171,10 @@ public typealias WatchCompleteRequestMessage = IPCWatchCompleteRequest
 /// Backed by generated `IPCToolUseStart`.
 public typealias ToolUseStartMessage = IPCToolUseStart
 
+/// Streaming tool input delta (e.g. partial JSON as tool input is generated).
+/// Backed by generated `IPCToolInputDelta`.
+public typealias ToolInputDeltaMessage = IPCToolInputDelta
+
 /// Streaming tool output chunk.
 /// Backed by generated `IPCToolOutputChunk`.
 public typealias ToolOutputChunkMessage = IPCToolOutputChunk
@@ -1428,6 +1432,7 @@ public enum ServerMessage: Decodable, Sendable {
     case skillsInspectResponse(SkillsInspectResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
     case toolUseStart(ToolUseStartMessage)
+    case toolInputDelta(ToolInputDeltaMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
@@ -1572,6 +1577,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_use_start":
             let message = try ToolUseStartMessage(from: decoder)
             self = .toolUseStart(message)
+        case "tool_input_delta":
+            let message = try ToolInputDeltaMessage(from: decoder)
+            self = .toolInputDelta(message)
         case "tool_output_chunk":
             let message = try ToolOutputChunkMessage(from: decoder)
             self = .toolOutputChunk(message)
