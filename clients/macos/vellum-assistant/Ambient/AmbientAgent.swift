@@ -113,6 +113,8 @@ public final class AmbientAgent: ObservableObject {
             progressWindow = nil
             if let summary = currentSession?.summary, !summary.isEmpty {
                 showSummary(summary)
+            } else {
+                currentSession = nil
             }
             rideShotgunTrigger.recordCompleted()
             sessionCancellable?.cancel()
