@@ -1276,7 +1276,9 @@ public final class ChatViewModel: ObservableObject {
                let messageUUID = UUID(uuidString: messageId),
                let index = messages.firstIndex(where: { $0.id == messageUUID }) {
                 log.info("Attaching surface to message by messageId: \(messageId)")
+                let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
+                messages[index].contentOrder.append(.surface(surfIdx))
             } else if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 log.info("Attaching surface to currentAssistantMessage: \(existingId)")

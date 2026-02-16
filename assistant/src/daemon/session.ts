@@ -1448,12 +1448,26 @@ export class Session {
     const firstAssistantMsg = messagesToConsolidate[0];
     conversationStore.updateMessageContent(firstAssistantMsg.id, JSON.stringify(consolidatedContent));
 
-    // Delete the other assistant messages and internal tool_result messages
+    // Delete the other assistant messages and internal tool_result messages,
+    // and collect IDs for vector cleanup
+    const allSegmentIds: string[] = [];
+    const allOrphanedItemIds: string[] = [];
     for (let i = 1; i < messagesToConsolidate.length; i++) {
-      conversationStore.deleteMessageById(messagesToConsolidate[i].id);
+      const deleted = conversationStore.deleteMessageById(messagesToConsolidate[i].id);
+      allSegmentIds.push(...deleted.segmentIds);
+      allOrphanedItemIds.push(...deleted.orphanedItemIds);
     }
     for (const id of messagesToDelete) {
-      conversationStore.deleteMessageById(id);
+      const deleted = conversationStore.deleteMessageById(id);
+      allSegmentIds.push(...deleted.segmentIds);
+      allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    }
+
+    // Clean up Qdrant vectors (fire-and-forget)
+    if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
+      this.cleanupQdrantVectors(allSegmentIds, allOrphanedItemIds).catch((err) => {
+        log.warn({ err, conversationId: this.conversationId }, 'Qdrant cleanup after consolidation failed (non-fatal)');
+      });
     }
 
     log.info({
