@@ -324,6 +324,9 @@ export function initializeDb(): void {
     )
   `);
 
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch {}
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch {}
+
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS shared_app_links (
       id TEXT PRIMARY KEY,

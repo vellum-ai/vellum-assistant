@@ -17,6 +17,8 @@ export interface PublishedPageRecord {
   htmlHash: string;
   publishedAt: number;
   status: string;
+  appId: string | null;
+  projectSlug: string | null;
 }
 
 export function createPublishedPage(record: {
@@ -25,6 +27,8 @@ export function createPublishedPage(record: {
   publicUrl: string;
   pageTitle?: string;
   htmlHash: string;
+  appId?: string;
+  projectSlug?: string;
 }): void {
   const db = getDb();
   db.insert(publishedPages)
@@ -36,6 +40,8 @@ export function createPublishedPage(record: {
       htmlHash: record.htmlHash,
       publishedAt: Date.now(),
       status: 'active',
+      appId: record.appId ?? null,
+      projectSlug: record.projectSlug ?? null,
     })
     .run();
 }
@@ -96,4 +102,35 @@ export function markDeleted(id: string): boolean {
     .run();
 
   return true;
+}
+
+export function getActivePublishedPageByAppId(appId: string): PublishedPageRecord | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(publishedPages)
+    .where(
+      and(
+        eq(publishedPages.appId, appId),
+        eq(publishedPages.status, 'active'),
+      ),
+    )
+    .get();
+  return row ?? null;
+}
+
+export function updatePublishedPage(
+  id: string,
+  updates: {
+    deploymentId?: string;
+    publicUrl?: string;
+    htmlHash?: string;
+    publishedAt?: number;
+  },
+): void {
+  const db = getDb();
+  db.update(publishedPages)
+    .set(updates)
+    .where(eq(publishedPages.id, id))
+    .run();
 }

@@ -328,6 +328,8 @@ export const publishedPages = sqliteTable('published_pages', {
   htmlHash: text('html_hash').notNull(),
   publishedAt: integer('published_at').notNull(),
   status: text('status').notNull().default('active'),
+  appId: text('app_id'),
+  projectSlug: text('project_slug'),
 });
 
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
