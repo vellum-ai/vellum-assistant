@@ -240,14 +240,18 @@ public struct DynamicPageSurfaceData: Sendable {
     public let appId: String?
     public let appType: String?
     public let preview: DynamicPagePreview?
+    public let reloadGeneration: Int?
+    public let status: String?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, preview: DynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, preview: DynamicPagePreview? = nil, reloadGeneration: Int? = nil, status: String? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
         self.appType = appType
         self.preview = preview
+        self.reloadGeneration = reloadGeneration
+        self.status = status
     }
 }
 
@@ -596,9 +600,10 @@ public extension Surface {
         let preview: DynamicPagePreview? = update.keys.contains("preview")
             ? parseDynamicPagePreview(update["preview"] as? [String: Any?])
             : existing.preview
-        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, appType: appType, preview: preview)
+        let reloadGeneration: Int? = update.keys.contains("reloadGeneration") ? (update["reloadGeneration"] as? Int) : existing.reloadGeneration
+        let status: String? = update.keys.contains("status") ? (update["status"] as? String) : existing.status
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, appType: appType, preview: preview, reloadGeneration: reloadGeneration, status: status)
     }
-
     // MARK: - Field Parsing Helpers
 
     private static func parseFormFields(_ fieldsArray: [[String: Any?]]) -> [FormField] {
@@ -759,10 +764,11 @@ public extension Surface {
             height: dict["height"] as? Int,
             appId: dict["appId"] as? String,
             appType: dict["appType"] as? String,
-            preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?])
+            preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?]),
+            reloadGeneration: dict["reloadGeneration"] as? Int,
+            status: dict["status"] as? String
         )
     }
-
     private static func parseDynamicPagePreview(_ dict: [String: Any?]?) -> DynamicPagePreview? {
         guard let dict = dict, let title = dict["title"] as? String else { return nil }
         var metrics: [(label: String, value: String)]?

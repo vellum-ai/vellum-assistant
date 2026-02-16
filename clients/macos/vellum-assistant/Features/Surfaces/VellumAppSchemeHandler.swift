@@ -14,10 +14,15 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Base directory for shared app content.
     private let baseDirectory: URL
 
+    /// Base directory for user-created app content.
+    static var userAppsDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/data/apps")
+    }
+
     init(baseDirectory: URL = BundleSandbox.sharedAppsDirectory) {
         self.baseDirectory = baseDirectory
     }
-
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             fail(urlSchemeTask, statusCode: 400, message: "No URL in request")
@@ -33,29 +38,45 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
         let uuid = host
         let resourcePath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
 
-        // Resolve the file path in the sandbox
-        let appDir = baseDirectory.appendingPathComponent(uuid)
-        let filePath = resourcePath.isEmpty
-            ? appDir
-            : appDir.appendingPathComponent(resourcePath)
+        // Resolve file path — try user apps directory first, then shared apps.
+        let candidateDirs = [
+            Self.userAppsDirectory.appendingPathComponent(uuid),
+            baseDirectory.appendingPathComponent(uuid)
+        ]
 
-        // Security: ensure the resolved path is within the app directory.
-        // Append "/" to appDirPath so that a sibling like "<uuid>-meta.json"
-        // doesn't match via simple string prefix comparison.
-        let resolvedPath = filePath.standardizedFileURL.path
-        let appDirPath = appDir.standardizedFileURL.path
-        guard resolvedPath == appDirPath || resolvedPath.hasPrefix(appDirPath + "/") else {
-            log.error("Path traversal attempt: \(resolvedPath) outside \(appDirPath)")
-            fail(urlSchemeTask, statusCode: 403, message: "Access denied")
-            return
+        func resolveFile(in appDir: URL) -> (path: String, appDirPath: String)? {
+            let filePath = resourcePath.isEmpty
+                ? appDir
+                : appDir.appendingPathComponent(resourcePath)
+            let resolvedPath = filePath.standardizedFileURL.path
+            let appDirPath = appDir.standardizedFileURL.path
+            // Security: ensure the resolved path is within the app directory.
+            guard resolvedPath == appDirPath || resolvedPath.hasPrefix(appDirPath + "/") else {
+                return nil
+            }
+            guard FileManager.default.fileExists(atPath: resolvedPath) else {
+                return nil
+            }
+            return (resolvedPath, appDirPath)
         }
 
-        // Read the file
-        guard FileManager.default.fileExists(atPath: resolvedPath) else {
+        guard let resolved = candidateDirs.lazy.compactMap({ resolveFile(in: $0) }).first else {
+            // Check if any candidate had a path traversal issue
+            for appDir in candidateDirs {
+                let filePath = resourcePath.isEmpty ? appDir : appDir.appendingPathComponent(resourcePath)
+                let resolvedPath = filePath.standardizedFileURL.path
+                let appDirPath = appDir.standardizedFileURL.path
+                if resolvedPath != appDirPath && !resolvedPath.hasPrefix(appDirPath + "/") {
+                    log.error("Path traversal attempt: \(resolvedPath) outside \(appDirPath)")
+                    fail(urlSchemeTask, statusCode: 403, message: "Access denied")
+                    return
+                }
+            }
             fail(urlSchemeTask, statusCode: 404, message: "File not found: \(resourcePath)")
             return
         }
 
+        let resolvedPath = resolved.path
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: resolvedPath)) else {
             fail(urlSchemeTask, statusCode: 500, message: "Failed to read file")
             return

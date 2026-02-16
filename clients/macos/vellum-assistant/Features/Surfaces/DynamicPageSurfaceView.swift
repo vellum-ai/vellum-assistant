@@ -372,9 +372,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
-        let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
-        webView.loadHTMLString(data.html, baseURL: URL(string: origin))
-
+        if let appId = appId {
+            // App-backed surface — serve from disk via scheme handler
+            let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
+            webView.load(URLRequest(url: schemeURL))
+        } else {
+            // Ephemeral surface — inline HTML
+            let origin = "https://surface.vellum.local/"
+            webView.loadHTMLString(data.html, baseURL: URL(string: origin))
+        }
         return webView
     }
 
@@ -404,6 +410,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // Update the snapshot callback so navigating between surfaces picks up the new closure.
         context.coordinator.onSnapshotCaptured = onSnapshotCaptured
 
+
+        // For file-based apps, reload on generation change (picks up CSS/JS/HTML edits)
+        if let gen = data.reloadGeneration, gen != context.coordinator.lastReloadGeneration {
+            context.coordinator.lastReloadGeneration = gen
+            context.coordinator.hasCapturedSnapshot = false
+            webView.reload()
+        }
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
             let previousHTML = context.coordinator.currentHTML
@@ -465,8 +478,33 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 """
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
-    }
 
+        // Show transient status pill overlay
+        if let status = data.status {
+            let escapedStatus = status
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: " ")
+            let js = """
+                (function() {
+                    var existing = document.getElementById('vellum-status-pill');
+                    if (existing) existing.remove();
+                    var pill = document.createElement('div');
+                    pill.id = 'vellum-status-pill';
+                    pill.setAttribute('data-vellum-injected', '1');
+                    pill.textContent = '\(escapedStatus)';
+                    pill.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;font-size:12px;padding:6px 14px;border-radius:20px;z-index:100000;pointer-events:none;opacity:0;transition:opacity 0.3s ease;backdrop-filter:blur(8px);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+                    document.body.appendChild(pill);
+                    requestAnimationFrame(function() { pill.style.opacity = '1'; });
+                    setTimeout(function() {
+                        pill.style.opacity = '0';
+                        setTimeout(function() { if (pill.parentNode) pill.remove(); }, 300);
+                    }, 3000);
+                })();
+                """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "vellumBridge")
     }
@@ -492,7 +530,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var pendingScrollRestore: String?
         var hasCapturedSnapshot = false
         var morphGeneration: Int = 0
-
+        var lastReloadGeneration: Int = 0
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
