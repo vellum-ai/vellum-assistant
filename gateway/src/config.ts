@@ -26,6 +26,8 @@ export type GatewayConfig = {
   shutdownDrainMs: number;
   telegramApiBaseUrl: string;
   telegramBotToken: string | undefined;
+  telegramInitialBackoffMs: number;
+  telegramMaxRetries: number;
   telegramTimeoutMs: number;
   telegramWebhookSecret: string | undefined;
   unmappedPolicy: "reject" | "default";
@@ -149,6 +151,16 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
   }
 
+  const telegramMaxRetries = Number(process.env.GATEWAY_TELEGRAM_MAX_RETRIES || "3");
+  if (!Number.isInteger(telegramMaxRetries) || telegramMaxRetries < 0) {
+    throw new Error("GATEWAY_TELEGRAM_MAX_RETRIES must be a non-negative integer");
+  }
+
+  const telegramInitialBackoffMs = Number(process.env.GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS || "1000");
+  if (!Number.isFinite(telegramInitialBackoffMs) || telegramInitialBackoffMs <= 0) {
+    throw new Error("GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS must be a positive number");
+  }
+
   const maxWebhookPayloadBytes = Number(process.env.GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES || String(1024 * 1024));
   if (!Number.isFinite(maxWebhookPayloadBytes) || maxWebhookPayloadBytes <= 0) {
     throw new Error("GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES must be a positive number");
@@ -214,6 +226,8 @@ export function loadConfig(): GatewayConfig {
     shutdownDrainMs,
     telegramApiBaseUrl,
     telegramBotToken,
+    telegramInitialBackoffMs,
+    telegramMaxRetries,
     telegramTimeoutMs,
     telegramWebhookSecret,
     unmappedPolicy,
