@@ -94,7 +94,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var daemonClient: DaemonClient { services.daemonClient }
     private var ambientAgent: AmbientAgent { services.ambientAgent }
     private var surfaceManager: SurfaceManager { services.surfaceManager }
-    private var toolConfirmationManager: ToolConfirmationManager { services.toolConfirmationManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     private var zoomManager: ZoomManager { services.zoomManager }
 
@@ -143,7 +142,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupVoiceInput()
         setupAmbientAgent()
         setupSurfaceManager()
-        setupToolConfirmationManager()
+        setupToolConfirmationNotifications()
         setupSecretPromptManager()
         setupWindowObserver()
         setupNotifications()
@@ -376,7 +375,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupToolConfirmationManager() {
+    private func setupToolConfirmationNotifications() {
         daemonClient.onConfirmationRequest = { [weak self] msg in
             guard let self else { return }
             let mainWindowVisible = self.mainWindow?.isVisible == true && NSApp.isActive
@@ -735,7 +734,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.currentTextSession?.cancel()
                     self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
-                    self?.toolConfirmationManager.dismissAll()
                     self?.toolConfirmationNotificationService.dismissAll()
                     self?.secretPromptManager.dismissAll()
                 }
@@ -886,7 +884,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupVoiceInput()
             self?.setupAmbientAgent()
             self?.setupSurfaceManager()
-            self?.setupToolConfirmationManager()
+            self?.setupToolConfirmationNotifications()
             self?.setupSecretPromptManager()
             self?.setupWindowObserver()
             self?.setupNotifications()
@@ -970,10 +968,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let main = MainWindow(services: services)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
-        }
-        // Wire inline confirmation dismiss to close the corresponding floating panel
-        main.threadManager.confirmationDismissHandler = { [weak self] requestId in
-            self?.toolConfirmationManager.dismissConfirmation(requestId: requestId)
         }
         main.show()
         mainWindow = main
@@ -1442,7 +1436,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
-        toolConfirmationManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
         daemonLauncher.stop()

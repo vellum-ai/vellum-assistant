@@ -7,7 +7,6 @@ public final class AppServices {
     public let daemonClient = DaemonClient()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
-    let toolConfirmationManager = ToolConfirmationManager()
     let secretPromptManager = SecretPromptManager()
     let zoomManager = ZoomManager()
 

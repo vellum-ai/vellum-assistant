@@ -31,9 +31,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
 
-    /// Called when an inline confirmation response should dismiss the floating panel.
-    var confirmationDismissHandler: ((String) -> Void)?
-
     /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
     var visibleThreads: [ThreadModel] {
         threads.filter { !$0.isArchived }
@@ -264,9 +261,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 )
             }
         })
-        viewModel.onInlineConfirmationResponse = { [weak self] requestId in
-            self?.confirmationDismissHandler?(requestId)
-        }
         viewModel.shouldAcceptConfirmation = { [weak self, weak viewModel] in
             guard let self, let viewModel else { return false }
             return self.isLatestToolUseRecipient(viewModel)
