@@ -944,50 +944,17 @@ private struct ChatBubble: View {
         return groups
     }
 
-    /// Whether pre-tool text should be collapsed because post-tool text exists.
-    /// When the assistant explains what it'll do, runs the tool, then gives the result,
-    /// we collapse the explanation and just show chips + result.
-    private var shouldCollapsePreToolText: Bool {
-        guard allToolCallsComplete else { return false }
-        let groups = groupContentBlocks()
-        var seenToolCalls = false
-        var hasPreToolText = false
-        var hasPostToolText = false
-        for group in groups {
-            switch group {
-            case .text:
-                if seenToolCalls { hasPostToolText = true }
-                else { hasPreToolText = true }
-            case .toolCalls:
-                seenToolCalls = true
-            case .surface:
-                break
-            }
-        }
-        return hasPreToolText && hasPostToolText
-    }
-
     @ViewBuilder
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
-        let collapse = shouldCollapsePreToolText
-        // Track whether we've seen a tool call group yet (for collapsing).
-        let firstToolIndex = groups.firstIndex(where: {
-            if case .toolCalls = $0 { return true }
-            return false
-        })
 
-        ForEach(Array(groups.enumerated()), id: \.offset) { offset, group in
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
             switch group {
             case .text(let i):
-                // Skip pre-tool text when collapsing
-                let isPreTool = firstToolIndex.map { offset < $0 } ?? false
-                if !(collapse && isPreTool) {
-                    if i < message.textSegments.count {
-                        let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !segmentText.isEmpty {
-                            textBubble(for: segmentText)
-                        }
+                if i < message.textSegments.count {
+                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !segmentText.isEmpty {
+                        textBubble(for: segmentText)
                     }
                 }
             case .toolCalls:
