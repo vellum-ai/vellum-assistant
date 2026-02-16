@@ -48,16 +48,25 @@ final class SecretPromptManager {
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = .preferredContentSize
 
-        let preferredSize = hostingController.view.fittingSize
-        let panelHeight = min(max(preferredSize.height, 230), 600)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 300),
             styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
             backing: .buffered,
             defer: false
         )
 
         panel.contentViewController = hostingController
+
+        // Re-measure now that the view is in the window hierarchy.
+        // Use contentView.fittingSize (not the hosting controller's view directly)
+        // so AppKit can resolve layout constraints against the panel.
+        let panelHeight: CGFloat
+        if let fittingSize = panel.contentView?.fittingSize {
+            panelHeight = min(max(fittingSize.height, 230), 600)
+        } else {
+            panelHeight = 300
+        }
+        panel.setContentSize(NSSize(width: panelWidth, height: panelHeight))
         panel.level = .floating
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
@@ -142,97 +151,94 @@ struct SecretPromptView: View {
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                // Header
-                HStack(spacing: VSpacing.md) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.title2)
-                        .foregroundStyle(VColor.accent)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Header
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.title2)
+                    .foregroundStyle(VColor.accent)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Secure Credential")
-                            .font(VFont.headline)
-                            .foregroundColor(VColor.textPrimary)
-                        Text(label)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    Spacer()
-                }
-
-                // Description
-                if let description = description {
-                    Text(description)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Secure Credential")
+                        .font(VFont.headline)
+                        .foregroundColor(VColor.textPrimary)
+                    Text(label)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                // Usage context
-                if hasContext {
-                    usageContextSection
+                Spacer()
+            }
+
+            // Description
+            if let description = description {
+                Text(description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+
+            // Usage context
+            if hasContext {
+                usageContextSection
+            }
+
+            // Secure input
+            SecureField(placeholder, text: $secretValue)
+                .textFieldStyle(.roundedBorder)
+                .font(VFont.mono)
+
+            // Safety explainer
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                safetyBullet(
+                    icon: "key.fill",
+                    text: "Stored in your Mac's Keychain, not sent to any server"
+                )
+                safetyBullet(
+                    icon: "eye.slash.fill",
+                    text: "The AI never sees this value — only your Mac can read it"
+                )
+            }
+
+            if saved {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                    Text("Saved to Keychain")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
                 }
-
-                // Secure input
-                SecureField(placeholder, text: $secretValue)
-                    .textFieldStyle(.roundedBorder)
-                    .font(VFont.mono)
-
-                // Safety explainer
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    safetyBullet(
-                        icon: "key.fill",
-                        text: "Stored in your Mac's Keychain, not sent to any server"
-                    )
-                    safetyBullet(
-                        icon: "eye.slash.fill",
-                        text: "The AI never sees this value — only your Mac can read it"
-                    )
-                }
-
-                if saved {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                        Text("Saved to Keychain")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.success)
+            } else {
+                // Buttons
+                HStack(spacing: VSpacing.lg) {
+                    Spacer()
+                    VButton(label: "Cancel", style: .ghost) {
+                        onCancel()
                     }
-                } else {
-                    // Buttons
-                    HStack(spacing: VSpacing.lg) {
-                        Spacer()
-                        VButton(label: "Cancel", style: .ghost) {
-                            onCancel()
+                    VButton(label: "Save", style: .primary) {
+                        guard !secretValue.isEmpty else { return }
+                        if onSave(secretValue) {
+                            withAnimation(VAnimation.standard) { saved = true }
                         }
-                        VButton(label: "Save", style: .primary) {
+                    }
+                    .disabled(secretValue.isEmpty)
+                }
+
+                if allowOneTimeSend {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.warning)
+                        VButton(label: "Send Once (not saved)", style: .ghost) {
                             guard !secretValue.isEmpty else { return }
-                            if onSave(secretValue) {
-                                withAnimation(VAnimation.standard) { saved = true }
-                            }
+                            _ = onSendOnce(secretValue)
                         }
                         .disabled(secretValue.isEmpty)
                     }
-
-                    if allowOneTimeSend {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(VColor.warning)
-                            VButton(label: "Send Once (not saved)", style: .ghost) {
-                                guard !secretValue.isEmpty else { return }
-                                _ = onSendOnce(secretValue)
-                            }
-                            .disabled(secretValue.isEmpty)
-                        }
-                    }
                 }
             }
-            .padding(VSpacing.xl)
         }
+        .padding(VSpacing.xl)
         .frame(width: 400)
-        .frame(maxHeight: 600)
         .vPanelBackground()
     }
 
