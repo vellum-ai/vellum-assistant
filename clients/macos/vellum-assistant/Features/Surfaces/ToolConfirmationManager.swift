@@ -65,7 +65,7 @@ final class ToolConfirmationManager {
         let panelHeight: CGFloat = message.diff != nil ? 340 : 160
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            styleMask: [.titled, .nonactivatingPanel, .utilityWindow],
             backing: .buffered,
             defer: false
         )
@@ -75,7 +75,8 @@ final class ToolConfirmationManager {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.alphaValue = 0.95
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
@@ -311,7 +312,13 @@ struct ToolConfirmationView: View {
         }
         .padding(VSpacing.xl)
         .frame(width: 420)
-        .vPanelBackground()
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+        .vShadow(VShadow.lg)
     }
 
     @ViewBuilder

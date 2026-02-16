@@ -336,7 +336,7 @@ struct ChatView: View {
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,
-                                    showDescription: !prevHasText,
+                                    showDescription: true,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
                                     onAddTrustRule: onAddTrustRule
