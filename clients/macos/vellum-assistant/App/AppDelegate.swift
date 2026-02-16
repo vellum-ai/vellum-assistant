@@ -1256,7 +1256,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             options: []
         )
 
-        center.setNotificationCategories([activityCategory])
+        let confirmAllowAction = UNNotificationAction(
+            identifier: "CONFIRM_ALLOW",
+            title: "Allow",
+            options: []
+        )
+        let confirmDenyAction = UNNotificationAction(
+            identifier: "CONFIRM_DENY",
+            title: "Deny",
+            options: []
+        )
+        let toolConfirmationCategory = UNNotificationCategory(
+            identifier: "TOOL_CONFIRMATION",
+            actions: [confirmAllowAction, confirmDenyAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory])
     }
 
     private func registerBundledFonts() {
