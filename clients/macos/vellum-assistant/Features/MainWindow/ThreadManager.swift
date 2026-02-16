@@ -105,19 +105,30 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func archiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
-        chatViewModels[id]?.stopGenerating()
         threads[index].isArchived = true
 
         if let sessionId = threads[index].sessionId {
+            chatViewModels[id]?.stopGenerating()
             var archived = archivedSessionIds
             archived.insert(sessionId)
             archivedSessionIds = archived
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
+        } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true {
+            chatViewModels[id]?.stopGenerating()
+            // No session ID and no user messages — a session will never be created,
+            // so there is nothing to backfill. Clean up immediately.
+            chatViewModels.removeValue(forKey: id)
+        } else {
+            // Session ID is nil but user messages exist. Keep the ChatViewModel alive
+            // so the onSessionCreated callback can fire, claim its own session via
+            // the correlation ID, persist the archive state via backfillSessionId,
+            // and then clean up. Use cancelPendingMessage() instead of
+            // stopGenerating() to discard the queued message without clearing the
+            // correlation ID — this prevents the VM from claiming an unrelated
+            // session_info from another thread.
+            chatViewModels[id]?.cancelPendingMessage()
         }
-        // When sessionId is nil, keep the ChatViewModel alive so the
-        // onSessionCreated callback can still fire and persist the archive state
-        // via backfillSessionId. The view model is cleaned up there.
 
         // If the archived thread was active, select an adjacent visible thread
         // or create a new one if none remain.
