@@ -164,4 +164,5 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     install: { nodeManager: 'npm' },
     allowBundled: null,
   },
+  integrations: {},
 };

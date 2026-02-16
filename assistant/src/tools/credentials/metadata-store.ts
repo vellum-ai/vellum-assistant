@@ -18,6 +18,8 @@ export interface CredentialMetadata {
   allowedTools: string[];
   allowedDomains: string[];
   usageDescription?: string;
+  expiresAt?: number;
+  grantedScopes?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -107,6 +109,8 @@ export function upsertCredentialMetadata(
     allowedTools?: string[];
     allowedDomains?: string[];
     usageDescription?: string;
+    expiresAt?: number;
+    grantedScopes?: string[];
   },
 ): CredentialMetadata {
   const result = loadFile();
@@ -124,6 +128,8 @@ export function upsertCredentialMetadata(
     if (policy?.allowedTools !== undefined) existing.allowedTools = policy.allowedTools;
     if (policy?.allowedDomains !== undefined) existing.allowedDomains = policy.allowedDomains;
     if (policy?.usageDescription !== undefined) existing.usageDescription = policy.usageDescription;
+    if (policy?.expiresAt !== undefined) existing.expiresAt = policy.expiresAt;
+    if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
     existing.updatedAt = now;
     saveFile(data);
     return existing;
@@ -136,6 +142,8 @@ export function upsertCredentialMetadata(
     allowedTools: policy?.allowedTools ?? [],
     allowedDomains: policy?.allowedDomains ?? [],
     usageDescription: policy?.usageDescription,
+    expiresAt: policy?.expiresAt,
+    grantedScopes: policy?.grantedScopes,
     createdAt: now,
     updatedAt: now,
   };
