@@ -7,6 +7,7 @@ import {
   registerWatchCompletionNotifier,
   unregisterWatchCompletionNotifier,
   fireWatchStartNotifier,
+  fireWatchCompletionNotifier,
 } from '../tools/watch/watch-state.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import { lastSummaryBySession } from './watch-handler.js';
@@ -42,6 +43,7 @@ export async function handleRideShotgunStart(
     session.status = 'completing';
     session.timeoutHandle = undefined;
     log.info({ watchId }, 'Ride shotgun session duration expired, marking as completing');
+    fireWatchCompletionNotifier(sessionId, session);
   }, durationSeconds * 1000);
 
   // Register completion notifier to send summary back to client
