@@ -12,6 +12,7 @@ import { withValidToken } from '../../integrations/token-manager.js';
 import { getIntegration } from '../../integrations/registry.js';
 import * as gmail from '../../integrations/gmail/client.js';
 import type { GmailMessageFormat } from '../../integrations/gmail/types.js';
+import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
 import { isPrivateOrLocalHost, resolveHostAddresses, resolveRequestAddress } from '../network/url-safety.js';
 import {
   gmailSearchDef,
@@ -56,6 +57,31 @@ function makeGmailTool(
     },
     execute: executor,
   };
+}
+
+/** Make an HTTPS request pinned to a specific resolved IP to prevent DNS rebinding. */
+function pinnedHttpsRequest(
+  target: URL,
+  resolvedAddress: string,
+  options?: { method?: string; headers?: Record<string, string>; body?: string },
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const reqOpts: HttpsRequestOptions = {
+      method: options?.method ?? 'GET',
+      hostname: resolvedAddress,
+      port: target.port ? Number(target.port) : undefined,
+      path: `${target.pathname}${target.search}`,
+      headers: { host: target.host, ...options?.headers },
+      servername: target.hostname,
+    };
+    const req = httpsRequest(reqOpts, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.once('error', reject);
+    if (options?.body) req.write(options.body);
+    req.end();
+  });
 }
 
 // ── Tool implementations ────────────────────────────────────────────
@@ -235,35 +261,41 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
         if (isPrivateOrLocalHost(parsed.hostname)) {
           return err('Unsubscribe URL points to a private or local address.');
         }
-        // DNS resolution check to catch DNS rebinding attacks
-        const { blockedAddress } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
+        // DNS resolution check — also pins the resolved address for the fetch
+        const { addresses, blockedAddress } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
         if (blockedAddress) {
           return err('Unsubscribe URL resolves to a private or local address.');
+        }
+        if (addresses.length === 0) {
+          return err('Unable to resolve unsubscribe URL hostname.');
         }
       } catch {
         return err('Invalid unsubscribe URL.');
       }
 
+      // Use resolved address for the actual request to prevent DNS rebinding (TOCTOU)
+      const { addresses: pinnedAddresses } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
+      const resolvedAddress = pinnedAddresses[0];
+
       // RFC 8058: use POST with List-Unsubscribe-Post header if present
       if (postHeader) {
-        const resp = await fetch(url, {
+        const status = await pinnedHttpsRequest(parsed, resolvedAddress, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: postHeader,
-          redirect: 'manual',
         });
-        if (resp.ok) {
+        if (status >= 200 && status < 400) {
           return ok('Successfully unsubscribed via HTTPS POST.');
         }
-        return err(`Unsubscribe request failed: ${resp.status} ${resp.statusText}`);
+        return err(`Unsubscribe request failed: ${status}`);
       }
 
       // Fallback: GET request
-      const resp = await fetch(url, { redirect: 'manual' });
-      if (resp.ok) {
+      const status = await pinnedHttpsRequest(parsed, resolvedAddress);
+      if (status >= 200 && status < 400) {
         return ok('Successfully unsubscribed via HTTPS GET.');
       }
-      return err(`Unsubscribe request failed: ${resp.status} ${resp.statusText}`);
+      return err(`Unsubscribe request failed: ${status}`);
     }
 
     if (mailtoMatch) {
