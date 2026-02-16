@@ -383,6 +383,28 @@ export class AnthropicProvider implements Provider {
         return acc;
       }, []);
 
+      // Post-processing: fix consecutive same-role messages that can arise when
+      // dropping empty messages (e.g. empty assistant followed by empty user).
+      // Remove placeholder assistant messages that ended up adjacent to another
+      // assistant message, since the placeholder is no longer needed.
+      for (let i = formatted.length - 1; i > 0; i--) {
+        if (formatted[i].role !== formatted[i - 1].role) continue;
+        // For consecutive assistant messages, remove whichever one is a
+        // placeholder injected by the reduce above.
+        if (formatted[i].role === 'assistant') {
+          const iContent = Array.isArray(formatted[i].content) ? formatted[i].content : [];
+          const prevContent = Array.isArray(formatted[i - 1].content) ? formatted[i - 1].content : [];
+          const isPlaceholder = (c: typeof iContent) =>
+            c.length === 1 && typeof c[0] !== 'string' && c[0].type === 'text' &&
+            (c[0] as { text?: string }).text === '[empty assistant turn]';
+          if (isPlaceholder(iContent)) {
+            formatted.splice(i, 1);
+          } else if (isPlaceholder(prevContent)) {
+            formatted.splice(i - 1, 1);
+          }
+        }
+      }
+
       sentMessages = ensureToolPairing(formatted);
       const params: Anthropic.MessageCreateParams = {
         model: this.model,
