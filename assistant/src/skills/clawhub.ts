@@ -61,7 +61,10 @@ function collectFileContents(dir: string, prefix = ''): Array<{ relPath: string;
   return results.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
-/** Compute a SHA-256 hash over all files in a skill directory. */
+/**
+ * Compute a SHA-256 hash over all files in a skill directory.
+ * Returns format: "v2:sha256hex" (version prefix added to support hash format evolution).
+ */
 function computeSkillHash(skillDir: string): string | null {
   if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
 
@@ -77,13 +80,16 @@ function computeSkillHash(skillDir: string): string | null {
     hasher.update(`${file.content.length}:`);
     hasher.update(file.content);
   }
-  return hasher.digest('hex');
+  return `v2:${hasher.digest('hex')}`;
 }
 
 /**
  * Record or verify the content hash of an installed skill.
  * On first install: stores the hash (trust-on-first-use).
  * On subsequent installs: compares with stored hash and warns on mismatch.
+ *
+ * Hash format migration: v1 (legacy, no prefix) → v2 (prefixed "v2:sha256hex").
+ * When stored hash is v1, silently re-record with v2 instead of warning.
  */
 function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
@@ -97,9 +103,18 @@ function verifyAndRecordSkillHash(slug: string): void {
   const existing = manifest[slug];
 
   if (existing) {
-    if (existing.sha256 !== hash) {
+    const storedHash = existing.sha256;
+    // Detect v1 hash (no "v2:" prefix) and treat as format migration
+    const isV1Hash = !storedHash.startsWith('v2:');
+
+    if (isV1Hash) {
+      log.info(
+        { slug },
+        'Migrating skill integrity hash from v1 to v2 format (silent re-record)',
+      );
+    } else if (storedHash !== hash) {
       log.warn(
-        { slug, expected: existing.sha256, actual: hash },
+        { slug, expected: storedHash, actual: hash },
         'Skill content hash changed — content differs from previous install. ' +
           'This is expected for updates but could indicate CDN tampering.',
       );
