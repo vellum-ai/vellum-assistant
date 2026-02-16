@@ -107,13 +107,13 @@ struct ComposerView: View {
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(
-                    isComposerFocused ? VColor.accent.opacity(0.68) : VColor.surfaceBorder.opacity(0.95),
+                    isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
                     lineWidth: isComposerFocused ? 1.5 : 1
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.accent.opacity(isComposerFocused ? 0.14 : 0), lineWidth: 3)
+                .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
         )
         .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
         .padding(.horizontal, VSpacing.lg)
@@ -122,6 +122,7 @@ struct ComposerView: View {
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: editorContentHeight)
+        .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear { composerFocusRequestID += 1 }
     }
@@ -179,10 +180,14 @@ struct ComposerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: inputText) {
-            if inputText.isEmpty { isComposerExpanded = false }
+            if inputText.isEmpty {
+                withAnimation(VAnimation.fast) { isComposerExpanded = false }
+            }
         }
         .onChange(of: editorContentHeight) {
-            if editorContentHeight > composerCompactHeight { isComposerExpanded = true }
+            if editorContentHeight > composerCompactHeight && !isComposerExpanded {
+                withAnimation(VAnimation.fast) { isComposerExpanded = true }
+            }
         }
     }
 
@@ -222,7 +227,7 @@ struct ComposerView: View {
                     } label: {
                         ZStack {
                             Circle()
-                                .fill(VColor.accent)
+                                .fill(VColor.accent.opacity(0.55))
                                 .frame(width: 30, height: 30)
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 13, weight: .semibold))
@@ -479,9 +484,16 @@ private struct ComposerTextView: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
 
         textView.isEditable = isEnabled
+        let oldPlaceholder = textView.placeholderText
+        let oldGhostSuffix = textView.hasGhostSuffix
         textView.placeholderText = placeholder
         textView.placeholderColor = NSColor(VColor.textSecondary).withAlphaComponent(0.92)
         textView.hasGhostSuffix = hasGhostSuffix
+
+        // Force redraw when placeholder or ghost suffix state changes so stale text doesn't persist
+        if oldPlaceholder != placeholder || oldGhostSuffix != hasGhostSuffix {
+            textView.needsDisplay = true
+        }
 
         if context.coordinator.isWritingFromView == false, textView.string != text {
             textView.string = text
@@ -566,6 +578,7 @@ private final class ComposerNativeTextView: NSTextView {
         super.draw(dirtyRect)
 
         guard string.isEmpty,
+              !hasGhostSuffix,
               let placeholderText,
               !placeholderText.isEmpty else { return }
 
