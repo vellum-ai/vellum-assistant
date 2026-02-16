@@ -156,6 +156,12 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         }
 
         if command.contains("open ") {
+            // Handle 'open -a AppName' pattern
+            if command.contains("open -a ") {
+                if let app = command.components(separatedBy: "open -a ").last?.components(separatedBy: " ").first {
+                    return "Opened \(app)"
+                }
+            }
             if let app = command.components(separatedBy: "open ").last?.components(separatedBy: " ").first {
                 return "Opened \(app)"
             }
