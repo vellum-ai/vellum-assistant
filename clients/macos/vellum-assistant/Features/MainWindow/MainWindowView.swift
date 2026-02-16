@@ -311,8 +311,15 @@ struct MainWindowView: View {
         .zIndex(menuOpen ? 1 : 0)
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
-            isHoveredThread = hovering ? thread.id : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if hovering {
+                isHoveredThread = thread.id
+                NSCursor.pointingHand.push()
+            } else {
+                if isHoveredThread == thread.id {
+                    isHoveredThread = nil
+                }
+                NSCursor.pop()
+            }
         }
     }
 

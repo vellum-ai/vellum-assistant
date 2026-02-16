@@ -346,7 +346,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     .replacingOccurrences(of: "#", with: "")
                     .replacingOccurrences(of: "\"", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                updateThreadTitle(id: threadId, title: title)
+                updateThreadTitle(id: threadId, title: title.isEmpty ? fallback : title)
             }
         } catch {
             log.warning("Title generation failed: \(error.localizedDescription)")
