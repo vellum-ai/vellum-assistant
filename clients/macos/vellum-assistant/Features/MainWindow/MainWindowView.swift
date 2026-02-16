@@ -576,16 +576,28 @@ struct MainWindowView: View {
             fullWindowPanel(panel)
         } else {
             let config = windowState.layoutConfig
-            let rightVisible = config.right.visible || windowState.activePanel == .activity
-            let rightContent: SlotContent = windowState.activePanel == .activity
-                ? .native(.activity) : config.right.content
 
-            VSplitView(
-                panelWidth: $sidePanelWidth,
-                showPanel: rightVisible && rightContent != .empty,
-                main: { slotView(for: config.center.content) },
-                panel: { slotView(for: rightContent) }
-            )
+            ZStack {
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: config.right.visible && config.right.content != .empty,
+                    main: { slotView(for: config.center.content) },
+                    panel: { slotView(for: config.right.content) }
+                )
+
+                if windowState.activePanel == .activity,
+                   let viewModel = threadManager.activeViewModel,
+                   let messageId = windowState.activityMessageId {
+                    ActivityPanel(
+                        viewModel: viewModel,
+                        messageId: messageId,
+                        onClose: { windowState.activePanel = nil }
+                    )
+                    .background(VColor.background)
+                    .transition(.move(edge: .trailing))
+                    .animation(VAnimation.panel, value: windowState.activePanel)
+                }
+            }
         }
     }
 
