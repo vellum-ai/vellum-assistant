@@ -284,6 +284,15 @@ export class Session {
         }
       }
 
+      // Auto-refresh workspace surfaces when app files are edited
+      if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
+        const appId = input.app_id as string | undefined;
+        const status = input.status as string | undefined;
+        if (appId) {
+          refreshSurfacesForApp(this, appId, { fileChange: true, status });
+        }
+      }
+
       return result;
     };
 
