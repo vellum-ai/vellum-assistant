@@ -182,6 +182,10 @@ body {
   justify-content: center;
   -webkit-font-smoothing: antialiased;
 }
+body > *:not(#vellum-bottom-fade):not(#vellum-branding):not(#v-toast-container) {
+  width: 100%;
+  max-width: 900px;
+}
 
 @media (prefers-color-scheme: dark) {
   body {
