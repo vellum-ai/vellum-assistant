@@ -240,6 +240,10 @@ struct SecretPromptView: View {
             }
             .padding(VSpacing.xl)
         }
+        // fixedSize lets the ScrollView report its content's intrinsic height
+        // for fittingSize measurement, while maxHeight caps it to prevent
+        // unbounded growth (scroll kicks in when content exceeds 600pt).
+        .fixedSize(horizontal: false, vertical: true)
         .frame(width: 400)
         .frame(maxHeight: 600)
         .vPanelBackground()
