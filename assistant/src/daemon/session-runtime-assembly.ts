@@ -6,7 +6,7 @@
  */
 
 import type { Message } from '../providers/types.js';
-import { listAppFiles, readAppFile, getAppsDir } from '../memory/app-store.js';
+import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -106,7 +106,6 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     }
 
     // Determine which file content to show based on the currently viewed page
-    const pageNames = ctx.appPages ? Object.keys(ctx.appPages) : [];
     const viewingPage = ctx.currentPage && ctx.currentPage !== 'index.html' ? ctx.currentPage : null;
     let primaryLabel = 'index.html';
     let primaryContent = ctx.html;
