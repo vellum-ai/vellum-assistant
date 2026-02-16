@@ -21,7 +21,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeInitialBackoffMs: 500,
     telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 256, // very small for testing
-    logFile: { enabled: false, dir: "", retentionDays: 30 },
+    logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
     ...overrides,

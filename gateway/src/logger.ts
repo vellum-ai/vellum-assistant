@@ -3,8 +3,7 @@ import { join } from "node:path";
 import pino from "pino";
 
 export type LogFileConfig = {
-  enabled: boolean;
-  dir: string;
+  dir: string | undefined;
   retentionDays: number;
 };
 
@@ -52,7 +51,7 @@ let activeLogDate: string | null = null;
 let activeConfig: LogFileConfig | null = null;
 
 function buildLogger(config: LogFileConfig | null): pino.Logger {
-  if (!config?.enabled) {
+  if (!config?.dir) {
     return pino({ name: "gateway" });
   }
 
@@ -77,7 +76,7 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
 }
 
 function ensureCurrentDate(): void {
-  if (!activeConfig?.enabled || !activeLogDate) return;
+  if (!activeConfig?.dir || !activeLogDate) return;
   const today = formatDate(new Date());
   if (today !== activeLogDate) {
     rootLogger = buildLogger(activeConfig);
@@ -87,7 +86,7 @@ function ensureCurrentDate(): void {
 export function initLogger(config: LogFileConfig): void {
   rootLogger = buildLogger(config);
 
-  if (config.enabled && config.retentionDays > 0) {
+  if (config.dir && config.retentionDays > 0) {
     const removed = pruneOldLogFiles(config.dir, config.retentionDays);
     if (removed > 0) {
       rootLogger.info({ removed, retentionDays: config.retentionDays }, "Pruned old log files");

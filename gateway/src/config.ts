@@ -170,20 +170,7 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  const logFileEnabledRaw = process.env.GATEWAY_LOG_TO_FILE;
-  if (logFileEnabledRaw !== undefined && logFileEnabledRaw !== "true" && logFileEnabledRaw !== "false") {
-    throw new Error(
-      `GATEWAY_LOG_TO_FILE must be "true" or "false", got "${logFileEnabledRaw}"`,
-    );
-  }
-  const logFileEnabled = logFileEnabledRaw === "true";
-
-  const logFileDir = process.env.GATEWAY_LOG_DIR || "";
-  if (logFileEnabled && !logFileDir) {
-    throw new Error(
-      "GATEWAY_LOG_DIR is required when GATEWAY_LOG_TO_FILE is \"true\"",
-    );
-  }
+  const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
   const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
   if (!Number.isInteger(logFileRetentionDays) || logFileRetentionDays < 1) {
@@ -191,7 +178,6 @@ export function loadConfig(): GatewayConfig {
   }
 
   const logFile: LogFileConfig = {
-    enabled: logFileEnabled,
     dir: logFileDir,
     retentionDays: logFileRetentionDays,
   };
