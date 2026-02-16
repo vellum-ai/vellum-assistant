@@ -1979,6 +1979,13 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
 
+            // Log surface parsing for debugging widget restoration
+            if !inlineSurfaces.isEmpty {
+                log.info("Mapped \(inlineSurfaces.count) surfaces from history: \(inlineSurfaces.map { $0.id })")
+            } else if let historySurfaces = item.surfaces, !historySurfaces.isEmpty {
+                log.warning("Failed to parse \(historySurfaces.count) surfaces from history")
+            }
+
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
@@ -2018,6 +2025,16 @@ public final class ChatViewModel: ObservableObject {
                     arrivedBeforeText: toolsBeforeText
                 )
             }
+
+            // Log contentOrder for debugging widget restoration
+            let surfaceRefs = chatMsg.contentOrder.filter {
+                if case .surface = $0 { return true }
+                return false
+            }
+            if !inlineSurfaces.isEmpty || !surfaceRefs.isEmpty {
+                log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
+            }
+
             chatMessages.append(chatMsg)
         }
 
