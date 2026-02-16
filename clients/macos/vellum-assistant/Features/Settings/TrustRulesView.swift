@@ -107,7 +107,9 @@ struct TrustRulesView: View {
 
     @MainActor private func deleteRule(id: String) {
         try? daemonClient.sendRemoveTrustRule(id: id)
-        loadRules()
+        withAnimation {
+            rules.removeAll { $0.id == id }
+        }
     }
 
     private func isDefaultRule(_ rule: TrustRuleItem) -> Bool {
