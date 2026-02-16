@@ -573,6 +573,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
         menu.addItem(newChatItem)
 
+        let myAppsItem = NSMenuItem(title: "My Apps", action: #selector(openAppCollection), keyEquivalent: "")
+        myAppsItem.target = self
+        myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+        menu.addItem(myAppsItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Skills submenu
@@ -660,6 +665,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openNewChat() {
         showMainWindow()
         mainWindow?.threadManager.createThread()
+    }
+
+    @objc private func openAppCollection() {
+        showMainWindow()
+        mainWindow?.windowState.activePanel = .directory
     }
 
     @objc private func checkForUpdates() {
