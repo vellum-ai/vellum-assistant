@@ -57,6 +57,16 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
   'ui_surface_show',
 ]);
 
+/**
+ * Wire types decoded in Swift that don't yet have a corresponding
+ * contract type. These are client-side preparations for upcoming
+ * daemon features.
+ */
+const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
+  // Defined in Swift LayoutConfig.swift ahead of daemon implementation
+  'ui_layout_config',
+]);
+
 // --- Extract Swift decode cases ---
 
 /** Parse `case "wire_type":` patterns from the ServerMessage decoder. */
@@ -104,7 +114,7 @@ for (const wireType of contractServerTypes) {
 
 // Types decoded in Swift but not in contract
 for (const wireType of swiftDecodeCases) {
-  if (!contractServerTypes.has(wireType)) {
+  if (!contractServerTypes.has(wireType) && !SWIFT_AHEAD_ALLOWLIST.has(wireType)) {
     diffs.push(`  - Swift decodes "${wireType}" but it is not in the contract`);
   }
 }
@@ -118,6 +128,11 @@ for (const wireType of SWIFT_OMIT_ALLOWLIST) {
 for (const wireType of INVENTORY_UNEXTRACTABLE) {
   if (!swiftDecodeCases.has(wireType)) {
     diffs.push(`  ? Unextractable entry "${wireType}" is not decoded in Swift (stale?)`);
+  }
+}
+for (const wireType of SWIFT_AHEAD_ALLOWLIST) {
+  if (contractServerTypes.has(wireType)) {
+    diffs.push(`  ? Ahead-allowlist entry "${wireType}" is now in the contract (remove from allowlist)`);
   }
 }
 

@@ -192,49 +192,119 @@ describe('renderHistoryContent', () => {
       { name: 'unknown', input: {}, result: 'some result', isError: false },
     ]);
   });
+
+  test('produces textSegments for text-tool-text interleaving', () => {
+    const output = renderHistoryContent([
+      { type: 'text', text: 'What are you working on?' },
+      { type: 'tool_use', id: 'tu_1', name: 'memory_save', input: { key: 'task' } },
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'saved' },
+      { type: 'text', text: 'Saved that to memory.' },
+    ]);
+
+    expect(output.textSegments).toEqual([
+      'What are you working on?',
+      'Saved that to memory.',
+    ]);
+    expect(output.contentOrder).toEqual([
+      'text:0',
+      'tool:0',
+      'text:1',
+    ]);
+  });
+
+  test('produces single segment for text-only content', () => {
+    const output = renderHistoryContent([
+      { type: 'text', text: 'Hello ' },
+      { type: 'text', text: 'world' },
+    ]);
+
+    expect(output.textSegments).toEqual(['Hello world']);
+    expect(output.contentOrder).toEqual(['text:0']);
+  });
+
+  test('produces tool-only contentOrder for tool-only messages', () => {
+    const output = renderHistoryContent([
+      { type: 'tool_use', id: 'tu_1', name: 'bash', input: { command: 'ls' } },
+    ]);
+
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual(['tool:0']);
+  });
+
+  test('produces segments for tool-text pattern', () => {
+    const output = renderHistoryContent([
+      { type: 'tool_use', id: 'tu_1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'file.txt' },
+      { type: 'text', text: 'Here are the files.' },
+    ]);
+
+    expect(output.textSegments).toEqual(['Here are the files.']);
+    expect(output.contentOrder).toEqual(['tool:0', 'text:0']);
+  });
+
+  test('produces segments for text-tool-tool-text pattern', () => {
+    const output = renderHistoryContent([
+      { type: 'text', text: 'Let me check.' },
+      { type: 'tool_use', id: 'tu_1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'file.txt' },
+      { type: 'tool_use', id: 'tu_2', name: 'bash', input: { command: 'pwd' } },
+      { type: 'tool_result', tool_use_id: 'tu_2', content: '/home' },
+      { type: 'text', text: 'Done.' },
+    ]);
+
+    expect(output.textSegments).toEqual(['Let me check.', 'Done.']);
+    expect(output.contentOrder).toEqual(['text:0', 'tool:0', 'tool:1', 'text:1']);
+  });
+
+  test('produces empty segments for non-array content', () => {
+    const output = renderHistoryContent(null);
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual([]);
+
+    const output2 = renderHistoryContent('raw string');
+    expect(output2.textSegments).toEqual(['raw string']);
+    expect(output2.contentOrder).toEqual(['text:0']);
+  });
 });
 
 describe('mergeToolResults', () => {
   test('merges tool_result user messages into preceding assistant toolCalls', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [], toolCallsBeforeText: false },
+      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['fetch this page'], contentOrder: ['text:0'] },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'web_fetch', input: { url: 'https://example.com' } }],
-        toolCallsBeforeText: true,
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'],
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'page content', isError: false }],
-        toolCallsBeforeText: false,
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
       },
-      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [], toolCallsBeforeText: false },
+      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [], toolCallsBeforeText: false, textSegments: ['Here is what I found.'], contentOrder: ['text:0'] },
     ]);
 
     expect(result).toHaveLength(3);
-    // The user message with tool_result should be suppressed
     expect(result[0].role).toBe('user');
     expect(result[0].text).toBe('fetch this page');
-    // The assistant message should now have the result merged in
     expect(result[1].role).toBe('assistant');
     expect(result[1].toolCalls[0].result).toBe('page content');
     expect(result[1].toolCalls[0].isError).toBe(false);
-    // The final assistant text message is unchanged
     expect(result[2].text).toBe('Here is what I found.');
   });
 
   test('suppresses tool_result-only user messages from visible history', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [], toolCallsBeforeText: false },
+      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['hello'], contentOrder: ['text:0'] },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
-        toolCallsBeforeText: true,
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'],
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'file.txt', isError: false }],
-        toolCallsBeforeText: false,
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
       },
     ]);
 
@@ -247,7 +317,7 @@ describe('mergeToolResults', () => {
       {
         role: 'user', text: 'user typed something', timestamp: 1,
         toolCalls: [{ name: 'unknown', input: {}, result: 'data', isError: false }],
-        toolCallsBeforeText: false,
+        toolCallsBeforeText: false, textSegments: ['user typed something'], contentOrder: ['text:0'],
       },
     ]);
 
@@ -263,7 +333,7 @@ describe('mergeToolResults', () => {
           { name: 'bash', input: { command: 'ls' } },
           { name: 'bash', input: { command: 'pwd' } },
         ],
-        toolCallsBeforeText: true,
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0', 'tool:1'],
       },
       {
         role: 'user', text: '', timestamp: 2,
@@ -271,7 +341,7 @@ describe('mergeToolResults', () => {
           { name: 'unknown', input: {}, result: 'file.txt', isError: false },
           { name: 'unknown', input: {}, result: '/home/user', isError: false },
         ],
-        toolCallsBeforeText: false,
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
       },
     ]);
 
@@ -285,12 +355,12 @@ describe('mergeToolResults', () => {
       {
         role: 'assistant', text: '', timestamp: 1,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
-        toolCallsBeforeText: true,
+        toolCallsBeforeText: true, textSegments: [] as string[], contentOrder: ['tool:0'],
       },
       {
         role: 'user', text: '', timestamp: 2,
         toolCalls: [{ name: 'unknown', input: {}, result: 'output', isError: false }],
-        toolCallsBeforeText: false,
+        toolCallsBeforeText: false, textSegments: [] as string[], contentOrder: [] as string[],
       },
     ];
 

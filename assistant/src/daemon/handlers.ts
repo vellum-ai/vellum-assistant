@@ -242,6 +242,10 @@ export interface RenderedHistoryContent {
   toolCalls: HistoryToolCall[];
   /** True when the first tool_use block appeared before any text block. */
   toolCallsBeforeText: boolean;
+  /** Text segments split by tool-call boundaries. */
+  textSegments: string[];
+  /** Content block ordering using "text:N", "tool:N" encoding. */
+  contentOrder: string[];
 }
 
 export function renderHistoryContent(content: unknown): RenderedHistoryContent {
@@ -254,7 +258,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     } else {
       text = String(content);
     }
-    return { text, toolCalls: [], toolCallsBeforeText: false };
+    return {
+      text,
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      textSegments: text ? [text] : [],
+      contentOrder: text ? ['text:0'] : [],
+    };
   }
 
   const textParts: string[] = [];
@@ -265,11 +275,35 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   let seenToolUse = false;
   let toolCallsBeforeText = false;
 
+  // Segment tracking: text blocks separated by tool_use boundaries
+  const textSegments: string[] = [];
+  const contentOrder: string[] = [];
+  let currentSegmentParts: string[] = [];
+  let hasOpenSegment = false;
+
+  function finalizeSegment(): void {
+    if (hasOpenSegment) {
+      textSegments[textSegments.length - 1] = currentSegmentParts.join('');
+      currentSegmentParts = [];
+      hasOpenSegment = false;
+    }
+  }
+
+  function ensureSegment(): void {
+    if (!hasOpenSegment) {
+      textSegments.push('');
+      contentOrder.push(`text:${textSegments.length - 1}`);
+      hasOpenSegment = true;
+    }
+  }
+
   for (const block of content) {
     if (!isRecord(block) || typeof block.type !== 'string') continue;
 
     if (block.type === 'text' && typeof block.text === 'string') {
       textParts.push(block.text);
+      ensureSegment();
+      currentSegmentParts.push(block.text);
       seenText = true;
       continue;
     }
@@ -282,12 +316,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       continue;
     }
     if (block.type === 'tool_use') {
+      finalizeSegment();
       const name = typeof block.name === 'string' ? block.name : 'unknown';
       const input = isRecord(block.input) ? block.input as Record<string, unknown> : {};
       const id = typeof block.id === 'string' ? block.id : '';
       const entry: HistoryToolCall = { name, input };
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
+      contentOrder.push(`tool:${toolCalls.length - 1}`);
       if (!seenToolUse) {
         seenToolUse = true;
         if (!seenText) toolCallsBeforeText = true;
@@ -323,6 +359,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
   }
 
+  finalizeSegment();
+
   const text = textParts.join('');
   let rendered: string;
   if (attachmentParts.length === 0) {
@@ -333,7 +371,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     rendered = `${text}\n${attachmentParts.join('\n')}`;
   }
 
-  return { text: rendered, toolCalls, toolCallsBeforeText };
+  return { text: rendered, toolCalls, toolCallsBeforeText, textSegments, contentOrder };
 }
 
 /**
@@ -776,6 +814,8 @@ export interface ParsedHistoryMessage {
   timestamp: number;
   toolCalls: HistoryToolCall[];
   toolCallsBeforeText: boolean;
+  textSegments: string[];
+  contentOrder: string[];
 }
 
 function handleHistoryRequest(
@@ -788,17 +828,23 @@ function handleHistoryRequest(
     let text = '';
     let toolCalls: HistoryToolCall[] = [];
     let toolCallsBeforeText = false;
+    let textSegments: string[] = [];
+    let contentOrder: string[] = [];
     try {
       const content = JSON.parse(m.content);
       const rendered = renderHistoryContent(content);
       text = rendered.text;
       toolCalls = rendered.toolCalls;
       toolCallsBeforeText = rendered.toolCallsBeforeText;
+      textSegments = rendered.textSegments;
+      contentOrder = rendered.contentOrder;
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
       text = m.content;
+      textSegments = text ? [text] : [];
+      contentOrder = text ? ['text:0'] : [];
     }
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText };
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -825,6 +871,8 @@ function handleHistoryRequest(
       timestamp: m.timestamp,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls, toolCallsBeforeText: m.toolCallsBeforeText } : {}),
       ...(attachments ? { attachments } : {}),
+      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
