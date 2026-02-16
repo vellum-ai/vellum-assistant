@@ -89,6 +89,7 @@ struct TraceRowView: View {
     private var formattedTimestamp: String {
         let date = Date(timeIntervalSince1970: event.timestampMs / 1000)
         let formatter = DateFormatter()
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter.string(from: date)
     }

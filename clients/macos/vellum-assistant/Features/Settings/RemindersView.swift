@@ -121,6 +121,7 @@ private struct ReminderRow: View {
     private var scheduledDateText: String {
         let date = Date(timeIntervalSince1970: Double(reminder.fireAt) / 1000.0)
         let formatter = DateFormatter()
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
@@ -137,6 +138,7 @@ private struct ReminderRow: View {
             let timestamp = reminder.firedAt ?? reminder.fireAt
             let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
             let formatter = DateFormatter()
+            formatter.timeZone = .autoupdatingCurrent
             formatter.dateStyle = .medium
             formatter.timeStyle = .short
             return "Fired: \(formatter.string(from: date))"

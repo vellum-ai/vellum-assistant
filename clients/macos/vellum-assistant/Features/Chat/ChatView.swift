@@ -261,7 +261,7 @@ struct ChatView: View {
         let previous = messages[index - 1].timestamp
         // Always show a divider when crossing a calendar-day boundary (in local timezone)
         var calendar = Calendar.current
-        calendar.timeZone = .current
+        calendar.timeZone = .autoupdatingCurrent
         if !calendar.isDate(current, inSameDayAs: previous) { return true }
         let gap = current.timeIntervalSince(previous)
         return gap > 300
@@ -641,7 +641,7 @@ private struct ChatBubble: View {
     }
 
     private var formattedTimestamp: String {
-        let tz = TimeZone.current
+        let tz = TimeZone.autoupdatingCurrent
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()
@@ -1386,7 +1386,7 @@ private struct TimestampDivider: View {
     let date: Date
 
     private var formattedTime: String {
-        let tz = TimeZone.current
+        let tz = TimeZone.autoupdatingCurrent
         var calendar = Calendar.current
         calendar.timeZone = tz
         let formatter = DateFormatter()
