@@ -72,13 +72,9 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
     .filter((row) => TRUST_RANK[row.verificationState] !== undefined)
     .sort((a, b) => compareProfileCandidates(a, b, nowMs));
 
-  // Deduplicate by subject after ranking, keeping highest-scoring entry per subject
-  // with recency as tiebreaker for identical scores
-  const deduped = deduplicateBySubject(trusted, nowMs);
-
   const selectedLines: string[] = [];
   const seenKeys = new Set<string>();
-  for (const candidate of deduped) {
+  for (const candidate of trusted) {
     const subject = normalizeWhitespace(candidate.subject, 80);
     const statement = normalizeWhitespace(candidate.statement, 220);
     if (!subject || !statement) continue;
@@ -130,35 +126,6 @@ function compareProfileCandidates(left: ProfileCandidate, right: ProfileCandidat
   if (confidenceDelta !== 0) return confidenceDelta;
 
   return right.firstSeenAt - left.firstSeenAt;
-}
-
-function deduplicateBySubject(candidates: ProfileCandidate[], nowMs: number): ProfileCandidate[] {
-  const subjectMap = new Map<string, ProfileCandidate>();
-
-  for (const candidate of candidates) {
-    const normalizedSubject = normalizeWhitespace(candidate.subject, 80).toLowerCase();
-    if (!normalizedSubject) continue;
-
-    const dedupeKey = `${candidate.kind}|${normalizedSubject}`;
-    const existing = subjectMap.get(dedupeKey);
-
-    if (!existing) {
-      subjectMap.set(dedupeKey, candidate);
-      continue;
-    }
-
-    // Keep highest-scoring entry; use recency as tiebreaker for identical scores
-    const existingScore = candidateRankScore(existing, nowMs);
-    const candidateScore = candidateRankScore(candidate, nowMs);
-
-    if (candidateScore > existingScore) {
-      subjectMap.set(dedupeKey, candidate);
-    } else if (candidateScore === existingScore && candidate.lastSeenAt > existing.lastSeenAt) {
-      subjectMap.set(dedupeKey, candidate);
-    }
-  }
-
-  return Array.from(subjectMap.values());
 }
 
 function normalizeWhitespace(input: string, maxLength: number): string {
