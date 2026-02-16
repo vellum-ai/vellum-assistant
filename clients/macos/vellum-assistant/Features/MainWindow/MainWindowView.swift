@@ -151,8 +151,16 @@ struct MainWindowView: View {
 
                         // Content area
                         if windowState.contentMode == .dashboard {
-                            // Dashboard mode: placeholder (populated in M7)
-                            DashboardPlaceholderView()
+                            // Dashboard mode: full card layout
+                            DashboardView(onTaskKickoff: { task in
+                                // Switch to chat and send the kickoff message
+                                threadManager.createThread()
+                                windowState.contentMode = .chat
+                                if let viewModel = threadManager.activeViewModel {
+                                    viewModel.inputText = task.kickoffIntent
+                                    viewModel.sendMessage()
+                                }
+                            })
                         } else {
                             // Chat mode: left drawer + chat + right panel
                             HStack(spacing: 0) {

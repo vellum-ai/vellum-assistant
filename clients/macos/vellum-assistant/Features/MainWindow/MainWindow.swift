@@ -50,6 +50,16 @@ final class MainWindow {
                 self?.traceStore.ingest(msg)
             }
         }
+        services.daemonClient.onDashboardThemeUpdate = { [weak self] msg in
+            Task { @MainActor in
+                self?.handleDashboardThemeUpdate(msg)
+            }
+        }
+        services.daemonClient.onDashboardTaskKickoff = { [weak self] msg in
+            Task { @MainActor in
+                self?.handleDashboardTaskKickoff(msg)
+            }
+        }
         observeDaemonReconnects()
     }
 
@@ -195,5 +205,32 @@ final class MainWindow {
         chatWindow = nil
         windowState.isChatPoppedOut = false
         windowState.contentMode = .chat
+    }
+
+    // MARK: - Dashboard Message Handlers
+
+    /// Apply a theme/color update from the daemon to the dashboard.
+    /// Persists the color in `@AppStorage` via a notification so that
+    /// `DashboardView` can pick it up reactively.
+    private func handleDashboardThemeUpdate(_ msg: DashboardThemeUpdateMessage) {
+        NotificationCenter.default.post(
+            name: .dashboardThemeDidUpdate,
+            object: nil,
+            userInfo: [
+                "colorHex": msg.colorHex,
+                "colorName": msg.colorName,
+            ]
+        )
+    }
+
+    /// Handle a task kickoff directive from the daemon. Creates a new thread,
+    /// switches to chat mode, and sends the kickoff message.
+    private func handleDashboardTaskKickoff(_ msg: DashboardTaskKickoffMessage) {
+        threadManager.createThread()
+        windowState.contentMode = .chat
+        if let viewModel = threadManager.activeViewModel {
+            viewModel.inputText = "[STARTER_TASK:\(msg.taskId)]"
+            viewModel.sendMessage()
+        }
     }
 }

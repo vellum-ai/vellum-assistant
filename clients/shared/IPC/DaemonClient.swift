@@ -158,6 +158,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `open_url` message.
     public var onOpenUrl: ((OpenUrlMessage) -> Void)?
 
+    /// Called when the daemon sends a `dashboard_theme_update` message.
+    public var onDashboardThemeUpdate: ((DashboardThemeUpdateMessage) -> Void)?
+
+    /// Called when the daemon sends a `dashboard_task_kickoff` message.
+    public var onDashboardTaskKickoff: ((DashboardTaskKickoffMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -941,6 +947,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onTraceEvent?(msg)
         case .error(let msg):
             onError?(msg)
+        case .dashboardThemeUpdate(let msg):
+            onDashboardThemeUpdate?(msg)
+        case .dashboardTaskKickoff(let msg):
+            onDashboardTaskKickoff?(msg)
         #if os(macOS)
         case .signBundlePayload(let msg):
             handleSignBundlePayload(msg)
