@@ -112,14 +112,34 @@ async function collectAndMergeCandidates(
   }
 
   // -- Early termination check --
-  // If cheap sources already produced enough high-confidence candidates,
+  // If cheap sources already produced enough high-relevance candidates,
   // skip the expensive semantic search (Qdrant network call) and entity
   // relation traversal to reduce recall latency.
+  //
+  // Deduplicate before counting: lexical and recency can return the same
+  // segment (common when recent messages match the query), so checking raw
+  // counts would inflate the total and trigger early termination prematurely.
   const etConfig = config.memory.retrieval.earlyTermination;
-  const cheapCandidates = [...lexical, ...recency, ...directItems];
+  const cheapCandidateMap = new Map<string, Candidate>();
+  for (const c of [...lexical, ...recency, ...directItems]) {
+    const existing = cheapCandidateMap.get(c.key);
+    // Keep the candidate with higher query relevance (lexical score is the
+    // best proxy we have at this stage; confidence reflects extraction
+    // certainty, not query-match strength).
+    if (!existing || c.lexical > existing.lexical) {
+      cheapCandidateMap.set(c.key, c);
+    }
+  }
+  const cheapCandidates = [...cheapCandidateMap.values()];
+
+  // Gate on relevance instead of confidence: for direct item candidates,
+  // c.confidence reflects extraction certainty (memory_items.confidence),
+  // not query-match relevance. Common tokens can produce many high-confidence
+  // but weakly relevant items that would skip semantic search exactly when
+  // it's needed most. Instead, check lexical score (query-match relevance).
   const canTerminateEarly = etConfig.enabled
     && cheapCandidates.length >= etConfig.minCandidates
-    && cheapCandidates.filter((c) => c.confidence >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
+    && cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
 
   // -- Phase 2: expensive searches (skipped on early termination) --
   let semantic: Candidate[] = [];
@@ -156,8 +176,8 @@ async function collectAndMergeCandidates(
 
   if (canTerminateEarly) {
     log.debug(
-      { cheapCandidateCount: cheapCandidates.length, highConfidenceCount: cheapCandidates.filter((c) => c.confidence >= etConfig.confidenceThreshold).length },
-      'Early termination: skipping semantic and entity search — sufficient high-confidence candidates from cheap sources',
+      { cheapCandidateCount: cheapCandidates.length, highRelevanceCount: cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold).length },
+      'Early termination: skipping semantic and entity search — sufficient high-relevance candidates from cheap sources',
     );
   }
 
