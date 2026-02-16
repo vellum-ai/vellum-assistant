@@ -671,6 +671,15 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
+export const IntegrationConfigSchema = z.object({
+  clientId: z.string({ error: 'integrations.*.clientId must be a string' }).optional(),
+});
+
+export const IntegrationsConfigSchema = z.record(
+  z.string(),
+  IntegrationConfigSchema,
+).default({});
+
 export const AssistantConfigSchema = z.object({
   provider: z
     .enum(VALID_PROVIDERS, {
@@ -846,6 +855,7 @@ export const AssistantConfigSchema = z.object({
     install: { nodeManager: 'npm' },
     allowBundled: null,
   }),
+  integrations: IntegrationsConfigSchema,
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -899,3 +909,5 @@ export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
+export type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
+export type IntegrationsConfig = z.infer<typeof IntegrationsConfigSchema>;
