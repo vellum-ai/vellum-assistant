@@ -122,7 +122,7 @@ struct MainWindowView: View {
                         threadDrawerView
                             .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
                             .clipped()
-                            .allowsHitTesting(sidebarOpen)
+                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
                             .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
                             .animation(nil, value: threadDrawerWidth)
 
