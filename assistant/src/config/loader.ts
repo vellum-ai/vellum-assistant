@@ -213,7 +213,7 @@ export function loadConfig(): AssistantConfig {
 }
 
 export function saveConfig(config: AssistantConfig): void {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
 
   // Route apiKeys to secure storage, write config without them
@@ -251,7 +251,7 @@ export function invalidateConfigCache(): void {
  * Used by CLI config commands to read/write the file directly.
  */
 export function loadRawConfig(): Record<string, unknown> {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
   let raw: Record<string, unknown> = {};
   if (existsSync(configPath)) {
@@ -282,7 +282,7 @@ export function loadRawConfig(): Record<string, unknown> {
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
 
   // Route apiKeys to secure storage and strip from plaintext file
