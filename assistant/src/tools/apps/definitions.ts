@@ -348,6 +348,217 @@ export const appDeleteTool: Tool = {
 };
 
 // ---------------------------------------------------------------------------
+// app_file_list
+// ---------------------------------------------------------------------------
+
+export const appFileListTool: Tool = {
+  name: 'app_file_list',
+  description: 'List all files in an app. Returns a JSON array of file paths.',
+  category: 'apps',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'local',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          app_id: {
+            type: 'string',
+            description: 'The ID of the app',
+          },
+        },
+        required: ['app_id'],
+      },
+    };
+  },
+
+  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const appId = input.app_id as string;
+    const files = appStore.listAppFiles(appId);
+    return { content: JSON.stringify(files), isError: false };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// app_file_read
+// ---------------------------------------------------------------------------
+
+export const appFileReadTool: Tool = {
+  name: 'app_file_read',
+  description:
+    'Read the contents of a file in an app. Returns content with line numbers in cat -n format.',
+  category: 'apps',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'local',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          app_id: {
+            type: 'string',
+            description: 'The ID of the app',
+          },
+          path: {
+            type: 'string',
+            description: 'Relative file path within the app',
+          },
+          offset: {
+            type: 'number',
+            description: '1-based line number to start reading from (default: 1)',
+          },
+          limit: {
+            type: 'number',
+            description: 'Number of lines to return (default: all)',
+          },
+        },
+        required: ['app_id', 'path'],
+      },
+    };
+  },
+
+  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const appId = input.app_id as string;
+    const path = input.path as string;
+    const offset = (input.offset as number | undefined) ?? 1;
+    const limit = input.limit as number | undefined;
+
+    const raw = appStore.readAppFile(appId, path);
+    const allLines = raw.split('\n');
+    const startIndex = Math.max(0, offset - 1);
+    const sliced = limit != null ? allLines.slice(startIndex, startIndex + limit) : allLines.slice(startIndex);
+
+    const formatted = sliced
+      .map((line, i) => {
+        const lineNum = startIndex + i + 1;
+        return `${String(lineNum).padStart(6)}\t${line}`;
+      })
+      .join('\n');
+
+    return { content: formatted, isError: false };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// app_file_edit
+// ---------------------------------------------------------------------------
+
+export const appFileEditTool: Tool = {
+  name: 'app_file_edit',
+  description:
+    'Edit a file in an app by replacing a string. Uses exact match-and-replace.',
+  category: 'apps',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'local',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          app_id: {
+            type: 'string',
+            description: 'The ID of the app',
+          },
+          path: {
+            type: 'string',
+            description: 'Relative file path within the app',
+          },
+          old_string: {
+            type: 'string',
+            description: 'The exact string to find and replace',
+          },
+          new_string: {
+            type: 'string',
+            description: 'The replacement string',
+          },
+          replace_all: {
+            type: 'boolean',
+            description: 'Replace all occurrences instead of just the first (default: false)',
+          },
+          status: {
+            type: 'string',
+            description:
+              "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')",
+          },
+        },
+        required: ['app_id', 'path', 'old_string', 'new_string'],
+      },
+    };
+  },
+
+  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const appId = input.app_id as string;
+    const path = input.path as string;
+    const oldString = input.old_string as string;
+    const newString = input.new_string as string;
+    const replaceAll = (input.replace_all as boolean | undefined) ?? false;
+
+    const result = appStore.editAppFile(appId, path, oldString, newString, replaceAll);
+    return { content: JSON.stringify(result), isError: false };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// app_file_write
+// ---------------------------------------------------------------------------
+
+export const appFileWriteTool: Tool = {
+  name: 'app_file_write',
+  description: 'Write (create or overwrite) a file in an app.',
+  category: 'apps',
+  defaultRiskLevel: RiskLevel.Low,
+  executionMode: 'local',
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          app_id: {
+            type: 'string',
+            description: 'The ID of the app',
+          },
+          path: {
+            type: 'string',
+            description: 'Relative file path within the app',
+          },
+          content: {
+            type: 'string',
+            description: 'The content to write to the file',
+          },
+          status: {
+            type: 'string',
+            description:
+              "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')",
+          },
+        },
+        required: ['app_id', 'path', 'content'],
+      },
+    };
+  },
+
+  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const appId = input.app_id as string;
+    const path = input.path as string;
+    const content = input.content as string;
+
+    appStore.writeAppFile(appId, path, content);
+    return { content: JSON.stringify({ written: true, path }), isError: false };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // All tools exported as array for convenience
 // ---------------------------------------------------------------------------
 
@@ -358,4 +569,8 @@ export const allAppTools: Tool[] = [
   appQueryTool,
   appUpdateTool,
   appDeleteTool,
+  appFileListTool,
+  appFileReadTool,
+  appFileEditTool,
+  appFileWriteTool,
 ];
