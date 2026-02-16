@@ -110,7 +110,7 @@ mock.module('../workspace/top-level-scanner.js', () => ({
   MAX_TOP_LEVEL_ENTRIES: 120,
   scanTopLevelDirectories: (rootPath: string) => {
     scanCallCount++;
-    return { rootPath, directories: ['src', 'tests', 'docs'], truncated: false };
+    return { rootPath, directories: ['src', 'tests', 'docs'], files: ['README.md', 'package.json'], truncated: false };
   },
 }));
 

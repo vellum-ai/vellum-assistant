@@ -6,6 +6,7 @@ export const MAX_TOP_LEVEL_ENTRIES = 120;
 export interface TopLevelSnapshot {
   rootPath: string;
   directories: string[];
+  files: string[];
   truncated: boolean;
 }
 
@@ -15,20 +16,26 @@ export interface TopLevelSnapshot {
  * is sorted lexicographically.
  */
 export function scanTopLevelDirectories(rootPath: string): TopLevelSnapshot {
-  let entries: string[];
+  let dirEntries: string[];
+  let fileEntries: string[];
   try {
-    entries = readdirSync(rootPath, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort();
+    const all = readdirSync(rootPath, { withFileTypes: true });
+    dirEntries = all.filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    fileEntries = all.filter((d) => d.isFile()).map((d) => d.name).sort();
   } catch {
-    return { rootPath, directories: [], truncated: false };
+    return { rootPath, directories: [], files: [], truncated: false };
   }
 
-  const truncated = entries.length > MAX_TOP_LEVEL_ENTRIES;
-  return {
-    rootPath,
-    directories: truncated ? entries.slice(0, MAX_TOP_LEVEL_ENTRIES) : entries,
-    truncated,
-  };
+  const totalEntries = dirEntries.length + fileEntries.length;
+  const truncated = totalEntries > MAX_TOP_LEVEL_ENTRIES;
+
+  if (truncated) {
+    // Directories first, then fill remaining budget with files
+    const dirs = dirEntries.slice(0, MAX_TOP_LEVEL_ENTRIES);
+    const remaining = Math.max(0, MAX_TOP_LEVEL_ENTRIES - dirs.length);
+    const files = fileEntries.slice(0, remaining);
+    return { rootPath, directories: dirs, files, truncated };
+  }
+
+  return { rootPath, directories: dirEntries, files: fileEntries, truncated };
 }

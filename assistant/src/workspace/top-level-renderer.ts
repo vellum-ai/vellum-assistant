@@ -10,8 +10,9 @@ export function renderWorkspaceTopLevelContext(snapshot: TopLevelSnapshot): stri
   const lines: string[] = ['<workspace_top_level>'];
   lines.push(`Root: ${snapshot.rootPath}`);
   lines.push(`Directories: ${snapshot.directories.join(', ')}`);
+  lines.push(`Files: ${snapshot.files.join(', ')}`);
   if (snapshot.truncated) {
-    lines.push('(list truncated — more directories exist)');
+    lines.push('(list truncated — more entries exist)');
   }
   lines.push('</workspace_top_level>');
   return lines.join('\n');

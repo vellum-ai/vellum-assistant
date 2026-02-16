@@ -3,10 +3,11 @@ import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.
 import type { TopLevelSnapshot } from '../workspace/top-level-scanner.js';
 
 describe('renderWorkspaceTopLevelContext', () => {
-  test('renders basic snapshot with directories', () => {
+  test('renders basic snapshot with directories and files', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/sandbox',
       directories: ['lib', 'src', 'tests'],
+      files: ['README.md', 'package.json'],
       truncated: false,
     };
 
@@ -15,6 +16,7 @@ describe('renderWorkspaceTopLevelContext', () => {
       '<workspace_top_level>',
       'Root: /sandbox',
       'Directories: lib, src, tests',
+      'Files: README.md, package.json',
       '</workspace_top_level>',
     ].join('\n'));
   });
@@ -23,18 +25,21 @@ describe('renderWorkspaceTopLevelContext', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/sandbox',
       directories: ['a', 'b'],
+      files: ['c.txt'],
       truncated: true,
     };
 
     const result = renderWorkspaceTopLevelContext(snapshot);
-    expect(result).toContain('(list truncated — more directories exist)');
+    expect(result).toContain('(list truncated — more entries exist)');
     expect(result).toContain('Directories: a, b');
+    expect(result).toContain('Files: c.txt');
   });
 
   test('does not include truncation note when not truncated', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/sandbox',
       directories: ['src'],
+      files: ['index.ts'],
       truncated: false,
     };
 
@@ -42,10 +47,11 @@ describe('renderWorkspaceTopLevelContext', () => {
     expect(result).not.toContain('truncated');
   });
 
-  test('renders empty directory list', () => {
+  test('renders empty directory and file lists', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/empty',
       directories: [],
+      files: [],
       truncated: false,
     };
 
@@ -54,6 +60,7 @@ describe('renderWorkspaceTopLevelContext', () => {
       '<workspace_top_level>',
       'Root: /empty',
       'Directories: ',
+      'Files: ',
       '</workspace_top_level>',
     ].join('\n'));
   });
@@ -62,6 +69,7 @@ describe('renderWorkspaceTopLevelContext', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/sandbox',
       directories: ['alpha', 'beta', 'gamma'],
+      files: ['config.json'],
       truncated: false,
     };
 
@@ -74,6 +82,7 @@ describe('renderWorkspaceTopLevelContext', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/test',
       directories: ['src'],
+      files: [],
       truncated: false,
     };
 
@@ -86,6 +95,7 @@ describe('renderWorkspaceTopLevelContext', () => {
     const snapshot: TopLevelSnapshot = {
       rootPath: '/project',
       directories: ['.git', '.vscode', 'src'],
+      files: ['.gitignore'],
       truncated: false,
     };
 
@@ -93,5 +103,19 @@ describe('renderWorkspaceTopLevelContext', () => {
     expect(result).toContain('.git');
     expect(result).toContain('.vscode');
     expect(result).toContain('src');
+    expect(result).toContain('.gitignore');
+  });
+
+  test('renders files-only snapshot (no directories)', () => {
+    const snapshot: TopLevelSnapshot = {
+      rootPath: '/flat',
+      directories: [],
+      files: ['a.txt', 'b.txt'],
+      truncated: false,
+    };
+
+    const result = renderWorkspaceTopLevelContext(snapshot);
+    expect(result).toContain('Directories: ');
+    expect(result).toContain('Files: a.txt, b.txt');
   });
 });
