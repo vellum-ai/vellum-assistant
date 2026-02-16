@@ -958,7 +958,13 @@ async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
   const targetId = asString(job.payload.targetId);
   if (!targetType || !targetId) return;
 
-  const qdrant = getQdrantClient();
+  let qdrant;
+  try {
+    qdrant = getQdrantClient();
+  } catch {
+    throw new BackendUnavailableError('Qdrant client not initialized');
+  }
+
   await qdrant.deleteByTarget(targetType, targetId);
   log.info({ targetType, targetId }, 'Retried Qdrant vector deletion succeeded');
 }
