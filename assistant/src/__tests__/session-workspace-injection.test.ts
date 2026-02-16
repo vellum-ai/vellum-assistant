@@ -270,12 +270,15 @@ describe('Session workspace dirty-refresh E2E', () => {
     };
     await session.processMessage('Edit a file', [], () => {});
 
-    // file_edit marks dirty, but scanner was not re-called yet (dirty happens mid-turn)
-    // Next turn should trigger a fresh scan
+    // No rescan should happen during the mutation turn itself
+    const afterMutation = scanCallCount;
+    expect(afterMutation).toBe(afterFirst);
+
+    // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
     await session.processMessage('What happened?', [], () => {});
 
-    expect(scanCallCount).toBeGreaterThan(afterFirst);
+    expect(scanCallCount).toBe(afterMutation + 1);
   });
 
   test('successful bash causes refresh next turn', async () => {
@@ -291,10 +294,15 @@ describe('Session workspace dirty-refresh E2E', () => {
     };
     await session.processMessage('Run a command', [], () => {});
 
+    // No rescan should happen during the mutation turn itself
+    const afterMutation = scanCallCount;
+    expect(afterMutation).toBe(afterFirst);
+
+    // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
     await session.processMessage('What now?', [], () => {});
 
-    expect(scanCallCount).toBeGreaterThan(afterFirst);
+    expect(scanCallCount).toBe(afterMutation + 1);
   });
 
   test('failed tool results do not trigger refresh', async () => {
