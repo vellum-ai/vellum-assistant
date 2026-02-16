@@ -20,9 +20,19 @@ function computeDelay(
   retryAfterHeader: string | null,
 ): number {
   if (retryAfterHeader) {
+    // Try parsing as numeric seconds first (e.g., "120")
     const seconds = Number(retryAfterHeader);
     if (Number.isFinite(seconds) && seconds > 0) {
       return seconds * 1000;
+    }
+
+    // Fall back to HTTP-date format (e.g., "Fri, 31 Dec 1999 23:59:59 GMT")
+    const targetTime = new Date(retryAfterHeader).getTime();
+    if (Number.isFinite(targetTime)) {
+      const delayMs = targetTime - Date.now();
+      if (delayMs > 0) {
+        return delayMs;
+      }
     }
   }
 
