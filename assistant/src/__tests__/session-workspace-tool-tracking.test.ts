@@ -206,7 +206,7 @@ describe('Session workspace dirty on file mutations', () => {
     expect(session.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
-  test('failed bash does NOT mark workspace dirty', async () => {
+  test('failed bash still marks workspace dirty (commands can mutate before failing)', async () => {
     const session = makeSession();
     await session.loadFromDb();
 
@@ -219,7 +219,7 @@ describe('Session workspace dirty on file mutations', () => {
     };
 
     await session.processMessage('Run a command', [], () => {});
-    expect(session.isWorkspaceTopLevelDirty()).toBe(false);
+    expect(session.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
   test('non-mutation tools do NOT mark workspace dirty', async () => {
