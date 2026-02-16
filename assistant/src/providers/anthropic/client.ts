@@ -17,7 +17,7 @@ function sanitizeToolId(id: string): string {
   // Escape `x` itself (to `x78`) so it can safely serve as the hex-escape
   // prefix without collisions.  E.g. "a:" → "ax3a", "ax3a" → "ax783a".
   return id.replace(TOOL_ID_RE, (ch) => {
-    const hex = ch.charCodeAt(0).toString(16).padStart(2, '0');
+    const hex = ch.charCodeAt(0).toString(16).padStart(4, '0');
     return `x${hex}`;
   });
 }
