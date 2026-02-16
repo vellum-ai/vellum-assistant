@@ -1433,7 +1433,7 @@ export class Session {
       try {
         const content = JSON.parse(msg.content);
         if (Array.isArray(content)) {
-          const toolResultBlocks = content.filter((b: any) => b.type === 'tool_result');
+          const toolResultBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_result');
           log.info({ messageId: msg.id, blockCount: content.length, toolResultCount: toolResultBlocks.length }, 'Merging tool_result blocks from internal user message');
           consolidatedContent.push(...content);
         }
@@ -1442,8 +1442,8 @@ export class Session {
       }
     }
 
-    const toolUseBlocksInConsolidated = consolidatedContent.filter((b: any) => b.type === 'tool_use').length;
-    const toolResultBlocksInConsolidated = consolidatedContent.filter((b: any) => b.type === 'tool_result').length;
+    const toolUseBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_use').length;
+    const toolResultBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_result').length;
     log.info({ totalBlocks: consolidatedContent.length, toolUseBlocks: toolUseBlocksInConsolidated, toolResultBlocks: toolResultBlocksInConsolidated }, 'Final consolidated content');
 
     // Update the first assistant message with all content
