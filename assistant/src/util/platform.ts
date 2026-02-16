@@ -7,7 +7,8 @@ import { homedir } from 'node:os';
  * which pre-creates workspace destination directories and causes migration
  * moves to no-op.
  */
-function migrationLog(level: 'info' | 'warn', msg: string, data?: Record<string, unknown>): void {
+function migrationLog(level: 'info' | 'warn' | 'debug', msg: string, data?: Record<string, unknown>): void {
+  if (level === 'debug') return; // suppress debug-level migration noise
   const prefix = level === 'warn' ? 'WARN' : 'INFO';
   const extra = data ? ' ' + JSON.stringify(data) : '';
   process.stderr.write(`[migration] ${prefix}: ${msg}${extra}\n`);
@@ -180,7 +181,7 @@ export function getWorkspacePromptPath(file: string): string {
 export function migratePath(source: string, destination: string): void {
   if (!existsSync(source)) return;
   if (existsSync(destination)) {
-    migrationLog('warn', 'Migration skipped: destination already exists', { source, destination });
+    migrationLog('debug', 'Migration skipped: destination already exists', { source, destination });
     return;
   }
   try {

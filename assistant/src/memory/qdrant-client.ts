@@ -57,7 +57,7 @@ export class VellumQdrantClient {
   private collectionReady = false;
 
   constructor(config: QdrantClientConfig) {
-    this.client = new QdrantRestClient({ url: config.url });
+    this.client = new QdrantRestClient({ url: config.url, checkCompatibility: false });
     this.collection = config.collection;
     this.vectorSize = config.vectorSize;
     this.onDisk = config.onDisk;
