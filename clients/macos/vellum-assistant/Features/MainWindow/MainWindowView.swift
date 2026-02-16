@@ -392,7 +392,8 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let activePanelWidth: CGFloat = windowState.activePanel != nil ? sidePanelWidth : 0
+                        let sidePanelVisible = windowState.activePanel != nil && !(windowState.isDynamicExpanded && windowState.activePanel == .generated)
+                        let activePanelWidth: CGFloat = sidePanelVisible ? sidePanelWidth : 0
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
                         // Update width without animation to prevent jitter
