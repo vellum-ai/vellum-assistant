@@ -101,6 +101,7 @@ graph TB
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
+            DB_REMINDERS["reminders"]
         end
 
         subgraph "Tracing"
@@ -368,6 +369,7 @@ graph LR
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
+        REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
     end
 
     subgraph "~/.vellum/workspace/data/ipc-blobs/"

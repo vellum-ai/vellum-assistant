@@ -78,6 +78,45 @@ describe('reminder tool', () => {
     expect(result.content).toContain('Invalid timestamp');
   });
 
+  test('create rejects non-ISO date formats like MM/DD/YYYY', async () => {
+    const result = await reminderTool.execute({
+      action: 'create',
+      fire_at: '03/04/2027',
+      label: 'Ambiguous date',
+      message: 'This format is locale-dependent',
+    }, dummyContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid timestamp');
+  });
+
+  test('create rejects ISO timestamp without timezone', async () => {
+    const result = await reminderTool.execute({
+      action: 'create',
+      fire_at: '2027-03-15T09:00:00',
+      label: 'No timezone',
+      message: 'Missing timezone offset',
+    }, dummyContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid timestamp');
+  });
+
+  test('create accepts ISO timestamp with timezone offset', async () => {
+    const future = new Date(Date.now() + 120_000);
+    const offset = '-05:00';
+    const isoWithOffset = future.toISOString().replace('Z', offset);
+    const result = await reminderTool.execute({
+      action: 'create',
+      fire_at: isoWithOffset,
+      label: 'With offset',
+      message: 'Has explicit timezone',
+    }, dummyContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Reminder created');
+  });
+
   test('create defaults mode to notify', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     const result = await reminderTool.execute({

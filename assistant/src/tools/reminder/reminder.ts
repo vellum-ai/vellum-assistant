@@ -48,9 +48,13 @@ function createAction(input: Record<string, unknown>): ToolExecutionResult {
     return { content: 'Error: mode must be "notify" or "execute"', isError: true };
   }
 
+  // Require strict ISO 8601 with timezone offset or Z to avoid ambiguous parsing
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(fireAtStr)) {
+    return { content: `Error: Invalid timestamp "${fireAtStr}". Use ISO 8601 format with timezone (e.g. "2025-03-15T09:00:00Z" or "2025-03-15T09:00:00-05:00").`, isError: true };
+  }
   const fireAt = new Date(fireAtStr).getTime();
   if (isNaN(fireAt)) {
-    return { content: `Error: Invalid timestamp "${fireAtStr}". Use ISO 8601 format (e.g. "2025-03-15T09:00:00Z").`, isError: true };
+    return { content: `Error: Invalid timestamp "${fireAtStr}". Use ISO 8601 format with timezone (e.g. "2025-03-15T09:00:00Z").`, isError: true };
   }
   if (fireAt <= Date.now()) {
     return { content: 'Error: fire_at must be in the future', isError: true };
