@@ -282,6 +282,7 @@ struct MainWindowView: View {
             .buttonStyle(.plain)
             .frame(width: 24)
             .opacity(isSelected || isHoveredThread == thread.id ? 1 : 0)
+            .allowsHitTesting(isSelected || isHoveredThread == thread.id)
             .accessibilityLabel("Archive \(thread.title)")
         }
         .padding(.horizontal, VSpacing.sm)
