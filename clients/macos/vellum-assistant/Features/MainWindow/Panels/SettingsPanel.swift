@@ -491,8 +491,8 @@ struct SettingsPanel: View {
         daemonClient?.onIntegrationConnectResult = { [self] result in
             Task { @MainActor in
                 self.connectingIntegration = nil
-                if !result.success, let error = result.error {
-                    self.integrationError = (id: result.integrationId, message: error)
+                if !result.success {
+                    self.integrationError = (id: result.integrationId, message: result.error ?? "Connection failed")
                 } else {
                     self.integrationError = nil
                 }
