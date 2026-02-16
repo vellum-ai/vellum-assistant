@@ -415,6 +415,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         if let gen = data.reloadGeneration, gen != context.coordinator.lastReloadGeneration {
             context.coordinator.lastReloadGeneration = gen
             context.coordinator.hasCapturedSnapshot = false
+            // Stash any simultaneous status change for injection after reload completes
+            if let status = data.status, status != context.coordinator.lastStatus {
+                context.coordinator.pendingStatus = status
+                context.coordinator.lastStatus = status
+            }
             webView.reload()
             return
         }
@@ -537,6 +542,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var morphGeneration: Int = 0
         var lastReloadGeneration: Int = 0
         var lastStatus: String?
+        /// Status message to inject after the next page reload completes.
+        var pendingStatus: String?
         init(
             onAction: @escaping (String, Any?) -> Void,
             onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?,
@@ -814,6 +821,34 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     })();
                     """
                 webView.evaluateJavaScript(js, completionHandler: nil)
+            }
+
+            // Inject deferred status pill that was stashed during a reload.
+            if let status = pendingStatus {
+                pendingStatus = nil
+                let escapedStatus = status
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "\r", with: " ")
+                let pillJS = """
+                    (function() {
+                        var existing = document.getElementById('vellum-status-pill');
+                        if (existing) existing.remove();
+                        var pill = document.createElement('div');
+                        pill.id = 'vellum-status-pill';
+                        pill.setAttribute('data-vellum-injected', '1');
+                        pill.textContent = '\(escapedStatus)';
+                        pill.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;font-size:12px;padding:6px 14px;border-radius:20px;z-index:100000;pointer-events:none;opacity:0;transition:opacity 0.3s ease;backdrop-filter:blur(8px);font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+                        document.body.appendChild(pill);
+                        requestAnimationFrame(function() { pill.style.opacity = '1'; });
+                        setTimeout(function() {
+                            pill.style.opacity = '0';
+                            setTimeout(function() { if (pill.parentNode) pill.remove(); }, 300);
+                        }, 3000);
+                    })();
+                    """
+                webView.evaluateJavaScript(pillJS, completionHandler: nil)
             }
 
             // Detect page changes from URL-based navigation (e.g. <a href="settings.html">).
