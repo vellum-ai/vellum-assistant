@@ -164,9 +164,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if appearance == nil {
-            // When switching back to "system", explicitly set the current system
-            // appearance first so windows see an immediate change, then clear the
-            // override on the next run loop so future system changes propagate.
+            // When switching back to "system", clear the override first so
+            // effectiveAppearance reflects the actual system appearance, then
+            // snapshot it and apply explicitly so windows see an immediate change.
+            NSApp.appearance = nil
             let systemAppearance = NSAppearance(named:
                 NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                     ? .darkAqua : .aqua)
@@ -176,7 +177,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.invalidateShadow()
                 window.contentView?.needsDisplay = true
             }
+            // Clear the explicit override on the next run loop so future system
+            // appearance changes propagate. Guard against races where the user
+            // picks a different theme before this block fires.
             DispatchQueue.main.async {
+                let current = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
+                guard current == "system" else { return }
                 NSApp.appearance = nil
                 for window in NSApp.windows {
                     window.appearance = nil
