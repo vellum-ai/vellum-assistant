@@ -511,8 +511,9 @@ export class DaemonServer {
     }
   }
 
-  broadcast(msg: ServerMessage): void {
+  broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
     for (const socket of this.connectedSockets) {
+      if (socket === excludeSocket) continue;
       this.send(socket, msg);
     }
   }
@@ -603,7 +604,7 @@ export class DaemonServer {
           maxTokens,
           rebindClient ? sendToClient : () => {},
           workingDir,
-          (msg) => this.broadcast(msg),
+          (msg) => this.broadcast(msg, socket),
         );
         // When created without a socket (HTTP path), mark the session
         // so interactive prompts (e.g. host attachment reads) can fail
