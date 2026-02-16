@@ -50,6 +50,9 @@ import type {
   ForkSharedAppRequest,
   ShareAppCloudRequest,
   UiSurfaceShow,
+  SurfaceType,
+  SurfaceData,
+  SurfaceAction,
   IpcBlobProbe,
   GalleryInstallRequest,
   ShareToSlackRequest,
@@ -972,7 +975,7 @@ function handleHistoryRequest(
               data: block.data,
               actions: block.actions,
               display: block.display,
-              messageId: dbMsg.id,  // Add messageId so client can match surface to message
+              messageId: dbMsg.id,
             } as UiSurfaceShow);
           }
         }

@@ -938,6 +938,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         connected: true,
         accountInfo: 'user@gmail.com',
         connectedAt: 1700000000,
+        lastUsed: 1700001000,
       },
     ],
   },

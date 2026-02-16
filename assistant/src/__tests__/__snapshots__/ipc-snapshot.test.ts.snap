@@ -134,14 +134,11 @@ exports[`IPC message snapshots ClientMessage types cu_observation serializes to 
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types ambient_observation serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ClientMessage types ride_shotgun_start serializes to expected JSON 1`] = `
 {
-  "appName": "Safari",
-  "ocrText": "Hello world visible on screen",
-  "requestId": "req-amb-001",
-  "timestamp": 1700000000,
-  "type": "ambient_observation",
-  "windowTitle": "Google",
+  "durationSeconds": 300,
+  "intervalSeconds": 10,
+  "type": "ride_shotgun_start",
 }
 `;
 
@@ -480,11 +477,59 @@ exports[`IPC message snapshots ClientMessage types slack_webhook_config serializ
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types vercel_api_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "vercel_api_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types link_open_request serializes to expected JSON 1`] = `
+{
+  "type": "link_open_request",
+  "url": "https://example.com",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types ui_surface_undo serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
   "surfaceId": "surface-001",
   "type": "ui_surface_undo",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types publish_page serializes to expected JSON 1`] = `
+{
+  "html": "<html><body>Hello</body></html>",
+  "type": "publish_page",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types unpublish_page serializes to expected JSON 1`] = `
+{
+  "deploymentId": "dpl-001",
+  "type": "unpublish_page",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_list serializes to expected JSON 1`] = `
+{
+  "type": "integration_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_connect serializes to expected JSON 1`] = `
+{
+  "integrationId": "gmail",
+  "type": "integration_connect",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_disconnect serializes to expected JSON 1`] = `
+{
+  "integrationId": "gmail",
+  "type": "integration_disconnect",
 }
 `;
 
@@ -875,13 +920,13 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types ambient_result serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types ride_shotgun_result serializes to expected JSON 1`] = `
 {
-  "decision": "suggest",
-  "requestId": "req-amb-001",
-  "suggestion": "Try running the test with --verbose flag for more details",
-  "summary": "User appears to be debugging a test failure",
-  "type": "ambient_result",
+  "observationCount": 5,
+  "sessionId": "sess-shotgun-001",
+  "summary": "User was debugging a test failure",
+  "type": "ride_shotgun_result",
+  "watchId": "watch-shotgun-001",
 }
 `;
 
@@ -922,6 +967,15 @@ exports[`IPC message snapshots ServerMessage types ui_surface_dismiss serializes
   "sessionId": "sess-001",
   "surfaceId": "surface-001",
   "type": "ui_surface_dismiss",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ui_surface_complete serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "summary": "Confirmed",
+  "surfaceId": "surface-001",
+  "type": "ui_surface_complete",
 }
 `;
 
@@ -1065,6 +1119,14 @@ exports[`IPC message snapshots ServerMessage types reminder_fired serializes to 
   "message": "Remember to call Sidd about the project",
   "reminderId": "rem-001",
   "type": "reminder_fired",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
+{
+  "name": "Daily backup",
+  "scheduleId": "sched-001",
+  "type": "schedule_complete",
 }
 `;
 
@@ -1349,6 +1411,22 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types vercel_api_config_response serializes to expected JSON 1`] = `
+{
+  "hasToken": true,
+  "success": true,
+  "type": "vercel_api_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types open_url serializes to expected JSON 1`] = `
+{
+  "title": "Example",
+  "type": "open_url",
+  "url": "https://example.com",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types app_update_preview_response serializes to expected JSON 1`] = `
 {
   "appId": "app-001",
@@ -1367,35 +1445,6 @@ exports[`IPC message snapshots ServerMessage types ui_surface_undo_result serial
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types link_open_request serializes to expected JSON 1`] = `
-{
-  "type": "link_open_request",
-  "url": "https://example.com",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types publish_page serializes to expected JSON 1`] = `
-{
-  "html": "<html><body>Hello</body></html>",
-  "type": "publish_page",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types unpublish_page serializes to expected JSON 1`] = `
-{
-  "deploymentId": "dpl-001",
-  "type": "unpublish_page",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types open_url serializes to expected JSON 1`] = `
-{
-  "title": "Example",
-  "type": "open_url",
-  "url": "https://example.com",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types publish_page_response serializes to expected JSON 1`] = `
 {
   "deploymentId": "dpl-001",
@@ -1409,5 +1458,29 @@ exports[`IPC message snapshots ServerMessage types unpublish_page_response seria
 {
   "success": true,
   "type": "unpublish_page_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types integration_list_response serializes to expected JSON 1`] = `
+{
+  "integrations": [
+    {
+      "accountInfo": "user@gmail.com",
+      "connected": true,
+      "connectedAt": 1700000000,
+      "id": "gmail",
+      "lastUsed": 1700001000,
+    },
+  ],
+  "type": "integration_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types integration_connect_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "user@gmail.com",
+  "integrationId": "gmail",
+  "success": true,
+  "type": "integration_connect_result",
 }
 `;
