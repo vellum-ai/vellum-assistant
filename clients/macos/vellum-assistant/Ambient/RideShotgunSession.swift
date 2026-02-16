@@ -144,7 +144,7 @@ public final class RideShotgunSession: ObservableObject {
         observationCount = result.observationCount
         state = .complete
 
-        log.info("[SHOTGUN-DEBUG] Ride shotgun session complete: \(result.observationCount) observations, summary=\(result.summary.prefix(150))")
+        log.info("[SHOTGUN-DEBUG] Ride shotgun session complete: \(result.observationCount) observations")
         cleanup()
     }
 

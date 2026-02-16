@@ -122,7 +122,7 @@ public final class AmbientAgent: ObservableObject {
             progressWindow = nil
             let hasSession = currentSession != nil
             let summary = currentSession?.summary ?? ""
-            log.info("[SHOTGUN-DEBUG] Session complete: hasSession=\(hasSession) summaryLength=\(summary.count) summaryPreview=\(summary.prefix(200))")
+            log.info("[SHOTGUN-DEBUG] Session complete: hasSession=\(hasSession) summaryLength=\(summary.count)")
             showSummary(summary.isEmpty
                 ? "I watched your screen but wasn't able to generate a report. This can happen if the analysis timed out or there was an API error."
                 : summary)

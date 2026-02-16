@@ -263,7 +263,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
 
     log.info(
-      { watchId: session.watchId, summaryLength: summaryText.length, summaryPreview: summaryText.substring(0, 150) },
+      { watchId: session.watchId, summaryLength: summaryText.length },
       '[SHOTGUN-DEBUG] Summary result from Sonnet',
     );
 
