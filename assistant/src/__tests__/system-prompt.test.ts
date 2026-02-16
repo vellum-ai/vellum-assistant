@@ -160,9 +160,9 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('swarm_delegate');
   });
 
-  test('config section uses /workspace when Docker sandbox is enabled', () => {
+  test('config section uses workspace directory from platform util', () => {
     const result = buildSystemPrompt();
-    expect(result).toContain('Your configuration directory is `/workspace/`');
+    expect(result).toContain(`Your configuration directory is \`${TEST_DIR}/\``);
   });
 
   test('omits user skills from catalog when none are configured', () => {
