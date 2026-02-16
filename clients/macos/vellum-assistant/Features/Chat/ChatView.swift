@@ -821,7 +821,7 @@ private struct ChatBubble: View {
             onOpenActivity(message.id)
         } label: {
             HStack(spacing: VSpacing.xs) {
-                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName)))
+                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
                 let primary = uniqueNames.first ?? "Tool"
 
                 Image(systemName: Self.friendlyToolIcon(primary))
