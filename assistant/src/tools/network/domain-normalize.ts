@@ -60,9 +60,10 @@ export function normalizeDomain(input: string): DomainInfo | null {
     return null;
   }
 
-  // Reject malformed hostnames (e.g. strings with spaces, symbols, consecutive
-  // dots). Valid DNS labels contain only alphanumerics, hyphens, and dots.
-  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(hostname)) {
+  // Reject malformed hostnames. Each DNS label must start and end with an
+  // alphanumeric and contain only alphanumerics/hyphens — no consecutive dots,
+  // no labels starting or ending with hyphens.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(hostname)) {
     return null;
   }
 

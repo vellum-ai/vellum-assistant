@@ -60,6 +60,18 @@ describe('isDomainAllowed', () => {
     expect(isDomainAllowed('not a valid host!!!', ['not a valid host!!!'])).toBe(false);
   });
 
+  test('denies hostname with consecutive dots', () => {
+    expect(isDomainAllowed('a..b', ['a..b'])).toBe(false);
+  });
+
+  test('denies hostname with label starting with hyphen', () => {
+    expect(isDomainAllowed('-foo.example.com', ['example.com'])).toBe(false);
+  });
+
+  test('denies hostname with label ending with hyphen', () => {
+    expect(isDomainAllowed('foo-.example.com', ['example.com'])).toBe(false);
+  });
+
   test('denies IP addresses', () => {
     expect(isDomainAllowed('192.168.1.1', ['192.168.1.1'])).toBe(false);
   });
