@@ -4,6 +4,7 @@ import SwiftUI
 
 final class RideShotgunSummaryWindow {
     private var panel: NSPanel?
+    private var autoDismissWork: DispatchWorkItem?
     private let summary: String
     private let onDismiss: () -> Void
     private let onHelp: (String) -> Void
@@ -55,16 +56,20 @@ final class RideShotgunSummaryWindow {
         panel.orderFront(nil)
         self.panel = panel
 
-        // Auto-dismiss after 5 minutes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
-            if self?.panel != nil {
-                self?.close()
-                self?.onDismiss()
-            }
+        // Auto-dismiss after 5 minutes, scoped to this specific panel instance
+        autoDismissWork?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.panel === panel else { return }
+            self.close()
+            self.onDismiss()
         }
+        autoDismissWork = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 300, execute: workItem)
     }
 
     func close() {
+        autoDismissWork?.cancel()
+        autoDismissWork = nil
         panel?.close()
         panel = nil
     }
