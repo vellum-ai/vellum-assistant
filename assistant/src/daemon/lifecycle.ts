@@ -185,13 +185,19 @@ export async function ensureDaemonRunning(): Promise<void> {
 
 function loadDotEnv(): void {
   const envPath = join(getRootDir(), '.env');
-  if (!existsSync(envPath)) return;
+  if (!existsSync(envPath)) {
+    return;
+  }
   const content = readFileSync(envPath, 'utf-8');
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
     const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
+    if (eqIdx === -1) {
+      continue;
+    }
     const key = trimmed.slice(0, eqIdx);
     const value = trimmed.slice(eqIdx + 1);
     if (!(key in process.env)) {
