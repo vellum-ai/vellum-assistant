@@ -258,8 +258,10 @@ struct ChatView: View {
         if index == 0 { return true }
         let current = messages[index].timestamp
         let previous = messages[index - 1].timestamp
-        // Always show a divider when crossing a calendar-day boundary
-        if !Calendar.current.isDate(current, inSameDayAs: previous) { return true }
+        // Always show a divider when crossing a calendar-day boundary (in local timezone)
+        var calendar = Calendar.current
+        calendar.timeZone = .current
+        if !calendar.isDate(current, inSameDayAs: previous) { return true }
         let gap = current.timeIntervalSince(previous)
         return gap > 300
     }
@@ -595,14 +597,18 @@ private struct ChatBubble: View {
     }
 
     private var formattedTimestamp: String {
-        let calendar = Calendar.current
+        let tz = TimeZone.current
+        var calendar = Calendar.current
+        calendar.timeZone = tz
         let formatter = DateFormatter()
+        formatter.timeZone = tz
         formatter.dateFormat = "H:mm"
         let timeString = formatter.string(from: message.timestamp)
         if calendar.isDateInToday(message.timestamp) {
             return "Today, \(timeString)"
         } else {
             let dayFormatter = DateFormatter()
+            dayFormatter.timeZone = tz
             dayFormatter.dateFormat = "MMM d"
             return "\(dayFormatter.string(from: message.timestamp)), \(timeString)"
         }
@@ -992,8 +998,11 @@ private struct TimestampDivider: View {
     let date: Date
 
     private var formattedTime: String {
-        let calendar = Calendar.current
+        let tz = TimeZone.current
+        var calendar = Calendar.current
+        calendar.timeZone = tz
         let formatter = DateFormatter()
+        formatter.timeZone = tz
         formatter.dateFormat = "h:mm a"
         let timeString = formatter.string(from: date)
         if calendar.isDateInToday(date) {
@@ -1002,6 +1011,7 @@ private struct TimestampDivider: View {
             return "Yesterday at \(timeString)"
         } else {
             let dayFormatter = DateFormatter()
+            dayFormatter.timeZone = tz
             dayFormatter.dateFormat = "MMM d"
             return "\(dayFormatter.string(from: date)) at \(timeString)"
         }
