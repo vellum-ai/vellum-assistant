@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Test runner with full process isolation for Bun mock.module conflicts
@@ -18,6 +18,7 @@ EXPERIMENTAL_FILES=(
 )
 
 found_test=0
+any_failed=0
 while IFS= read -r test_file; do
   found_test=1
 
@@ -32,14 +33,24 @@ while IFS= read -r test_file; do
       continue
     fi
     echo "==> Running ${test_file}"
-    bun test --test-name-pattern '^(?!.*\[experimental\])' "${test_file}"
+    if ! bun test --test-name-pattern '^(?!.*\[experimental\])' "${test_file}"; then
+      any_failed=1
+    fi
   else
     echo "==> Running ${test_file}"
-    bun test "${test_file}"
+    if ! bun test "${test_file}"; then
+      any_failed=1
+    fi
   fi
 done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
 
 if [[ ${found_test} -eq 0 ]]; then
   echo "No test files found under src/__tests__"
+  exit 1
+fi
+
+if [[ ${any_failed} -ne 0 ]]; then
+  echo ""
+  echo "Some test files had failures (see above)."
   exit 1
 fi
