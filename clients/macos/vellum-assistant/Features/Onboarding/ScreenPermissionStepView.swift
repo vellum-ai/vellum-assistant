@@ -6,44 +6,31 @@ struct ScreenPermissionStepView: View {
     @Bindable var state: OnboardingState
 
     @State private var showContent = false
-    @State private var permissionGranted = false
-    @State private var pollTimer: Timer?
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             VStack(spacing: VSpacing.md) {
-                Text("Last thing, give me eyes")
+                Text("Screen access comes later")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Without this, I\u{2019}m navigating in the dark. Let me see your screen so I can help with what\u{2019}s in front of you.")
+                Text("Skip screen-recording permission during the first conversation. Start it later from Home Base when you explicitly choose computer-control setup.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 400)
+                    .frame(maxWidth: 420)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            // Compact permission info card
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Screen Recording")
+                Text("Deferred setup")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
 
-                if permissionGranted {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                        Text("Permission granted")
-                            .foregroundColor(VColor.success)
-                            .font(VFont.caption)
-                    }
-                } else {
-                    Text("Lets the assistant see your screen to understand context and provide relevant help. Screenshots are processed locally and never uploaded.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
+                Text("Screen Recording requests should follow the optional Home Base task flow, never proactive onboarding prompts.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)
@@ -57,68 +44,17 @@ struct ScreenPermissionStepView: View {
             )
             .opacity(showContent ? 1 : 0)
 
-            if !permissionGranted {
-                VStack(spacing: VSpacing.md) {
-                    OnboardingButton(title: "Continue", style: .primary) {
-                        requestScreenPermission()
-                    }
-
-                    Button("Skip for now") {
-                        state.advance()
-                    }
-                    .buttonStyle(.plain)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                }
-                .opacity(showContent ? 1 : 0)
+            OnboardingButton(title: "Continue", style: .primary) {
+                state.advance()
             }
+            .opacity(showContent ? 1 : 0)
         }
-        .animation(.easeOut(duration: 0.4), value: permissionGranted)
         .onAppear {
-            if state.skipPermissionChecks {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    grantPermission()
-                }
-                return
-            }
-            let status = PermissionManager.screenRecordingStatus()
-            if status == .granted {
-                grantPermission()
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                withAnimation(.easeOut(duration: 0.5)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.easeOut(duration: 0.4)) {
                     showContent = true
                 }
             }
-        }
-        .onDisappear {
-            pollTimer?.invalidate()
-        }
-    }
-
-    private func requestScreenPermission() {
-        PermissionManager.requestScreenRecordingAccess()
-        startPolling()
-    }
-
-    private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            Task { @MainActor in
-                let status = PermissionManager.screenRecordingStatus()
-                if status == .granted {
-                    grantPermission()
-                }
-            }
-        }
-    }
-
-    private func grantPermission() {
-        pollTimer?.invalidate()
-        permissionGranted = true
-        state.screenGranted = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            state.advance()
         }
     }
 }
@@ -128,10 +64,10 @@ struct ScreenPermissionStepView: View {
         VColor.background
         ScreenPermissionStepView(state: {
             let s = OnboardingState()
-            s.currentStep = 5
+            s.currentStep = 6
             return s
         }())
-        .frame(maxWidth: 500)
+        .frame(maxWidth: 520)
     }
     .frame(width: 640, height: 500)
 }

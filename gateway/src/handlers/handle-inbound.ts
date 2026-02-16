@@ -14,10 +14,33 @@ export type InboundResult = {
   rejectionReason?: string;
 };
 
+export type TransportMetadataOverrides = {
+  hints?: string[];
+  uxBrief?: string;
+};
+
+export type HandleInboundOptions = {
+  attachmentIds?: string[];
+  transportMetadata?: TransportMetadataOverrides;
+};
+
+function normalizeTransportHints(hints: string[] | undefined): string[] {
+  if (!hints || hints.length === 0) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const raw of hints) {
+    const trimmed = raw.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
 export async function handleInbound(
   config: GatewayConfig,
   event: Omit<GatewayInboundEventV1, "routing">,
-  options?: { attachmentIds?: string[] },
+  options?: HandleInboundOptions,
 ): Promise<InboundResult> {
   const routing = resolveAssistant(
     config,
@@ -34,6 +57,8 @@ export async function handleInbound(
   }
 
   const displayName = event.sender.displayName || event.sender.username;
+  const transportHints = normalizeTransportHints(options?.transportMetadata?.hints);
+  const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
 
   try {
     const response = await forwardToRuntime(config, routing.assistantId, {
@@ -50,6 +75,8 @@ export async function handleInbound(
         chatType: event.source.chatType,
         languageCode: event.sender.languageCode,
         isBot: event.sender.isBot,
+        ...(transportHints.length > 0 ? { hints: transportHints } : {}),
+        ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
       },
       ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
     });

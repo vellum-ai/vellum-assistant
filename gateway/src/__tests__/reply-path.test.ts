@@ -1,4 +1,9 @@
 import { describe, test, expect } from "bun:test";
+import {
+  buildTelegramTransportMetadata,
+  TELEGRAM_CHANNEL_TRANSPORT_HINTS,
+  TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
+} from "../http/routes/telegram-webhook.js";
 import { splitText } from "../telegram/send.js";
 
 describe("splitText", () => {
@@ -27,5 +32,20 @@ describe("splitText", () => {
   test("handles empty string", () => {
     const chunks = splitText("");
     expect(chunks).toEqual([""]);
+  });
+});
+
+describe("telegram onboarding transport metadata", () => {
+  test("publishes deterministic channel-safe hints", () => {
+    const metadata = buildTelegramTransportMetadata();
+    expect(metadata.hints).toEqual([...TELEGRAM_CHANNEL_TRANSPORT_HINTS]);
+    expect(metadata.hints).toContain("defer-dashboard-only-tasks");
+  });
+
+  test("publishes explicit dashboard deferral UX brief", () => {
+    const metadata = buildTelegramTransportMetadata();
+    expect(metadata.uxBrief).toBe(TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF);
+    expect(metadata.uxBrief.toLowerCase()).toContain("defer");
+    expect(metadata.uxBrief.toLowerCase()).toContain("dashboard");
   });
 });

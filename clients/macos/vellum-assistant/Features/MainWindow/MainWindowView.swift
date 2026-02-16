@@ -575,6 +575,9 @@ struct MainWindowView: View {
             DynamicPageSurfaceView(
                 data: dpData,
                 onAction: { actionId, actionData in
+                    if !windowState.isChatDockOpen {
+                        windowState.isChatDockOpen = true
+                    }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
                 onLinkOpen: { url, metadata in
@@ -1049,6 +1052,9 @@ private struct DynamicWorkspaceWrapper: View {
             DynamicPageSurfaceView(
                 data: data,
                 onAction: { actionId, actionData in
+                    if !isChatDockOpen {
+                        onToggleChatDock()
+                    }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
                 appId: data.appId,

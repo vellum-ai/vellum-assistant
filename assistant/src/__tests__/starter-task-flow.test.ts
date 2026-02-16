@@ -62,6 +62,15 @@ describe('starter task surface actions', () => {
     expect(ctx.pendingSurfaceActions.has('surf-1')).toBe(true);
   });
 
+  test('keeps dynamic_page pending actions for onboarding optional task triggers', () => {
+    const ctx = makeContext();
+    ctx.pendingSurfaceActions.set('surf-2', { surfaceType: 'dynamic_page' });
+
+    handleSurfaceAction(ctx, 'surf-2', 'home_base_onboarding_enable_voice_mode', {});
+
+    expect(ctx.pendingSurfaceActions.has('surf-2')).toBe(true);
+  });
+
   test('consumes non-dynamic pending actions after forwarding', () => {
     const ctx = makeContext();
     ctx.pendingSurfaceActions.set('confirm-1', { surfaceType: 'confirmation' });

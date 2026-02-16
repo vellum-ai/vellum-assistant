@@ -187,9 +187,27 @@
         <p>These are optional or next-step setup tasks for your assistant.</p>
         <ul>
           <li><div class="task">Make it mine</div><div class="task-meta">Tune dashboard appearance to your preferences.</div></li>
-          <li><div class="task">Enable voice mode</div><div class="task-meta">Optional permission task.</div></li>
-          <li><div class="task">Enable computer control</div><div class="task-meta">Optional permission task.</div></li>
-          <li><div class="task">Try ambient mode</div><div class="task-meta">Enable ongoing support while you work.</div></li>
+          <li>
+            <div class="task">Enable voice mode</div>
+            <div class="task-meta">Optional permission task.</div>
+            <div class="task-controls">
+              <button id="home-base-enable-voice-start" class="task-button secondary" type="button">Enable with assistant</button>
+            </div>
+          </li>
+          <li>
+            <div class="task">Enable computer control</div>
+            <div class="task-meta">Optional permission task.</div>
+            <div class="task-controls">
+              <button id="home-base-enable-computer-start" class="task-button secondary" type="button">Enable with assistant</button>
+            </div>
+          </li>
+          <li>
+            <div class="task">Try ambient mode</div>
+            <div class="task-meta">Enable ongoing support while you work.</div>
+            <div class="task-controls">
+              <button id="home-base-enable-ambient-start" class="task-button secondary" type="button">Start ambient setup</button>
+            </div>
+          </li>
         </ul>
       </article>
 
@@ -292,6 +310,33 @@
         webStart.addEventListener('click', function () {
           var brief = webInput && webInput.value ? webInput.value.trim() : '';
           sendAction('home_base_starter_webpage', { brief: brief });
+        });
+      }
+
+      var voiceStart = byId('home-base-enable-voice-start');
+      if (voiceStart) {
+        voiceStart.addEventListener('click', function () {
+          sendAction('home_base_onboarding_enable_voice_mode', {
+            source: 'home_base_onboarding_lane'
+          });
+        });
+      }
+
+      var computerStart = byId('home-base-enable-computer-start');
+      if (computerStart) {
+        computerStart.addEventListener('click', function () {
+          sendAction('home_base_onboarding_enable_computer_control', {
+            source: 'home_base_onboarding_lane'
+          });
+        });
+      }
+
+      var ambientStart = byId('home-base-enable-ambient-start');
+      if (ambientStart) {
+        ambientStart.addEventListener('click', function () {
+          sendAction('home_base_onboarding_try_ambient_mode', {
+            source: 'home_base_onboarding_lane'
+          });
         });
       }
     })();

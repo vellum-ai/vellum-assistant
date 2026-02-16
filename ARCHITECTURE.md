@@ -322,10 +322,12 @@ graph TB
 ### Channel Onboarding Playbook Bootstrap
 
 - Transport metadata arrives via `session_create.transport` (IPC) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
+- Telegram webhook ingress now injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer Home Base-only UI tasks cleanly.
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies first-time fast-path vs cross-channel reconciliation.
 - `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 - Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
+- Home Base onboarding task actions (`home_base_onboarding_enable_voice_mode`, `home_base_onboarding_enable_computer_control`) are the explicit permission-setup entry points; hatch + first-conversation flows avoid proactive permission asks.
 
 ---
 

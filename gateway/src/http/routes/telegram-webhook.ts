@@ -11,6 +11,20 @@ import { verifyWebhookSecret } from "../../telegram/verify.js";
 const log = getLogger("telegram-webhook");
 
 const MAX_TYPING_DURATION_MS = 60_000;
+export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
+  "chat-first-medium",
+  "channel-safe-onboarding",
+  "defer-dashboard-only-tasks",
+] as const;
+export const TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF =
+  "Telegram is chat-only. Complete channel-safe steps in-channel and defer dashboard-only Home Base tasks to desktop.";
+
+export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: string } {
+  return {
+    hints: [...TELEGRAM_CHANNEL_TRANSPORT_HINTS],
+    uxBrief: TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
+  };
+}
 
 export type OnReply = (
   chatId: string,
@@ -162,7 +176,10 @@ export function createTelegramWebhookHandler(
     // Process inbound and only acknowledge after successful delivery
     let result: InboundResult;
     try {
-      result = await handleInbound(config, normalized, { attachmentIds });
+      result = await handleInbound(config, normalized, {
+        attachmentIds,
+        transportMetadata: buildTelegramTransportMetadata(),
+      });
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       return Response.json({ error: "Internal error" }, { status: 500 });

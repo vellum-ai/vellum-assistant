@@ -10,10 +10,7 @@ struct FirstMeetingIntroductionView: View {
     @State private var viewModel: FirstMeetingIntroductionViewModel
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
-    @State private var isRecording = false
     @State private var hasCompleted = false
-
-    @State private var voiceInputManager = VoiceInputManager()
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -89,7 +86,6 @@ struct FirstMeetingIntroductionView: View {
         }
         .onAppear {
             viewModel.startConversation()
-            setupVoiceCallbacks()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
@@ -102,7 +98,6 @@ struct FirstMeetingIntroductionView: View {
             }
         }
         .onDisappear {
-            voiceInputManager.stop()
             viewModel.cancel()
         }
     }
@@ -119,14 +114,6 @@ struct FirstMeetingIntroductionView: View {
                         viewModel.sendMessage()
                     }
                 }
-            )
-
-            VIconButton(
-                label: "Voice",
-                icon: "mic.fill",
-                isActive: isRecording,
-                iconOnly: true,
-                action: { toggleVoice() }
             )
 
             Button(action: {
@@ -181,25 +168,6 @@ struct FirstMeetingIntroductionView: View {
         viewModel.endConversation()
 
         onComplete()
-    }
-
-    // MARK: - Voice Input
-
-    private func setupVoiceCallbacks() {
-        voiceInputManager.onTranscription = { text in
-            viewModel.inputText = text
-            viewModel.sendMessage()
-        }
-        voiceInputManager.onPartialTranscription = { text in
-            viewModel.inputText = text
-        }
-        voiceInputManager.onRecordingStateChanged = { recording in
-            isRecording = recording
-        }
-    }
-
-    private func toggleVoice() {
-        voiceInputManager.toggleRecording()
     }
 }
 
