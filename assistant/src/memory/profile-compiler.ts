@@ -67,9 +67,10 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
     .orderBy(desc(memoryItems.lastSeenAt))
     .all();
 
+  const nowMs = Date.now();
   const trusted = rows
     .filter((row) => TRUST_RANK[row.verificationState] !== undefined)
-    .sort(compareProfileCandidates);
+    .sort((a, b) => compareProfileCandidates(a, b, nowMs));
 
   const selectedLines: string[] = [];
   const seenKeys = new Set<string>();
@@ -98,18 +99,28 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
   };
 }
 
-function compareProfileCandidates(left: ProfileCandidate, right: ProfileCandidate): number {
+/** Half-life for recency decay — items seen this many ms ago score ~0.5. (7 days) */
+const RECENCY_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function recencyScore(lastSeenAt: number, nowMs: number): number {
+  const ageMs = Math.max(0, nowMs - lastSeenAt);
+  return Math.pow(0.5, ageMs / RECENCY_HALF_LIFE_MS);
+}
+
+function candidateRankScore(c: ProfileCandidate, nowMs: number): number {
+  const importance = c.importance ?? 0.5;
+  return importance * recencyScore(c.lastSeenAt, nowMs);
+}
+
+function compareProfileCandidates(left: ProfileCandidate, right: ProfileCandidate, nowMs: number): number {
   const trustDelta = (TRUST_RANK[right.verificationState] ?? 0) - (TRUST_RANK[left.verificationState] ?? 0);
   if (trustDelta !== 0) return trustDelta;
 
-  const importanceDelta = (right.importance ?? 0) - (left.importance ?? 0);
-  if (importanceDelta !== 0) return importanceDelta;
+  const scoreDelta = candidateRankScore(right, nowMs) - candidateRankScore(left, nowMs);
+  if (scoreDelta !== 0) return scoreDelta;
 
   const confidenceDelta = right.confidence - left.confidence;
   if (confidenceDelta !== 0) return confidenceDelta;
-
-  const lastSeenDelta = right.lastSeenAt - left.lastSeenAt;
-  if (lastSeenDelta !== 0) return lastSeenDelta;
 
   return right.firstSeenAt - left.firstSeenAt;
 }
