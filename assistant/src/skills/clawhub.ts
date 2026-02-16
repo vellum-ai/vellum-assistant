@@ -104,13 +104,24 @@ function verifyAndRecordSkillHash(slug: string): void {
 
   if (existing) {
     const storedHash = existing.sha256;
-    // Detect v1 hash (no "v2:" prefix) and treat as format migration
-    const isV1Hash = !storedHash.startsWith('v2:');
 
-    if (isV1Hash) {
+    // Guard against corrupted manifest entries where sha256 is not a string
+    if (typeof storedHash !== 'string') {
+      log.warn(
+        { slug },
+        'Integrity manifest entry has non-string sha256 — re-recording hash',
+      );
+    } else if (/^[0-9a-f]{64}$/.test(storedHash)) {
+      // Legacy v1 hash: plain hex SHA-256, no version prefix — silently migrate
       log.info(
         { slug },
         'Migrating skill integrity hash from v1 to v2 format (silent re-record)',
+      );
+    } else if (!storedHash.startsWith('v2:')) {
+      // Unknown format (not v1 hex, not v2: prefix) — warn about integrity mismatch
+      log.warn(
+        { slug, stored: storedHash, actual: hash },
+        'Stored hash has unrecognized format — possible integrity mismatch. Re-recording.',
       );
     } else if (storedHash !== hash) {
       log.warn(
