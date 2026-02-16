@@ -23,7 +23,8 @@ function computeDelay(
     // Try parsing as numeric seconds first (e.g., "120")
     const seconds = Number(retryAfterHeader);
     if (Number.isFinite(seconds) && seconds > 0) {
-      return seconds * 1000;
+      // Clamp to max 32-bit signed int to prevent setTimeout overflow
+      return Math.min(seconds * 1000, 2_147_483_647);
     }
 
     // Fall back to HTTP-date format (e.g., "Fri, 31 Dec 1999 23:59:59 GMT")
