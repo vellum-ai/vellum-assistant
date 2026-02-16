@@ -39,11 +39,20 @@ graph TB
         end
 
         subgraph "Main Window"
-            MW_STATE["MainWindowState<br/>cross-view UI state"]
+            MW_STATE["MainWindowState<br/>ContentMode (dashboard | chat)<br/>cross-view UI state"]
             THREAD_MGR["ThreadManager<br/>thread CRUD + delegate"]
             THREAD_RESTORER["ThreadSessionRestorer<br/>daemon session restoration"]
             CHAT_VM["ChatViewModel<br/>session bootstrap + streaming"]
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
+            CHAT_PANEL["ChatPanelView<br/>docked chat panel"]
+            CHAT_WINDOW["ChatWindow<br/>pop-out NSWindow"]
+        end
+
+        subgraph "Dashboard"
+            DASH_VIEW["DashboardView<br/>greeting + cards"]
+            DASH_WEATHER["DashboardWeatherCard<br/>locale-aware weather"]
+            DASH_TASK["DashboardTaskCard<br/>starter task CTA"]
+            DASH_THEME["@AppStorage<br/>dashboardAccentColorHex<br/>dashboardAccentColorName"]
         end
 
         subgraph "Debug Panel"
@@ -889,6 +898,8 @@ graph LR
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
+        S18["dashboard_theme_update<br/>colorName, colorHex,<br/>appliedAt, tokenMap?"]
+        S19["dashboard_task_kickoff<br/>taskId, displayLabel"]
     end
 
     C0 --> SOCKET
@@ -921,7 +932,189 @@ graph LR
     SOCKET --> S15
     SOCKET --> S16
     SOCKET --> S17
+    SOCKET --> S18
+    SOCKET --> S19
 ```
+
+---
+
+## Dashboard-First UX and Trust-Earned Onboarding
+
+The macOS app defaults to a dashboard view (`ContentMode.dashboard`) instead of a raw chat interface. Chat is available as a docked side panel or a pop-out window. This architecture moves the assistant from a chat-first experience to a dashboard-first experience where the assistant controls the UI via IPC messages and system prompt playbooks.
+
+### Content Mode and Window Layout
+
+`MainWindowState` holds a `contentMode: ContentMode` enum (`.dashboard` or `.chat`). On launch, the main window renders `DashboardView` as the default. Chat access is handled through two mechanisms:
+
+- **Docked chat** (`ChatPanelView`): An inline panel within the main window, toggled from the dashboard.
+- **Pop-out chat** (`ChatWindow`): A separate `NSWindow` that hosts `ChatPanelView`. Both modes share the same `ThreadManager` and `MainWindowState`, so message and session state is preserved when switching.
+
+```
+Main Window (default: dashboard mode)
+┌─────────────────────────────────────────────┐
+│  NavigationToolbar                          │
+├─────────────────────────────────────────────┤
+│                                             │
+│  DashboardView                              │
+│  ├─ Greeting (time-of-day)                  │
+│  ├─ Weather card (locale-aware)             │
+│  ├─ Starter task cards                      │
+│  │   ├─ Make It Yours (color flow)          │
+│  │   ├─ Research Something                  │
+│  │   └─ Turn It Into a UI                   │
+│  └─ Deferred permission cards               │
+│                                             │
+├─────────────────────────────────────────────┤
+│  ChatPanelView (docked) — or pop-out window │
+└─────────────────────────────────────────────┘
+```
+
+### Assistant-Owned Onboarding Logic
+
+Onboarding state lives in the assistant's `USER.md` template (not in the Swift client). The daemon's system prompt includes sections that instruct the model to maintain:
+
+- **Locale**: city, region, country, timezone, localeId, confidence level.
+- **Dashboard Color Preference**: label, hex, source, applied status.
+- **Onboarding Tasks**: `set_name`, `set_locale`, `make_it_yours`, `research_topic`, `research_to_ui`, `first_conversation` — each tracked as `pending`, `in_progress`, `done`, or `deferred_to_dashboard`.
+- **Trust Stage**: `hatched`, `firstConversationComplete`, `permissionsUnlocked` — boolean milestones.
+
+The system prompt's `buildOnboardingGuidanceSection()` tells the model how to update these sections. This makes onboarding state portable across channels and sessions — the Swift client is not the source of truth.
+
+### Simplified macOS Onboarding Flow
+
+The macOS onboarding flow (`OnboardingFlowView` / `OnboardingState`) was reduced from 8 steps to 6 by deferring microphone and screen recording permission requests. The `anyPermissionDenied` check now only verifies Accessibility permission. Microphone and screen recording permissions are deferred to dashboard task cards, requested only when the user engages with a feature that needs them (trust-earned, not upfront).
+
+### Channel Capability Routing
+
+Each turn receives a `<channel_capabilities>` block injected via `injectChannelCapabilityContext()` in `session-runtime-assembly.ts`. The block declares:
+
+| Field | Description |
+|-------|-------------|
+| `channel` | Raw identifier: `"dashboard"`, `"telegram"`, `"http-api"` |
+| `dashboardCapable` | Can render the dashboard UI, apps, dynamic pages |
+| `supportsDynamicUi` | Can handle `ui_show` / `ui_update` / `app_create` |
+| `supportsVoiceInput` | Has microphone/voice capability |
+
+When `dashboardCapable` is `false`, the system prompt instructs the model to:
+- Never reference dashboard UI, settings panels, or visual pickers.
+- Never call `ui_show`, `ui_update`, or `app_create`.
+- Present data as formatted text.
+- Defer dashboard-specific actions, telling the user to complete them from the desktop app.
+
+This is stripped from persisted history via `stripChannelCapabilityContext()`.
+
+### Trust-Gated Permission Requests
+
+The system prompt's `buildChannelAwarenessSection()` enforces trust gating:
+
+1. Do not ask for elevated permissions (microphone, computer control, file access) until `firstConversationComplete` is `true` in USER.md.
+2. Only ask for permissions relevant to the current channel.
+3. Do not ask for microphone on channels where `supportsVoiceInput` is `false`.
+4. Do not ask for computer-control on non-dashboard channels.
+
+This means during `hatch` (first onboarding) and the first conversation, no permission prompts are shown. Permissions are earned through usage.
+
+### Starter Task Playbooks
+
+The system prompt includes deterministic playbooks for three starter tasks, triggered by dashboard CTA cards:
+
+| Task ID | Kickoff Intent | Flow |
+|---------|---------------|------|
+| `make_it_yours` | `[STARTER_TASK:make_it_yours]` | Color personalisation: confirm locale, present color options, apply via `dashboard_theme_update` IPC |
+| `research_topic` | `[STARTER_TASK:research_topic]` | Research a user-chosen topic using available tools, synthesise findings |
+| `research_to_ui` | `[STARTER_TASK:research_to_ui]` | Transform research into an interactive HTML page via `app_create` |
+
+Each playbook updates the onboarding task status in USER.md (`in_progress` → `done` or `deferred_to_dashboard`). All playbooks respect trust gating — no elevated permission asks during starter tasks.
+
+### IPC Contract: Dashboard Control Messages
+
+Two new server-to-client IPC message types enable assistant-driven dashboard updates:
+
+| Message | Fields | Purpose |
+|---------|--------|---------|
+| `dashboard_theme_update` | `colorName`, `colorHex`, `appliedAt`, `tokenMap?` | Apply accent color to dashboard UI |
+| `dashboard_task_kickoff` | `taskId`, `displayLabel` | Signal a starter task activation |
+
+The macOS client handles `dashboard_theme_update` by persisting the color via `@AppStorage("dashboardAccentColorHex")` and `@AppStorage("dashboardAccentColorName")`, ensuring the theme survives app relaunch.
+
+### Color Preference Flow (End-to-End)
+
+```
+Dashboard CTA → "Make It Yours"
+        ↓
+User message: [STARTER_TASK:make_it_yours]
+        ↓
+System prompt playbook activates
+        ↓
+Assistant presents color options
+        ↓
+User selects a color
+        ↓
+Assistant updates USER.md (color preference section)
+        ↓
+Daemon sends dashboard_theme_update IPC message
+        ↓
+DaemonClient (Swift) receives message
+        ↓
+DashboardView applies color via @AppStorage
+        ↓
+Color persists across relaunch
+```
+
+---
+
+## Cross-Channel QA Checklist
+
+Use this matrix to validate the dashboard-first UX, trust-earned onboarding, and channel deferral behavior.
+
+### macOS Dashboard-Capable Onboarding
+
+- [ ] On first launch, the main window defaults to `DashboardView` (not chat).
+- [ ] The greeting text reflects the current time of day (morning/afternoon/evening).
+- [ ] The weather card displays weather for the user's locale (falls back to Palo Alto, CA when locale is not set).
+- [ ] All three starter task cards are visible: "Make It Yours", "Research Something", "Turn It Into a UI".
+- [ ] Clicking "Make It Yours" sends `[STARTER_TASK:make_it_yours]` to the daemon and the assistant begins the color flow.
+- [ ] After selecting a color, the dashboard accent color updates and is visible immediately.
+- [ ] The accent color persists after quitting and relaunching the app (`@AppStorage` persistence).
+- [ ] Clicking "Research Something" triggers the research playbook.
+- [ ] Clicking "Turn It Into a UI" triggers the research-to-UI playbook.
+- [ ] Onboarding task statuses in USER.md update correctly (`pending` → `in_progress` → `done`).
+
+### Trust-Gated Permissions
+
+- [ ] During the onboarding hatch/egg flow, NO permission prompts appear for microphone or screen recording.
+- [ ] The simplified onboarding only requests Accessibility permission (not microphone or screen recording).
+- [ ] After first conversation completes and `firstConversationComplete` is set to `true` in USER.md, the assistant may request permissions when relevant.
+- [ ] Permission cards appear on the dashboard for deferred permissions (microphone, screen recording).
+
+### Non-Dashboard Channel Deferral
+
+- [ ] On Telegram: the assistant never references dashboard UI, settings panels, or visual pickers.
+- [ ] On Telegram: `ui_show`, `ui_update`, and `app_create` are never called.
+- [ ] On Telegram: dashboard-specific actions (accent color, task cards) are deferred with a message to complete them from the desktop app.
+- [ ] On HTTP API: the same deferral behavior applies.
+- [ ] On channels without voice support: the assistant never asks the user to use voice or microphone input.
+
+### Locale and Weather Behavior
+
+- [ ] When the user has no locale set in USER.md, the weather card defaults to Palo Alto, CA.
+- [ ] After the user sets their locale during onboarding, the weather card updates to the correct location.
+- [ ] The locale `confidence` field updates appropriately (`low` → `medium` → `high`).
+
+### Dashboard Color Persistence
+
+- [ ] The selected accent color hex value is stored in `@AppStorage("dashboardAccentColorHex")`.
+- [ ] The color name is stored in `@AppStorage("dashboardAccentColorName")`.
+- [ ] Both values survive app relaunch.
+- [ ] The `dashboard_theme_update` IPC message includes `colorName`, `colorHex`, and `appliedAt`.
+
+### Chat Dock / Pop-Out State
+
+- [ ] The chat panel can be docked inside the main window (inline `ChatPanelView`).
+- [ ] The chat panel can be popped out into a separate `ChatWindow`.
+- [ ] Message state and session state are preserved when switching between docked and popped-out modes.
+- [ ] The `isChatPoppedOut` state on `MainWindowState` tracks the current mode.
+- [ ] Closing the pop-out window reverts to docked mode gracefully.
 
 ---
 
