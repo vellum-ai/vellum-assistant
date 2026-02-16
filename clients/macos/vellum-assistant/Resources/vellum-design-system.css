@@ -1838,9 +1838,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   line-height: 1;
 }
 
-/* ── Built on Vellum — auto-injected branding badge ────────── */
+} /* end @layer vellum-design-system */
+
+/* ── Built on Vellum — auto-injected branding badge ────────────
+     Intentionally OUTSIDE @layer so un-layered app CSS cannot
+     override it (un-layered styles beat layered styles, but these
+     are also un-layered and use !important on critical props). ── */
 #vellum-branding {
-  position: fixed;
+  position: fixed !important;
+  display: block !important;
+  visibility: visible !important;
   bottom: 12px;
   right: 16px;
   z-index: 99998;
@@ -1849,14 +1856,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--v-text-muted, #9ca3af);
-  opacity: 0.7;
+  opacity: 0.7 !important;
   transition: opacity 0.2s ease;
   pointer-events: auto;
   user-select: none;
   -webkit-user-select: none;
 }
 #vellum-branding:hover {
-  opacity: 1;
+  opacity: 1 !important;
 }
 #vellum-branding a {
   color: var(--v-accent, #6366f1);
@@ -1867,5 +1874,3 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 #vellum-branding a:hover {
   text-decoration: underline;
 }
-
-} /* end @layer vellum-design-system */
