@@ -1,5 +1,6 @@
 import type * as net from 'node:net';
 import Anthropic from '@anthropic-ai/sdk';
+import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import type { WatchObservation } from './ipc-protocol.js';
 import type { HandlerContext } from './handlers.js';
@@ -26,16 +27,24 @@ export async function handleWatchObservation(
   _ctx: HandlerContext,
 ): Promise<void> {
   try {
+    log.info(
+      { watchId: msg.watchId, captureIndex: msg.captureIndex, appName: msg.appName, ocrLen: msg.ocrText?.length ?? 0 },
+      '[SHOTGUN-DEBUG] Received watch_observation from client',
+    );
+
     // 1. Find the WatchSession by watchId
     const session = watchSessions.get(msg.watchId);
 
     // 2. If not found or not active (and not completing), log warning and return
     if (!session) {
-      log.warn({ watchId: msg.watchId }, 'Watch session not found for observation');
+      log.warn(
+        { watchId: msg.watchId, knownWatchIds: [...watchSessions.keys()] },
+        '[SHOTGUN-DEBUG] Watch session not found for observation — known watchIds listed',
+      );
       return;
     }
     if (session.status !== 'active' && session.status !== 'completing') {
-      log.warn({ watchId: msg.watchId, status: session.status }, 'Watch session not active');
+      log.warn({ watchId: msg.watchId, status: session.status }, '[SHOTGUN-DEBUG] Watch session not active');
       return;
     }
 
@@ -49,25 +58,40 @@ export async function handleWatchObservation(
       captureIndex: msg.captureIndex,
     };
     addObservation(msg.watchId, entry);
+    log.info(
+      { watchId: msg.watchId, totalObservations: session.observations.length, status: session.status },
+      '[SHOTGUN-DEBUG] Observation added to session',
+    );
 
     // 4. Every 3 observations: call Haiku for live commentary
     if (session.observations.length % 3 === 0) {
+      log.info(
+        { watchId: msg.watchId, observationCount: session.observations.length },
+        '[SHOTGUN-DEBUG] Triggering commentary generation (every 3rd observation)',
+      );
       await generateCommentary(session);
     }
 
     // 5. If session is completing, generate final summary
     if (session.status === 'completing') {
+      log.info({ watchId: msg.watchId }, '[SHOTGUN-DEBUG] Session is completing — generating summary from observation handler');
       session.status = 'completed';
       await generateSummary(session);
     }
   } catch (err) {
-    log.error({ err, watchId: msg.watchId }, 'Error handling watch observation');
+    log.error({ err, watchId: msg.watchId }, '[SHOTGUN-DEBUG] Error handling watch observation');
   }
 }
 
 async function generateCommentary(session: WatchSession): Promise<void> {
   try {
-    const client = new Anthropic();
+    log.info({ watchId: session.watchId, sessionId: session.sessionId }, '[SHOTGUN-DEBUG] generateCommentary starting — calling Haiku');
+    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      log.warn({ watchId: session.watchId }, '[SHOTGUN-DEBUG] No Anthropic API key available for commentary generation');
+      return;
+    }
+    const client = new Anthropic({ apiKey });
     const lastThree = session.observations.slice(-3);
 
     const previousCommentary = lastCommentaryBySession.get(session.sessionId);
@@ -112,23 +136,45 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       messages: [{ role: 'user', content: userContent }],
     });
 
+    log.info({ watchId: session.watchId }, '[SHOTGUN-DEBUG] Haiku API call completed successfully');
+
     const textBlock = response.content.find((b) => b.type === 'text');
     const commentaryText =
       textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+
+    log.info(
+      { watchId: session.watchId, commentaryText: commentaryText.substring(0, 100), isSkip: commentaryText === 'SKIP' },
+      '[SHOTGUN-DEBUG] Commentary result from Haiku',
+    );
 
     if (commentaryText && commentaryText !== 'SKIP') {
       lastCommentaryBySession.set(session.sessionId, commentaryText);
       fireWatchCommentaryNotifier(session.sessionId, session);
       session.commentaryCount++;
+      log.info(
+        { watchId: session.watchId, commentaryCount: session.commentaryCount },
+        '[SHOTGUN-DEBUG] Commentary notifier fired',
+      );
+    } else {
+      log.info({ watchId: session.watchId }, '[SHOTGUN-DEBUG] Commentary skipped (empty or SKIP)');
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch commentary');
+    log.error({ err, watchId: session.watchId }, '[SHOTGUN-DEBUG] Error generating watch commentary — API call failed');
   }
 }
 
 export async function generateSummary(session: WatchSession): Promise<void> {
   try {
-    const client = new Anthropic();
+    log.info(
+      { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
+      '[SHOTGUN-DEBUG] generateSummary starting — calling Sonnet',
+    );
+    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      log.warn({ watchId: session.watchId }, '[SHOTGUN-DEBUG] No Anthropic API key available for summary generation');
+      return;
+    }
+    const client = new Anthropic({ apiKey });
 
     // Build observations text with truncation (keep most recent if >50K chars)
     let observations = session.observations;
@@ -210,15 +256,25 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       messages: [{ role: 'user', content: userContent }],
     });
 
+    log.info({ watchId: session.watchId }, '[SHOTGUN-DEBUG] Sonnet API call completed successfully');
+
     const textBlock = response.content.find((b) => b.type === 'text');
     const summaryText =
       textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
 
+    log.info(
+      { watchId: session.watchId, summaryLength: summaryText.length, summaryPreview: summaryText.substring(0, 150) },
+      '[SHOTGUN-DEBUG] Summary result from Sonnet',
+    );
+
     if (summaryText) {
       lastSummaryBySession.set(session.sessionId, summaryText);
+      log.info({ watchId: session.watchId, sessionId: session.sessionId }, '[SHOTGUN-DEBUG] Firing completion notifier with summary');
       fireWatchCompletionNotifier(session.sessionId, session);
+    } else {
+      log.warn({ watchId: session.watchId }, '[SHOTGUN-DEBUG] Summary was empty — completion notifier NOT fired');
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch summary');
+    log.error({ err, watchId: session.watchId }, '[SHOTGUN-DEBUG] Error generating watch summary — Sonnet API call failed');
   }
 }

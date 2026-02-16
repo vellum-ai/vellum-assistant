@@ -115,11 +115,14 @@ public final class AmbientAgent: ObservableObject {
     }
 
     private func handleSessionStateChange(_ state: RideShotgunSession.State) {
+        log.info("[SHOTGUN-DEBUG] handleSessionStateChange: \(String(describing: state))")
         switch state {
         case .complete:
             progressWindow?.close()
             progressWindow = nil
+            let hasSession = currentSession != nil
             let summary = currentSession?.summary ?? ""
+            log.info("[SHOTGUN-DEBUG] Session complete: hasSession=\(hasSession) summaryLength=\(summary.count) summaryPreview=\(summary.prefix(200))")
             showSummary(summary.isEmpty
                 ? "I watched your screen but wasn't able to generate a report. This can happen if the analysis timed out or there was an API error."
                 : summary)

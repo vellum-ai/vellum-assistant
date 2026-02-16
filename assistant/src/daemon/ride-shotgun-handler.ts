@@ -37,17 +37,32 @@ export async function handleRideShotgunStart(
   };
 
   watchSessions.set(watchId, session);
+  log.info(
+    { watchId, sessionId, durationSeconds, intervalSeconds },
+    '[SHOTGUN-DEBUG] Session created and stored in watchSessions map',
+  );
 
   // Set timeout for duration expiry — generate summary before firing notifier
   session.timeoutHandle = setTimeout(async () => {
     session.status = 'completing';
     session.timeoutHandle = undefined;
-    log.info({ watchId }, 'Ride shotgun session duration expired, generating summary');
+    log.info(
+      { watchId, sessionId, observationCount: session.observations.length },
+      '[SHOTGUN-DEBUG] Duration timer fired — session completing. Generating summary...',
+    );
     await generateSummary(session);
     session.status = 'completed';
+    log.info(
+      { watchId, sessionId, hasSummary: lastSummaryBySession.has(sessionId) },
+      '[SHOTGUN-DEBUG] generateSummary returned. Checking if completion notifier needs fallback fire.',
+    );
     // Fallback: if generateSummary failed or returned empty, fire notifier
     // anyway so the client always receives a response
     if (!lastSummaryBySession.has(sessionId)) {
+      log.warn(
+        { watchId, sessionId },
+        '[SHOTGUN-DEBUG] No summary in map — firing completion notifier as fallback (will send empty summary)',
+      );
       fireWatchCompletionNotifier(sessionId, session);
     }
   }, durationSeconds * 1000);
@@ -56,6 +71,11 @@ export async function handleRideShotgunStart(
   registerWatchCompletionNotifier(sessionId, (_completedSession: WatchSession) => {
     const summary = lastSummaryBySession.get(sessionId) ?? '';
     const observationCount = _completedSession.observations.length;
+
+    log.info(
+      { watchId, sessionId, observationCount, summaryLength: summary.length, socketDestroyed: socket.destroyed },
+      '[SHOTGUN-DEBUG] Completion notifier firing — sending ride_shotgun_result to client',
+    );
 
     ctx.send(socket, {
       type: 'ride_shotgun_result',
@@ -67,13 +87,17 @@ export async function handleRideShotgunStart(
 
     unregisterWatchCompletionNotifier(sessionId);
     lastSummaryBySession.delete(sessionId);
-    log.info({ watchId, sessionId, observationCount }, 'Ride shotgun result sent');
+    log.info({ watchId, sessionId, observationCount }, '[SHOTGUN-DEBUG] Ride shotgun result sent successfully');
   });
 
   // Fire start notifier
   fireWatchStartNotifier(sessionId, session);
 
   // Send watch_started so the Swift client knows the watchId/sessionId
+  log.info(
+    { watchId, sessionId, socketDestroyed: socket.destroyed },
+    '[SHOTGUN-DEBUG] Sending watch_started to client',
+  );
   ctx.send(socket, {
     type: 'watch_started',
     sessionId,
@@ -82,5 +106,5 @@ export async function handleRideShotgunStart(
     intervalSeconds,
   });
 
-  log.info({ watchId, sessionId, durationSeconds, intervalSeconds }, 'Ride shotgun session started');
+  log.info({ watchId, sessionId, durationSeconds, intervalSeconds }, '[SHOTGUN-DEBUG] Ride shotgun session started — waiting for observations');
 }

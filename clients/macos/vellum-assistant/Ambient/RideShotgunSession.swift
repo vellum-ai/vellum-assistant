@@ -67,12 +67,14 @@ public final class RideShotgunSession: ObservableObject {
 
         // Send ride_shotgun_start to daemon
         do {
+            log.info("[SHOTGUN-DEBUG] Sending ride_shotgun_start to daemon")
             try daemonClient.send(RideShotgunStartMessage(
                 durationSeconds: Double(durationSeconds),
                 intervalSeconds: Double(intervalSeconds)
             ))
+            log.info("[SHOTGUN-DEBUG] ride_shotgun_start sent successfully")
         } catch {
-            log.error("Failed to send ride_shotgun_start: \(error.localizedDescription)")
+            log.error("[SHOTGUN-DEBUG] Failed to send ride_shotgun_start: \(error.localizedDescription)")
             state = .failed("Failed to start session")
             cleanup()
         }
@@ -88,8 +90,12 @@ public final class RideShotgunSession: ObservableObject {
     // MARK: - Private
 
     private func handleWatchStarted(_ message: WatchStartedMessage, daemonClient: DaemonClient) {
-        guard state == .starting else { return }
+        guard state == .starting else {
+            log.warning("[SHOTGUN-DEBUG] Received watch_started but state is \(String(describing: self.state)), ignoring")
+            return
+        }
 
+        log.info("[SHOTGUN-DEBUG] Received watch_started: watchId=\(message.watchId) sessionId=\(message.sessionId)")
         expectedWatchId = message.watchId
 
         let session = WatchSession(
@@ -124,9 +130,13 @@ public final class RideShotgunSession: ObservableObject {
     }
 
     private func handleRideShotgunResult(_ result: RideShotgunResultMessage) {
-        guard state == .capturing || state == .summarizing else { return }
+        log.info("[SHOTGUN-DEBUG] Received ride_shotgun_result: watchId=\(result.watchId) observationCount=\(result.observationCount) summaryLength=\(result.summary.count)")
+        guard state == .capturing || state == .summarizing else {
+            log.warning("[SHOTGUN-DEBUG] Ignoring ride_shotgun_result — state is \(String(describing: self.state)), expected capturing or summarizing")
+            return
+        }
         guard result.watchId == expectedWatchId else {
-            log.warning("Ignoring ride_shotgun_result for unexpected watchId=\(result.watchId)")
+            log.warning("[SHOTGUN-DEBUG] Ignoring ride_shotgun_result — watchId mismatch: got \(result.watchId), expected \(self.expectedWatchId ?? "nil")")
             return
         }
 
@@ -134,7 +144,7 @@ public final class RideShotgunSession: ObservableObject {
         observationCount = result.observationCount
         state = .complete
 
-        log.info("Ride shotgun session complete: \(result.observationCount) observations")
+        log.info("[SHOTGUN-DEBUG] Ride shotgun session complete: \(result.observationCount) observations, summary=\(result.summary.prefix(150))")
         cleanup()
     }
 

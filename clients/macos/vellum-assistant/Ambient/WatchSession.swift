@@ -105,16 +105,19 @@ public final class WatchSession: ObservableObject {
 
             // Skip empty content
             guard !screenContent.isEmpty else {
+                log.info("[SHOTGUN-DEBUG] Screen content empty — skipping observation")
                 try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
                 continue
             }
 
             // Similarity check - skip if >85% similar to previous capture
-            if ScreenOCR.similarity(screenContent, previousOcrText) > 0.85 {
-                log.debug("Screen unchanged (similarity > 0.85) - skipping observation")
+            let similarity = ScreenOCR.similarity(screenContent, previousOcrText)
+            if similarity > 0.85 {
+                log.info("[SHOTGUN-DEBUG] Screen unchanged (similarity=\(String(format: "%.2f", similarity))) — skipping observation \(appName)")
                 try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
                 continue
             }
+            log.info("[SHOTGUN-DEBUG] Screen changed (similarity=\(String(format: "%.2f", similarity))) — will send observation for \(appName)")
             previousOcrText = screenContent
 
             captureCount += 1
@@ -133,10 +136,12 @@ public final class WatchSession: ObservableObject {
             )
 
             do {
+                let hasDaemon = daemonClient != nil
+                log.info("[SHOTGUN-DEBUG] Sending observation \(self.captureCount)/\(self.totalExpected) watchId=\(self.watchId) hasDaemon=\(hasDaemon) ocrLen=\(screenContent.count)")
                 try daemonClient?.send(observation)
-                log.info("Sent watch observation \(self.captureCount)/\(self.totalExpected) for \(appName)")
+                log.info("[SHOTGUN-DEBUG] Observation \(self.captureCount) sent successfully for \(appName)")
             } catch {
-                log.warning("Failed to send watch observation: \(error.localizedDescription)")
+                log.error("[SHOTGUN-DEBUG] Failed to send watch observation: \(error.localizedDescription)")
             }
 
             try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
