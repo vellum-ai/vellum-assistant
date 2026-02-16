@@ -49,6 +49,7 @@ export class DaemonServer {
   private httpPort: number | undefined;
   private watchers: FSWatcher[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly MAX_DEBOUNCE_ENTRIES = 1000;
   private suppressConfigReload = false;
   private lastConfigFingerprint = '';
   private lastConfigRefreshTime = 0;
@@ -202,6 +203,7 @@ export class DaemonServer {
             handlers[file]();
           }, 200);
           this.debounceTimers.set(file, timer);
+          this.enforceDebounceLimit();
         });
         this.watchers.push(watcher);
         log.info({ dir }, `Watching ${label}`);
@@ -302,6 +304,22 @@ export class DaemonServer {
     this.watchers = [];
   }
 
+  /**
+   * Evict the oldest debounce entries when the map exceeds the safety cap.
+   * Map iteration order follows insertion order, so the first keys are oldest.
+   */
+  private enforceDebounceLimit(): void {
+    if (this.debounceTimers.size <= DaemonServer.MAX_DEBOUNCE_ENTRIES) return;
+    const excess = this.debounceTimers.size - DaemonServer.MAX_DEBOUNCE_ENTRIES;
+    let removed = 0;
+    for (const [key, timer] of this.debounceTimers) {
+      if (removed >= excess) break;
+      clearTimeout(timer);
+      this.debounceTimers.delete(key);
+      removed++;
+    }
+  }
+
   private startSkillsWatchers(evictSessions: () => void): void {
     const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
@@ -316,6 +334,7 @@ export class DaemonServer {
         evictSessions();
       }, 200);
       this.debounceTimers.set(key, timer);
+      this.enforceDebounceLimit();
     };
 
     try {
