@@ -250,12 +250,15 @@ function ensureToolPairing(
           role: 'assistant' as const,
           content: carryoverContent,
         });
-        if (normalized.remainingContent.length > 0) {
-          result.push({
-            role: 'user' as const,
-            content: normalized.remainingContent,
-          });
-        }
+        // Always emit a trailing user message to maintain alternation, even if the
+        // original user turn had only tool_result blocks. Use a synthetic placeholder
+        // when remainingContent is empty.
+        result.push({
+          role: 'user' as const,
+          content: normalized.remainingContent.length > 0
+            ? normalized.remainingContent
+            : [{ type: 'text' as const, text: '(continue)' }],
+        });
       } else {
         // No carryover assistant text to restore, so preserve existing behavior
         // and keep additional user blocks in the same message.
