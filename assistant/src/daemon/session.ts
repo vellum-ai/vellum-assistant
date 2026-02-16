@@ -23,7 +23,7 @@ import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
-import { estimateCost, resolvePricing } from '../util/pricing.js';
+import { estimateCost, resolvePricingWithOverrides } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
@@ -2344,7 +2344,8 @@ export class Session {
 
     // Dual-write: persist per-turn usage event to the new ledger table
     try {
-      const pricing = resolvePricing(this.provider.name, model, inputTokens, outputTokens);
+      const config = getConfig();
+      const pricing = resolvePricingWithOverrides(this.provider.name, model, inputTokens, outputTokens, config.pricingOverrides);
       recordUsageEvent(
         {
           actor,
@@ -2354,7 +2355,7 @@ export class Session {
           outputTokens,
           cacheCreationInputTokens: null,
           cacheReadInputTokens: null,
-          assistantId: null,
+          assistantId: this.assistantId,
           conversationId: this.conversationId,
           runId: null,
           requestId,
