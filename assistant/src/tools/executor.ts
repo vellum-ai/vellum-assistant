@@ -281,7 +281,12 @@ export class ToolExecutor {
         const diffMatches = execResult.diff
           ? scanText(execResult.diff.newContent, entropyConfig)
           : [];
-        const allMatches = [...contentMatches, ...diffMatches];
+        const blockMatches = (execResult.contentBlocks ?? []).flatMap((block) => {
+          if (block.type === 'text') return scanText(block.text, entropyConfig);
+          if (block.type === 'file' && block.extracted_text) return scanText(block.extracted_text, entropyConfig);
+          return [];
+        });
+        const allMatches = [...contentMatches, ...diffMatches, ...blockMatches];
 
         if (allMatches.length > 0) {
           const matchSummary = allMatches.map((m) => ({
@@ -310,6 +315,17 @@ export class ToolExecutor {
                 ...execResult.diff,
                 newContent: redactSecrets(execResult.diff.newContent, entropyConfig),
               };
+            }
+            if (execResult.contentBlocks) {
+              execResult.contentBlocks = execResult.contentBlocks.map((block) => {
+                if (block.type === 'text') {
+                  return { ...block, text: redactSecrets(block.text, entropyConfig) };
+                }
+                if (block.type === 'file' && block.extracted_text) {
+                  return { ...block, extracted_text: redactSecrets(block.extracted_text, entropyConfig) };
+                }
+                return block;
+              });
             }
           } else if (sdConfig.action === 'block') {
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
