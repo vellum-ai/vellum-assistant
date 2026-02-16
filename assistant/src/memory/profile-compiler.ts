@@ -99,8 +99,8 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
   };
 }
 
-/** Half-life for recency decay — items seen this many ms ago score ~0.5. (7 days) */
-const RECENCY_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Half-life for recency decay — items seen this many ms ago score ~0.5. (30 days) */
+const RECENCY_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function recencyScore(lastSeenAt: number, nowMs: number): number {
   const ageMs = Math.max(0, nowMs - lastSeenAt);
@@ -109,7 +109,10 @@ function recencyScore(lastSeenAt: number, nowMs: number): number {
 
 function candidateRankScore(c: ProfileCandidate, nowMs: number): number {
   const importance = c.importance ?? 0.5;
-  return importance * recencyScore(c.lastSeenAt, nowMs);
+  const recency = recencyScore(c.lastSeenAt, nowMs);
+  // Use weighted additive formula: importance dominates, recency is a minor boost
+  // This preserves high-importance items even when they haven't been seen recently
+  return importance * 0.7 + recency * 0.3;
 }
 
 function compareProfileCandidates(left: ProfileCandidate, right: ProfileCandidate, nowMs: number): number {
