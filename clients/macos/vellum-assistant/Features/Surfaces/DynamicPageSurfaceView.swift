@@ -648,7 +648,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 }
                 guard let image = image,
                       let tiff = image.tiffRepresentation,
-                      let bitmap = NSBitmapImageRep(data: tiff) else {
+                      let _ = NSBitmapImageRep(data: tiff) else {
                     completion(nil)
                     return
                 }

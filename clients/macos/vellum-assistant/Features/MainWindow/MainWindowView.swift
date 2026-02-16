@@ -254,7 +254,7 @@ struct MainWindowView: View {
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
         let menuOpen = threadMenuOpenId == thread.id
-        return HStack(spacing: 0) {
+        HStack(spacing: 0) {
             Button(action: {
                 threadMenuOpenId = nil
                 threadManager.selectThread(id: thread.id)
