@@ -18,23 +18,6 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let decision: String
 }
 
-public struct IPCAmbientObservation: Codable, Sendable {
-    public let type: String
-    public let requestId: String
-    public let ocrText: String
-    public let appName: String?
-    public let windowTitle: String?
-    public let timestamp: Double
-}
-
-public struct IPCAmbientResult: Codable, Sendable {
-    public let type: String
-    public let requestId: String
-    public let decision: String
-    public let summary: String?
-    public let suggestion: String?
-}
-
 public struct IPCAppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
@@ -676,6 +659,20 @@ public struct IPCRemindersListResponseReminder: Codable, Sendable {
 public struct IPCRemoveTrustRule: Codable, Sendable {
     public let type: String
     public let id: String
+}
+
+public struct IPCRideShotgunResult: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let watchId: String
+    public let summary: String
+    public let observationCount: Int
+}
+
+public struct IPCRideShotgunStart: Codable, Sendable {
+    public let type: String
+    public let durationSeconds: Double
+    public let intervalSeconds: Double
 }
 
 public struct IPCSandboxSetRequest: Codable, Sendable {
