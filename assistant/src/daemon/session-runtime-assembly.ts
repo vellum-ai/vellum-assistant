@@ -21,6 +21,22 @@ export interface ActiveSurfaceContext {
   currentPage?: string;
 }
 
+/** Session-level onboarding context for medium-specific guidance. */
+export interface ChannelOnboardingContext {
+  channelId: string;
+  playbookPath: string;
+  playbookName: string;
+  playbookContent: string;
+  uxBrief?: string;
+  hints?: string[];
+  guidanceBullets?: string[];
+  reconciliation?: {
+    firstTimeFastPath: boolean;
+    attempted: boolean;
+    sourceChannels: string[];
+  };
+}
+
 /**
  * Append a memory-conflict clarification instruction to the last user message.
  */
@@ -193,6 +209,68 @@ export function injectWorkspaceTopLevelContext(message: Message, contextText: st
 }
 
 /**
+ * Prepend channel onboarding playbook context so the model can adapt
+ * onboarding UX for the active medium using natural-language guidance.
+ */
+export function injectChannelOnboardingContext(
+  message: Message,
+  ctx: ChannelOnboardingContext,
+): Message {
+  const lines: string[] = [
+    '<channel_onboarding_playbook>',
+    `channel_id: ${ctx.channelId}`,
+    `playbook_file: ${ctx.playbookName}`,
+    `playbook_path: ${ctx.playbookPath}`,
+  ];
+
+  if (ctx.uxBrief) {
+    lines.push(`ux_brief: ${ctx.uxBrief}`);
+  }
+
+  if (ctx.hints && ctx.hints.length > 0) {
+    lines.push('transport_hints:');
+    for (const hint of ctx.hints) {
+      lines.push(`- ${hint}`);
+    }
+  }
+
+  if (ctx.guidanceBullets && ctx.guidanceBullets.length > 0) {
+    lines.push('playbook_guidance:');
+    for (const bullet of ctx.guidanceBullets) {
+      lines.push(`- ${bullet}`);
+    }
+  }
+
+  if (ctx.reconciliation) {
+    if (ctx.reconciliation.firstTimeFastPath) {
+      lines.push('reconciliation_mode: first_time_fast_path');
+    } else if (ctx.reconciliation.attempted) {
+      lines.push('reconciliation_mode: cross_channel');
+      if (ctx.reconciliation.sourceChannels.length > 0) {
+        lines.push(`reconciliation_sources: ${ctx.reconciliation.sourceChannels.join(', ')}`);
+      }
+    }
+  }
+
+  lines.push(
+    'Use this playbook as the onboarding source of truth for this channel.',
+    'Update checklist state in the playbook file as onboarding steps complete.',
+    '',
+    'Current playbook markdown:',
+    ctx.playbookContent,
+    '</channel_onboarding_playbook>',
+  );
+
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: lines.join('\n') },
+      ...message.content,
+    ],
+  };
+}
+
+/**
  * Strip `<workspace_top_level>` blocks injected by
  * `injectWorkspaceTopLevelContext`.  Called after the agent run to prevent
  * workspace context from persisting in session history.
@@ -203,6 +281,23 @@ export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
     const nextContent = message.content.filter((block) => {
       if (block.type !== 'text') return true;
       return !block.text.startsWith('<workspace_top_level>');
+    });
+    if (nextContent.length === message.content.length) return message;
+    if (nextContent.length === 0) return null;
+    return { ...message, content: nextContent };
+  }).filter((message): message is NonNullable<typeof message> => message !== null);
+}
+
+/**
+ * Strip `<channel_onboarding_playbook>` blocks injected by
+ * `injectChannelOnboardingContext`.
+ */
+export function stripChannelOnboardingContext(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const nextContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !block.text.startsWith('<channel_onboarding_playbook>');
     });
     if (nextContent.length === message.content.length) return message;
     if (nextContent.length === 0) return null;
@@ -240,6 +335,7 @@ export function applyRuntimeInjections(
   options: {
     softConflictInstruction?: string | null;
     activeSurface?: ActiveSurfaceContext | null;
+    channelOnboarding?: ChannelOnboardingContext | null;
     workspaceTopLevelContext?: string | null;
   },
 ): Message[] {
@@ -261,6 +357,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectActiveSurfaceContext(userTail, options.activeSurface),
+      ];
+    }
+  }
+
+  if (options.channelOnboarding) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectChannelOnboardingContext(userTail, options.channelOnboarding),
       ];
     }
   }

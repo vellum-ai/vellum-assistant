@@ -834,6 +834,8 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     public let systemPromptOverride: String?
     public let maxResponseTokens: Int?
     public let correlationId: String?
+    /// Lightweight session transport metadata for channel identity and natural-language guidance.
+    public let transport: IPCSessionTransportMetadata?
 }
 
 public struct IPCSessionInfo: Codable, Sendable {
@@ -870,6 +872,16 @@ public struct IPCSessionsClearResponse: Codable, Sendable {
 public struct IPCSessionSwitchRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+}
+
+/// Lightweight session transport metadata for channel identity and natural-language guidance.
+public struct IPCSessionTransportMetadata: Codable, Sendable {
+    /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
+    public let channelId: String
+    /// Optional natural-language hints for channel-specific UX behavior.
+    public let hints: [String]?
+    /// Optional concise UX brief for this channel.
+    public let uxBrief: String?
 }
 
 public struct IPCShareAppCloudRequest: Codable, Sendable {

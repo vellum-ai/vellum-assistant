@@ -5,7 +5,7 @@ import { ComputerUseSession } from '../computer-use-session.js';
 import { getLogger } from '../../util/logger.js';
 import { execSync } from 'node:child_process';
 import { estimateBase64Bytes } from '../assistant-attachments.js';
-import type { CuSessionCreate, ServerMessage } from '../ipc-protocol.js';
+import type { CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 
 const log = getLogger('handlers');
@@ -69,6 +69,7 @@ export interface ParsedHistoryMessage {
 export interface SessionCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
+  transport?: SessionTransportMetadata;
 }
 
 /**
