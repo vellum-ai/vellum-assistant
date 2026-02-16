@@ -36,7 +36,8 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
     return { blocked: false, detectedTypes: [] };
   }
 
-  const matches = scanText(content);
+  const entropyConfig = { enabled: true, base64Threshold: config.secretDetection.entropyThreshold };
+  const matches = scanText(content, entropyConfig);
 
   if (matches.length === 0) {
     return { blocked: false, detectedTypes: [] };
