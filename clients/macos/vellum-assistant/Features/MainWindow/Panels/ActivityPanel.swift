@@ -2,8 +2,13 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ActivityPanel: View {
-    let toolCalls: [ToolCallData]
+    @ObservedObject var viewModel: ChatViewModel
+    let messageId: UUID
     let onClose: () -> Void
+
+    private var toolCalls: [ToolCallData] {
+        viewModel.messages.first(where: { $0.id == messageId })?.toolCalls ?? []
+    }
 
     var body: some View {
         VSidePanel(title: "Activity", onClose: onClose) {
@@ -208,31 +213,46 @@ struct ActivityStepView: View {
 #if DEBUG
 struct ActivityPanel_Previews: PreviewProvider {
     static var previews: some View {
-        ActivityPanel(
-            toolCalls: [
-                ToolCallData(
-                    toolName: "Web Search",
-                    inputSummary: "flights from New York to London next week",
-                    result: "Found 5 search results",
-                    isComplete: true
-                ),
-                ToolCallData(
-                    toolName: "Browser Navigate",
-                    inputSummary: "https://www.google.com/travel/flights",
-                    result: "Navigated successfully",
-                    isComplete: true
-                ),
-                ToolCallData(
-                    toolName: "Browser Screenshot",
-                    inputSummary: "",
-                    isComplete: true
-                ),
-                ToolCallData(
-                    toolName: "Browser Click",
-                    inputSummary: "[aria-label=\"Departure\"]",
-                    isComplete: false
-                )
-            ],
+        let dc = DaemonClient()
+        let viewModel = ChatViewModel(daemonClient: dc)
+        let messageId = UUID()
+
+        // Add a message with tool calls to the view model
+        viewModel.messages = [
+            ChatMessage(
+                id: messageId,
+                role: .assistant,
+                text: "Finding flights for you",
+                toolCalls: [
+                    ToolCallData(
+                        toolName: "Web Search",
+                        inputSummary: "flights from New York to London next week",
+                        result: "Found 5 search results",
+                        isComplete: true
+                    ),
+                    ToolCallData(
+                        toolName: "Browser Navigate",
+                        inputSummary: "https://www.google.com/travel/flights",
+                        result: "Navigated successfully",
+                        isComplete: true
+                    ),
+                    ToolCallData(
+                        toolName: "Browser Screenshot",
+                        inputSummary: "",
+                        isComplete: true
+                    ),
+                    ToolCallData(
+                        toolName: "Browser Click",
+                        inputSummary: "[aria-label=\"Departure\"]",
+                        isComplete: false
+                    )
+                ]
+            )
+        ]
+
+        return ActivityPanel(
+            viewModel: viewModel,
+            messageId: messageId,
             onClose: {}
         )
         .frame(height: 600)

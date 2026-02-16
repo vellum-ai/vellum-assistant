@@ -35,7 +35,7 @@ struct ChatView: View {
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
-    let onOpenActivity: ([ToolCallData]) -> Void
+    let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
@@ -541,7 +541,7 @@ private struct ChatBubble: View {
     /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
     let hideToolCalls: Bool
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let onOpenActivity: ([ToolCallData]) -> Void
+    let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
 
     private var isUser: Bool { message.role == .user }
@@ -648,7 +648,7 @@ private struct ChatBubble: View {
                 isActivityPanelOpen: isActivityPanelOpen,
                 isStreaming: message.isStreaming
             ) {
-                onOpenActivity(calls)
+                onOpenActivity(message.id)
             }
             .frame(maxWidth: 520, alignment: .leading)
         }

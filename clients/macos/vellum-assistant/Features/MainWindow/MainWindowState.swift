@@ -11,19 +11,20 @@ final class MainWindowState: ObservableObject {
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
-    @Published var activityToolCalls: [ToolCallData] = []
+    @Published var activityMessageId: UUID?
 
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
     }
 
-    func toggleActivityPanel(with toolCalls: [ToolCallData]) {
-        if activePanel == .activity {
-            // Close if already open
+    func toggleActivityPanel(with messageId: UUID) {
+        if activePanel == .activity && activityMessageId == messageId {
+            // Close if already open with the same message
             activePanel = nil
+            activityMessageId = nil
         } else {
-            // Open with new tool calls
-            self.activityToolCalls = toolCalls
+            // Open with new message or update to different message
+            self.activityMessageId = messageId
             self.activePanel = .activity
         }
     }
