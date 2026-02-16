@@ -14,6 +14,7 @@ struct MainWindowView: View {
     @State private var shareFileURL: URL?
     @State private var isPublishing = false
     @State private var publishedUrl: String?
+    @State private var publishError: String?
     @State private var isHoveredThread: UUID?
     @State private var threadMenuOpenId: UUID?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
@@ -58,6 +59,7 @@ struct MainWindowView: View {
     private func publishPage(html: String, title: String?) {
         guard !isPublishing else { return }
         isPublishing = true
+        publishError = nil
 
         Task { @MainActor in
             daemonClient.onPublishPageResponse = { response in
@@ -66,6 +68,14 @@ struct MainWindowView: View {
                     publishedUrl = url
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url, forType: .string)
+                } else if let error = response.error, error != "Cancelled" {
+                    publishError = error
+                    // Auto-dismiss error after 5 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        if publishError == error {
+                            withAnimation(VAnimation.standard) { publishError = nil }
+                        }
+                    }
                 }
             }
 
@@ -790,47 +800,8 @@ struct MainWindowView: View {
                         .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
                     }
 
-                    // Share button — bundle app and share via system share sheet
-                    if let appId = data.appId {
-                        Button(action: {
-                            bundleAndShare(appId: appId)
-                        }) {
-                            Group {
-                                if isBundling {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                            }
-                            .foregroundColor(VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isBundling)
-                        .accessibilityLabel("Share")
-                        .background(
-                            ShareSheetButton(
-                                items: shareFileURL != nil ? [shareFileURL!] : [],
-                                isPresented: Binding(
-                                    get: { showSharePicker },
-                                    set: { newValue in
-                                        showSharePicker = newValue
-                                        if !newValue { shareFileURL = nil }
-                                    }
-                                )
-                            )
-                            .frame(width: 1, height: 1)
-                        )
-                    } else {
-                        // Publish button for static pages
+                    // Publish button — for static pages or site-type apps
+                    if data.appId == nil || data.appType == "site" {
                         Button(action: {
                             publishPage(html: data.html, title: data.preview?.title)
                         }) {
@@ -886,6 +857,69 @@ struct MainWindowView: View {
                             .accessibilityLabel("Copy published URL")
                             .frame(maxWidth: 200)
                         }
+
+                        // Show error pill on publish failure
+                        if let error = publishError {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text(error)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            .foregroundColor(VColor.error)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(
+                                Capsule()
+                                    .fill(VColor.error.opacity(0.15))
+                                    .overlay(Capsule().stroke(VColor.error.opacity(0.3), lineWidth: 1))
+                            )
+                            .frame(maxWidth: 200)
+                            .transition(.opacity)
+                        }
+                    }
+
+                    // Share button — bundle app and share via system share sheet
+                    if let appId = data.appId {
+                        Button(action: {
+                            bundleAndShare(appId: appId)
+                        }) {
+                            Group {
+                                if isBundling {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                            }
+                            .foregroundColor(VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBundling)
+                        .accessibilityLabel("Share")
+                        .background(
+                            ShareSheetButton(
+                                items: shareFileURL != nil ? [shareFileURL!] : [],
+                                isPresented: Binding(
+                                    get: { showSharePicker },
+                                    set: { newValue in
+                                        showSharePicker = newValue
+                                        if !newValue { shareFileURL = nil }
+                                    }
+                                )
+                            )
+                            .frame(width: 1, height: 1)
+                        )
                     }
                 }
                 .padding(.horizontal, VSpacing.xl)

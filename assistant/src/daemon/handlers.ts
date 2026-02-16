@@ -87,6 +87,9 @@ import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { deployHtmlToVercel, deleteVercelDeployment } from '../services/vercel-deploy.js';
 import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId } from '../memory/published-pages-store.js';
 import { credentialBroker } from '../tools/credentials/broker.js';
+import { setSecureKey } from '../security/secure-keys.js';
+import { upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
@@ -95,6 +98,9 @@ import type { UserMessageAttachment } from './ipc-contract.js';
 
 const log = getLogger('handlers');
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
+
+// Module-level map for non-session secret prompts (e.g. publish_page)
+const pendingStandaloneSecrets = new Map<string, { resolve: (result: SecretPromptResult) => void; timer: ReturnType<typeof setTimeout> }>();
 
 const FALLBACK_SCREEN = { width: 1920, height: 1080 };
 let cachedScreenDims: { width: number; height: number } | null = null;
@@ -647,6 +653,17 @@ function handleSecretResponse(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  // Check standalone (non-session) prompts first, since they use a dedicated
+  // requestId that won't collide with session prompts.
+  const standalone = pendingStandaloneSecrets.get(msg.requestId);
+  if (standalone) {
+    clearTimeout(standalone.timer);
+    pendingStandaloneSecrets.delete(msg.requestId);
+    standalone.resolve({ value: msg.value ?? null, delivery: msg.delivery ?? 'store' });
+    return;
+  }
+
+  // Otherwise route to the session's secret prompter
   const sessionId = ctx.socketToSession.get(socket);
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
@@ -654,6 +671,36 @@ function handleSecretResponse(
       session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
     }
   }
+}
+
+/**
+ * Send a `secret_request` to the client and wait for the response,
+ * outside of a session context (e.g. from handler-level code like publish_page).
+ */
+function requestSecretStandalone(
+  socket: net.Socket,
+  ctx: HandlerContext,
+  params: { service: string; field: string; label: string; description?: string; placeholder?: string; allowedTools?: string[] },
+): Promise<SecretPromptResult> {
+  const requestId = uuid();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingStandaloneSecrets.delete(requestId);
+      resolve({ value: null, delivery: 'store' });
+    }, 120_000);
+    pendingStandaloneSecrets.set(requestId, { resolve, timer });
+    ctx.send(socket, {
+      type: 'secret_request',
+      requestId,
+      service: params.service,
+      field: params.field,
+      label: params.label,
+      description: params.description,
+      placeholder: params.placeholder,
+      purpose: 'Publish site apps to the web',
+      allowedTools: params.allowedTools,
+    });
+  });
 }
 
 function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
@@ -2171,29 +2218,66 @@ async function handlePublishPage(
       return;
     }
 
-    const useResult = await credentialBroker.serverUse({
+    const publishExecute = async (token: string) => {
+      const name = msg.title
+        ? msg.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+        : `vellum-page-${Date.now()}`;
+
+      const result = await deployHtmlToVercel({ html: msg.html, name, token });
+
+      const id = uuid();
+      createPublishedPage({
+        id,
+        deploymentId: result.deploymentId,
+        publicUrl: result.url,
+        pageTitle: msg.title,
+        htmlHash,
+      });
+
+      return { url: result.url, deploymentId: result.deploymentId };
+    };
+
+    let useResult = await credentialBroker.serverUse({
       service: 'vercel',
       field: 'api_token',
       toolName: 'publish_page',
-      execute: async (token) => {
-        const name = msg.title
-          ? msg.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
-          : `vellum-page-${Date.now()}`;
-
-        const result = await deployHtmlToVercel({ html: msg.html, name, token });
-
-        const id = uuid();
-        createPublishedPage({
-          id,
-          deploymentId: result.deploymentId,
-          publicUrl: result.url,
-          pageTitle: msg.title,
-          htmlHash,
-        });
-
-        return { url: result.url, deploymentId: result.deploymentId };
-      },
+      execute: publishExecute,
     });
+
+    // If no credential found, prompt the user and retry
+    if (!useResult.success && useResult.reason?.includes('No credential found')) {
+      const allowedTools = ['publish_page', 'unpublish_page'];
+      const secretResult = await requestSecretStandalone(socket, ctx, {
+        service: 'vercel',
+        field: 'api_token',
+        label: 'Vercel API Token',
+        description: 'Required to publish site apps to the web. Create a token at vercel.com/account/tokens.',
+        placeholder: 'Enter your Vercel API token',
+        allowedTools,
+      });
+
+      if (!secretResult.value) {
+        ctx.send(socket, {
+          type: 'publish_page_response',
+          success: false,
+          error: 'Cancelled',
+        });
+        return;
+      }
+
+      // Store the credential
+      const storageKey = `credential:vercel:api_token`;
+      setSecureKey(storageKey, secretResult.value);
+      upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
+
+      // Retry with the newly stored credential
+      useResult = await credentialBroker.serverUse({
+        service: 'vercel',
+        field: 'api_token',
+        toolName: 'publish_page',
+        execute: publishExecute,
+      });
+    }
 
     if (useResult.success && useResult.result) {
       ctx.send(socket, {
