@@ -564,7 +564,7 @@ struct GeneratedPanel: View {
 
     // MARK: - Open App
 
-    private func openApp(_ item: DisplayAppItem) {
+    @MainActor private func openApp(_ item: DisplayAppItem) {
         if let localId = item.localAppId {
             // Local apps: ask the daemon to open via ui_surface_show.
             // When onOpenApp is set, the daemon's response will be intercepted
