@@ -203,7 +203,7 @@ describe('ContextWindowManager', () => {
     expect(combinedPrompts).not.toContain('unknown_block');
   });
 
-  test('counts compacted persisted messages without tool-result user turns', async () => {
+  test('counts compacted persisted messages including tool-result user turns', async () => {
     const provider = createProvider(() => ({
       content: [{ type: 'text', text: '## Goals\n- compacted summary' }],
       model: 'mock-model',
@@ -227,7 +227,9 @@ describe('ContextWindowManager', () => {
     const result = await manager.maybeCompact(history);
     expect(result.compacted).toBe(true);
     expect(result.compactedMessages).toBe(4);
-    expect(result.compactedPersistedMessages).toBe(3);
+    // Tool-result-only user messages have DB counterparts and must be
+    // counted so contextCompactedMessageCount indexes the DB correctly.
+    expect(result.compactedPersistedMessages).toBe(4);
   });
 
   test('counts mixed tool_result+text user messages as persisted', async () => {
