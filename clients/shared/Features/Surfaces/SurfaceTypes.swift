@@ -118,15 +118,45 @@ public struct FormField: Identifiable, Sendable {
     }
 }
 
+public struct FormPage: Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let description: String?
+    public let fields: [FormField]
+
+    public init(id: String, title: String, description: String? = nil, fields: [FormField]) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.fields = fields
+    }
+}
+
+public struct FormPageLabels: Sendable {
+    public let next: String?
+    public let back: String?
+    public let submit: String?
+
+    public init(next: String? = nil, back: String? = nil, submit: String? = nil) {
+        self.next = next
+        self.back = back
+        self.submit = submit
+    }
+}
+
 public struct FormSurfaceData: Sendable {
     public let description: String?
     public let fields: [FormField]
     public let submitLabel: String?
+    public let pages: [FormPage]?
+    public let pageLabels: FormPageLabels?
 
-    public init(description: String? = nil, fields: [FormField], submitLabel: String? = nil) {
+    public init(description: String? = nil, fields: [FormField], submitLabel: String? = nil, pages: [FormPage]? = nil, pageLabels: FormPageLabels? = nil) {
         self.description = description
         self.fields = fields
         self.submitLabel = submitLabel
+        self.pages = pages
+        self.pageLabels = pageLabels
     }
 }
 
@@ -452,7 +482,31 @@ public extension Surface {
             fields = parseFormFields(fieldsArray)
         }
 
-        return FormSurfaceData(description: description, fields: fields, submitLabel: submitLabel)
+        var pages = existing.pages
+        if let pagesArray = update["pages"] as? [[String: Any?]] {
+            pages = pagesArray.compactMap { pageDict -> FormPage? in
+                guard let id = pageDict["id"] as? String,
+                      let title = pageDict["title"] as? String else { return nil }
+                let pageFields: [FormField]
+                if let pf = pageDict["fields"] as? [[String: Any?]] {
+                    pageFields = parseFormFields(pf)
+                } else {
+                    pageFields = []
+                }
+                return FormPage(id: id, title: title, description: pageDict["description"] as? String, fields: pageFields)
+            }
+        }
+
+        var pageLabels = existing.pageLabels
+        if let labelsDict = update["pageLabels"] as? [String: Any?] {
+            pageLabels = FormPageLabels(
+                next: labelsDict["next"] as? String,
+                back: labelsDict["back"] as? String,
+                submit: labelsDict["submit"] as? String
+            )
+        }
+
+        return FormSurfaceData(description: description, fields: fields, submitLabel: submitLabel, pages: pages, pageLabels: pageLabels)
     }
 
     private static func mergeListData(existing: ListSurfaceData, update: [String: Any?]) -> ListSurfaceData {
@@ -578,18 +632,52 @@ public extension Surface {
     }
 
     private static func parseFormData(_ dict: [String: Any?]) -> FormSurfaceData? {
-        guard let fieldsArray = dict["fields"] as? [[String: Any?]] else {
-            return nil
+        // Pages mode OR flat fields mode
+        let fields: [FormField]
+        if let fieldsArray = dict["fields"] as? [[String: Any?]] {
+            fields = parseFormFields(fieldsArray)
+        } else {
+            fields = []
         }
 
         let description = dict["description"] as? String
         let submitLabel = dict["submitLabel"] as? String
-        let fields = parseFormFields(fieldsArray)
+
+        var pages: [FormPage]?
+        if let pagesArray = dict["pages"] as? [[String: Any?]] {
+            pages = pagesArray.compactMap { pageDict -> FormPage? in
+                guard let id = pageDict["id"] as? String,
+                      let title = pageDict["title"] as? String else { return nil }
+                let pageFields: [FormField]
+                if let pf = pageDict["fields"] as? [[String: Any?]] {
+                    pageFields = parseFormFields(pf)
+                } else {
+                    pageFields = []
+                }
+                return FormPage(id: id, title: title, description: pageDict["description"] as? String, fields: pageFields)
+            }
+        }
+
+        var pageLabels: FormPageLabels?
+        if let labelsDict = dict["pageLabels"] as? [String: Any?] {
+            pageLabels = FormPageLabels(
+                next: labelsDict["next"] as? String,
+                back: labelsDict["back"] as? String,
+                submit: labelsDict["submit"] as? String
+            )
+        }
+
+        // Need at least fields or pages
+        if fields.isEmpty && (pages?.isEmpty ?? true) {
+            return nil
+        }
 
         return FormSurfaceData(
             description: description,
             fields: fields,
-            submitLabel: submitLabel
+            submitLabel: submitLabel,
+            pages: pages,
+            pageLabels: pageLabels
         )
     }
 

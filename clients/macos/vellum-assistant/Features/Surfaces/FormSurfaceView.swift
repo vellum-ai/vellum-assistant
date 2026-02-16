@@ -8,29 +8,104 @@ struct FormSurfaceView: View {
     @State private var textValues: [String: String] = [:]
     @State private var toggleValues: [String: Bool] = [:]
     @State private var selectValues: [String: String] = [:]
+    @State private var currentPageIndex: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            if let description = data.description {
-                Text(description)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            if let pages = data.pages, !pages.isEmpty {
+                // Multi-page mode
+                pageIndicator(currentPage: currentPageIndex, totalPages: pages.count)
 
-            ForEach(data.fields) { field in
-                fieldView(for: field)
-            }
+                let page = pages[currentPageIndex]
+                Text(page.title)
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
 
-            VButton(
-                label: data.submitLabel ?? "Submit",
-                style: .primary,
-                isFullWidth: true
-            ) {
-                submitForm()
+                if let desc = page.description {
+                    Text(desc)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                ForEach(page.fields) { field in
+                    fieldView(for: field)
+                }
+
+                pageNavigation(currentPage: currentPageIndex, totalPages: pages.count)
+            } else {
+                // Single-page mode (existing behavior)
+                if let description = data.description {
+                    Text(description)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                ForEach(data.fields) { field in
+                    fieldView(for: field)
+                }
+
+                VButton(
+                    label: data.submitLabel ?? "Submit",
+                    style: .primary,
+                    isFullWidth: true
+                ) {
+                    submitForm()
+                }
             }
         }
         .onAppear {
             initializeDefaults()
+        }
+    }
+
+    // MARK: - Page Navigation
+
+    @ViewBuilder
+    private func pageIndicator(currentPage: Int, totalPages: Int) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            ForEach(0..<totalPages, id: \.self) { index in
+                Circle()
+                    .fill(index == currentPage ? VColor.accent : VColor.surfaceBorder)
+                    .frame(width: 6, height: 6)
+            }
+            Spacer()
+            Text("\(currentPage + 1) of \(totalPages)")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+    }
+
+    @ViewBuilder
+    private func pageNavigation(currentPage: Int, totalPages: Int) -> some View {
+        HStack(spacing: VSpacing.md) {
+            if currentPage > 0 {
+                VButton(
+                    label: data.pageLabels?.back ?? "Back",
+                    style: .ghost
+                ) {
+                    withAnimation(VAnimation.fast) {
+                        currentPageIndex -= 1
+                    }
+                }
+            }
+            Spacer()
+            if currentPage < totalPages - 1 {
+                VButton(
+                    label: data.pageLabels?.next ?? "Next",
+                    style: .primary
+                ) {
+                    withAnimation(VAnimation.fast) {
+                        currentPageIndex += 1
+                    }
+                }
+            } else {
+                VButton(
+                    label: data.pageLabels?.submit ?? data.submitLabel ?? "Submit",
+                    style: .primary
+                ) {
+                    submitForm()
+                }
+            }
         }
     }
 
@@ -140,7 +215,13 @@ struct FormSurfaceView: View {
     // MARK: - Defaults & Submit
 
     private func initializeDefaults() {
-        for field in data.fields {
+        let allFields: [FormField]
+        if let pages = data.pages {
+            allFields = data.fields + pages.flatMap { $0.fields }
+        } else {
+            allFields = data.fields
+        }
+        for field in allFields {
             guard let defaultValue = field.defaultValue else { continue }
             switch field.type {
             case .text, .textarea, .number, .password:
@@ -159,7 +240,13 @@ struct FormSurfaceView: View {
 
     private func submitForm() {
         var values: [String: Any] = [:]
-        for field in data.fields {
+        let allFields: [FormField]
+        if let pages = data.pages {
+            allFields = data.fields + pages.flatMap { $0.fields }
+        } else {
+            allFields = data.fields
+        }
+        for field in allFields {
             switch field.type {
             case .text, .textarea, .number, .password:
                 values[field.id] = textValues[field.id] ?? ""

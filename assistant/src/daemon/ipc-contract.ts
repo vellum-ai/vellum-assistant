@@ -450,10 +450,19 @@ export interface FormField {
   options?: Array<{ label: string; value: string }>;
 }
 
+export interface FormPage {
+  id: string;
+  title: string;
+  description?: string;
+  fields: FormField[];
+}
+
 export interface FormSurfaceData {
   description?: string;
   fields: FormField[];
   submitLabel?: string;
+  pages?: FormPage[];
+  pageLabels?: { next?: string; back?: string; submit?: string };
 }
 
 export interface ListItem {
