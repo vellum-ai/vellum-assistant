@@ -43,6 +43,13 @@ public final class ToolConfirmationNotificationService {
             return "deny"
         }
 
+        // If a continuation already exists for this requestId (e.g. daemon re-sent
+        // the request), resume it with "deny" to avoid a leaked continuation crash.
+        if let existing = pendingRequests.removeValue(forKey: message.requestId) {
+            log.warning("Duplicate requestId=\(message.requestId, privacy: .public), denying previous")
+            existing.resume(returning: "deny")
+        }
+
         return await withCheckedContinuation { continuation in
             pendingRequests[message.requestId] = continuation
         }

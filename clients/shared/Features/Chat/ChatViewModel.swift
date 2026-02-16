@@ -179,7 +179,8 @@ public final class ChatViewModel: ObservableObject {
     public var lastToolUseReceivedAt: Date?
 
     /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
-    public var onInlineConfirmationResponse: ((String) -> Void)?
+    /// Parameters: (requestId, decision)
+    public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ThreadManager to coordinate routing when multiple ChatViewModels are active.
@@ -1797,8 +1798,8 @@ public final class ChatViewModel: ObservableObject {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             messages[index].confirmation?.state = decision == "allow" ? .approved : .denied
         }
-        // Dismiss the corresponding floating panel if one exists
-        onInlineConfirmationResponse?(requestId)
+        // Dismiss the corresponding floating panel / native notification if one exists
+        onInlineConfirmationResponse?(requestId, decision)
     }
 
     /// Update the inline confirmation message state without sending a response to the daemon.
