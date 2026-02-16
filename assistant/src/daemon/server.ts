@@ -221,15 +221,7 @@ export class DaemonServer {
   }
 
   private configFingerprint(config: ReturnType<typeof getConfig>): string {
-    return JSON.stringify({
-      provider: config.provider,
-      model: config.model,
-      maxTokens: config.maxTokens,
-      rateLimit: config.rateLimit,
-      thinking: config.thinking,
-      contextWindow: config.contextWindow,
-      apiKeys: config.apiKeys,
-    });
+    return JSON.stringify(config);
   }
 
   /**
