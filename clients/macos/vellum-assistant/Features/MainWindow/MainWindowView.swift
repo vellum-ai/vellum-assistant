@@ -7,7 +7,6 @@ struct MainWindowView: View {
     var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
-    @State private var columnVisibility: NavigationSplitViewVisibility
     @State private var selectedThreadId: UUID?
     @State private var workspaceEditorContentHeight: CGFloat = 20
     @State private var showSharePicker = false
@@ -41,8 +40,6 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.windowState = windowState
         self.onMicrophoneToggle = onMicrophoneToggle
-        let savedSidebarOpen = UserDefaults.standard.bool(forKey: "sidebarOpen")
-        _columnVisibility = State(initialValue: savedSidebarOpen ? .all : .detailOnly)
     }
 
     // MARK: - Layout Constants
@@ -103,44 +100,40 @@ struct MainWindowView: View {
         GeometryReader { geometry in
             Group {
                 if useThreadDrawer {
-                    // Drawer mode: Custom split view (no NavigationSplitView)
-                    VStack(spacing: 0) {
-                        // Button bar (matches ThreadTabBar height and style)
-                        VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                // Thread drawer toggle
-                                VIconButton(label: "Threads", icon: "sidebar.left", isActive: columnVisibility != .detailOnly, iconOnly: true) {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                        columnVisibility = (columnVisibility == .detailOnly) ? .all : .detailOnly
-                                        sidebarOpen = (columnVisibility != .detailOnly)
+                    // Drawer mode: Full-height sidebar + chat
+                    HStack(spacing: 0) {
+                        // Left: Full-height sidebar (always rendered, width collapses to 0)
+                        threadDrawerView
+                            .frame(width: sidebarOpen ? threadDrawerWidth : 0, alignment: .leading)
+                            .clipped()
+                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
+                            .animation(nil, value: threadDrawerWidth)
+
+                        if sidebarOpen {
+                            drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                        }
+
+                        // Right: Chat content
+                        chatContentView(geometry: geometry)
+                            .overlay(alignment: .topLeading) {
+                                // Toggle button when sidebar is hidden
+                                if !sidebarOpen {
+                                    HStack(spacing: 0) {
+                                        VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                                sidebarOpen = true
+                                            }
+                                        }
+                                        Spacer()
                                     }
+                                    .padding(.leading, trafficLightPadding)
+                                    .padding(.trailing, VSpacing.lg)
+                                    .frame(height: 36)
+                                    .transition(.opacity)
                                 }
-
-                                Spacer()
                             }
-                            .padding(.leading, trafficLightPadding)
-                            .padding(.trailing, VSpacing.lg)
-                            .frame(height: 36)
-                            .background(VColor.background)
-                        }
-
-                        // Content area with left drawer + chat + right panel
-                        HStack(spacing: 0) {
-                            // Left: Thread drawer (conditional)
-                            if columnVisibility != .detailOnly {
-                                threadDrawerView
-                                    .animation(nil, value: threadDrawerWidth)  // Disable animation on width changes
-                                    .transition(.move(edge: .leading))
-
-                                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
-                            }
-
-                            // Center: Chat + right panel
-                            chatContentView(geometry: geometry)
-                        }
-                        .coordinateSpace(name: drawerDragCoordinateSpaceName)
-                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: columnVisibility)
                     }
+                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 } else {
                     // Tab mode: Traditional layout
                     VStack(spacing: 0) {
@@ -326,6 +319,18 @@ struct MainWindowView: View {
     @ViewBuilder
     private var threadDrawerView: some View {
         VStack(spacing: 0) {
+            // Header with toggle (sits alongside traffic lights)
+            HStack(spacing: 0) {
+                Spacer()
+                VIconButton(label: "Threads", icon: "sidebar.left", isActive: true, iconOnly: true) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        sidebarOpen = false
+                    }
+                }
+            }
+            .padding(.trailing, VSpacing.sm)
+            .frame(height: 36)
+
             NewConversationButton(action: { threadMenuOpenId = nil; windowState.activePanel = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
@@ -362,9 +367,6 @@ struct MainWindowView: View {
         }
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .padding(.bottom, VSpacing.xs)
-        .padding(.leading, VSpacing.xs)
     }
 
     private func drawerDragDivider(availableWidth: CGFloat) -> some View {
