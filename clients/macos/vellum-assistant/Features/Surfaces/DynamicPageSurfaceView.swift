@@ -368,6 +368,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onAction = onAction
         context.coordinator.onDataRequest = onDataRequest
+        context.coordinator.onPageChanged = onPageChanged
         context.coordinator.onLinkOpen = onLinkOpen
 
         // Keep the coordinator's desired insets up-to-date so webView(_:didFinish:)
