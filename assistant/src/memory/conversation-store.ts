@@ -1,7 +1,7 @@
 import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments } from './schema.js';
+import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
@@ -46,6 +46,7 @@ export function getConversation(id: string) {
 export function deleteConversation(id: string): void {
   const db = getDb();
   db.transaction((tx) => {
+    tx.delete(toolInvocations).where(eq(toolInvocations.conversationId, id)).run();
     tx.delete(messages).where(eq(messages.conversationId, id)).run();
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });

@@ -1519,6 +1519,14 @@ async function handleTaskSubmit(
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
       session.redirectToSecurePrompt(taskIngressCheck.detectedTypes, () => {
         conversationStore.deleteConversation(conversation.id);
+        // Clean up in-memory session and socket binding so the ephemeral
+        // session doesn't accumulate in the daemon's session map.
+        const s = ctx.sessions.get(conversation.id);
+        if (s) {
+          s.dispose();
+          ctx.sessions.delete(conversation.id);
+        }
+        ctx.socketToSession.delete(socket);
       });
       return;
     }
