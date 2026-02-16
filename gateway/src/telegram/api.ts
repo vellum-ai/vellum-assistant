@@ -31,7 +31,8 @@ function computeDelay(
     if (Number.isFinite(targetTime)) {
       const delayMs = targetTime - Date.now();
       if (delayMs > 0) {
-        return delayMs;
+        // Clamp to max 32-bit signed int to prevent setTimeout overflow
+        return Math.min(delayMs, 2_147_483_647);
       }
     }
   }
