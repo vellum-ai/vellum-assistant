@@ -788,6 +788,11 @@ private struct ChatBubble: View {
     @ViewBuilder
     private var trailingStatus: some View {
         let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
+        /// True when there is at least one tool call that hasn't finished yet.
+        let hasActuallyRunningTool = !hideToolCalls && message.toolCalls.contains(where: { !$0.isComplete })
+        /// All individual tool calls done but message still streaming (model generating next tool call).
+        let toolsCompleteButStillStreaming = !hideToolCalls && !message.toolCalls.isEmpty
+            && message.toolCalls.allSatisfy({ $0.isComplete }) && message.isStreaming
         let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
         let hasPermission = decidedConfirmation != nil
         let hasStreamingCode = message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
@@ -800,10 +805,19 @@ private struct ChatBubble: View {
                 CodePreviewView(code: message.streamingCodePreview!)
             }
             .frame(maxWidth: 520, alignment: .leading)
-        } else if hasInProgressTools && !permissionWasDenied {
-            // In progress — show single running indicator
-            let current = message.toolCalls.first(where: { !$0.isComplete }) ?? message.toolCalls.last
-            RunningIndicator(label: Self.friendlyRunningLabel(current?.toolName ?? ""))
+        } else if hasActuallyRunningTool && !permissionWasDenied {
+            // In progress — show single running indicator for the active tool
+            let current = message.toolCalls.first(where: { !$0.isComplete })!
+            let progressive = Self.progressiveLabels(for: current.toolName)
+            RunningIndicator(
+                label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary),
+                progressiveLabels: progressive,
+                labelInterval: progressive.isEmpty ? 6 : 15
+            )
+                .frame(maxWidth: 520, alignment: .leading)
+        } else if toolsCompleteButStillStreaming && !permissionWasDenied {
+            // All tools done but model is still working (generating next tool call)
+            RunningIndicator(label: "Working")
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
             // All done (or denied) — show chips + regenerate on one line
@@ -842,7 +856,7 @@ private struct ChatBubble: View {
     }
 
     /// Maps raw tool names to user-friendly present-tense labels for the running state.
-    private static func friendlyRunningLabel(_ toolName: String) -> String {
+    private static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil) -> String {
         switch toolName.lowercased() {
         case "host bash", "bash":                           return "Running a terminal command"
         case "host file read", "file read":                 return "Reading a file"
@@ -855,8 +869,38 @@ private struct ChatBubble: View {
         case "browser screenshot":                          return "Taking a screenshot"
         case "app create":                                  return "Building your app"
         case "app update":                                  return "Updating your app"
-        case "skill load":                                  return "Loading a skill"
+        case "skill load":
+            if let name = inputSummary, !name.isEmpty {
+                let display = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+                return "Loading \(display)"
+            }
+            return "Loading a skill"
         default:                                            return "Running \(toolName)"
+        }
+    }
+
+    /// Progressive labels for long-running tools. Cycles through these over time.
+    private static func progressiveLabels(for toolName: String) -> [String] {
+        switch toolName.lowercased() {
+        case "app create":
+            return [
+                "Choosing a visual direction",
+                "Designing the layout",
+                "Writing the interface",
+                "Adding styles and colors",
+                "Wiring up interactions",
+                "Polishing the details",
+                "Almost there",
+            ]
+        case "app update":
+            return [
+                "Reviewing your app",
+                "Applying changes",
+                "Updating the interface",
+                "Polishing the details",
+            ]
+        default:
+            return []
         }
     }
 
@@ -1342,10 +1386,23 @@ private struct ChatBubble: View {
 // MARK: - Thinking Indicator
 
 /// Minimal in-progress indicator for tool execution, matching ThinkingIndicator style.
+/// Supports progressive labels that cycle on a timer for long-running tools.
 private struct RunningIndicator: View {
     var label: String = "Running"
+    /// Optional sequence of labels to cycle through over time.
+    var progressiveLabels: [String] = []
+    /// Seconds between each label transition.
+    var labelInterval: TimeInterval = 6
+
     @State private var phase: Int = 0
     @State private var timer: Timer?
+    @State private var currentLabelIndex: Int = 0
+    @State private var labelTimer: Timer?
+
+    private var displayLabel: String {
+        if progressiveLabels.isEmpty { return label }
+        return progressiveLabels[min(currentLabelIndex, progressiveLabels.count - 1)]
+    }
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
@@ -1353,9 +1410,10 @@ private struct RunningIndicator: View {
                 .font(.system(size: 10))
                 .foregroundColor(VColor.textSecondary)
 
-            Text(label)
+            Text(displayLabel)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
+                .animation(.easeInOut(duration: 0.3), value: currentLabelIndex)
 
             ForEach(0..<3, id: \.self) { index in
                 Circle()
@@ -1366,18 +1424,33 @@ private struct RunningIndicator: View {
 
             Spacer()
         }
-        .onAppear { startAnimation() }
-        .onDisappear { timer?.invalidate() }
+        .onAppear {
+            startDotAnimation()
+            startLabelCycling()
+        }
+        .onDisappear {
+            timer?.invalidate()
+            labelTimer?.invalidate()
+        }
     }
 
     private func dotOpacity(for index: Int) -> Double {
         phase == index ? 1.0 : 0.4
     }
 
-    private func startAnimation() {
+    private func startDotAnimation() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
             withAnimation(.easeInOut(duration: 0.3)) {
                 phase = (phase + 1) % 3
+            }
+        }
+    }
+
+    private func startLabelCycling() {
+        guard !progressiveLabels.isEmpty else { return }
+        labelTimer = Timer.scheduledTimer(withTimeInterval: labelInterval, repeats: true) { _ in
+            if currentLabelIndex < progressiveLabels.count - 1 {
+                currentLabelIndex += 1
             }
         }
     }

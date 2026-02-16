@@ -1,9 +1,15 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Standard card chrome for inline chat widgets.
 /// Applies consistent padding, background, border, corner radius, and shadow
 /// so all widget types (card, dynamic page, table, list) share the same visual treatment.
 public struct InlineWidgetCardModifier: ViewModifier {
+    let interactive: Bool
+    @State private var isHovered: Bool = false
+
     public func body(content: Content) -> some View {
         content
             .padding(VSpacing.lg)
@@ -14,14 +20,63 @@ public struct InlineWidgetCardModifier: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                    .allowsHitTesting(false)
             )
-            .vShadow(VShadow.sm)
+            .overlay(
+                Group {
+                    if interactive && isHovered {
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.hoverOverlay.opacity(0.03))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                                    .blur(radius: 3)
+                                    .padding(1)
+                                    .mask(RoundedRectangle(cornerRadius: VRadius.lg))
+                            )
+                    }
+                }
+                .allowsHitTesting(false)
+            )
+            .onHover { hovering in
+                guard interactive else { return }
+                isHovered = hovering
+            }
+            .overlay(
+                Group {
+                    if interactive {
+                        PointingHandCursorView()
+                    }
+                }
+                .allowsHitTesting(false)
+            )
+            .animation(VAnimation.fast, value: isHovered)
     }
 }
 
+#if os(macOS)
+/// An NSView that sets the cursor to pointingHand over its entire bounds
+/// using `addCursorRect`, which takes priority over SwiftUI Button cursor resets.
+private struct PointingHandCursorView: NSViewRepresentable {
+    func makeNSView(context: Context) -> PointingHandNSView {
+        PointingHandNSView()
+    }
+
+    func updateNSView(_ nsView: PointingHandNSView, context: Context) {
+        nsView.resetCursorRects()
+    }
+}
+
+private class PointingHandNSView: NSView {
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+}
+#endif
+
 public extension View {
-    func inlineWidgetCard() -> some View {
-        modifier(InlineWidgetCardModifier())
+    func inlineWidgetCard(interactive: Bool = false) -> some View {
+        modifier(InlineWidgetCardModifier(interactive: interactive))
     }
 }
 

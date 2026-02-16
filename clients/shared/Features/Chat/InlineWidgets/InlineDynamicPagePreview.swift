@@ -6,8 +6,6 @@ public struct InlineDynamicPagePreview: View {
     public let preview: DynamicPagePreview
     public let onViewOutput: () -> Void
 
-    @State private var isHovered: Bool = false
-
     public init(preview: DynamicPagePreview, onViewOutput: @escaping () -> Void) {
         self.preview = preview
         self.onViewOutput = onViewOutput
@@ -17,29 +15,32 @@ public struct InlineDynamicPagePreview: View {
         Button {
             onViewOutput()
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
+                // Icon + title row
+                HStack(spacing: VSpacing.sm) {
                     if let icon = preview.icon {
                         Text(icon)
-                            .font(.system(size: 24))
+                            .font(.system(size: 28))
                     }
 
-                    Text(preview.title)
-                        .font(VFont.headline)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(2)
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        Text(preview.title)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(2)
 
-                    if let subtitle = preview.subtitle {
-                        Text(subtitle)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
+                        if let subtitle = preview.subtitle {
+                            Text(subtitle)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
                     }
                 }
 
                 if let description = preview.description, !description.isEmpty {
                     Text(description)
-                        .font(VFont.body)
+                        .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                         .lineLimit(3)
                 }
@@ -52,18 +53,10 @@ public struct InlineDynamicPagePreview: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            #if os(macOS)
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
-            #endif
-            isHovered = hovering
-        }
-        .scaleEffect(isHovered ? 1.015 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
         .accessibilityLabel("View output: \(preview.title)")
         .accessibilityAddTraits(.isButton)
     }
@@ -76,7 +69,12 @@ public struct InlineDynamicPagePreview: View {
             Text(value)
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.textPrimary)
+                .lineLimit(1)
         }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 }
 

@@ -33,8 +33,8 @@ public struct InlineSurfaceRouter: View {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Template cards handle their own header — skip the generic title
-            if !isTemplateCard, let title = surface.title {
+            // Template cards and dynamic page previews handle their own header
+            if !isTemplateCard, !isDynamicPreview, let title = surface.title {
                 Text(title)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -47,7 +47,7 @@ public struct InlineSurfaceRouter: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inlineWidgetCard()
+        .inlineWidgetCard(interactive: isDynamicPreview)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview {
                 Button {

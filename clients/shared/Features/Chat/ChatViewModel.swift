@@ -854,25 +854,22 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Extract a code preview from accumulated tool input JSON.
-    /// For app_create/app_update: shows the raw JSON immediately, then switches
-    /// to showing just the HTML once the `html` field starts streaming.
+    /// Shows the HTML code as it streams during app_create/app_update.
     static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
         guard !accumulatedJson.isEmpty else { return nil }
         let isAppTool = toolName == "app_create" || toolName == "app_update"
         guard isAppTool else { return nil }
 
-        // Once the html field appears, show just the HTML content
+        // Show the HTML code as it streams in
         let markers = ["\"html\": \"", "\"html\":\""]
         for marker in markers {
             if let range = accumulatedJson.range(of: marker) {
                 var html = String(accumulatedJson[range.upperBound...])
-                // Strip trailing JSON delimiters
                 if html.hasSuffix("\"}") {
                     html = String(html.dropLast(2))
                 } else if html.hasSuffix("\"") {
                     html = String(html.dropLast(1))
                 }
-                // Unescape JSON string escapes
                 html = html
                     .replacingOccurrences(of: "\\n", with: "\n")
                     .replacingOccurrences(of: "\\t", with: "\t")
@@ -882,8 +879,7 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
-        // Before the html field appears, show the raw JSON being generated
-        return accumulatedJson
+        return nil
     }
 
     public func handleServerMessage(_ message: ServerMessage) {
@@ -1006,8 +1002,20 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
-                messages[index].streamingCodePreview = nil
-                messages[index].streamingCodeToolName = nil
+                // Delay clearing the code preview so users can see the HTML being written
+                let hadCodePreview = messages[index].streamingCodePreview != nil
+                if hadCodePreview {
+                    let msgId = existingId
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                        guard let self,
+                              let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
+                        self.messages[idx].streamingCodePreview = nil
+                        self.messages[idx].streamingCodeToolName = nil
+                    }
+                } else {
+                    messages[index].streamingCodePreview = nil
+                    messages[index].streamingCodeToolName = nil
+                }
                 // Check if this message has completed tool calls
                 let toolCalls = messages[index].toolCalls
                 if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
