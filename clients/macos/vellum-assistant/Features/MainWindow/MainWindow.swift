@@ -107,7 +107,7 @@ final class MainWindow {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 500, height: 400)
+        window.contentMinSize = NSSize(width: 800, height: 600)
         window.setFrame(windowRect, display: false)
         window.setFrameAutosaveName("MainWindow")
 
