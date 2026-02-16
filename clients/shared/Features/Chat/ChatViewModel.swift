@@ -1043,15 +1043,15 @@ public final class ChatViewModel: ObservableObject {
 
         case .uiSurfaceShow(let msg):
             guard belongsToSession(msg.sessionId) else { return }
-            guard msg.display == nil || msg.display == "inline" else { break }
+            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else { break }
             guard let surface = Surface.from(msg) else { break }
 
-            // On macOS, dynamic pages with no explicit display mode are routed
-            // to the workspace by SurfaceManager. If the dynamic page has a
-            // preview, also render a compact preview card inline in chat.
+            // On macOS, dynamic pages with no explicit display mode (or "panel")
+            // are routed to the workspace by SurfaceManager. If the dynamic page
+            // has a preview, also render a compact preview card inline in chat.
             // On iOS there is no workspace, so dynamic pages always render inline.
             #if os(macOS)
-            if case .dynamicPage(let dpData) = surface.data, msg.display == nil {
+            if case .dynamicPage(let dpData) = surface.data, msg.display == nil || msg.display == "panel" {
                 isThinking = false
                 // Only render inline preview if the dynamic page has preview metadata
                 guard dpData.preview != nil else { break }

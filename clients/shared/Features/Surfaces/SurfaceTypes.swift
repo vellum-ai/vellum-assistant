@@ -208,13 +208,15 @@ public struct DynamicPageSurfaceData: Sendable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
+    public let appType: String?
     public let preview: DynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, preview: DynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, preview: DynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
+        self.appType = appType
         self.preview = preview
     }
 }
@@ -505,10 +507,11 @@ public extension Surface {
         let width: Int? = update.keys.contains("width") ? (update["width"] as? Int) : existing.width
         let height: Int? = update.keys.contains("height") ? (update["height"] as? Int) : existing.height
         let appId: String? = update.keys.contains("appId") ? (update["appId"] as? String) : existing.appId
+        let appType: String? = update.keys.contains("appType") ? (update["appType"] as? String) : existing.appType
         let preview: DynamicPagePreview? = update.keys.contains("preview")
             ? parseDynamicPagePreview(update["preview"] as? [String: Any?])
             : existing.preview
-        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, preview: preview)
+        return DynamicPageSurfaceData(html: html, width: width, height: height, appId: appId, appType: appType, preview: preview)
     }
 
     // MARK: - Field Parsing Helpers
@@ -636,6 +639,7 @@ public extension Surface {
             width: dict["width"] as? Int,
             height: dict["height"] as? Int,
             appId: dict["appId"] as? String,
+            appType: dict["appType"] as? String,
             preview: parseDynamicPagePreview(dict["preview"] as? [String: Any?])
         )
     }

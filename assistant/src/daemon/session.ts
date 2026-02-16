@@ -2103,7 +2103,7 @@ export class Session {
       const app = getApp(appId);
       if (!app) return { content: `App not found: ${appId}`, isError: true };
 
-      const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, preview };
+      const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, appType: app.appType, preview };
       const surfaceId = uuid();
       this.surfaceState.set(surfaceId, {
         surfaceType: 'dynamic_page',

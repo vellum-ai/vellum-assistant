@@ -480,6 +480,7 @@ export interface DynamicPageSurfaceData {
   width?: number;
   height?: number;
   appId?: string;
+  appType?: string;
   preview?: DynamicPagePreview;
 }
 
