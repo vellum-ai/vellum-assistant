@@ -32,6 +32,7 @@ public final class RideShotgunSession: ObservableObject {
     private var daemonClient: DaemonClient?
     private var messageSubscription: Task<Void, Never>?
     private var watchSessionObserver: Task<Void, Never>?
+    private var expectedWatchId: String?
 
     public init(durationSeconds: Int, intervalSeconds: Int = 10) {
         self.durationSeconds = durationSeconds
@@ -89,6 +90,8 @@ public final class RideShotgunSession: ObservableObject {
     private func handleWatchStarted(_ message: WatchStartedMessage, daemonClient: DaemonClient) {
         guard state == .starting else { return }
 
+        expectedWatchId = message.watchId
+
         let session = WatchSession(
             watchId: message.watchId,
             sessionId: message.sessionId,
@@ -122,6 +125,10 @@ public final class RideShotgunSession: ObservableObject {
 
     private func handleRideShotgunResult(_ result: RideShotgunResultMessage) {
         guard state == .capturing || state == .summarizing else { return }
+        guard result.watchId == expectedWatchId else {
+            log.warning("Ignoring ride_shotgun_result for unexpected watchId=\(result.watchId)")
+            return
+        }
 
         summary = result.summary
         observationCount = result.observationCount
@@ -132,6 +139,8 @@ public final class RideShotgunSession: ObservableObject {
     }
 
     private func cleanup() {
+        watchSession?.stop()
+        watchSession = nil
         messageSubscription?.cancel()
         messageSubscription = nil
         watchSessionObserver?.cancel()
