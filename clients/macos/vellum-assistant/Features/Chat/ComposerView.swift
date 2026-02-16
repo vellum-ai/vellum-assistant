@@ -2,6 +2,8 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ComposerView: View {
+    private let composerVerticalTextInset: CGFloat = 2
+
     @Binding var inputText: String
     let hasAPIKey: Bool
     let isSending: Bool
@@ -160,7 +162,6 @@ struct ComposerView: View {
                 }
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .lineSpacing(4)
                 .textFieldStyle(.plain)
                 .lineLimit(1...)
                 .focused($isComposerFocused)
@@ -175,13 +176,15 @@ struct ComposerView: View {
                         + Text(ghostSuffix)
                             .font(VFont.body)
                             .foregroundColor(VColor.textMuted.opacity(0.5)))
-                            .lineSpacing(4)
                             .lineLimit(1...)
                             .fixedSize(horizontal: false, vertical: true)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
                 }
+                // AppKit's multiline TextField can under-report its rendered height,
+                // which clips the bottom row when the composer is tightly framed.
+                .padding(.vertical, composerVerticalTextInset)
                 .background(
                     GeometryReader { geo in
                         Color.clear
