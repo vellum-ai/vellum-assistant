@@ -26,6 +26,10 @@ describe('isToolAllowed', () => {
     expect(isToolAllowed('browser_fill_credential', undefined as unknown as string[])).toBe(false);
   });
 
+  test('denies when allowedTools is a string (not an array)', () => {
+    expect(isToolAllowed('b', 'browser_fill_credential' as unknown as string[])).toBe(false);
+  });
+
   test('denies when toolName is empty', () => {
     expect(isToolAllowed('', ['browser_fill_credential'])).toBe(false);
   });
