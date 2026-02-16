@@ -26,8 +26,8 @@ final class RideShotgunInvitationWindow {
         let hostingController = NSHostingController(rootView: view)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 320),
-            styleMask: [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow],
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 260),
+            styleMask: [.titled, .nonactivatingPanel, .utilityWindow],
             backing: .buffered,
             defer: false
         )
@@ -37,13 +37,14 @@ final class RideShotgunInvitationWindow {
         panel.isMovableByWindowBackground = true
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.alphaValue = 0.95
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.maxX - 380 - 20
+            let x = screenFrame.maxX - 300 - 20
             let y = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -61,7 +62,7 @@ final class RideShotgunInvitationWindow {
 private struct RideShotgunInvitationView: View {
     let onAccept: (Int) -> Void
     let onDecline: () -> Void
-    @State private var selectedDuration: Int = 180 // 3 minutes default
+    @State private var selectedDuration: Int = 180
 
     private let durations: [(label: String, seconds: Int)] = [
         ("1 min", 60),
@@ -70,68 +71,70 @@ private struct RideShotgunInvitationView: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            HStack {
+        VStack(spacing: VSpacing.xl) {
+            // Icon + title
+            VStack(spacing: VSpacing.sm) {
                 Image(systemName: "binoculars.fill")
+                    .font(.system(size: 28, weight: .light))
                     .foregroundStyle(VColor.accent)
-                    .font(.title2)
-                Text("Ride Shotgun?")
+
+                Text("Ride Shotgun")
                     .font(VFont.headline)
-                Spacer()
-            }
+                    .foregroundStyle(VColor.textPrimary)
 
-            Text("I'll watch how you work for a few minutes to understand how I can help.")
-                .font(VFont.body)
-                .foregroundStyle(VColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // AX preview placeholder
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("What I can see:")
+                Text("I'll observe your screen briefly\nto learn how I can help.")
                     .font(VFont.caption)
                     .foregroundStyle(VColor.textMuted)
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surface)
-                    .frame(height: 60)
-                    .overlay(
-                        Text("Screen content preview")
-                            .font(VFont.caption)
-                            .foregroundStyle(VColor.textMuted)
-                    )
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
             }
 
-            // Duration picker
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Duration")
-                    .font(VFont.caption)
-                    .foregroundStyle(VColor.textMuted)
-                HStack(spacing: VSpacing.sm) {
-                    ForEach(durations, id: \.seconds) { option in
-                        Button(option.label) {
-                            selectedDuration = option.seconds
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(selectedDuration == option.seconds ? VColor.accent : nil)
-                    }
+            // Duration
+            Picker("Duration", selection: $selectedDuration) {
+                ForEach(durations, id: \.seconds) { option in
+                    Text(option.label).tag(option.seconds)
                 }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
-            HStack {
-                Spacer()
-                Button("Not now") {
+            // Actions
+            HStack(spacing: VSpacing.sm) {
+                Button {
                     onDecline()
+                } label: {
+                    Text("Not now")
+                        .font(VFont.body)
+                        .foregroundStyle(VColor.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.sm)
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
 
-                Button("Let's ride") {
+                Button {
                     onAccept(selectedDuration)
+                } label: {
+                    Text("Let's go")
+                        .font(VFont.bodyMedium)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(VColor.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(.borderedProminent)
             }
         }
-        .padding()
-        .frame(width: 380)
-        .vPanelBackground()
+        .padding(VSpacing.xl)
+        .frame(width: 280)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+        .vShadow(VShadow.lg)
     }
 }
