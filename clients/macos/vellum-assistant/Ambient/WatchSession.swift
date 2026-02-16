@@ -22,6 +22,8 @@ public final class WatchSession: ObservableObject {
 
     private var daemonClient: DaemonClient?
     private var captureTask: Task<Void, Never>?
+    private var elapsedTask: Task<Void, Never>?
+    private var startedAt: Date?
     private let screenCapture = ScreenCapture()
     private let ocr = ScreenOCR()
     private var previousOcrText: String = ""
@@ -37,21 +39,34 @@ public final class WatchSession: ObservableObject {
         self.daemonClient = daemonClient
         state = .capturing
         totalExpected = durationSeconds / intervalSeconds
+        elapsedSeconds = 0
+        startedAt = Date()
         log.info("Watch session started: watchId=\(self.watchId) duration=\(self.durationSeconds)s interval=\(self.intervalSeconds)s")
-        captureTask = Task { await captureLoop() }
+        captureTask = Task { [weak self] in
+            await self?.captureLoop()
+        }
+        elapsedTask = Task { [weak self] in
+            await self?.elapsedLoop()
+        }
     }
 
     public func stop() {
         captureTask?.cancel()
         captureTask = nil
+        elapsedTask?.cancel()
+        elapsedTask = nil
+        startedAt = nil
         state = .cancelled
         log.info("Watch session stopped: watchId=\(self.watchId)")
     }
 
     private func captureLoop() async {
-        let startTime = Date()
+        guard let startedAt else { return }
 
-        while !Task.isCancelled && elapsedSeconds < Double(durationSeconds) {
+        while !Task.isCancelled {
+            if Date().timeIntervalSince(startedAt) >= Double(durationSeconds) {
+                break
+            }
             // Try AX capture first
             let snapshot = await AmbientAXCapture.capture()
             var screenContent: String
@@ -69,7 +84,6 @@ public final class WatchSession: ObservableObject {
                 guard PermissionManager.screenRecordingStatus() == .granted else {
                     log.debug("Screen recording not permitted - skipping OCR fallback")
                     try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
-                    elapsedSeconds = Date().timeIntervalSince(startTime)
                     continue
                 }
 
@@ -79,7 +93,6 @@ public final class WatchSession: ObservableObject {
                 } catch {
                     log.warning("Screenshot failed: \(error.localizedDescription)")
                     try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
-                    elapsedSeconds = Date().timeIntervalSince(startTime)
                     continue
                 }
                 screenContent = await ocr.recognizeText(from: screenshotData)
@@ -93,7 +106,6 @@ public final class WatchSession: ObservableObject {
             // Skip empty content
             guard !screenContent.isEmpty else {
                 try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
-                elapsedSeconds = Date().timeIntervalSince(startTime)
                 continue
             }
 
@@ -101,7 +113,6 @@ public final class WatchSession: ObservableObject {
             if ScreenOCR.similarity(screenContent, previousOcrText) > 0.85 {
                 log.debug("Screen unchanged (similarity > 0.85) - skipping observation")
                 try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
-                elapsedSeconds = Date().timeIntervalSince(startTime)
                 continue
             }
             previousOcrText = screenContent
@@ -129,12 +140,28 @@ public final class WatchSession: ObservableObject {
             }
 
             try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
-            elapsedSeconds = Date().timeIntervalSince(startTime)
         }
 
         if !Task.isCancelled {
+            elapsedSeconds = Double(durationSeconds)
+            elapsedTask?.cancel()
+            elapsedTask = nil
+            self.startedAt = nil
             state = .complete
             log.info("Watch session complete: watchId=\(self.watchId) captures=\(self.captureCount)")
+        }
+    }
+
+    private func elapsedLoop() async {
+        guard let startedAt else { return }
+
+        while !Task.isCancelled {
+            let elapsed = min(Date().timeIntervalSince(startedAt), Double(durationSeconds))
+            elapsedSeconds = elapsed
+            if elapsed >= Double(durationSeconds) {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
