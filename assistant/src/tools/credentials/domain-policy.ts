@@ -27,10 +27,6 @@ export function isDomainAllowed(requestHost: string, allowedDomains: string[]): 
   const requestInfo = normalizeDomain(requestHost);
   if (!requestInfo) return false;
 
-  // Require a valid registrable domain — rejects malformed hostnames that
-  // normalizeDomain doesn't explicitly filter (e.g. strings with spaces/symbols).
-  if (!requestInfo.registrableDomain) return false;
-
   for (const allowed of allowedDomains) {
     const allowedInfo = normalizeDomain(allowed);
     if (!allowedInfo) continue;

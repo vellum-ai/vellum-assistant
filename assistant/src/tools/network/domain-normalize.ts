@@ -60,6 +60,12 @@ export function normalizeDomain(input: string): DomainInfo | null {
     return null;
   }
 
+  // Reject malformed hostnames (e.g. strings with spaces, symbols, consecutive
+  // dots). Valid DNS labels contain only alphanumerics, hyphens, and dots.
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(hostname)) {
+    return null;
+  }
+
   const result = parse(hostname);
   const registrableDomain = result.domain || null;
 

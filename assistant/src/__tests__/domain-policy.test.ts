@@ -68,6 +68,16 @@ describe('isDomainAllowed', () => {
     expect(isDomainAllowed('localhost', ['localhost'])).toBe(false);
   });
 
+  // ── Internal / non-registrable hosts ────────────────────────────────
+
+  test('allows exact match for single-label intranet host', () => {
+    expect(isDomainAllowed('intranet', ['intranet'])).toBe(true);
+  });
+
+  test('allows exact match for internal two-label host', () => {
+    expect(isDomainAllowed('vault.corp', ['vault.corp'])).toBe(true);
+  });
+
   // ── URL extraction ──────────────────────────────────────────────────
 
   test('extracts hostname from full URL', () => {
