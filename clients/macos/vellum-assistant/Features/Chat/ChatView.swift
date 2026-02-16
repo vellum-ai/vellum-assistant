@@ -297,8 +297,30 @@ struct ChatView: View {
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
-                            // Decided confirmations are rendered as compact chips
-                            // on the preceding assistant message's ChatBubble — skip here.
+                            // Decided confirmations are normally rendered as compact chips
+                            // on the preceding assistant message's ChatBubble. But if there
+                            // is no preceding assistant message, render them inline so they
+                            // don't disappear entirely.
+                            else {
+                                let hasPrecedingAssistant: Bool = {
+                                    guard index > 0 else { return false }
+                                    return messages[index - 1].role == .assistant
+                                }()
+
+                                if !hasPrecedingAssistant {
+                                    ToolConfirmationBubble(
+                                        confirmation: confirmation,
+                                        showDescription: true,
+                                        onAllow: { onConfirmationAllow(confirmation.requestId) },
+                                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                                        onAddTrustRule: onAddTrustRule
+                                    )
+                                    .id(message.id)
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                }
+                                // When there IS a preceding assistant message, the decided
+                                // confirmation is rendered as a chip on that bubble — skip here.
+                            }
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.
@@ -316,7 +338,9 @@ struct ChatView: View {
 
                             let isLastAssistant = message.role == .assistant
                                 && !message.isStreaming
-                                && index == messages.count - 1
+                                && (index == messages.count - 1
+                                    || (index == messages.count - 2
+                                        && messages[messages.count - 1].confirmation != nil))
                                 && !isSending
                                 && !isThinking
 
