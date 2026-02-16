@@ -70,11 +70,11 @@ export class FailoverProvider implements Provider {
     systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const now = Date.now();
     let lastError: unknown;
 
     for (const provider of this.providers) {
       const health = this.healthMap.get(provider.name)!;
+      const now = Date.now();
 
       // Skip providers that are still in cooldown
       if (health.unhealthySince !== null) {
@@ -102,7 +102,7 @@ export class FailoverProvider implements Provider {
         lastError = error;
 
         if (isFailoverError(error)) {
-          health.unhealthySince = now;
+          health.unhealthySince = Date.now();
           log.warn(
             {
               provider: provider.name,
