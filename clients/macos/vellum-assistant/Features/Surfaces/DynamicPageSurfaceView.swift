@@ -78,11 +78,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-<<<<<<< HEAD
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
-=======
         Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
->>>>>>> 96cab3e0 (feat: add vellum.openLink JS bridge and coordinator handler)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -339,6 +335,26 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             )
             contentController.addUserScript(insetScript)
         }
+
+        // Inject "Built on Vellum" branding badge at document end.
+        let brandingScript = WKUserScript(
+            source: """
+                (function() {
+                    function injectBranding() {
+                        if (document.getElementById('vellum-branding')) return;
+                        var el = document.createElement('div');
+                        el.id = 'vellum-branding';
+                        el.innerHTML = 'Built on <a onclick="event.preventDefault(); if(window.vellum&&vellum.openLink){vellum.openLink(\\'https://vellum.ai\\',{provider:\\'vellum\\',type:\\'branding\\'})}else{window.open(\\'https://vellum.ai\\',\\'_blank\\')}" href="https://vellum.ai">Vellum</a>';
+                        document.body.appendChild(el);
+                    }
+                    if (document.body) injectBranding();
+                    else document.addEventListener('DOMContentLoaded', injectBranding);
+                })();
+                """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(brandingScript)
 
         onCoordinatorReady?(context.coordinator)
         // Use a per-app origin so localStorage/sessionStorage work natively,
