@@ -449,6 +449,42 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let imageData: String?
 }
 
+public struct IPCIntegrationConnectRequest: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+}
+
+public struct IPCIntegrationConnectResult: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+    public let success: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
+public struct IPCIntegrationDisconnectRequest: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+}
+
+public struct IPCIntegrationListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCIntegrationListResponse: Codable, Sendable {
+    public let type: String
+    public let integrations: [IPCIntegrationListResponseIntegration]
+}
+
+public struct IPCIntegrationListResponseIntegration: Codable, Sendable {
+    public let id: String
+    public let connected: Bool
+    public let accountInfo: String?
+    public let connectedAt: Int?
+    public let lastUsed: Double?
+    public let error: String?
+}
+
 public struct IPCIpcBlobProbe: Codable, Sendable {
     public let type: String
     public let probeId: String
