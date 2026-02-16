@@ -3,7 +3,7 @@ import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:
 import { join } from 'node:path';
 import { getSocketPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import { getProvider, initializeProviders } from '../providers/registry.js';
+import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
@@ -578,7 +578,7 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getProvider(config.provider);
+        let provider = getFailoverProvider(config.provider, config.providerOrder);
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
           provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);

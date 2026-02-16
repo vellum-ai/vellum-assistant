@@ -3,7 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
-import { getProvider } from '../../providers/registry.js';
+import { getFailoverProvider } from '../../providers/registry.js';
 import { resolveSwarmLimits } from '../../swarm/limits.js';
 import { generatePlan } from '../../swarm/router-planner.js';
 import { executeSwarm } from '../../swarm/orchestrator.js';
@@ -84,7 +84,7 @@ export const swarmDelegateTool: Tool = {
 
       // Generate plan
       context.onOutput?.('Planning task decomposition...\n');
-      const planProvider = getProvider(config.provider);
+      const planProvider = getFailoverProvider(config.provider, config.providerOrder);
       const plan = await generatePlan({
         objective: extraContext ? `${objective}\n\nContext: ${extraContext}` : objective,
         provider: planProvider,
@@ -106,7 +106,7 @@ export const swarmDelegateTool: Tool = {
       const backend = createClaudeCodeBackend();
       let synthesisProvider: typeof planProvider | undefined;
       try {
-        synthesisProvider = getProvider(config.provider);
+        synthesisProvider = getFailoverProvider(config.provider, config.providerOrder);
       } catch {
         // No provider available for synthesis — will use fallback
       }

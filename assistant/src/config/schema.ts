@@ -697,6 +697,11 @@ export const AssistantConfigSchema = z.object({
   apiKeys: z
     .record(z.string(), z.string({ error: 'Each apiKeys value must be a string' }))
     .default({}),
+  providerOrder: z
+    .array(z.enum(VALID_PROVIDERS, {
+      error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(', ')}`,
+    }))
+    .default([]),
   maxTokens: z
     .number({ error: 'maxTokens must be a number' })
     .int('maxTokens must be an integer')

@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '../config/loader.js';
-import { getProvider, initializeProviders } from '../providers/registry.js';
+import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getLogger } from '../util/logger.js';
@@ -2736,7 +2736,7 @@ function handleCuSessionCreate(
   }
 
   const config = getConfig();
-  let provider = getProvider(config.provider);
+  let provider = getFailoverProvider(config.provider, config.providerOrder);
   const { rateLimit } = config;
   if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
     provider = new RateLimitProvider(provider, rateLimit, ctx.sharedRequestTimestamps);
