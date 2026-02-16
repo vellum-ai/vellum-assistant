@@ -997,15 +997,16 @@ public final class ChatViewModel: ObservableObject {
                     let text = refinementTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty {
                         refinementStreamingText = text
-                        // Keep refinementFailureText for backward compat (M3 will remove usage)
                         refinementFailureText = text
-                        refinementFailureDismissTask?.cancel()
-                        refinementFailureDismissTask = Task { [weak self] in
-                            try? await Task.sleep(nanoseconds: 8_000_000_000)
-                            guard let self, !Task.isCancelled else { return }
-                            self.refinementFailureText = nil
-                        }
+                    } else {
+                        // Buffer was only whitespace — clean up
+                        refinementMessagePreview = nil
+                        refinementStreamingText = nil
                     }
+                } else {
+                    // No surface update and no text — clean up
+                    refinementMessagePreview = nil
+                    refinementStreamingText = nil
                 }
                 refinementTextBuffer = ""
                 refinementReceivedSurfaceUpdate = false
