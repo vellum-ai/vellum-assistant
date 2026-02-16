@@ -94,28 +94,14 @@ actor AmbientSyncClient {
         encodeThenSend(endpoint: "api/observations", body: ObservationBatchPayload(entries: entries))
     }
 
-    func sendInsight(_ insight: KnowledgeInsight) {
-        encodeThenSend(endpoint: "api/insight", body: insight)
-    }
-
-    func sendInsights(_ insights: [KnowledgeInsight]) {
-        guard !insights.isEmpty else { return }
-        encodeThenSend(endpoint: "api/insights", body: InsightBatchPayload(entries: insights))
-    }
-
-    func sendAnalysis(_ result: AmbientAnalysisResult) {
-        encodeThenSend(endpoint: "api/analysis", body: result)
-    }
-
     func sendDecision(_ decision: AutomationDecision) {
         encodeThenSend(endpoint: "api/decision", body: decision)
     }
 
     // MARK: - Batch Sync (on launch)
 
-    func syncExisting(observations: [KnowledgeEntry], insights: [KnowledgeInsight]) {
+    func syncExisting(observations: [KnowledgeEntry]) {
         sendObservations(observations)
-        sendInsights(insights)
     }
 
     // MARK: - Retry Queue
@@ -173,10 +159,6 @@ actor AmbientSyncClient {
 
     private struct ObservationBatchPayload: Encodable {
         let entries: [KnowledgeEntry]
-    }
-
-    private struct InsightBatchPayload: Encodable {
-        let entries: [KnowledgeInsight]
     }
 
     private enum SyncError: Error, LocalizedError {

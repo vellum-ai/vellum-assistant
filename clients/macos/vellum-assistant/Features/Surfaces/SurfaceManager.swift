@@ -42,7 +42,7 @@ final class SurfaceViewModel: ObservableObject {
 /// Manages the lifecycle of surface windows (NSPanel) shown in response to daemon IPC messages.
 ///
 /// Each surface is displayed in a floating, non-activating panel positioned at the bottom-right
-/// of the screen, following the same window pattern as `AmbientSuggestionWindow`.
+/// of the screen, using a floating, non-activating NSPanel.
 @MainActor
 final class SurfaceManager: ObservableObject {
 
