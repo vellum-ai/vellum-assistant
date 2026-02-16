@@ -43,8 +43,8 @@ export async function handleRideShotgunStart(
     session.status = 'completing';
     session.timeoutHandle = undefined;
     log.info({ watchId }, 'Ride shotgun session duration expired, generating summary');
-    session.status = 'completed';
     await generateSummary(session);
+    session.status = 'completed';
     // Fallback: if generateSummary failed or returned empty, fire notifier
     // anyway so the client always receives a response
     if (!lastSummaryBySession.has(sessionId)) {
