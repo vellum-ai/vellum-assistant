@@ -13,14 +13,11 @@ const TOOL_ID_RE = /[^a-zA-Z0-9_-]/g;
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
-  const sanitized = id.replace(TOOL_ID_RE, '_');
-  if (sanitized) return sanitized;
-  // Deterministic fallback: hex-encode the original ID so distinct inputs
-  // (e.g. ":" vs "/") produce distinct valid IDs.
-  const hex = Array.from(new TextEncoder().encode(id))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  return `fallback_${hex || 'empty'}`;
+  if (!id) return 'empty';
+  return id.replace(TOOL_ID_RE, (ch) => {
+    const hex = ch.charCodeAt(0).toString(16).padStart(2, '0');
+    return `x${hex}`;
+  });
 }
 
 export class AnthropicProvider implements Provider {
