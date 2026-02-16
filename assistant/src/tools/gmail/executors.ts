@@ -253,6 +253,7 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
       const url = httpsMatch[1];
       // SSRF protection: validate URL against private/internal addresses
       let parsed: URL;
+      let validatedAddresses: string[];
       try {
         parsed = new URL(url);
         if (parsed.protocol !== 'https:') {
@@ -261,7 +262,7 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
         if (isPrivateOrLocalHost(parsed.hostname)) {
           return err('Unsubscribe URL points to a private or local address.');
         }
-        // DNS resolution check — also pins the resolved address for the fetch
+        // DNS resolution check — reuse these validated addresses for the fetch to prevent TOCTOU
         const { addresses, blockedAddress } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
         if (blockedAddress) {
           return err('Unsubscribe URL resolves to a private or local address.');
@@ -269,33 +270,30 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
         if (addresses.length === 0) {
           return err('Unable to resolve unsubscribe URL hostname.');
         }
+        validatedAddresses = addresses;
       } catch {
         return err('Invalid unsubscribe URL.');
       }
 
-      // Use resolved address for the actual request to prevent DNS rebinding (TOCTOU)
-      const { addresses: pinnedAddresses } = await resolveRequestAddress(parsed.hostname, resolveHostAddresses, false);
-      const resolvedAddress = pinnedAddresses[0];
+      // Try each validated address for dual-stack/multi-A reliability
+      const method = postHeader ? 'POST' : 'GET';
+      const reqOpts = postHeader
+        ? { method: 'POST' as const, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: postHeader }
+        : undefined;
 
-      // RFC 8058: use POST with List-Unsubscribe-Post header if present
-      if (postHeader) {
-        const status = await pinnedHttpsRequest(parsed, resolvedAddress, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: postHeader,
-        });
-        if (status >= 200 && status < 400) {
-          return ok('Successfully unsubscribed via HTTPS POST.');
+      let lastStatus = 0;
+      for (const address of validatedAddresses) {
+        try {
+          lastStatus = await pinnedHttpsRequest(parsed, address, reqOpts);
+          if (lastStatus >= 200 && lastStatus < 400) {
+            return ok(`Successfully unsubscribed via HTTPS ${method}.`);
+          }
+        } catch {
+          // Try next address
+          continue;
         }
-        return err(`Unsubscribe request failed: ${status}`);
       }
-
-      // Fallback: GET request
-      const status = await pinnedHttpsRequest(parsed, resolvedAddress);
-      if (status >= 200 && status < 400) {
-        return ok('Successfully unsubscribed via HTTPS GET.');
-      }
-      return err(`Unsubscribe request failed: ${status}`);
+      return err(`Unsubscribe request failed: ${lastStatus}`);
     }
 
     if (mailtoMatch) {
