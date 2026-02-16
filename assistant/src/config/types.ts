@@ -6,6 +6,7 @@ export type {
   RateLimitConfig,
   SecretDetectionConfig,
   AuditLogConfig,
+  LogFileConfig,
   ThinkingConfig,
   ContextWindowConfig,
   MemoryEmbeddingsConfig,

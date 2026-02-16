@@ -113,6 +113,17 @@ export const AuditLogConfigSchema = z.object({
     .default(0),
 });
 
+export const LogFileConfigSchema = z.object({
+  dir: z
+    .string({ error: 'logFile.dir must be a string' })
+    .optional(),
+  retentionDays: z
+    .number({ error: 'logFile.retentionDays must be a number' })
+    .int('logFile.retentionDays must be an integer')
+    .positive('logFile.retentionDays must be a positive integer')
+    .default(30),
+});
+
 export const ThinkingConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'thinking.enabled must be a boolean' })
@@ -828,6 +839,10 @@ export const AssistantConfigSchema = z.object({
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,
   }),
+  logFile: LogFileConfigSchema.default({
+    dir: undefined,
+    retentionDays: 30,
+  }),
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
@@ -877,6 +892,7 @@ export type DockerConfig = z.infer<typeof DockerConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
+export type LogFileConfig = z.infer<typeof LogFileConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;
