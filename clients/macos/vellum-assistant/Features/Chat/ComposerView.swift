@@ -122,6 +122,7 @@ struct ComposerView: View {
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: editorContentHeight)
+        .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear { composerFocusRequestID += 1 }
     }
@@ -179,10 +180,14 @@ struct ComposerView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: inputText) {
-            if inputText.isEmpty { isComposerExpanded = false }
+            if inputText.isEmpty {
+                withAnimation(VAnimation.fast) { isComposerExpanded = false }
+            }
         }
         .onChange(of: editorContentHeight) {
-            if editorContentHeight > composerCompactHeight { isComposerExpanded = true }
+            if editorContentHeight > composerCompactHeight && !isComposerExpanded {
+                withAnimation(VAnimation.fast) { isComposerExpanded = true }
+            }
         }
     }
 
