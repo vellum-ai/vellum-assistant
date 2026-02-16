@@ -18,7 +18,8 @@ export type MemoryJobType =
   | 'refresh_monthly_summary'
   | 'build_conversation_summary'
   | 'backfill'
-  | 'rebuild_index';
+  | 'rebuild_index'
+  | 'delete_qdrant_vectors';
 
 const EMBED_JOB_TYPES: MemoryJobType[] = ['embed_segment', 'embed_item', 'embed_summary'];
 

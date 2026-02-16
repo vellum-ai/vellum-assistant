@@ -284,6 +284,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'rebuild_index':
       rebuildIndexJob();
       return;
+    case 'delete_qdrant_vectors':
+      await deleteQdrantVectorsJob(job);
+      return;
     default:
       throw new Error(`Unknown memory job type: ${(job as { type: string }).type}`);
   }
@@ -948,6 +951,16 @@ function rebuildIndexJob(): void {
   for (const segment of segments) {
     enqueueMemoryJob('embed_segment', { segmentId: segment.id });
   }
+}
+
+async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
+  const targetType = asString(job.payload.targetType);
+  const targetId = asString(job.payload.targetId);
+  if (!targetType || !targetId) return;
+
+  const qdrant = getQdrantClient();
+  await qdrant.deleteByTarget(targetType, targetId);
+  log.info({ targetType, targetId }, 'Retried Qdrant vector deletion succeeded');
 }
 
 async function embedAndUpsert(
