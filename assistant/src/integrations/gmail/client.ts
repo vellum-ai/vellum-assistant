@@ -39,7 +39,14 @@ async function request<T>(token: string, path: string, options?: RequestInit): P
     const body = await resp.text().catch(() => '');
     throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
   }
-  return resp.json() as Promise<T>;
+  // Some endpoints (e.g. batchModify) return empty success responses
+  const contentLength = resp.headers.get('content-length');
+  if (resp.status === 204 || contentLength === '0') {
+    return undefined as T;
+  }
+  const text = await resp.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 /** List messages matching a query. */
@@ -149,7 +156,8 @@ export async function createDraft(
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
   }
-  const raw = btoa(`${headers.join('\r\n')}\r\n\r\n${body}`)
+  const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf-8')
+    .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
@@ -176,7 +184,8 @@ export async function sendMessage(
     headers.push(`In-Reply-To: ${inReplyTo}`);
     headers.push(`References: ${inReplyTo}`);
   }
-  const raw = btoa(`${headers.join('\r\n')}\r\n\r\n${body}`)
+  const raw = Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf-8')
+    .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');

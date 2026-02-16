@@ -12,6 +12,7 @@ import {
   upsertCredentialMetadata,
 } from '../tools/credentials/metadata-store.js';
 import { refreshOAuth2Token } from './oauth2.js';
+import { getConfig } from '../config/loader.js';
 import type { IntegrationDefinition } from './types.js';
 
 /** Buffer before expiry to trigger proactive refresh (5 minutes). */
@@ -44,7 +45,11 @@ async function doRefresh(integrationId: string, definition: IntegrationDefinitio
     throw new TokenExpiredError(integrationId, `Integration "${integrationId}" has no OAuth2 config for token refresh.`);
   }
 
-  const result = await refreshOAuth2Token(config.tokenUrl, config.clientId, refreshToken);
+  // Resolve clientId from runtime config — the definition's clientId is typically
+  // empty because it's supplied by the user at connect time and not baked in.
+  const runtimeConfig = getConfig();
+  const runtimeClientId = runtimeConfig.integrations[integrationId]?.clientId || config.clientId;
+  const result = await refreshOAuth2Token(config.tokenUrl, runtimeClientId, refreshToken);
 
   // Store the new access token
   setSecureKey(`integration:${integrationId}:access_token`, result.accessToken);

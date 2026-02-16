@@ -17,6 +17,8 @@ import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { initializeProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
+import { registerIntegration } from '../integrations/registry.js';
+import { gmailIntegration } from '../integrations/definitions/index.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { DaemonServer } from './server.js';
@@ -206,6 +208,7 @@ export async function runDaemon(): Promise<void> {
 
   initializeProviders(config);
   await initializeTools();
+  registerIntegration(gmailIntegration);
 
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
