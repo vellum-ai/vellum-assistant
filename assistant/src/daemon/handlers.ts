@@ -59,6 +59,9 @@ import type {
   PublishPageRequest,
   UnpublishPageRequest,
   LinkOpenRequest,
+  IntegrationListRequest,
+  IntegrationConnectRequest,
+  IntegrationDisconnectRequest,
 } from './ipc-protocol.js';
 import { postToSlackWebhook } from '../slack/slack-webhook.js';
 import { createHash } from 'node:crypto';
@@ -94,6 +97,8 @@ import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from './ipc-blob-store.js';
 import { estimateBase64Bytes } from './assistant-attachments.js';
 import { classifySessionError, buildSessionErrorMessage } from './session-error.js';
+import { listStatuses, getIntegration, disconnect as disconnectIntegration } from '../integrations/registry.js';
+import { startOAuth2Flow } from '../integrations/oauth2.js';
 import { getAttachmentsForMessageUnscoped } from '../memory/attachments-store.js';
 import type { UserMessageAttachment } from './ipc-contract.js';
 
@@ -535,6 +540,9 @@ const handlers: DispatchMap = {
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
   },
+  integration_list: (_msg, socket, ctx) => handleIntegrationList(socket, ctx),
+  integration_connect: handleIntegrationConnect,
+  integration_disconnect: handleIntegrationDisconnect,
 };
 
 export function handleMessage(
@@ -2876,4 +2884,130 @@ function handleLinkOpenRequest(
   // V1: passthrough. Future: affiliate param injection based on metadata
   const finalUrl = msg.url;
   ctx.send(socket, { type: 'open_url', url: finalUrl });
+}
+
+// ─── Integration handlers ────────────────────────────────────────────────────
+
+function handleIntegrationList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const statuses = listStatuses();
+  ctx.send(socket, {
+    type: 'integration_list_response',
+    integrations: statuses.map((s) => ({
+      id: s.id,
+      connected: s.connected,
+      accountInfo: s.accountInfo,
+      connectedAt: s.connectedAt,
+      lastUsed: s.lastUsed,
+      error: s.error,
+    })),
+  });
+}
+
+async function handleIntegrationConnect(
+  msg: IntegrationConnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const def = getIntegration(msg.integrationId);
+  if (!def) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" not found`,
+    });
+    return;
+  }
+
+  if (def.authType !== 'oauth2' || !def.oauth2Config) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" does not support OAuth2`,
+    });
+    return;
+  }
+
+  // Load clientId from config
+  const config = getConfig();
+  const integrationConfig = config.integrations[msg.integrationId];
+  const clientId = integrationConfig?.clientId || def.oauth2Config.clientId;
+
+  if (!clientId) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `No clientId configured for "${msg.integrationId}". Set integrations.${msg.integrationId}.clientId in config.`,
+    });
+    return;
+  }
+
+  try {
+    const oauthConfig = { ...def.oauth2Config, clientId };
+    const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
+      openUrl: (url) => ctx.broadcast({ type: 'open_url', url, title: `Connect ${def.name}` }),
+    });
+
+    // Store tokens in vault
+    setSecureKey(`integration:${def.id}:access_token`, tokens.accessToken);
+    const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
+    upsertCredentialMetadata(`integration:${def.id}`, 'access_token', {
+      allowedTools: def.allowedTools,
+      expiresAt,
+      grantedScopes,
+    });
+
+    if (tokens.refreshToken) {
+      setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken);
+      upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
+    }
+
+    // Fetch account info (email) if userinfo scope was granted
+    let accountInfo: string | undefined;
+    if (grantedScopes.some((s) => s.includes('userinfo'))) {
+      try {
+        const resp = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        });
+        if (resp.ok) {
+          const info = await resp.json() as { email?: string };
+          accountInfo = info.email;
+        }
+      } catch {
+        // Non-fatal — account info is optional
+      }
+    }
+
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: def.id,
+      success: true,
+      accountInfo,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
+    log.error({ err, integrationId: msg.integrationId }, 'Integration connect failed');
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: message,
+    });
+  }
+}
+
+function handleIntegrationDisconnect(
+  msg: IntegrationDisconnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  disconnectIntegration(msg.integrationId);
+  log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
+  // Send updated list so the client refreshes
+  handleIntegrationList(socket, ctx);
 }
