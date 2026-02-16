@@ -447,6 +447,63 @@ describe('migrateToWorkspaceLayout', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
+  test('config key merge: legacy slackWebhookUrl is preserved when workspace config already exists', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy root config has slackWebhookUrl that was written by old code
+    writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({ slackWebhookUrl: 'https://hooks.slack.com/old', theme: 'dark' }),
+    );
+
+    // Workspace config already exists with different keys but no slackWebhookUrl
+    writeFileSync(
+      join(ws, 'config.json'),
+      JSON.stringify({ model: 'claude-3', theme: 'light' }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Workspace config should have the missing slackWebhookUrl merged in
+    const merged = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(merged.slackWebhookUrl).toBe('https://hooks.slack.com/old');
+    // Existing workspace keys should be preserved (not overwritten)
+    expect(merged.model).toBe('claude-3');
+    expect(merged.theme).toBe('light'); // workspace value wins over legacy
+
+    // Legacy config still exists (migratePath skipped the move)
+    expect(existsSync(join(root, 'config.json'))).toBe(true);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: no-op when legacy config has no extra keys', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Both configs have the same keys
+    writeFileSync(join(root, 'config.json'), JSON.stringify({ theme: 'dark' }));
+    writeFileSync(join(ws, 'config.json'), JSON.stringify({ theme: 'light' }));
+
+    const wsBefore = readFileSync(join(ws, 'config.json'), 'utf-8');
+
+    migrateToWorkspaceLayout();
+
+    // Workspace config should be unchanged
+    expect(readFileSync(join(ws, 'config.json'), 'utf-8')).toBe(wsBefore);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
   test('mixed partial migration with sandbox/fs already extracted', () => {
     const base = makeTmpBase();
     process.env.BASE_DATA_DIR = base;

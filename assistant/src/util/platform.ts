@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, statSync, unlinkSync, renameSync } from 'node:fs';
+import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 /**
@@ -196,6 +196,43 @@ export function migratePath(source: string, destination: string): void {
 }
 
 /**
+ * When migratePath skips config.json because the workspace copy already
+ * exists, the legacy root config may still contain keys (e.g. slackWebhookUrl)
+ * that were never written to the workspace config. This merges any missing
+ * top-level keys from the legacy file into the workspace file so they are
+ * not silently lost during upgrade.
+ */
+function mergeSkippedConfigKeys(legacyPath: string, workspacePath: string): void {
+  if (!existsSync(legacyPath) || !existsSync(workspacePath)) return;
+
+  let legacy: Record<string, unknown>;
+  let workspace: Record<string, unknown>;
+  try {
+    legacy = JSON.parse(readFileSync(legacyPath, 'utf-8'));
+    workspace = JSON.parse(readFileSync(workspacePath, 'utf-8'));
+  } catch {
+    return; // malformed JSON — skip silently
+  }
+
+  const merged: string[] = [];
+  for (const key of Object.keys(legacy)) {
+    if (!(key in workspace)) {
+      workspace[key] = legacy[key];
+      merged.push(key);
+    }
+  }
+
+  if (merged.length > 0) {
+    try {
+      writeFileSync(workspacePath, JSON.stringify(workspace, null, 2) + '\n');
+      migrationLog('info', 'Merged legacy config keys into workspace config', { keys: merged });
+    } catch (err) {
+      migrationLog('warn', 'Failed to merge legacy config keys', { err: String(err), keys: merged });
+    }
+  }
+}
+
+/**
  * Migrate from the flat ~/.vellum layout to the workspace-based layout.
  *
  * Step (a) is special: if the workspace dir doesn't exist yet but the old
@@ -227,6 +264,7 @@ export function migrateToWorkspaceLayout(): void {
 
   // (b)-(h) Move legacy root-level items into workspace
   migratePath(join(root, 'config.json'), join(ws, 'config.json'));
+  mergeSkippedConfigKeys(join(root, 'config.json'), join(ws, 'config.json'));
   migratePath(join(root, 'data'), join(ws, 'data'));
   migratePath(join(root, 'hooks'), join(ws, 'hooks'));
   migratePath(join(root, 'IDENTITY.md'), join(ws, 'IDENTITY.md'));
