@@ -266,7 +266,7 @@ describe('Session workspace dirty-refresh E2E', () => {
     // Simulate a turn where the agent uses file_edit
     agentLoopScript = (onEvent) => {
       onEvent({ type: 'tool_use', id: 'tu-1', name: 'file_edit', input: {} });
-      onEvent({ type: 'tool_result', toolUseId: 'tu-1', content: [{ type: 'text', text: 'done' }], isError: false });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-1', content: 'done', isError: false });
     };
     await session.processMessage('Edit a file', [], () => {});
 
@@ -290,7 +290,7 @@ describe('Session workspace dirty-refresh E2E', () => {
 
     agentLoopScript = (onEvent) => {
       onEvent({ type: 'tool_use', id: 'tu-2', name: 'bash', input: {} });
-      onEvent({ type: 'tool_result', toolUseId: 'tu-2', content: [{ type: 'text', text: 'ok' }], isError: false });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-2', content: 'ok', isError: false });
     };
     await session.processMessage('Run a command', [], () => {});
 
@@ -314,7 +314,7 @@ describe('Session workspace dirty-refresh E2E', () => {
 
     agentLoopScript = (onEvent) => {
       onEvent({ type: 'tool_use', id: 'tu-3', name: 'file_edit', input: {} });
-      onEvent({ type: 'tool_result', toolUseId: 'tu-3', content: [{ type: 'text', text: 'error' }], isError: true });
+      onEvent({ type: 'tool_result', toolUseId: 'tu-3', content: 'error', isError: true });
     };
     await session.processMessage('Try editing', [], () => {});
 
