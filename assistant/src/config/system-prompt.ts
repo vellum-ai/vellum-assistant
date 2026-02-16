@@ -56,11 +56,9 @@ export function buildSystemPrompt(): string {
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
-  const config = getConfig();
-  const visibleDir = config.sandbox.enabled && config.sandbox.backend === 'docker'
-    ? '/workspace'
-    : getWorkspaceDir();
-  parts.push(buildConfigSection(visibleDir));
+  // Always use the host-visible workspace path for host file tools (host_file_edit, host_file_read)
+  // regardless of Docker sandboxing. Container-only paths like /workspace don't exist on the host.
+  parts.push(buildConfigSection(getWorkspaceDir()));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildToolPermissionSection());
