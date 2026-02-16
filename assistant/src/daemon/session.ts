@@ -81,9 +81,7 @@ import {
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
   refreshSurfacesForApp,
-  pushUndoState,
   surfaceProxyResolver,
-  type SurfaceSessionContext,
 } from './session-surfaces.js';
 import { prepareMemoryContext } from './session-memory.js';
 import {
@@ -688,7 +686,6 @@ export class Session {
       const directiveWarnings: string[] = [];
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
-      const runtimeConfig = getConfig();
       const memoryResult = await prepareMemoryContext(
         {
           conversationId: this.conversationId,
@@ -909,7 +906,6 @@ export class Session {
             // Add surface blocks to content for persistence
             const contentWithSurfaces: ContentBlock[] = [...cleanedContent as ContentBlock[]];
             for (const surface of this.currentTurnSurfaces) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- custom block type for persistence
               contentWithSurfaces.push({
                 type: 'ui_surface',
                 surfaceId: surface.surfaceId,

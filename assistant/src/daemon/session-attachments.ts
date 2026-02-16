@@ -1,5 +1,5 @@
 import type { ContentBlock } from '../providers/types.js';
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { UserMessageAttachment } from './ipc-protocol.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';

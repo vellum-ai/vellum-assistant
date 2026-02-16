@@ -9,14 +9,13 @@ import { classifyInteraction } from '../classifier.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
-import { resolveBlobPath, readBlob, deleteBlob, isValidBlobId, validateBlobKindEncoding } from '../ipc-blob-store.js';
+import { resolveBlobPath, deleteBlob, isValidBlobId } from '../ipc-blob-store.js';
 import type {
   TaskSubmit,
   SuggestionRequest,
   LinkOpenRequest,
   IpcBlobProbe,
   CuSessionCreate,
-  ServerMessage,
 } from '../ipc-protocol.js';
 import { log, wireEscalationHandler, renderHistoryContent, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';

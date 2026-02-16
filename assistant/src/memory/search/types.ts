@@ -1,5 +1,3 @@
-import type { MemoryEntityConfig } from '../../config/types.js';
-
 export type CandidateType = 'segment' | 'item' | 'summary';
 export type CandidateSource =
   | 'lexical'

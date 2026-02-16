@@ -18,7 +18,7 @@ import type {
   AppUpdatePreviewRequest,
   UiSurfaceShow,
 } from '../ipc-protocol.js';
-import { log, isRecord, compareSemver, type HandlerContext } from './shared.js';
+import { log, compareSemver, type HandlerContext } from './shared.js';
 
 export function handleAppDataRequest(
   msg: AppDataRequest,

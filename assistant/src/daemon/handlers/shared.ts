@@ -150,7 +150,7 @@ export function wireEscalationHandler(
   explicitWidth?: number,
   explicitHeight?: number,
 ): void {
-  // Import handleCuSessionCreate lazily to avoid circular dependency
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require to avoid circular dependency
   const { handleCuSessionCreate } = require('./computer-use.js');
 
   const dims = (explicitWidth && explicitHeight)
