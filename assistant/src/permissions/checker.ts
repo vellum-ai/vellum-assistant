@@ -388,11 +388,13 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     let dir = dirname(filePath);
     const maxLevels = 3;
     let levels = 0;
-    while (dir && dir !== '/' && levels < maxLevels) {
+    while (dir && dir !== '/' && dir !== '.' && levels < maxLevels) {
       const dirName = friendlyBasename(dir);
       options.push({ label: `${dir}/**`, description: `Anything in ${dirName}/`, pattern: `${toolName}:${dir}/**` });
       if (dir === home) break;
-      dir = dirname(dir);
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
       levels++;
     }
 
