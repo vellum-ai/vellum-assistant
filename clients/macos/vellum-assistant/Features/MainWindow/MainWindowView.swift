@@ -15,7 +15,7 @@ struct MainWindowView: View {
     @State private var isPublishing = false
     @State private var publishedUrl: String?
     @State private var isHoveredThread: UUID?
-    @State private var threadMenuOpenId: UUID?
+
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
@@ -253,10 +253,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        let menuOpen = threadMenuOpenId == thread.id
         HStack(spacing: 0) {
             Button(action: {
-                threadMenuOpenId = nil
                 threadManager.selectThread(id: thread.id)
                 if windowState.activePanel == .directory {
                     windowState.activePanel = nil
@@ -273,35 +271,23 @@ struct MainWindowView: View {
             .buttonStyle(.plain)
 
             Button {
-                withAnimation(VAnimation.fast) {
-                    threadMenuOpenId = menuOpen ? nil : thread.id
-                }
+                threadManager.archiveThread(id: thread.id)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "archivebox")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(VColor.textMuted)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(width: 24)
-            .opacity(isSelected || isHoveredThread == thread.id || menuOpen ? 1 : 0)
+            .opacity(isSelected || isHoveredThread == thread.id ? 1 : 0)
+            .accessibilityLabel("Archive \(thread.title)")
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredThread == thread.id || menuOpen ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+        .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(alignment: .topTrailing) {
-            if menuOpen {
-                ArchivePopup(onArchive: {
-                    threadMenuOpenId = nil
-                    threadManager.archiveThread(id: thread.id)
-                })
-                .offset(x: -VSpacing.sm, y: -34)
-                .transition(.opacity)
-            }
-        }
-        .zIndex(menuOpen ? 1 : 0)
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
@@ -331,7 +317,7 @@ struct MainWindowView: View {
             .padding(.trailing, VSpacing.sm)
             .frame(height: 36)
 
-            NewConversationButton(action: { threadMenuOpenId = nil; windowState.activePanel = nil; threadManager.createThread() })
+            NewConversationButton(action: { windowState.activePanel = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.xl)
@@ -1161,40 +1147,6 @@ private struct DrawerMenuItem: View {
     }
 }
 
-private struct ArchivePopup: View {
-    let onArchive: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onArchive) {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "archivebox")
-                    .font(.system(size: 11, weight: .medium))
-                Text("Archive")
-                    .font(.custom("Inter", size: 12))
-            }
-            .foregroundColor(VColor.textPrimary)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs + 2)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.12) : VColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-        .onDisappear {
-            if isHovered { NSCursor.pop() }
-        }
-    }
-}
 
 #Preview {
     let dc = DaemonClient()
