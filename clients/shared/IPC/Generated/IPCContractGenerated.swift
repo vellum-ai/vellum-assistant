@@ -323,10 +323,25 @@ public struct IPCFormFieldOption: Codable, Sendable {
     public let value: String
 }
 
+public struct IPCFormPage: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let description: String?
+    public let fields: [IPCFormField]
+}
+
 public struct IPCFormSurfaceData: Codable, Sendable {
     public let description: String?
     public let fields: [IPCFormField]
     public let submitLabel: String?
+    public let pages: [IPCFormPage]?
+    public let pageLabels: IPCFormSurfaceDataPageLabels?
+}
+
+public struct IPCFormSurfaceDataPageLabels: Codable, Sendable {
+    public let next: String?
+    public let back: String?
+    public let submit: String?
 }
 
 public struct IPCGalleryApp: Codable, Sendable {
@@ -432,6 +447,42 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let isError: Bool?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
+}
+
+public struct IPCIntegrationConnectRequest: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+}
+
+public struct IPCIntegrationConnectResult: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+    public let success: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
+public struct IPCIntegrationDisconnectRequest: Codable, Sendable {
+    public let type: String
+    public let integrationId: String
+}
+
+public struct IPCIntegrationListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCIntegrationListResponse: Codable, Sendable {
+    public let type: String
+    public let integrations: [IPCIntegrationListResponseIntegration]
+}
+
+public struct IPCIntegrationListResponseIntegration: Codable, Sendable {
+    public let id: String
+    public let connected: Bool
+    public let accountInfo: String?
+    public let connectedAt: Int?
+    public let lastUsed: Double?
+    public let error: String?
 }
 
 public struct IPCIpcBlobProbe: Codable, Sendable {
@@ -1164,6 +1215,14 @@ public struct IPCUiSurfaceAction: Codable, Sendable {
     public let surfaceId: String
     public let actionId: String
     public let data: [String: AnyCodable]?
+}
+
+public struct IPCUiSurfaceComplete: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let summary: String
+    public let submittedData: [String: AnyCodable]?
 }
 
 public struct IPCUiSurfaceDismiss: Codable, Sendable {

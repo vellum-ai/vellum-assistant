@@ -1455,6 +1455,8 @@ public enum ServerMessage: Decodable, Sendable {
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
+    case integrationListResponse(IPCIntegrationListResponse)
+    case integrationConnectResult(IPCIntegrationConnectResult)
     case getSigningIdentity
     case pong
     case unknown(String)
@@ -1653,6 +1655,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "unpublish_page_response":
             let message = try UnpublishPageResponseMessage(from: decoder)
             self = .unpublishPageResponse(message)
+        case "integration_list_response":
+            let message = try IPCIntegrationListResponse(from: decoder)
+            self = .integrationListResponse(message)
+        case "integration_connect_result":
+            let message = try IPCIntegrationConnectResult(from: decoder)
+            self = .integrationConnectResult(message)
         case "pong":
             self = .pong
         default:
