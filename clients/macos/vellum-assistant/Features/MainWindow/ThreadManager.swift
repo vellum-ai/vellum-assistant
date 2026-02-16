@@ -114,14 +114,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
-        } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true {
+        } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
+                    && chatViewModels[id]?.isBootstrapping != true {
             chatViewModels[id]?.stopGenerating()
-            // No session ID and no user messages — a session will never be created,
-            // so there is nothing to backfill. Clean up immediately.
+            // No session ID, no user messages, and no bootstrap in flight —
+            // a session will never be created, so there is nothing to backfill.
+            // Clean up immediately.
             chatViewModels.removeValue(forKey: id)
         } else {
-            // Session ID is nil but user messages exist. Keep the ChatViewModel alive
-            // so the onSessionCreated callback can fire, claim its own session via
+            // Session ID is nil but a session is expected (user messages exist
+            // or bootstrap is in flight, e.g. a workspace refinement that
+            // doesn't append a user message). Keep the ChatViewModel alive so
+            // the onSessionCreated callback can fire, claim its own session via
             // the correlation ID, persist the archive state via backfillSessionId,
             // and then clean up. Use cancelPendingMessage() instead of
             // stopGenerating() to discard the queued message without clearing the
