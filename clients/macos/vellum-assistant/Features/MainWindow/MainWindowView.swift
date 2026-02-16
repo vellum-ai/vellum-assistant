@@ -563,6 +563,12 @@ struct MainWindowView: View {
             )
         case .doctor:
             DoctorPanel(onClose: { windowState.activePanel = nil })
+        case .generated:
+            // Generated panel is handled inline in chatContentView when expanded;
+            // if we reach here, isDynamicExpanded is false — clear activePanel so
+            // the user falls back to the chat view instead of seeing a blank screen.
+            Color.clear.frame(width: 0, height: 0)
+                .onAppear { windowState.activePanel = nil }
         default:
             EmptyView()
         }
