@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
-
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import * as Sentry from '@sentry/node';
 import {
   getInterfacesDir,
@@ -184,8 +183,27 @@ export async function ensureDaemonRunning(): Promise<void> {
   await startDaemon();
 }
 
+function loadDotEnv(): void {
+  const envPath = join(getRootDir(), '.env');
+  if (!existsSync(envPath)) return;
+  const content = readFileSync(envPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx);
+    const value = trimmed.slice(eqIdx + 1);
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  loadDotEnv();
+
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and
   // finally create any directories that don't yet exist.
