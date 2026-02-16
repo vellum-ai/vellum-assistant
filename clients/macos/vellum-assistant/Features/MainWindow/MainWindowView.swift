@@ -209,6 +209,12 @@ struct MainWindowView: View {
                 threadManager.clearActiveSurface(threadId: oldId)
             }
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+
+            // Close activity panel on thread switch to prevent showing stale data from previous thread
+            if windowState.activePanel == .activity {
+                windowState.activePanel = nil
+                windowState.activityMessageId = nil
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
@@ -253,6 +259,18 @@ struct MainWindowView: View {
         .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
             if windowState.isDynamicExpanded {
                 threadManager.activeViewModel?.activeSurfaceId = surfaceId
+            }
+        }
+        .onChange(of: threadManager.activeViewModel?.messages) { _, _ in
+            // Close activity panel if the referenced message no longer exists
+            if let messageId = windowState.activityMessageId,
+               windowState.activePanel == .activity,
+               let viewModel = threadManager.activeViewModel {
+                let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
+                if !messageExists {
+                    windowState.activePanel = nil
+                    windowState.activityMessageId = nil
+                }
             }
         }
     }
