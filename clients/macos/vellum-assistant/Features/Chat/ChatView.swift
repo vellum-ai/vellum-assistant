@@ -621,17 +621,21 @@ private struct ChatBubble: View {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                if shouldShowBubble {
-                    bubbleContent
-                }
+                if !isUser && hasInterleavedContent {
+                    interleavedContent
+                } else {
+                    if shouldShowBubble {
+                        bubbleContent
+                    }
 
-                // Consolidated tool indicator showing all tool calls
-                toolCallChips(message.toolCalls)
+                    // Consolidated tool indicator showing all tool calls
+                    toolCallChips(message.toolCalls)
 
-                // Inline surfaces render below the bubble as full-width cards
-                if !message.inlineSurfaces.isEmpty {
-                    ForEach(message.inlineSurfaces) { surface in
-                        InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                    // Inline surfaces render below the bubble as full-width cards
+                    if !message.inlineSurfaces.isEmpty {
+                        ForEach(message.inlineSurfaces) { surface in
+                            InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                        }
                     }
                 }
 
@@ -644,6 +648,93 @@ private struct ChatBubble: View {
 
             if !isUser { Spacer(minLength: 0) }
         }
+    }
+
+    /// Whether this message has meaningful interleaved content (multiple block types).
+    private var hasInterleavedContent: Bool {
+        // Use interleaved path when contentOrder has more than one distinct block type
+        guard message.contentOrder.count > 1 else { return false }
+        var hasText = false
+        var hasNonText = false
+        for ref in message.contentOrder {
+            switch ref {
+            case .text: hasText = true
+            case .toolCall, .surface: hasNonText = true
+            }
+            if hasText && hasNonText { return true }
+        }
+        return false
+    }
+
+    /// Groups consecutive tool call refs for rendering.
+    private enum ContentGroup {
+        case text(Int)
+        case toolCalls([Int])
+        case surface(Int)
+    }
+
+    private func groupContentBlocks() -> [ContentGroup] {
+        var groups: [ContentGroup] = []
+        for ref in message.contentOrder {
+            switch ref {
+            case .text(let i):
+                groups.append(.text(i))
+            case .toolCall(let i):
+                if case .toolCalls(let indices) = groups.last {
+                    groups[groups.count - 1] = .toolCalls(indices + [i])
+                } else {
+                    groups.append(.toolCalls([i]))
+                }
+            case .surface(let i):
+                groups.append(.surface(i))
+            }
+        }
+        return groups
+    }
+
+    @ViewBuilder
+    private var interleavedContent: some View {
+        let groups = groupContentBlocks()
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            switch group {
+            case .text(let i):
+                if i < message.textSegments.count {
+                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !segmentText.isEmpty {
+                        textBubble(for: segmentText)
+                    }
+                }
+            case .toolCalls(let indices):
+                let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
+                toolCallChips(calls)
+            case .surface(let i):
+                if i < message.inlineSurfaces.count {
+                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
+                }
+            }
+        }
+    }
+
+    /// Render a single text segment as a styled bubble.
+    private func textBubble(for segmentText: String) -> some View {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let attributed = (try? AttributedString(markdown: segmentText, options: options))
+            ?? AttributedString(segmentText)
+        return Text(attributed)
+            .font(.system(size: 13))
+            .foregroundColor(VColor.textPrimary)
+            .tint(VColor.accent)
+            .textSelection(.enabled)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(AnyShapeStyle(VColor.surface))
+            )
+            .vShadow(VShadow.sm)
+            .frame(maxWidth: 520, alignment: .leading)
     }
 
     /// Current step indicator rendered outside the bubble.

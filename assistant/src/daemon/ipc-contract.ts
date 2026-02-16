@@ -764,6 +764,10 @@ export interface HistoryResponse {
     /** True when tool_use blocks appeared before any text block in the original content. */
     toolCallsBeforeText?: boolean;
     attachments?: UserMessageAttachment[];
+    /** Text segments split by tool-call boundaries. Preserves interleaving order. */
+    textSegments?: string[];
+    /** Content block ordering using "text:N", "tool:N", "surface:N" encoding. */
+    contentOrder?: string[];
   }>;
 }
 

@@ -29,6 +29,8 @@ struct MessageBubbleView: View {
                             return false
                         }
                     )
+                } else if message.role == .assistant && hasInterleavedContent {
+                    interleavedContent
                 } else {
                     // Pre-text tool calls render above the bubble
                     let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
@@ -87,6 +89,80 @@ struct MessageBubbleView: View {
 
             if message.role == .assistant {
                 Spacer(minLength: 60)
+            }
+        }
+    }
+
+    private var hasInterleavedContent: Bool {
+        guard message.contentOrder.count > 1 else { return false }
+        var hasText = false
+        var hasNonText = false
+        for ref in message.contentOrder {
+            switch ref {
+            case .text: hasText = true
+            case .toolCall, .surface: hasNonText = true
+            }
+            if hasText && hasNonText { return true }
+        }
+        return false
+    }
+
+    private enum ContentGroup {
+        case text(Int)
+        case toolCalls([Int])
+        case surface(Int)
+    }
+
+    private func groupContentBlocks() -> [ContentGroup] {
+        var groups: [ContentGroup] = []
+        for ref in message.contentOrder {
+            switch ref {
+            case .text(let i):
+                groups.append(.text(i))
+            case .toolCall(let i):
+                if case .toolCalls(let indices) = groups.last {
+                    groups[groups.count - 1] = .toolCalls(indices + [i])
+                } else {
+                    groups.append(.toolCalls([i]))
+                }
+            case .surface(let i):
+                groups.append(.surface(i))
+            }
+        }
+        return groups
+    }
+
+    @ViewBuilder
+    private var interleavedContent: some View {
+        let groups = groupContentBlocks()
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            switch group {
+            case .text(let i):
+                if i < message.textSegments.count {
+                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !segmentText.isEmpty {
+                        Text(segmentText)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    }
+                }
+            case .toolCalls(let indices):
+                let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
+                if !calls.isEmpty {
+                    ToolCallProgressBar(toolCalls: calls)
+                }
+            case .surface(let i):
+                if i < message.inlineSurfaces.count {
+                    InlineSurfaceRouter(
+                        surface: message.inlineSurfaces[i],
+                        onAction: { surfaceId, actionId, data in
+                            onSurfaceAction?(surfaceId, actionId, data)
+                        }
+                    )
+                }
             }
         }
     }

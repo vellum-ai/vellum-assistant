@@ -434,6 +434,10 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     /// True when tool_use blocks appeared before any text block in the original content.
     public let toolCallsBeforeText: Bool?
     public let attachments: [IPCUserMessageAttachment]?
+    /// Text segments split by tool-call boundaries. Preserves interleaving order.
+    public let textSegments: [String]?
+    /// Content block ordering using "text:N", "tool:N", "surface:N" encoding.
+    public let contentOrder: [String]?
 }
 
 public struct IPCHistoryResponseToolCall: Codable, Sendable {

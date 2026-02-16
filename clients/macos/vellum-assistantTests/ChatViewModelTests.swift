@@ -1657,4 +1657,97 @@ final class ChatViewModelTests: XCTestCase {
         // Empty message with no text, no tool calls, no attachments should be skipped
         XCTAssertEqual(viewModel.messages.count, 0)
     }
+
+    // MARK: - Interleaved Text/Tool-Call Segments
+
+    func testTextToolTextCreatesInterleavedSegments() {
+        // Text delta → tool call → more text delta
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "What are you working on?")))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "memory_save", input: ["key": AnyCodable("task")], sessionId: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Saved that to memory.")))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["What are you working on?", "Saved that to memory."])
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+        XCTAssertEqual(msg.text, "What are you working on?Saved that to memory.")
+    }
+
+    func testMultipleDeltasSameSegment() {
+        // Multiple text deltas without intervening tool call stay in one segment
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hel")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "lo ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Hello world"])
+        XCTAssertEqual(msg.contentOrder, [.text(0)])
+    }
+
+    func testSuppressedToolsDoNotCreateSegmentBoundary() {
+        // ui_show is suppressed and should not create a segment boundary
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Before")))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "ui_show", input: [:], sessionId: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: " after")))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        // ui_show breaks before reaching tool call append code, so no segment boundary
+        XCTAssertEqual(msg.textSegments, ["Before after"])
+        XCTAssertEqual(msg.contentOrder, [.text(0)])
+    }
+
+    func testToolOnlyMessageHasToolCallInContentOrder() {
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, [])
+        XCTAssertEqual(msg.contentOrder, [.toolCall(0)])
+    }
+
+    func testPopulateFromHistoryUsesTextSegments() {
+        let toolCall = IPCHistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(
+                role: "assistant",
+                text: "What are you working on?Saved that to memory.",
+                timestamp: 1000,
+                toolCalls: [toolCall],
+                toolCallsBeforeText: nil,
+                attachments: nil,
+                textSegments: ["What are you working on?", "Saved that to memory."],
+                contentOrder: ["text:0", "tool:0", "text:1"]
+            ),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["What are you working on?", "Saved that to memory."])
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+    }
+
+    func testPopulateFromHistoryFallsBackToLegacy() {
+        let toolCall = IPCHistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
+        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+            IPCHistoryResponseMessage(
+                role: "assistant",
+                text: "Here are the files.",
+                timestamp: 1000,
+                toolCalls: [toolCall],
+                toolCallsBeforeText: true,
+                attachments: nil
+            ),
+        ]
+
+        viewModel.populateFromHistory(historyItems)
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        // Legacy fallback: tools before text
+        XCTAssertEqual(msg.contentOrder, [.toolCall(0), .text(0)])
+    }
 }

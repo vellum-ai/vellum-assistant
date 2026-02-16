@@ -146,6 +146,9 @@ public final class ChatViewModel: ObservableObject {
     /// Tracks whether the current assistant message has received any text content.
     /// Used to determine `arrivedBeforeText` for each tool call in the message.
     private var currentAssistantHasText: Bool = false
+    /// Tracks whether the last content block was a tool call, so the next text
+    /// delta starts a new segment instead of appending to the previous one.
+    private var lastContentWasToolCall: Bool = false
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
     // Public (rather than private) so tests can simulate the
@@ -720,13 +723,22 @@ public final class ChatViewModel: ObservableObject {
             currentAssistantHasText = true
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
-                // Append to existing streaming message
-                messages[index].text += delta.text
+                if lastContentWasToolCall || messages[index].textSegments.isEmpty {
+                    // Start a new text segment (first text or after a tool call)
+                    let segIdx = messages[index].textSegments.count
+                    messages[index].textSegments.append(delta.text)
+                    messages[index].contentOrder.append(.text(segIdx))
+                    lastContentWasToolCall = false
+                } else {
+                    // Append to the current (last) text segment
+                    messages[index].textSegments[messages[index].textSegments.count - 1] += delta.text
+                }
             } else {
                 // Create new assistant message
                 let msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
                 currentAssistantMessageId = msg.id
                 messages.append(msg)
+                lastContentWasToolCall = false
             }
 
         case .suggestionResponse(let resp):
@@ -781,6 +793,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -806,6 +819,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -835,6 +849,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -884,6 +899,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -905,6 +921,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             if !wasCancelling {
                 errorText = err.message
             }
@@ -992,12 +1009,16 @@ public final class ChatViewModel: ObservableObject {
             // Add to existing assistant message or create one
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                let tcIdx = messages[index].toolCalls.count
                 messages[index].toolCalls.append(toolCall)
+                messages[index].contentOrder.append(.toolCall(tcIdx))
             } else {
-                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                newMsg.contentOrder = [.toolCall(0)]
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
             }
+            lastContentWasToolCall = true
 
         case .toolOutputChunk:
             // Streaming output — ignore for now, we show the final result
@@ -1048,14 +1069,19 @@ public final class ChatViewModel: ObservableObject {
             )
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
+                messages[index].contentOrder.append(.surface(surfIdx))
             } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
                       let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
                 // Scope to the current turn so we never attach to an assistant message
                 // from a previous conversation turn.
+                let surfIdx = messages[idx].inlineSurfaces.count
                 messages[idx].inlineSurfaces.append(inlineSurface)
+                messages[idx].contentOrder.append(.surface(surfIdx))
             } else {
-                let newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
+                newMsg.contentOrder = [.surface(0)]
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
             }
@@ -1115,6 +1141,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             // When the user intentionally cancelled, suppress both the typed
             // session error and the errorText so no toast appears.
             if !wasCancelling {
@@ -1219,6 +1246,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1255,6 +1283,7 @@ public final class ChatViewModel: ObservableObject {
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
+            lastContentWasToolCall = false
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1304,6 +1333,7 @@ public final class ChatViewModel: ObservableObject {
             self.isSending = false
             self.currentAssistantMessageId = nil
             self.currentAssistantHasText = false
+            self.lastContentWasToolCall = false
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]
@@ -1537,6 +1567,21 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Parse string-encoded content order entries ("text:0", "tool:1", "surface:0")
+    /// into ContentBlockRef values.
+    private static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
+        strings.compactMap { str in
+            let parts = str.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let idx = Int(parts[1]) else { return nil }
+            switch parts[0] {
+            case "text": return .text(idx)
+            case "tool": return .toolCall(idx)
+            case "surface": return .surface(idx)
+            default: return nil
+            }
+        }
+    }
+
     /// Ask the daemon for a follow-up suggestion for the current session.
     private func fetchSuggestion() {
         guard let sessionId, daemonClient.isConnected else { return }
@@ -1593,13 +1638,24 @@ public final class ChatViewModel: ObservableObject {
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
-            let chatMsg = ChatMessage(
+            var chatMsg = ChatMessage(
                 role: role,
                 text: item.text,
                 timestamp: timestamp,
                 attachments: attachments,
                 toolCalls: toolCalls
             )
+            // Use daemon-provided segments/order when available; fall back to legacy
+            if let segments = item.textSegments, let orderStrings = item.contentOrder, !segments.isEmpty {
+                chatMsg.textSegments = segments
+                chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
+            } else {
+                chatMsg.contentOrder = ChatMessage.buildDefaultContentOrder(
+                    textSegmentCount: chatMsg.textSegments.count,
+                    toolCallCount: toolCalls.count,
+                    arrivedBeforeText: toolsBeforeText
+                )
+            }
             chatMessages.append(chatMsg)
         }
 

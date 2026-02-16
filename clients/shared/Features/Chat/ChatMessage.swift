@@ -232,10 +232,18 @@ public struct SkillInvocationData: Equatable {
     }
 }
 
+/// Identifies a content block within a ChatMessage for interleaving order.
+public enum ContentBlockRef: Equatable {
+    case text(Int)
+    case toolCall(Int)
+    case surface(Int)
+}
+
 public struct ChatMessage: Identifiable {
     public let id: UUID
     public let role: ChatRole
-    public var text: String
+    public var textSegments: [String]
+    public var contentOrder: [ContentBlockRef]
     public let timestamp: Date
     public var isStreaming: Bool
     public var status: ChatMessageStatus
@@ -246,10 +254,16 @@ public struct ChatMessage: Identifiable {
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]
 
+    /// Concatenated text from all segments. Backward-compatible computed property.
+    public var text: String {
+        textSegments.joined()
+    }
+
     public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
         self.id = id
         self.role = role
-        self.text = text
+        self.textSegments = text.isEmpty ? [] : [text]
+        self.contentOrder = text.isEmpty ? [] : [.text(0)]
         self.timestamp = timestamp
         self.isStreaming = isStreaming
         self.status = status
@@ -258,5 +272,22 @@ public struct ChatMessage: Identifiable {
         self.attachments = attachments
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
+    }
+
+    /// Build a default content order from the legacy `arrivedBeforeText` flag.
+    public static func buildDefaultContentOrder(
+        textSegmentCount: Int,
+        toolCallCount: Int,
+        arrivedBeforeText: Bool
+    ) -> [ContentBlockRef] {
+        var order: [ContentBlockRef] = []
+        if arrivedBeforeText {
+            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
+            for i in 0..<textSegmentCount { order.append(.text(i)) }
+        } else {
+            for i in 0..<textSegmentCount { order.append(.text(i)) }
+            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
+        }
+        return order
     }
 }

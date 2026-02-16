@@ -951,6 +951,13 @@ extension IPCHistoryResponse {
     public typealias HistoryToolCallItem = IPCHistoryResponseToolCall
 }
 
+extension IPCHistoryResponseMessage {
+    /// Backward-compatible init without textSegments/contentOrder (added in later IPC version).
+    public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
+        self.init(role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil)
+    }
+}
+
 /// A single scheduled task item returned from the daemon.
 /// Backed by generated `IPCSchedulesListResponseSchedule`.
 public typealias ScheduleItem = IPCSchedulesListResponseSchedule
