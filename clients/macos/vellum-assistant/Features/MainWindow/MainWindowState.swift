@@ -57,11 +57,6 @@ final class MainWindowState: ObservableObject {
         activeDynamicParsedSurface = nil
     }
 
-    func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {
-        layoutConfig = LayoutConfig.merged(base: layoutConfig, wire: wire)
-        LayoutConfigStore.save(layoutConfig)
-    }
-
     func resetLayout() {
         layoutConfig = .default
         LayoutConfigStore.save(layoutConfig)
