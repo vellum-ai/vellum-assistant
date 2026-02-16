@@ -183,11 +183,11 @@ export function migratePath(source: string, destination: string): void {
     migrationLog('warn', 'Migration skipped: destination already exists', { source, destination });
     return;
   }
-  const destDir = dirname(destination);
-  if (!existsSync(destDir)) {
-    mkdirSync(destDir, { recursive: true });
-  }
   try {
+    const destDir = dirname(destination);
+    if (!existsSync(destDir)) {
+      mkdirSync(destDir, { recursive: true });
+    }
     renameSync(source, destination);
     migrationLog('info', 'Migrated path', { from: source, to: destination });
   } catch (err) {
