@@ -61,6 +61,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
+  parts.push(buildWorkspaceReflectionSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
 }
@@ -232,6 +233,21 @@ export function buildSwarmGuidanceSection(): string {
     '## Parallel Task Orchestration',
     '',
     'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+  ].join('\n');
+}
+
+function buildWorkspaceReflectionSection(): string {
+  return [
+    '## Workspace Reflection',
+    '',
+    'Before you finish responding to a conversation, pause and consider: did you learn anything worth saving?',
+    '',
+    '- Did the user share personal facts (name, role, timezone, preferences)?',
+    '- Did they correct your behavior or express a preference about how you communicate?',
+    '- Did they mention a project, tool, or workflow you should remember?',
+    '- Did you adapt your style in a way that worked well and should persist?',
+    '',
+    'If yes, update the relevant workspace file (USER.md, SOUL.md, or IDENTITY.md) as part of your response. Don\'t mention that you\'re doing it unless the update is significant enough to warrant a note.',
   ].join('\n');
 }
 
