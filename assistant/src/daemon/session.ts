@@ -1,8 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock, ImageContent } from '../providers/types.js';
-import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
 import { getQdrantClient } from '../memory/qdrant-client.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
@@ -11,13 +10,12 @@ import type { CheckpointDecision } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
+import { generateScopeOptions } from '../permissions/checker.js';
 import { ToolExecutor } from '../tools/executor.js';
-import type { ToolLifecycleEventHandler, ToolExecutionResult } from '../tools/types.js';
+import type { ToolLifecycleEventHandler } from '../tools/types.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allAppTools } from '../tools/apps/definitions.js';
@@ -51,22 +49,14 @@ import {
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
-import { estimatePromptTokens } from '../context/token-estimator.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
-  buildMemoryRecall,
-  injectMemoryRecallIntoUserMessage,
-  injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { buildMemoryQuery } from '../memory/query-builder.js';
-import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
-import { getApp, updateApp } from '../memory/app-store.js';
-import { compileDynamicProfile } from '../memory/profile-compiler.js';
-import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import { getApp } from '../memory/app-store.js';
 import { ConflictGate } from './session-conflict-gate.js';
-import { injectDynamicProfileIntoUserMessage, stripDynamicProfileMessages } from './session-dynamic-profile.js';
+import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import { applyRuntimeInjections, stripActiveSurfaceContext, stripWorkspaceTopLevelContext } from './session-runtime-assembly.js';
@@ -84,14 +74,23 @@ import {
 import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
-  resolveDirectives,
-  contentBlocksToDrafts,
-  deduplicateDrafts,
-  validateDrafts,
   type DirectiveRequest,
   type AssistantAttachmentDraft,
-  type ApproveHostRead,
 } from './assistant-attachments.js';
+import {
+  handleSurfaceAction as handleSurfaceActionImpl,
+  handleSurfaceUndo as handleSurfaceUndoImpl,
+  refreshSurfacesForApp,
+  pushUndoState,
+  surfaceProxyResolver,
+  type SurfaceSessionContext,
+} from './session-surfaces.js';
+import { prepareMemoryContext } from './session-memory.js';
+import {
+  approveHostAttachmentRead,
+  formatAttachmentWarnings,
+  resolveAssistantAttachments,
+} from './session-attachments.js';
 
 const log = getLogger('session');
 
@@ -108,7 +107,8 @@ export class Session {
   private prompter: PermissionPrompter;
   private secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  private sendToClient: (msg: ServerMessage) => void;
+  /** @internal — exposed for session-surfaces.ts module functions. */
+  sendToClient: (msg: ServerMessage) => void;
   private eventBus = new EventBus<AssistantDomainEvents>();
   private workingDir: string;
   private sandboxOverride?: boolean;
@@ -124,17 +124,17 @@ export class Session {
   private readonly queue = new MessageQueue();
   private currentActiveSurfaceId?: string;
   private currentPage?: string;
-  private pendingSurfaceActions = new Map<string, {
+  /** @internal — exposed for session-surfaces.ts module functions. */
+  pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
   }>();
-  private lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
-  private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
-  /** Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
-  private surfaceUndoStacks = new Map<string, string[]>();
-  private static readonly MAX_UNDO_DEPTH = 10;
-  /** Surfaces created during the current agent loop turn, to be persisted with the message. */
-  private currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
-  private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
+  /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
+  /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
+  /** @internal Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
+  surfaceUndoStacks = new Map<string, string[]>();
+  /** @internal Surfaces created during the current agent loop turn, to be persisted with the message. */
+  currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
+  /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   private workspaceTopLevelContext: string | null = null;
   private workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
@@ -231,7 +231,7 @@ export class Session {
         signal: this.abortController?.signal,
         sandboxOverride: this.sandboxOverride,
         onToolLifecycleEvent: handleToolLifecycleEvent,
-        proxyToolResolver: this.surfaceProxyResolver.bind(this),
+        proxyToolResolver: (toolName: string, input: Record<string, unknown>) => surfaceProxyResolver(this, toolName, input),
         requestSecret: async (params) => {
           return this.secretPrompter.prompt(
             params.service, params.field, params.label,
@@ -282,7 +282,7 @@ export class Session {
       if (name === 'app_update' && !result.isError) {
         const appId = input.app_id as string | undefined;
         if (appId) {
-          this.refreshSurfacesForApp(appId);
+          refreshSurfacesForApp(this, appId);
         }
       }
 
@@ -533,52 +533,8 @@ export class Session {
     this.assistantId = assistantId;
   }
 
-  private async approveHostAttachmentRead(filePath: string): Promise<boolean> {
-    const toolName = 'host_file_read';
-    const input = { path: filePath };
-    const decision = await check(toolName, input, this.workingDir);
-
-    if (decision.decision === 'allow') {
-      return true;
-    }
-    if (decision.decision === 'deny') {
-      return false;
-    }
-
-    // HTTP-created sessions use a no-op sendToClient — prompting would
-    // block for the full permission timeout before auto-denying. Fail
-    // fast instead.
-    if (this.hasNoClient) {
-      log.info({ filePath }, 'Denying host attachment read: no interactive client connected');
-      return false;
-    }
-
-    const response = await this.prompter.prompt(
-      toolName,
-      input,
-      await classifyRisk(toolName, input),
-      generateAllowlistOptions(toolName, input),
-      generateScopeOptions(this.workingDir, toolName),
-      undefined,
-      undefined,
-      this.conversationId,
-      'host',
-    );
-
-    if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
-      addRule(toolName, response.selectedPattern, response.selectedScope);
-    }
-    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
-    }
-
-    return response.decision === 'allow' || response.decision === 'always_allow';
-  }
-
-  private formatAttachmentWarnings(warnings: string[]): string | null {
-    if (warnings.length === 0) return null;
-    const lines = warnings.map((warning) => `Attachment warning: ${warning}`);
-    return `\n\n${lines.join('\n')}`;
+  private async approveHostAttachmentReadImpl(filePath: string): Promise<boolean> {
+    return approveHostAttachmentRead(filePath, this.workingDir, this.prompter, this.conversationId, this.hasNoClient);
   }
 
   /**
@@ -733,18 +689,22 @@ export class Session {
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
       const runtimeConfig = getConfig();
-      const memoryEnabled = runtimeConfig.memory?.enabled !== false;
-      const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
-      const conflictGate = conflictConfig
-        ? await this.conflictGate.evaluate(content, conflictConfig)
-        : null;
-      if (conflictGate?.relevant) {
-        const clarificationOnlyResponse = [
-          conflictGate.question,
-          '',
-          'I need this clarification before I can give guidance that depends on that preference.',
-        ].join('\n');
-        const assistantMessage = createAssistantMessage(clarificationOnlyResponse);
+      const memoryResult = await prepareMemoryContext(
+        {
+          conversationId: this.conversationId,
+          messages: this.messages,
+          systemPrompt: this.systemPrompt,
+          provider: this.provider,
+          conflictGate: this.conflictGate,
+        },
+        content,
+        userMessageId,
+        abortController.signal,
+        onEvent,
+      );
+
+      if (memoryResult.conflictClarification) {
+        const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
         conversationStore.addMessage(
           this.conversationId,
           'assistant',
@@ -753,7 +713,7 @@ export class Session {
         this.messages.push(assistantMessage);
         onEvent({
           type: 'assistant_text_delta',
-          text: clarificationOnlyResponse,
+          text: memoryResult.conflictClarification,
           sessionId: this.conversationId,
         });
         this.traceEmitter.emit('message_complete', 'Conflict clarification requested (relevant)', {
@@ -764,98 +724,9 @@ export class Session {
         onEvent({ type: 'message_complete', sessionId: this.conversationId });
         return;
       }
-      const softConflictInstruction = conflictGate && !conflictGate.relevant
-        ? conflictGate.question
-        : null;
-      const profileConfig = memoryEnabled ? runtimeConfig.memory?.profile : undefined;
-      const dynamicProfile = profileConfig?.enabled
-        ? compileDynamicProfile({
-            scopeId: 'default',
-            maxInjectTokensOverride: profileConfig.maxInjectTokens,
-          })
-        : { text: '' };
-      const recallQuery = buildMemoryQuery(content, this.messages);
-      const recallInjectionStrategy = runtimeConfig.memory?.retrieval?.injectionStrategy ?? 'prepend_user_block';
-      const dynamicBudgetConfig = runtimeConfig.memory?.retrieval?.dynamicBudget;
-      const recallBudget = dynamicBudgetConfig?.enabled
-        ? computeRecallBudget({
-            estimatedPromptTokens: estimatePromptTokens(
-              this.messages,
-              this.systemPrompt,
-              { providerName: this.provider.name },
-            ),
-            maxInputTokens: runtimeConfig.contextWindow.maxInputTokens,
-            targetHeadroomTokens: dynamicBudgetConfig.targetHeadroomTokens,
-            minInjectTokens: dynamicBudgetConfig.minInjectTokens,
-            maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
-          })
-        : undefined;
-      const recall = await buildMemoryRecall(recallQuery, this.conversationId, runtimeConfig, {
-        excludeMessageIds: [userMessageId],
-        signal: abortController.signal,
-        maxInjectTokensOverride: recallBudget,
-      });
-      const memoryStatus = getMemoryConflictAndCleanupStats();
 
-      onEvent({
-        type: 'memory_status',
-        enabled: recall.enabled,
-        degraded: recall.degraded,
-        reason: recall.reason,
-        provider: recall.provider,
-        model: recall.model,
-        conflictsPending: memoryStatus.conflicts.pending,
-        conflictsResolved: memoryStatus.conflicts.resolved,
-        oldestPendingConflictAgeMs: memoryStatus.conflicts.oldestPendingAgeMs,
-        cleanupResolvedJobsPending: memoryStatus.cleanup.resolvedBacklog,
-        cleanupSupersededJobsPending: memoryStatus.cleanup.supersededBacklog,
-        cleanupResolvedJobsCompleted24h: memoryStatus.cleanup.resolvedCompleted24h,
-        cleanupSupersededJobsCompleted24h: memoryStatus.cleanup.supersededCompleted24h,
-      });
-
-      if (recall.injectedText.length > 0) {
-        const userTail = this.messages[this.messages.length - 1];
-        if (userTail && userTail.role === 'user') {
-          if (recallInjectionStrategy === 'separate_context_message') {
-            runMessages = injectMemoryRecallAsSeparateMessage(this.messages, recall.injectedText);
-          } else {
-            runMessages = [
-              ...this.messages.slice(0, -1),
-              injectMemoryRecallIntoUserMessage(userTail, recall.injectedText),
-            ];
-          }
-          onEvent({
-            type: 'memory_recalled',
-            provider: recall.provider ?? 'unknown',
-            model: recall.model ?? 'unknown',
-            lexicalHits: recall.lexicalHits,
-            semanticHits: recall.semanticHits,
-            recencyHits: recall.recencyHits,
-            entityHits: recall.entityHits,
-            relationSeedEntityCount: recall.relationSeedEntityCount,
-            relationTraversedEdgeCount: recall.relationTraversedEdgeCount,
-            relationNeighborEntityCount: recall.relationNeighborEntityCount,
-            relationExpandedItemCount: recall.relationExpandedItemCount,
-            earlyTerminated: recall.earlyTerminated,
-            mergedCount: recall.mergedCount,
-            selectedCount: recall.selectedCount,
-            rerankApplied: recall.rerankApplied,
-            injectedTokens: recall.injectedTokens,
-            latencyMs: recall.latencyMs,
-            topCandidates: recall.topCandidates,
-          });
-        }
-      }
-
-      if (dynamicProfile.text.length > 0) {
-        const userTail = runMessages[runMessages.length - 1];
-        if (userTail && userTail.role === 'user') {
-          runMessages = [
-            ...runMessages.slice(0, -1),
-            injectDynamicProfileIntoUserMessage(userTail, dynamicProfile.text),
-          ];
-        }
-      }
+      const { recall, dynamicProfile, softConflictInstruction, recallInjectionStrategy } = memoryResult;
+      runMessages = memoryResult.runMessages;
 
       // Inject soft-conflict instruction and active surface context
       let activeSurface: ActiveSurfaceContext | null = null;
@@ -1223,57 +1094,21 @@ export class Session {
       });
 
       // Resolve accumulated attachment directives and tool content blocks
-      let assistantAttachments: AssistantAttachmentDraft[] = [];
-      const emittedAttachments: UserMessageAttachment[] = [];
-      if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
-        const approveHostRead: ApproveHostRead = async (filePath) => this.approveHostAttachmentRead(filePath);
-
-        const directiveDrafts = accumulatedDirectives.length > 0
-          ? await resolveDirectives(accumulatedDirectives, this.workingDir, approveHostRead)
-          : { drafts: [], warnings: [] };
-        directiveWarnings.push(...directiveDrafts.warnings);
-
-        const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
-
-        const merged = deduplicateDrafts([...directiveDrafts.drafts, ...toolDrafts]);
-        const validated = validateDrafts(merged);
-        directiveWarnings.push(...validated.warnings);
-        assistantAttachments = validated.accepted;
-      }
-
-      // Persist resolved attachments and link to the last assistant message
-      if (assistantAttachments.length > 0 && lastAssistantMessageId) {
-        const attachmentScope = this.assistantId ?? 'local-assistant';
-        for (let i = 0; i < assistantAttachments.length; i++) {
-          const draft = assistantAttachments[i];
-          const stored = uploadAttachment(
-            attachmentScope,
-            draft.filename,
-            draft.mimeType,
-            draft.dataBase64,
-          );
-          linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
-          emittedAttachments.push({
-            id: stored.id,
-            filename: draft.filename,
-            mimeType: draft.mimeType,
-            data: draft.dataBase64,
-          });
-        }
-      } else if (assistantAttachments.length > 0) {
-        for (const draft of assistantAttachments) {
-          emittedAttachments.push({
-            filename: draft.filename,
-            mimeType: draft.mimeType,
-            data: draft.dataBase64,
-          });
-        }
-      }
+      const attachmentResult = await resolveAssistantAttachments(
+        accumulatedDirectives,
+        accumulatedToolContentBlocks,
+        directiveWarnings,
+        this.workingDir,
+        async (filePath) => this.approveHostAttachmentReadImpl(filePath),
+        lastAssistantMessageId,
+        this.assistantId ?? 'local-assistant',
+      );
+      const { assistantAttachments, emittedAttachments } = attachmentResult;
 
       this.lastAssistantAttachments = assistantAttachments;
-      this.lastAttachmentWarnings = directiveWarnings;
+      this.lastAttachmentWarnings = attachmentResult.directiveWarnings;
 
-      const warningText = this.formatAttachmentWarnings(directiveWarnings);
+      const warningText = formatAttachmentWarnings(attachmentResult.directiveWarnings);
       if (warningText) {
         onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
       }
@@ -1672,78 +1507,7 @@ export class Session {
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
-    const pending = this.pendingSurfaceActions.get(surfaceId);
-    if (!pending) {
-      log.warn({ surfaceId, actionId }, 'No pending surface action found');
-      return;
-    }
-    // selection_changed is a non-terminal state update — don't consume the
-    // pending entry or send a message. The selection state will be included
-    // in the data payload when the user clicks a real action button.
-    if (actionId === 'selection_changed') {
-      log.debug({ surfaceId, data }, 'Selection changed (non-terminal, not forwarding)');
-      return;
-    }
-    this.lastSurfaceAction.set(surfaceId, { actionId, data });
-    const content = JSON.stringify({
-      surfaceAction: true,
-      surfaceId,
-      surfaceType: pending.surfaceType,
-      actionId,
-      data: data ?? {},
-    });
-
-    const requestId = uuid();
-    const onEvent = (msg: ServerMessage) => this.sendToClient(msg);
-
-    this.traceEmitter.emit('request_received', 'Surface action received', {
-      requestId,
-      status: 'info',
-      attributes: { source: 'surface_action', surfaceId, actionId },
-    });
-
-    const result = this.enqueueMessage(content, [], onEvent, requestId);
-    if (result.queued) {
-      const position = this.getQueueDepth();
-      this.pendingSurfaceActions.delete(surfaceId);
-      log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
-      this.traceEmitter.emit('request_queued', `Surface action queued at position ${position}`, {
-        requestId,
-        status: 'info',
-        attributes: { position },
-      });
-      onEvent({
-        type: 'message_queued',
-        sessionId: this.conversationId,
-        requestId,
-        position,
-      });
-      return;
-    }
-
-    if (result.rejected) {
-      log.error({ surfaceId, actionId }, 'Surface action rejected — queue full');
-      this.traceEmitter.emit('request_error', 'Surface action rejected — queue full', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'queue_full', source: 'surface_action' },
-      });
-      onEvent(buildSessionErrorMessage(this.conversationId, {
-        code: 'QUEUE_FULL',
-        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
-        retryable: true,
-        debugDetails: 'Surface action rejected — session queue is full',
-      }));
-      return;
-    }
-
-    this.pendingSurfaceActions.delete(surfaceId);
-    log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
-    this.processMessage(content, [], onEvent, requestId).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, surfaceId, actionId }, 'Error processing surface action');
-      onEvent({ type: 'error', message: `Failed to process surface action: ${message}` });
-    });
+    handleSurfaceActionImpl(this, surfaceId, actionId, data);
   }
 
   getMessages(): Message[] {
@@ -1995,353 +1759,8 @@ export class Session {
    * After an app_update, refresh any active surface that displays the updated app.
    * This makes app_update a single call that both persists AND displays changes.
    */
-  private refreshSurfacesForApp(appId: string): void {
-    const app = getApp(appId);
-    if (!app) return;
-
-    for (const [surfaceId, stored] of this.surfaceState.entries()) {
-      if (stored.surfaceType !== 'dynamic_page') continue;
-      const data = stored.data as DynamicPageSurfaceData;
-      if (data.appId !== appId) continue;
-
-      // Push current HTML onto the undo stack before overwriting
-      this.pushUndoState(surfaceId, data.html);
-
-      // Update in-memory surface state so the next refinement gets fresh HTML
-      const updatedData: DynamicPageSurfaceData = { ...data, html: app.htmlDefinition };
-      stored.data = updatedData;
-
-      // Push the update to the client
-      this.sendToClient({
-        type: 'ui_surface_update',
-        sessionId: this.conversationId,
-        surfaceId,
-        data: updatedData,
-      });
-
-      log.info({ conversationId: this.conversationId, surfaceId, appId }, 'Auto-refreshed surface after app_update');
-    }
-  }
-
-  private pushUndoState(surfaceId: string, html: string): void {
-    let stack = this.surfaceUndoStacks.get(surfaceId);
-    if (!stack) {
-      stack = [];
-      this.surfaceUndoStacks.set(surfaceId, stack);
-    }
-    stack.push(html);
-    if (stack.length > Session.MAX_UNDO_DEPTH) {
-      stack.shift();
-    }
-  }
-
   handleSurfaceUndo(surfaceId: string): void {
-    const stack = this.surfaceUndoStacks.get(surfaceId);
-    if (!stack || stack.length === 0) {
-      this.sendToClient({
-        type: 'ui_surface_undo_result',
-        sessionId: this.conversationId,
-        surfaceId,
-        success: false,
-        remainingUndos: 0,
-      });
-      return;
-    }
-
-    const previousHtml = stack.pop()!;
-    const stored = this.surfaceState.get(surfaceId);
-    if (!stored || stored.surfaceType !== 'dynamic_page') {
-      this.sendToClient({
-        type: 'ui_surface_undo_result',
-        sessionId: this.conversationId,
-        surfaceId,
-        success: false,
-        remainingUndos: stack.length,
-      });
-      return;
-    }
-
-    const data = stored.data as DynamicPageSurfaceData;
-
-    // If app-backed, also revert the persisted app and refresh all surfaces for this app
-    if (data.appId) {
-      try {
-        updateApp(data.appId, { htmlDefinition: previousHtml });
-      } catch (err) {
-        log.error({ appId: data.appId, err }, 'Failed to revert app during undo');
-      }
-
-      // Update ALL surfaces that share this appId (not just the requesting one)
-      for (const [sid, s] of this.surfaceState.entries()) {
-        if (s.surfaceType !== 'dynamic_page') continue;
-        const sData = s.data as DynamicPageSurfaceData;
-        if (sData.appId !== data.appId) continue;
-        const revertedData: DynamicPageSurfaceData = { ...sData, html: previousHtml };
-        s.data = revertedData;
-        this.sendToClient({
-          type: 'ui_surface_update',
-          sessionId: this.conversationId,
-          surfaceId: sid,
-          data: revertedData,
-        });
-      }
-
-      // Sync sibling undo stacks: pop the top entry if it matches the HTML we
-      // just reverted to, preventing phantom no-op undo steps on siblings.
-      for (const [sid, s] of this.surfaceState.entries()) {
-        if (sid === surfaceId) continue;
-        if (s.surfaceType !== 'dynamic_page') continue;
-        const sData = s.data as DynamicPageSurfaceData;
-        if (sData.appId !== data.appId) continue;
-
-        const siblingStack = this.surfaceUndoStacks.get(sid);
-        if (siblingStack && siblingStack.length > 0) {
-          const top = siblingStack[siblingStack.length - 1];
-          if (top === previousHtml) {
-            siblingStack.pop();
-          }
-        }
-      }
-    } else {
-      // Ephemeral surface — update only the requesting surface
-      const revertedData: DynamicPageSurfaceData = { ...data, html: previousHtml };
-      stored.data = revertedData;
-      this.sendToClient({
-        type: 'ui_surface_update',
-        sessionId: this.conversationId,
-        surfaceId,
-        data: revertedData,
-      });
-    }
-
-    this.sendToClient({
-      type: 'ui_surface_undo_result',
-      sessionId: this.conversationId,
-      surfaceId,
-      success: true,
-      remainingUndos: stack.length,
-    });
-
-    log.info({ conversationId: this.conversationId, surfaceId, remaining: stack.length }, 'Surface undo applied');
-  }
-
-  private async surfaceProxyResolver(
-    toolName: string,
-    input: Record<string, unknown>,
-  ): Promise<ToolExecutionResult> {
-    if (toolName === 'request_file') {
-      const surfaceId = uuid();
-      const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';
-      const acceptedTypes = Array.isArray(input.accepted_types) ? input.accepted_types as string[] : undefined;
-      const maxFiles = typeof input.max_files === 'number' ? input.max_files : 1;
-
-      const data: FileUploadSurfaceData = {
-        prompt,
-        acceptedTypes,
-        maxFiles,
-      };
-
-      this.surfaceState.set(surfaceId, { surfaceType: 'file_upload', data });
-
-      this.sendToClient({
-        type: 'ui_surface_show',
-        sessionId: this.conversationId,
-        surfaceId,
-        surfaceType: 'file_upload',
-        title: 'File Request',
-        data,
-      } as UiSurfaceShow);
-
-      // Track surface for persistence
-      this.currentTurnSurfaces.push({
-        surfaceId,
-        surfaceType: 'file_upload',
-        title: 'File Request',
-        data,
-      });
-
-      // Non-blocking: return immediately, user action arrives as follow-up message
-      this.pendingSurfaceActions.set(surfaceId, { surfaceType: 'file_upload' as SurfaceType });
-      return {
-        content: JSON.stringify({
-          surfaceId,
-          status: 'awaiting_user_action',
-          message: 'File upload dialog displayed. The uploaded file data will arrive as a follow-up message.',
-        }),
-        isError: false,
-      };
-    }
-
-    if (toolName === 'ui_show') {
-      const surfaceId = uuid();
-      const surfaceType = input.surface_type as SurfaceType;
-      const title = typeof input.title === 'string' ? input.title : undefined;
-      const data = input.data as SurfaceData;
-      const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
-      // Interactive surfaces default to awaiting user action.
-      // Tables and lists only block when explicit action buttons are provided;
-      // selectionMode alone should not gate blocking because selection_changed
-      // fires on every click and would immediately resolve multi-select surfaces.
-      const hasActions = Array.isArray(actions) && actions.length > 0;
-      const isInteractive = surfaceType === 'list'
-        ? hasActions
-        : surfaceType === 'table'
-          ? hasActions
-          : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
-      const awaitAction = (input.await_action as boolean) ?? isInteractive;
-
-      // Track surface state for ui_update merging
-      this.surfaceState.set(surfaceId, { surfaceType, data });
-
-      const display = (input.display as string) === 'panel' ? 'panel' : 'inline';
-
-      const mappedActions = actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' }));
-
-      this.sendToClient({
-        type: 'ui_surface_show',
-        sessionId: this.conversationId,
-        surfaceId,
-        surfaceType,
-        title,
-        data,
-        actions: mappedActions,
-        display,
-      } as unknown as UiSurfaceShow);
-
-      // Track surface for persistence with the message
-      this.currentTurnSurfaces.push({
-        surfaceId,
-        surfaceType,
-        title,
-        data,
-        actions: mappedActions,
-        display,
-      });
-
-      if (awaitAction) {
-        this.pendingSurfaceActions.set(surfaceId, { surfaceType });
-        return {
-          content: JSON.stringify({
-            surfaceId,
-            status: 'awaiting_user_action',
-            message: 'Surface displayed. The user\'s response will arrive as a follow-up message.',
-          }),
-          isError: false,
-        };
-      }
-      return { content: JSON.stringify({ surfaceId }), isError: false };
-    }
-
-    if (toolName === 'ui_update') {
-      const surfaceId = input.surface_id as string;
-      const patch = input.data as Record<string, unknown>;
-
-      // Merge the partial patch into the stored full surface data
-      const stored = this.surfaceState.get(surfaceId);
-      let mergedData: SurfaceData;
-      if (stored) {
-        // Push current HTML to undo stack for dynamic pages
-        if (stored.surfaceType === 'dynamic_page') {
-          const currentHtml = (stored.data as DynamicPageSurfaceData).html;
-          this.pushUndoState(surfaceId, currentHtml);
-        }
-        mergedData = { ...stored.data, ...patch } as SurfaceData;
-        stored.data = mergedData;
-      } else {
-        mergedData = patch as unknown as SurfaceData;
-      }
-
-      this.sendToClient({
-        type: 'ui_surface_update',
-        sessionId: this.conversationId,
-        surfaceId,
-        data: mergedData,
-      });
-      return { content: 'Surface updated', isError: false };
-    }
-
-    if (toolName === 'ui_dismiss') {
-      const surfaceId = input.surface_id as string;
-      const lastAction = this.lastSurfaceAction.get(surfaceId);
-      const stored = this.surfaceState.get(surfaceId);
-      if (lastAction) {
-        const summary = this.buildCompletionSummary(stored?.surfaceType, lastAction.actionId, lastAction.data);
-        this.sendToClient({
-          type: 'ui_surface_complete',
-          sessionId: this.conversationId,
-          surfaceId,
-          summary,
-          submittedData: lastAction.data,
-        });
-      } else {
-        this.sendToClient({
-          type: 'ui_surface_dismiss',
-          sessionId: this.conversationId,
-          surfaceId,
-        });
-      }
-      this.pendingSurfaceActions.delete(surfaceId);
-      this.surfaceState.delete(surfaceId);
-      this.surfaceUndoStacks.delete(surfaceId);
-      this.lastSurfaceAction.delete(surfaceId);
-      return { content: lastAction ? 'Surface completed' : 'Surface dismissed', isError: false };
-    }
-
-    if (toolName === 'request_computer_control') {
-      const task = typeof input.task === 'string' ? input.task : 'Perform the requested task';
-      if (!this.onEscalateToComputerUse) {
-        return {
-          content: 'Computer control escalation is not available in this session.',
-          isError: true,
-        };
-      }
-      const success = this.onEscalateToComputerUse(task, this.conversationId);
-      if (!success) {
-        return {
-          content: 'Computer control escalation failed — no active connection.',
-          isError: true,
-        };
-      }
-      return {
-        content: 'Computer control activated. The task has been handed off to foreground computer use.',
-        isError: false,
-      };
-    }
-
-    if (toolName === 'app_open') {
-      const appId = input.app_id as string;
-      const preview = input.preview as DynamicPageSurfaceData['preview'];
-      const app = getApp(appId);
-      if (!app) return { content: `App not found: ${appId}`, isError: true };
-
-      const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, appType: app.appType, preview };
-      const surfaceId = uuid();
-      this.surfaceState.set(surfaceId, {
-        surfaceType: 'dynamic_page',
-        data: surfaceData,
-      });
-
-      this.sendToClient({
-        type: 'ui_surface_show',
-        sessionId: this.conversationId,
-        surfaceId,
-        surfaceType: 'dynamic_page',
-        title: app.name,
-        data: surfaceData,
-      } as UiSurfaceShow);
-
-      // Track surface for persistence
-      this.currentTurnSurfaces.push({
-        surfaceId,
-        surfaceType: 'dynamic_page',
-        title: app.name,
-        data: surfaceData,
-      });
-
-      return { content: JSON.stringify({ surfaceId, appId }), isError: false };
-    }
-
-    return { content: `Unknown proxy tool: ${toolName}`, isError: true };
+    handleSurfaceUndoImpl(this, surfaceId);
   }
 
   private recordUsage(
@@ -2427,25 +1846,6 @@ export class Session {
     }
   }
 
-  private buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
-    if (surfaceType === 'confirmation') {
-      return actionId === 'cancel' ? 'Cancelled' : 'Confirmed';
-    }
-    if (surfaceType === 'form') {
-      return 'Submitted';
-    }
-    if (surfaceType === 'list' && data) {
-      const selectedIds = data.selectedIds as string[] | undefined;
-      if (selectedIds?.length === 1) return `Selected: ${selectedIds[0]}`;
-      if (selectedIds?.length) return `Selected ${selectedIds.length} items`;
-    }
-    if (surfaceType === 'table' && data) {
-      const selectedIds = data.selectedIds as string[] | undefined;
-      if (selectedIds?.length === 1) return `Selected 1 row`;
-      if (selectedIds?.length) return `Selected ${selectedIds.length} rows`;
-    }
-    return actionId.charAt(0).toUpperCase() + actionId.slice(1);
-  }
 }
 
 function isUndoableUserMessage(message: Message): boolean {
