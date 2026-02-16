@@ -92,6 +92,11 @@ export async function startOAuth2Flow(
         return new Response('Missing code or state', { status: 400 });
       }
 
+      if (returnedState !== state) {
+        rejectCode(new Error('OAuth2 state mismatch — possible CSRF attack'));
+        return new Response('State mismatch', { status: 400 });
+      }
+
       resolveCode({ code, returnedState });
       return new Response(
         '<html><body><h2>Authorization successful!</h2><p>You can close this tab and return to Vellum.</p></body></html>',
@@ -105,6 +110,7 @@ export async function startOAuth2Flow(
   try {
     // Build authorization URL
     const authParams = new URLSearchParams({
+      ...config.extraParams,
       client_id: config.clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
@@ -112,7 +118,6 @@ export async function startOAuth2Flow(
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
-      ...config.extraParams,
     });
 
     const authUrl = `${config.authUrl}?${authParams}`;
@@ -192,7 +197,7 @@ export async function refreshOAuth2Token(
 
   return {
     accessToken: data.access_token as string,
-    refreshToken: data.refresh_token as string | undefined,
+    refreshToken: (data.refresh_token as string | undefined) ?? refreshToken,
     expiresIn: data.expires_in as number | undefined,
     scope: data.scope as string | undefined,
     tokenType: data.token_type as string | undefined,
