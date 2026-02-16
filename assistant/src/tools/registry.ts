@@ -53,7 +53,9 @@ class LazyTool implements Tool {
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     if (!this.resolvedTool) {
       if (!this.loadPromise) {
-        this.loadPromise = this.loader().then((tool) => {
+        // Assign loadPromise synchronously before the async loader begins,
+        // so concurrent callers see the guard immediately.
+        const promise = this.loader().then((tool) => {
           this.resolvedTool = tool;
           log.info({ name: this.name }, 'Lazy tool loaded');
           return tool;
@@ -61,6 +63,7 @@ class LazyTool implements Tool {
           this.loadPromise = null;
           throw err;
         });
+        this.loadPromise = promise;
       }
       await this.loadPromise;
     }
