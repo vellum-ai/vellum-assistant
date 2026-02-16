@@ -48,6 +48,7 @@ struct ChatView: View {
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     var body: some View {
         ZStack {
@@ -314,7 +315,7 @@ struct ChatView: View {
                     }
 
                     if isThinking {
-                        ThinkingIndicator(label: messages.count <= 1 ? "Waking up..." : "Thinking")
+                        ThinkingIndicator(label: !hasEverSentMessage ? "Waking up..." : "Thinking")
                             .id("thinking-indicator")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -338,6 +339,10 @@ struct ChatView: View {
                 if isThinking {
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("thinking-indicator", anchor: .bottom)
+                    }
+                    // Mark that the user has sent at least one message (after showing "Waking up...")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        hasEverSentMessage = true
                     }
                 }
             }
