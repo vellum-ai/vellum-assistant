@@ -677,6 +677,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     label: 'Call Sidd',
     message: 'Remember to call Sidd about the project',
   },
+  schedule_complete: {
+    type: 'schedule_complete',
+    scheduleId: 'sched-001',
+    name: 'Daily backup',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
