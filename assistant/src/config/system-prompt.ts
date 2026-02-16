@@ -2,7 +2,6 @@ import { readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
-import { getConfig } from './loader.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 
 const log = getLogger('system-prompt');
@@ -263,14 +262,16 @@ function buildWorkspaceReflectionSection(): string {
 }
 
 function buildConfigSection(): string {
-  // Intentionally use the assistant visible workspace path when possible to avoid prompting your user to edit files using host_file_edit
-  const config = getConfig();
-  const sandboxed = config.sandbox.enabled && config.sandbox.backend === 'docker';
-  const visibleDir = sandboxed ? '/workspace' : getWorkspaceDir();
+  // Always use `file_edit` (not `host_file_edit`) for workspace files — file_edit
+  // handles sandbox path mapping internally, and host_file_edit is permission-gated
+  // which would trigger approval prompts for routine workspace updates.
+  // Always use the real host workspace path — file_edit validates against it, so
+  // container-relative paths like /workspace/ would be rejected as out-of-bounds.
+  const workspaceDir = getWorkspaceDir();
 
   return [
     '## Configuration',
-    `Your configuration directory is \`${visibleDir}/\`. Key files you may read or edit:`,
+    `Your configuration directory is \`${workspaceDir}/\`. Key files you may read or edit:`,
     '',
     '- `IDENTITY.md` — Your name and role. Slim metadata — rarely changes.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
@@ -279,7 +280,7 @@ function buildConfigSection(): string {
     '',
     '### Proactive Workspace Editing',
     '',
-    `You MUST actively update your workspace files as you learn. You don't need to ask your user whether it's okay — just briefly explain what you're updating, then use \`${sandboxed ? 'file_edit' : 'host_file_edit'}\` to make targeted edits.`,
+    `You MUST actively update your workspace files as you learn. You don't need to ask your user whether it's okay — just briefly explain what you're updating, then use \`file_edit\` to make targeted edits.`,
     '',
     '**USER.md** — update when you learn:',
     '- Their name or what they prefer to be called',
