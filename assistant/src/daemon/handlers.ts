@@ -2969,11 +2969,12 @@ async function handleIntegrationConnect(
 
     const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
 
-    // Fetch account info (email) if userinfo scope was granted
+    // Fetch account info (email) if the integration has a userinfo endpoint
     let accountInfo: string | undefined;
-    if (grantedScopes.some((s) => s.includes('userinfo'))) {
+    const userinfoUrl = def.oauth2Config.userinfoUrl;
+    if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
       try {
-        const resp = await fetch('https://www.googleapis.com/oauth2/v1/userinfo', {
+        const resp = await fetch(userinfoUrl, {
           headers: { Authorization: `Bearer ${tokens.accessToken}` },
         });
         if (resp.ok) {
@@ -2989,14 +2990,16 @@ async function handleIntegrationConnect(
       allowedTools: def.allowedTools,
       expiresAt,
       grantedScopes,
-      accountInfo,
+      accountInfo: accountInfo ?? null,
     });
 
     if (tokens.refreshToken) {
-      if (!setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken)) {
+      const refreshStored = setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken);
+      if (!refreshStored) {
         log.warn({ integrationId: def.id }, 'Failed to store refresh token in secure storage');
+      } else {
+        upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
       }
-      upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
     }
 
     ctx.send(socket, {
