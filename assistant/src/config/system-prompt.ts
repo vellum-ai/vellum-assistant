@@ -61,7 +61,6 @@ export function buildSystemPrompt(): string {
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
-  parts.push(buildTelegramSection());
   parts.push(buildWorkspaceReflectionSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
@@ -244,20 +243,6 @@ export function buildSwarmGuidanceSection(): string {
     '## Parallel Task Orchestration',
     '',
     'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
-  ].join('\n');
-}
-
-function buildTelegramSection(): string {
-  return [
-    '## Telegram Integration',
-    '',
-    'When your user wants to connect a Telegram bot, use the `telegram_setup` tool. You need two things:',
-    '1. A bot token from @BotFather (the user provides this)',
-    '2. The public webhook URL of their gateway (e.g. https://their-domain/webhooks/telegram)',
-    '',
-    'The tool verifies the token, registers the webhook with Telegram, generates a webhook secret, registers the /new bot command, and stores all credentials in the secure vault.',
-    '',
-    'If the user only provides a token, ask for their gateway webhook URL before calling the tool.',
   ].join('\n');
 }
 
