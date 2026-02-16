@@ -1003,7 +1003,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // views now use ActiveChatViewWrapper for their own observation.
         statusIconCancellable = mainWindow?.threadManager.$activeThreadId
             .compactMap { [weak mainWindow] _ in mainWindow?.threadManager.activeViewModel }
-            .flatMap { $0.objectWillChange }
+            .handleEvents(receiveOutput: { [weak self] _ in
+                // Update immediately when switching threads
+                self?.updateMenuBarIcon()
+            })
+            .map { $0.objectWillChange }
+            .switchToLatest()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
