@@ -51,7 +51,7 @@ export function startScheduler(
 
   return {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(processMessage, notifyReminder);
+      return runScheduleOnce(processMessage, notifyReminder, notifySchedule);
     },
     stop(): void {
       stopped = true;
