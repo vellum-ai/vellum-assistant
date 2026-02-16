@@ -10,6 +10,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var hasKey: Bool
     @Published var hasBraveKey: Bool
+    @Published var hasVercelKey: Bool = false
 
     // MARK: - Settings Values
 
@@ -44,10 +45,12 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Private
 
     private weak var ambientAgent: AmbientAgent?
+    private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
 
     init(ambientAgent: AmbientAgent, daemonClient: DaemonClient? = nil) {
         self.ambientAgent = ambientAgent
+        self.daemonClient = daemonClient
 
         // Seed from UserDefaults / Keychain
         self.hasKey = APIKeyManager.getKey() != nil
@@ -74,6 +77,17 @@ public final class SettingsStore: ObservableObject {
         daemonClient?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
             .assign(to: &$isAnyTrustRulesSheetOpen)
+
+        // Wire up Vercel API config IPC response
+        daemonClient?.onVercelApiConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.hasVercelKey = response.hasToken
+            }
+        }
+
+        // Refresh Vercel key state on init
+        refreshVercelKeyState()
     }
 
     // MARK: - API Key Actions
@@ -105,5 +119,19 @@ public final class SettingsStore: ObservableObject {
     func refreshAPIKeyState() {
         hasKey = APIKeyManager.getKey() != nil
         hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
+    }
+
+    func saveVercelKey(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try? daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
+    }
+
+    func clearVercelKey() {
+        try? daemonClient?.sendVercelApiConfig(action: "delete")
+    }
+
+    func refreshVercelKeyState() {
+        try? daemonClient?.sendVercelApiConfig(action: "get")
     }
 }

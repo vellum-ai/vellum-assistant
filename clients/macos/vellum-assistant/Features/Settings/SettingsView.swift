@@ -6,6 +6,7 @@ public struct SettingsView: View {
     @ObservedObject var store: SettingsStore
     @State private var apiKeyText = ""
     @State private var braveKeyText = ""
+    @State private var vercelKeyText = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -84,6 +85,35 @@ public struct SettingsView: View {
                             braveKeyText = ""
                         }
                         .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
+            Section("Vercel API Key") {
+                if store.hasVercelKey {
+                    HStack {
+                        Text("Token configured")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            store.clearVercelKey()
+                            vercelKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter Vercel API token", text: $vercelKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API token at vercel.com/account/tokens")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            store.saveVercelKey(vercelKeyText)
+                            vercelKeyText = ""
+                        }
+                        .disabled(vercelKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
@@ -222,6 +252,7 @@ public struct SettingsView: View {
         .frame(width: 450, height: 700)
         .onAppear {
             store.refreshAPIKeyState()
+            store.refreshVercelKeyState()
             checkPermissions()
         }
         .onReceive(permissionTimer) { _ in
