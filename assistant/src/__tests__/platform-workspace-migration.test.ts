@@ -692,6 +692,117 @@ describe('migrateToWorkspaceLayout', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
+  test('config key merge: non-object JSON (null) does not crash', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy config contains null (valid JSON but not an object)
+    writeFileSync(join(root, 'config.json'), 'null');
+    writeFileSync(join(ws, 'config.json'), JSON.stringify({ theme: 'dark' }));
+
+    // Should not throw
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
+
+    // Workspace config should be unchanged
+    const parsed = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(parsed.theme).toBe('dark');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: non-object JSON (array) does not crash', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy config is an array
+    writeFileSync(join(root, 'config.json'), '[1, 2, 3]');
+    writeFileSync(join(ws, 'config.json'), JSON.stringify({ model: 'gpt-4' }));
+
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
+
+    const parsed = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(parsed.model).toBe('gpt-4');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: merged keys are removed from legacy to prevent resurrection', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy has slackWebhookUrl (missing from workspace) and theme (already in workspace)
+    writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({ slackWebhookUrl: 'https://hooks.slack.com/old', theme: 'dark' }),
+    );
+    writeFileSync(
+      join(ws, 'config.json'),
+      JSON.stringify({ model: 'claude-3', theme: 'light' }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Merged key should be in workspace
+    const merged = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(merged.slackWebhookUrl).toBe('https://hooks.slack.com/old');
+
+    // Legacy should no longer contain the merged key
+    const legacyAfter = JSON.parse(readFileSync(join(root, 'config.json'), 'utf-8'));
+    expect(legacyAfter.slackWebhookUrl).toBeUndefined();
+    // Non-merged key should still be in legacy
+    expect(legacyAfter.theme).toBe('dark');
+
+    // Second run should be a no-op (no keys to merge)
+    const wsBeforeSecond = readFileSync(join(ws, 'config.json'), 'utf-8');
+    migrateToWorkspaceLayout();
+    expect(readFileSync(join(ws, 'config.json'), 'utf-8')).toBe(wsBeforeSecond);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('config key merge: legacy file deleted when all keys have been merged', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(ws, { recursive: true });
+
+    // Legacy only has keys missing from workspace
+    writeFileSync(
+      join(root, 'config.json'),
+      JSON.stringify({ slackWebhookUrl: 'https://hooks.slack.com/old' }),
+    );
+    writeFileSync(
+      join(ws, 'config.json'),
+      JSON.stringify({ model: 'claude-3' }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Legacy file should be deleted (all keys were merged)
+    expect(existsSync(join(root, 'config.json'))).toBe(false);
+
+    // Workspace should have the merged key
+    const merged = JSON.parse(readFileSync(join(ws, 'config.json'), 'utf-8'));
+    expect(merged.slackWebhookUrl).toBe('https://hooks.slack.com/old');
+    expect(merged.model).toBe('claude-3');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
   test('sandbox/fs extraction with user data/ dir does not orphan internal state', () => {
     const base = makeTmpBase();
     process.env.BASE_DATA_DIR = base;
