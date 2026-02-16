@@ -189,13 +189,13 @@ extension IPCCuObservation {
     }
 }
 
-/// Sent by the ambient agent with OCR text from periodic screen captures.
-/// Backed by generated `IPCAmbientObservation`.
-public typealias AmbientObservationMessage = IPCAmbientObservation
+/// Sent to start a ride shotgun observation session.
+/// Backed by generated `IPCRideShotgunStart`.
+public typealias RideShotgunStartMessage = IPCRideShotgunStart
 
-extension IPCAmbientObservation {
-    public init(requestId: String, ocrText: String, appName: String?, windowTitle: String?, timestamp: Double) {
-        self.init(type: "ambient_observation", requestId: requestId, ocrText: ocrText, appName: appName, windowTitle: windowTitle, timestamp: timestamp)
+extension IPCRideShotgunStart {
+    public init(durationSeconds: Double, intervalSeconds: Double) {
+        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds)
     }
 }
 
@@ -686,8 +686,8 @@ public typealias MemoryStatusMessage = IPCMemoryStatus
 /// Daemon response after classifying and routing a task_submit.
 public typealias TaskRoutedMessage = IPCTaskRouted
 
-/// Result from ambient observation analysis.
-public typealias AmbientResultMessage = IPCAmbientResult
+/// Result from a ride shotgun observation session.
+public typealias RideShotgunResultMessage = IPCRideShotgunResult
 
 /// Instructs the client to open a URL in the browser.
 /// Backed by generated `IPCOpenUrl`.
@@ -1390,7 +1390,7 @@ public enum ServerMessage: Decodable, Sendable {
     case memoryStatus(MemoryStatusMessage)
     case taskRouted(TaskRoutedMessage)
     case error(ErrorMessage)
-    case ambientResult(AmbientResultMessage)
+    case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
     case uiSurfaceDismiss(UiSurfaceDismissMessage)
@@ -1488,9 +1488,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
-        case "ambient_result":
-            let message = try AmbientResultMessage(from: decoder)
-            self = .ambientResult(message)
+        case "ride_shotgun_result":
+            let message = try RideShotgunResultMessage(from: decoder)
+            self = .rideShotgunResult(message)
         case "ui_surface_show":
             let message = try UiSurfaceShowMessage(from: decoder)
             self = .uiSurfaceShow(message)
