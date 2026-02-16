@@ -345,6 +345,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 let title = raw.replacingOccurrences(of: "*", with: "")
                     .replacingOccurrences(of: "#", with: "")
                     .replacingOccurrences(of: "\"", with: "")
+                    .replacingOccurrences(of: "_", with: " ")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 updateThreadTitle(id: threadId, title: title.isEmpty ? fallback : title)
             }

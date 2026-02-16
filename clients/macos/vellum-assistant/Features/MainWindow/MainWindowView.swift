@@ -292,11 +292,11 @@ struct MainWindowView: View {
             }
             .buttonStyle(.plain)
             .frame(width: 24)
-            .opacity(isSelected || isHoveredThread == thread.id ? 1 : 0)
+            .opacity(isSelected || isHoveredThread == thread.id || menuOpen ? 1 : 0)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredThread == thread.id ? Color.white.opacity(0.08) : Color.clear)
+        .background(isSelected || isHoveredThread == thread.id || menuOpen ? Color.white.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(alignment: .topTrailing) {
             if menuOpen {
@@ -1097,6 +1097,9 @@ private struct ArchivePopup: View {
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .onDisappear {
+            if isHovered { NSCursor.pop() }
         }
     }
 }
