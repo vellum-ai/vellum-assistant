@@ -12,9 +12,11 @@ final class MainWindowState: ObservableObject {
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
     @Published var activityMessageId: UUID?
+    @Published var layoutConfig: LayoutConfig
 
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
+        self.layoutConfig = LayoutConfigStore.load()
     }
 
     func toggleActivityPanel(with messageId: UUID) {
@@ -39,6 +41,11 @@ final class MainWindowState: ObservableObject {
 
     func refreshAPIKeyStatus(isConnected: Bool) {
         hasAPIKey = APIKeyManager.hasAnyKey() || isConnected
+    }
+
+    func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {
+        layoutConfig = LayoutConfig.merged(base: layoutConfig, wire: wire)
+        LayoutConfigStore.save(layoutConfig)
     }
 
     /// Reset all dynamic workspace state. Callers should also reset
