@@ -1627,8 +1627,27 @@ public struct UiLayoutConfigMessage: Decodable, Sendable {
 
 public struct SlotConfigWire: Decodable, Sendable {
     public let content: SlotContentWire?
-    public let width: Double?
+    /// Tri-state width: `.none` = field missing (preserve base), `.some(nil)` = explicit null (reset to nil), `.some(value)` = new value.
+    public let width: Optional<Double>?
     public let visible: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case content, width, visible
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = try container.decodeIfPresent(SlotContentWire.self, forKey: .content)
+        visible = try container.decodeIfPresent(Bool.self, forKey: .visible)
+
+        if container.contains(.width) {
+            // Field is present in JSON — decode as .some(Double) or .some(nil) for explicit null
+            width = .some(try container.decodeIfPresent(Double.self, forKey: .width))
+        } else {
+            // Field is missing from JSON — outer nil signals "no change"
+            width = .none
+        }
+    }
 }
 
 public struct SlotContentWire: Decodable, Sendable {

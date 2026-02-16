@@ -90,7 +90,10 @@ extension SlotConfig {
     static func merged(base: SlotConfig, wire: SlotConfigWire) -> SlotConfig {
         var result = base
         if let content = wire.content { result.content = SlotContent.from(wire: content) ?? base.content }
-        if let width = wire.width { result.width = width }
+        // Tri-state width: .none = field missing (keep base), .some(nil) = explicit null (reset), .some(value) = update
+        if let widthUpdate = wire.width {
+            result.width = widthUpdate
+        }
         if let visible = wire.visible { result.visible = visible }
         return result
     }
