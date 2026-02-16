@@ -1526,7 +1526,11 @@ async function handleTaskSubmit(
           s.dispose();
           ctx.sessions.delete(conversation.id);
         }
-        ctx.socketToSession.delete(socket);
+        // Only unbind if the socket still points to this ephemeral conversation;
+        // a new task_submit may have already rebound it to a real session.
+        if (ctx.socketToSession.get(socket) === conversation.id) {
+          ctx.socketToSession.delete(socket);
+        }
       });
       return;
     }
