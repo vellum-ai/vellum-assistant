@@ -19,7 +19,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         didSet {
             if let activeThreadId {
                 sessionRestorer.loadHistoryIfNeeded(threadId: activeThreadId)
-                lastActiveThreadIdString = activeThreadId.uuidString
+                // Only persist the active thread ID if we're not in the middle of restoration.
+                // During init and session restoration, the didSet fires multiple times and would
+                // overwrite the saved value before restoreLastActiveThread() reads it.
+                if !isRestoringThreads {
+                    lastActiveThreadIdString = activeThreadId.uuidString
+                }
             } else {
                 lastActiveThreadIdString = nil
             }
@@ -30,6 +35,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let daemonClient: DaemonClient
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
+    /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
+    private var isRestoringThreads = false
 
     /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
     var visibleThreads: [ThreadModel] {
@@ -49,6 +56,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         self.daemonClient = daemonClient
         self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
+        // Suppress lastActiveThreadIdString writes during initialization
+        self.isRestoringThreads = true
         // Create one default thread so the window is never empty
         createThread()
         sessionRestorer.delegate = self
@@ -399,9 +408,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Restore the last active thread from UserDefaults after session restoration completes
     func restoreLastActiveThread() {
-        guard restoreRecentThreads else { return }
+        guard restoreRecentThreads else {
+            // Clear the flag even if restoration is disabled
+            isRestoringThreads = false
+            return
+        }
         guard let savedUUIDString = lastActiveThreadIdString,
-              let savedUUID = UUID(uuidString: savedUUIDString) else { return }
+              let savedUUID = UUID(uuidString: savedUUIDString) else {
+            // Clear the flag and allow future activeThreadId changes to persist
+            isRestoringThreads = false
+            return
+        }
 
         // Only restore if thread exists and is visible (not archived)
         if threads.contains(where: { $0.id == savedUUID && !$0.isArchived }) {
@@ -412,5 +429,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             lastActiveThreadIdString = nil
             log.info("Saved thread not found, falling back to default")
         }
+
+        // Clear the flag so future activeThreadId changes persist normally
+        isRestoringThreads = false
     }
 }
