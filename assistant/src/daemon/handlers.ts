@@ -72,7 +72,7 @@ import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression }
 import { listReminders, cancelReminder } from '../tools/reminder/reminder-store.js';
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
-import { handleAmbientObservation } from './ambient-handler.js';
+import { handleRideShotgunStart } from './ride-shotgun-handler.js';
 import { handleWatchObservation } from './watch-handler.js';
 import { classifyInteraction } from './classifier.js';
 import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp, updateApp } from '../memory/app-store.js';
@@ -455,7 +455,7 @@ const handlers: DispatchMap = {
   cu_session_create: handleCuSessionCreate,
   cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
-  ambient_observation: handleAmbientObservation,
+  ride_shotgun_start: handleRideShotgunStart,
   watch_observation: handleWatchObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,

@@ -161,13 +161,10 @@ export interface TaskSubmit {
   source?: 'voice' | 'text';
 }
 
-export interface AmbientObservation {
-  type: 'ambient_observation';
-  requestId: string;
-  ocrText: string;
-  appName?: string;
-  windowTitle?: string;
-  timestamp: number;
+export interface RideShotgunStart {
+  type: 'ride_shotgun_start';
+  durationSeconds: number;
+  intervalSeconds: number;
 }
 
 export interface WatchObservation {
@@ -584,7 +581,7 @@ export type ClientMessage =
   | CuSessionCreate
   | CuSessionAbort
   | CuObservation
-  | AmbientObservation
+  | RideShotgunStart
   | WatchObservation
   | TaskSubmit
   | UiSurfaceAction
@@ -928,12 +925,12 @@ export interface TaskRouted {
   escalatedFrom?: string;
 }
 
-export interface AmbientResult {
-  type: 'ambient_result';
-  requestId: string;
-  decision: 'ignore' | 'observe' | 'suggest';
-  summary?: string;
-  suggestion?: string;
+export interface RideShotgunResult {
+  type: 'ride_shotgun_result';
+  sessionId: string;
+  watchId: string;
+  summary: string;
+  observationCount: number;
 }
 
 export interface MessageQueued {
@@ -1372,7 +1369,7 @@ export type ServerMessage =
   | CuError
   | SessionErrorMessage
   | TaskRouted
-  | AmbientResult
+  | RideShotgunResult
   | UiSurfaceShow
   | UiSurfaceUpdate
   | UiSurfaceDismiss
