@@ -146,10 +146,18 @@ struct ComposerView: View {
 
             ZStack(alignment: .leading) {
                 TextField(
-                    ghostSuffix != nil ? "" : placeholderText,
+                    "",
                     text: $inputText,
                     axis: .vertical
                 )
+                .overlay {
+                    if inputText.isEmpty && ghostSuffix == nil {
+                        Text(placeholderText)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textMuted)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
                 .lineSpacing(4)
