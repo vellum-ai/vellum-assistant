@@ -635,7 +635,7 @@ async function handleUserMessage(
       });
       ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
         code: 'QUEUE_FULL',
-        userMessage: 'The message queue is full. Please wait and try again.',
+        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
         retryable: true,
         debugDetails: 'Message rejected — session queue is full',
       }));

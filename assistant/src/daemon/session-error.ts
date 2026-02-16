@@ -104,7 +104,7 @@ export function classifySessionError(
   if (ctx.phase === 'queue') {
     return {
       code: 'QUEUE_FULL',
-      userMessage: 'The message queue is full. Please wait and try again.',
+      userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
       retryable: true,
       debugDetails: truncateDebugDetails(message),
     };

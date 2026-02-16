@@ -1724,7 +1724,12 @@ export class Session {
         status: 'error',
         attributes: { reason: 'queue_full', source: 'surface_action' },
       });
-      onEvent({ type: 'error', message: 'Surface action rejected — session queue is full' });
+      onEvent(buildSessionErrorMessage(this.conversationId, {
+        code: 'QUEUE_FULL',
+        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
+        retryable: true,
+        debugDetails: 'Surface action rejected — session queue is full',
+      }));
       return;
     }
 
