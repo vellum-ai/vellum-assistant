@@ -190,14 +190,17 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  log.info('Daemon startup: loading .env');
   loadDotEnv();
 
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and
   // finally create any directories that don't yet exist.
+  log.info('Daemon startup: running migrations');
   migrateToDataLayout();
   migrateToWorkspaceLayout();
   ensureDataDir();
+  log.info('Daemon startup: migrations complete');
 
   const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
   if (seedDir && existsSync(seedDir)) {
@@ -206,22 +209,28 @@ export async function runDaemon(): Promise<void> {
     log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
   }
 
+  log.info('Daemon startup: installing templates and initializing DB');
   installTemplates();
   ensurePromptFiles();
   initializeDb();
+  log.info('Daemon startup: DB initialized');
 
+  log.info('Daemon startup: loading config');
   const config = loadConfig();
 
   if (config.logFile.dir) {
     initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
   }
 
+  log.info('Daemon startup: initializing providers and tools');
   initializeProviders(config);
   await initializeTools();
   registerIntegration(gmailIntegration);
+  log.info('Daemon startup: providers and tools initialized');
 
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+  log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
   });
@@ -239,8 +248,10 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
   }
 
+  log.info('Daemon startup: starting DaemonServer (IPC socket)');
   const server = new DaemonServer();
   await server.start();
+  log.info('Daemon startup: DaemonServer started, starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
   const scheduler = startScheduler(
     async (conversationId, message) => {
@@ -266,6 +277,7 @@ export async function runDaemon(): Promise<void> {
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
   let runtimeHttp: RuntimeHttpServer | null = null;
   const httpPortEnv = process.env.RUNTIME_HTTP_PORT;
+  log.info({ httpPortEnv }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
   if (httpPortEnv) {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
@@ -279,8 +291,10 @@ export async function runDaemon(): Promise<void> {
         interfacesDir: getInterfacesDir(),
       });
       try {
+        log.info({ port }, 'Daemon startup: starting runtime HTTP server');
         await runtimeHttp.start();
         server.setHttpPort(port);
+        log.info({ port }, 'Daemon startup: runtime HTTP server listening');
       } catch (err) {
         log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
         runtimeHttp = null;
