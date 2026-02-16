@@ -460,9 +460,12 @@ struct MainWindowView: View {
             VSplitView(panelWidth: $sidePanelWidth, showPanel: windowState.activePanel == .activity, main: {
                 chatView
             }, panel: {
-                if windowState.activePanel == .activity {
+                if windowState.activePanel == .activity,
+                   let viewModel = threadManager.activeViewModel,
+                   let messageId = windowState.activityMessageId {
                     ActivityPanel(
-                        toolCalls: windowState.activityToolCalls,
+                        viewModel: viewModel,
+                        messageId: messageId,
                         onClose: { windowState.activePanel = nil }
                     )
                 }
@@ -521,8 +524,8 @@ struct MainWindowView: View {
                 onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
                 watchSession: ambientAgent.activeWatchSession,
                 onStopWatch: { viewModel.stopWatchSession() },
-                onOpenActivity: { toolCalls in
-                    windowState.toggleActivityPanel(with: toolCalls)
+                onOpenActivity: { messageId in
+                    windowState.toggleActivityPanel(with: messageId)
                 },
                 isActivityPanelOpen: windowState.activePanel == .activity
             )
