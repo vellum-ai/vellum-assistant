@@ -12,6 +12,7 @@ import { withValidToken } from '../../integrations/token-manager.js';
 import { getIntegration } from '../../integrations/registry.js';
 import * as gmail from '../../integrations/gmail/client.js';
 import type { GmailMessageFormat } from '../../integrations/gmail/types.js';
+import { isPrivateOrLocalHost } from '../network/url-safety.js';
 import {
   gmailSearchDef,
   gmailListMessagesDef,
@@ -230,9 +231,8 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
         if (parsed.protocol !== 'https:') {
           return err('Unsubscribe URL must use HTTPS.');
         }
-        const hostname = parsed.hostname;
-        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.local')) {
-          return err('Unsubscribe URL points to a local address.');
+        if (isPrivateOrLocalHost(parsed.hostname)) {
+          return err('Unsubscribe URL points to a local or private address.');
         }
       } catch {
         return err('Invalid unsubscribe URL.');
@@ -244,6 +244,7 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: postHeader,
+          redirect: 'manual',
         });
         if (resp.ok) {
           return ok('Successfully unsubscribed via HTTPS POST.');
@@ -252,7 +253,7 @@ const gmailUnsubscribe = makeGmailTool(gmailUnsubscribeDef, async (input) => {
       }
 
       // Fallback: GET request
-      const resp = await fetch(url);
+      const resp = await fetch(url, { redirect: 'manual' });
       if (resp.ok) {
         return ok('Successfully unsubscribed via HTTPS GET.');
       }
