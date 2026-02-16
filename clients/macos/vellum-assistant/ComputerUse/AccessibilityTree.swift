@@ -302,28 +302,23 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         var childElements: [AXElement] = []
         var childrenRef: CFTypeRef?
 
-        // Bail early if we've hit the element limit
-        guard totalElementsEnumerated < maxElementsPerEnumeration else {
-            return []
-        }
-
         if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
            let children = childrenRef as? [AXUIElement] {
             // Sanity check: if children array is suspiciously large, it might be corrupted
-            guard children.count < 1000 else {
-                log.warning("Element has \(children.count) children — likely corrupted, skipping")
-                return []
-            }
+            // Skip children enumeration but continue processing current element
+            if children.count >= 1000 {
+                log.warning("Element has \(children.count) children — likely corrupted, skipping children enumeration")
+            } else {
+                for (index, child) in children.enumerated() {
+                    // Stop if we've hit the limit mid-enumeration
+                    guard totalElementsEnumerated < maxElementsPerEnumeration else {
+                        log.warning("Hit element limit while enumerating children (\(index)/\(children.count) processed)")
+                        break
+                    }
 
-            for (index, child) in children.enumerated() {
-                // Stop if we've hit the limit mid-enumeration
-                guard totalElementsEnumerated < maxElementsPerEnumeration else {
-                    log.warning("Hit element limit while enumerating children (\(index)/\(children.count) processed)")
-                    break
+                    // Recursively enumerate with the safe wrapper
+                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
                 }
-
-                // Recursively enumerate with the safe wrapper
-                childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
             }
         }
 
