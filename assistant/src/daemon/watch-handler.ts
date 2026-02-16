@@ -143,7 +143,7 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
 
     log.info(
-      { watchId: session.watchId, commentaryText: commentaryText.substring(0, 100), isSkip: commentaryText === 'SKIP' },
+      { watchId: session.watchId, commentaryLength: commentaryText.length, isSkip: commentaryText === 'SKIP' },
       '[SHOTGUN-DEBUG] Commentary result from Haiku',
     );
 
