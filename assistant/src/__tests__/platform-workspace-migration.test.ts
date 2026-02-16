@@ -422,6 +422,110 @@ describe('migrateToWorkspaceLayout', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
+  test('hooks config.json merge: legacy hook entries are preserved when workspace config exists', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    // Workspace hooks dir already exists with its own config.json
+    mkdirSync(join(ws, 'hooks'), { recursive: true });
+    writeFileSync(
+      join(ws, 'hooks', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: { 'on-save': { enabled: true } },
+      }),
+    );
+
+    // Legacy hooks dir has config.json with different hook entries
+    mkdirSync(join(root, 'hooks'), { recursive: true });
+    writeFileSync(
+      join(root, 'hooks', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          'on-start': { enabled: true, settings: { delay: 100 } },
+          'on-save': { enabled: false }, // conflicts — workspace value should win
+        },
+      }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    // Workspace hooks config should have the missing on-start entry merged in
+    const merged = JSON.parse(
+      readFileSync(join(ws, 'hooks', 'config.json'), 'utf-8'),
+    );
+    expect(merged.hooks['on-start']).toEqual({ enabled: true, settings: { delay: 100 } });
+    // Existing workspace hook entry should not be overwritten
+    expect(merged.hooks['on-save']).toEqual({ enabled: true });
+
+    // Merged hook was removed from legacy config; conflicting one remains
+    const legacyAfter = JSON.parse(
+      readFileSync(join(root, 'hooks', 'config.json'), 'utf-8'),
+    );
+    expect(legacyAfter.hooks['on-start']).toBeUndefined();
+    expect(legacyAfter.hooks['on-save']).toEqual({ enabled: false });
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('hooks config.json merge: legacy file deleted when all hooks merged', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(join(ws, 'hooks'), { recursive: true });
+    writeFileSync(
+      join(ws, 'hooks', 'config.json'),
+      JSON.stringify({ version: 1, hooks: {} }),
+    );
+
+    mkdirSync(join(root, 'hooks'), { recursive: true });
+    writeFileSync(
+      join(root, 'hooks', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        hooks: { 'on-start': { enabled: true } },
+      }),
+    );
+
+    migrateToWorkspaceLayout();
+
+    // All hooks were merged so legacy config.json should be deleted
+    expect(existsSync(join(root, 'hooks', 'config.json'))).toBe(false);
+
+    const merged = JSON.parse(
+      readFileSync(join(ws, 'hooks', 'config.json'), 'utf-8'),
+    );
+    expect(merged.hooks['on-start']).toEqual({ enabled: true });
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test('hooks config.json merge: non-object JSON does not crash', () => {
+    const base = makeTmpBase();
+    process.env.BASE_DATA_DIR = base;
+    const root = join(base, '.vellum');
+    const ws = join(root, 'workspace');
+
+    mkdirSync(join(ws, 'hooks'), { recursive: true });
+    writeFileSync(join(ws, 'hooks', 'config.json'), JSON.stringify({ version: 1, hooks: {} }));
+
+    mkdirSync(join(root, 'hooks'), { recursive: true });
+    writeFileSync(join(root, 'hooks', 'config.json'), 'null');
+
+    expect(() => migrateToWorkspaceLayout()).not.toThrow();
+
+    // Workspace config should be unchanged
+    const wsConfig = JSON.parse(readFileSync(join(ws, 'hooks', 'config.json'), 'utf-8'));
+    expect(wsConfig.version).toBe(1);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
   test('stale empty directories from a previous failed run do not cause errors', () => {
     const base = makeTmpBase();
     process.env.BASE_DATA_DIR = base;
