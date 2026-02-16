@@ -118,17 +118,30 @@ private struct ReminderRow: View {
     let reminder: ReminderItem
     let onCancel: () -> Void
 
-    private var fireAtText: String {
+    private var scheduledDateText: String {
         let date = Date(timeIntervalSince1970: Double(reminder.fireAt) / 1000.0)
-        if reminder.status == "pending" {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private var statusDateText: String {
+        switch reminder.status {
+        case "pending":
+            let date = Date(timeIntervalSince1970: Double(reminder.fireAt) / 1000.0)
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .abbreviated
-            return formatter.localizedString(for: date, relativeTo: Date())
-        } else {
+            return "Fires: \(formatter.localizedString(for: date, relativeTo: Date()))"
+        case "fired":
+            let timestamp = reminder.firedAt ?? reminder.fireAt
+            let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .short
-            return formatter.string(from: date)
+            return "Fired: \(formatter.string(from: date))"
+        default:
+            return "Scheduled for: \(scheduledDateText)"
         }
     }
 
@@ -160,7 +173,7 @@ private struct ReminderRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 6) {
-                    Text(reminder.status == "pending" ? "Fires: \(fireAtText)" : "Fired: \(fireAtText)")
+                    Text(statusDateText)
                     Text("(\(reminder.mode))")
                 }
                 .font(.caption2)
