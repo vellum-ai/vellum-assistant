@@ -70,7 +70,7 @@ struct AgentPanel: View {
                     .foregroundColor(VColor.textMuted)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)
-                    .background(Slate._800)
+                    .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
 
@@ -184,7 +184,7 @@ struct AgentPanel: View {
                 }
             }
             .padding(VSpacing.md)
-            .background(Slate._800)
+            .background(VColor.backgroundSubtle)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
             // Sort picker
@@ -292,7 +292,7 @@ struct AgentPanel: View {
                 .foregroundColor(Emerald._400)
         }
         .padding(VSpacing.lg)
-        .background(Slate._900)
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
@@ -385,7 +385,7 @@ struct AgentPanel: View {
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.sm)
                     .foregroundColor(isHovered ? Slate._900 : Emerald._400)
-                    .background(isHovered ? Emerald._400 : Slate._800)
+                    .background(isHovered ? Emerald._400 : VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
@@ -436,7 +436,7 @@ struct AgentPanel: View {
             .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
-        .background(Slate._900)
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
@@ -601,7 +601,7 @@ struct AgentPanel: View {
             }
             .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Slate._900)
+            .background(VColor.surfaceSubtle)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
 
@@ -621,7 +621,7 @@ struct AgentPanel: View {
                         .padding(VSpacing.md)
                 }
                 .frame(maxHeight: 250)
-                .background(Slate._900)
+                .background(VColor.surfaceSubtle)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
@@ -712,7 +712,7 @@ struct AgentPanel: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, VSpacing.md)
             .foregroundColor(isSuccess ? Emerald._400 : (hoveredDetailInstall && !isInstalling ? Slate._900 : Emerald._400))
-            .background(isSuccess ? Emerald._400.opacity(0.15) : (hoveredDetailInstall && !isInstalling ? Emerald._400 : Slate._800))
+            .background(isSuccess ? Emerald._400.opacity(0.15) : (hoveredDetailInstall && !isInstalling ? Emerald._400 : VColor.backgroundSubtle))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -818,7 +818,7 @@ struct AgentPanel: View {
                         .padding(.horizontal, VSpacing.lg)
                         .padding(.vertical, VSpacing.sm)
                         .foregroundColor(useHovered ? Slate._900 : Emerald._400)
-                        .background(useHovered ? Emerald._400 : Slate._800)
+                        .background(useHovered ? Emerald._400 : VColor.backgroundSubtle)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.md)
@@ -852,11 +852,11 @@ struct AgentPanel: View {
                             .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, VSpacing.xs)
                             .foregroundColor(viewHovered ? VColor.textPrimary : VColor.textMuted)
-                            .background(viewHovered ? Slate._700 : Slate._800)
+                            .background(viewHovered ? VColor.ghostHover : VColor.backgroundSubtle)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(Slate._600.opacity(0.7), lineWidth: 1)
+                                    .stroke(VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -876,11 +876,11 @@ struct AgentPanel: View {
                                     .padding(.horizontal, VSpacing.sm)
                                     .padding(.vertical, VSpacing.xs)
                                     .foregroundColor(deleteHovered ? Rose._400 : VColor.textMuted)
-                                    .background(deleteHovered ? Rose._400.opacity(0.15) : Slate._800)
+                                    .background(deleteHovered ? Rose._400.opacity(0.15) : VColor.backgroundSubtle)
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: VRadius.md)
-                                            .stroke(deleteHovered ? Rose._500.opacity(0.6) : Slate._600.opacity(0.7), lineWidth: 1)
+                                            .stroke(deleteHovered ? Rose._500.opacity(0.6) : VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
                                     )
                             }
                             .buttonStyle(.plain)
@@ -929,7 +929,7 @@ struct AgentPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 300)
-                .background(Slate._800)
+                .background(VColor.backgroundSubtle)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
@@ -938,7 +938,7 @@ struct AgentPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(Slate._900)
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)

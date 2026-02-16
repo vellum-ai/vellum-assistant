@@ -116,8 +116,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cachedSkills: [SkillInfo] = []
     private var refreshSkillsTask: Task<Void, Never>?
 
+    @AppStorage("themePreference") private var themePreference: String = "system"
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        applyThemePreference()
         registerBundledFonts()
 
         #if DEBUG
@@ -145,6 +147,38 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow()
+    }
+
+    /// Applies the user's theme preference to the app appearance.
+    /// Called on launch and whenever the setting changes.
+    func applyThemePreference() {
+        let pref = UserDefaults.standard.string(forKey: "themePreference") ?? "system"
+        let appearance: NSAppearance?
+        switch pref {
+        case "light":
+            appearance = NSAppearance(named: .aqua)
+        case "dark":
+            appearance = NSAppearance(named: .darkAqua)
+        default:
+            appearance = nil // follow system
+        }
+        NSApp.appearance = appearance
+        // Propagate to all existing windows so the change takes effect immediately
+        for window in NSApp.windows {
+            window.appearance = appearance
+            window.invalidateShadow()
+            window.contentView?.needsDisplay = true
+            window.displayIfNeeded()
+        }
+        // Force SwiftUI to re-evaluate adaptive colors by toggling the appearance
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                window.contentView?.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    window.contentView?.needsLayout = true
+                    window.contentView?.needsDisplay = true
+                }
+            }
+        }
     }
 
     private func setupDaemonClient() {

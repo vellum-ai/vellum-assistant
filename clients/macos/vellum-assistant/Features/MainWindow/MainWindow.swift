@@ -86,8 +86,8 @@ final class MainWindow {
         let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowWidth = min(screenFrame.width * 0.8, 1200)
-        let windowHeight = min(screenFrame.height * 0.85, 900)
+        let windowWidth: CGFloat = 780
+        let windowHeight: CGFloat = 700
         let windowRect = NSRect(
             x: screenFrame.midX - windowWidth / 2,
             y: screenFrame.midY - windowHeight / 2,
@@ -107,7 +107,7 @@ final class MainWindow {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 800, height: 600)
+        window.contentMinSize = NSSize(width: 500, height: 400)
         window.setFrame(windowRect, display: false)
         window.setFrameAutosaveName("MainWindow")
 

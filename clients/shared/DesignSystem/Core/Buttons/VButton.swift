@@ -76,7 +76,7 @@ private struct VButtonStyle: ButtonStyle {
         case .danger:
             return isHovered ? Rose._700 : Rose._800
         case .ghost:
-            return isHovered ? Slate._600 : Slate._700
+            return isHovered ? VColor.ghostPressed : VColor.ghostHover
         }
     }
 
@@ -91,8 +91,8 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return Rose._500 }
             return Rose._600
         case .ghost:
-            if isPressed { return Slate._600 }
-            if isHovered { return Slate._700 }
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return VColor.ghostHover }
             return .clear
         }
     }
@@ -108,8 +108,8 @@ private struct VButtonStyle: ButtonStyle {
     private func borderColor(isPressed: Bool) -> Color {
         switch style {
         case .ghost:
-            if isPressed { return Slate._600 }
-            return Slate._700
+            if isPressed { return VColor.ghostPressed }
+            return VColor.surfaceBorder
         default:
             return .clear
         }

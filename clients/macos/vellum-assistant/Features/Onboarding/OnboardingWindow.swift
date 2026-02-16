@@ -40,7 +40,7 @@ final class OnboardingWindow {
         let hostingController = NSHostingController(rootView: flowView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1366, height: 849),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
             styleMask: [.titled, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -53,10 +53,10 @@ final class OnboardingWindow {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
 
-        window.contentMinSize = NSSize(width: 800, height: 600)
+        window.contentMinSize = NSSize(width: 420, height: 480)
 
-        let startWidth: CGFloat = 800
-        let startHeight: CGFloat = 680
+        let startWidth: CGFloat = 460
+        let startHeight: CGFloat = 520
         if let visibleFrame = Self.visibleScreenFrame() {
             let x = visibleFrame.midX - startWidth / 2
             let y = visibleFrame.midY - startHeight / 2

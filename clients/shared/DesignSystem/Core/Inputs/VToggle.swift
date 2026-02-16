@@ -44,11 +44,11 @@ public struct VToggle: View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             // Track background
             RoundedRectangle(cornerRadius: VRadius.sm + 2)
-                .fill(isOn ? Emerald._500 : Slate._700)
+                .fill(isOn ? Emerald._500 : VColor.toggleOff)
                 .frame(width: trackWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm + 2)
-                        .stroke(Slate._600, lineWidth: 1)
+                        .stroke(VColor.toggleBorder, lineWidth: 1)
                 )
 
             // Knob

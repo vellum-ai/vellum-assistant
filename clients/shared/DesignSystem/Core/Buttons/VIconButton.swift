@@ -75,12 +75,12 @@ private struct VIconButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         if isActive {
-            if isPressed { return Slate._500 }
-            if isHovered { return Slate._600 }
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return VColor.ghostHover }
             return VColor.surfaceBorder
         } else {
-            if isPressed { return Slate._600 }
-            if isHovered { return Slate._700 }
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return VColor.ghostHover }
             return .clear
         }
     }

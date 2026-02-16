@@ -30,9 +30,9 @@ public struct VTab: View {
     private var background: Color {
         switch style {
         case .pill, .rectangular:
-            return isSelected ? Slate._200 : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            return isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
         case .flat:
-            return isHovered ? Slate._800 : .clear
+            return isHovered ? VColor.ghostHover : .clear
         }
     }
 
@@ -57,7 +57,7 @@ public struct VTab: View {
                     Spacer().frame(width: 16)
                 }
             }
-            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? Slate._900 : (isSelected ? VColor.textPrimary : VColor.textSecondary))
+            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? VColor.textPrimary : (isSelected ? VColor.textPrimary : VColor.textSecondary))
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -79,7 +79,7 @@ public struct VTab: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(Slate._300, lineWidth: 1)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
                 .opacity((style == .pill || style == .rectangular) && isSelected ? 1 : 0)
         )
         .onHover { hovering in isHovered = hovering }

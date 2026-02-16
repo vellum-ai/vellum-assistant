@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - Color Extension
 
@@ -12,6 +17,23 @@ public extension Color {
             opacity: alpha
         )
     }
+}
+
+// MARK: - Adaptive Color Helper
+
+/// Creates a `Color` that automatically resolves to `light` or `dark` based on
+/// the current system / window appearance.
+public func adaptiveColor(light: Color, dark: Color) -> Color {
+    #if os(macOS)
+    Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return isDark ? NSColor(dark) : NSColor(light)
+    }))
+    #else
+    Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+    })
+    #endif
 }
 
 // MARK: - Color Scales
@@ -99,28 +121,37 @@ public enum Amber {
 
 public enum VColor {
     // Backgrounds
-    public static let background = Slate._950
-    public static let backgroundSubtle = Slate._800
-    public static let chatBackground = Slate._900
-    public static let surface = Slate._800
-    public static let surfaceBorder = Slate._700
+    public static let background = adaptiveColor(light: .white, dark: Slate._950)
+    public static let backgroundSubtle = adaptiveColor(light: Slate._100, dark: Slate._800)
+    public static let chatBackground = adaptiveColor(light: Slate._50, dark: Slate._900)
+    public static let surface = adaptiveColor(light: .white, dark: Slate._800)
+    public static let surfaceBorder = adaptiveColor(light: Slate._200, dark: Slate._700)
+    public static let surfaceSubtle = adaptiveColor(light: Slate._50, dark: Slate._900)
 
     // Text
-    public static let textPrimary = Slate._50
-    public static let textSecondary = Slate._400
-    public static let textMuted = Slate._500
+    public static let textPrimary = adaptiveColor(light: Slate._900, dark: Slate._50)
+    public static let textSecondary = adaptiveColor(light: Slate._600, dark: Slate._400)
+    public static let textMuted = adaptiveColor(light: Slate._500, dark: Slate._500)
 
     // Accent (violet = primary)
-    public static let accent = Violet._600
+    public static let accent = adaptiveColor(light: Violet._700, dark: Violet._600)
     public static let accentSubtle = Violet._100
 
-    // Onboarding accent (amber)
+    // Onboarding accent (amber) — always dark theme
     public static let onboardingAccent = Amber._500
     public static let onboardingAccentDark = Amber._600
     public static let onboardingAccentDarker = Amber._800
 
     // Status
-    public static let success = Emerald._600
-    public static let error = Rose._600
-    public static let warning = Amber._600
+    public static let success = adaptiveColor(light: Emerald._700, dark: Emerald._600)
+    public static let error = adaptiveColor(light: Rose._700, dark: Rose._600)
+    public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
+
+    // Interactive states
+    public static let ghostHover = adaptiveColor(light: Slate._100, dark: Slate._700)
+    public static let ghostPressed = adaptiveColor(light: Slate._200, dark: Slate._600)
+    public static let divider = adaptiveColor(light: Slate._200, dark: Slate._700)
+    public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: .white)
+    public static let toggleOff = adaptiveColor(light: Slate._300, dark: Slate._700)
+    public static let toggleBorder = adaptiveColor(light: Slate._400, dark: Slate._600)
 }

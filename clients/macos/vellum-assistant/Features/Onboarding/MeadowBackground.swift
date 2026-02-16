@@ -13,6 +13,7 @@ struct MeadowBackground: View {
                     .resizable()
                     .interpolation(.none)
                     .aspectRatio(contentMode: .fill)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
     }

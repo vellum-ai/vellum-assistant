@@ -14,6 +14,7 @@ struct SettingsPanel: View {
     @State private var showingScheduledTasks = false
     @State private var showingReminders = false
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
+    @AppStorage("themePreference") private var themePreference: String = "system"
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -68,7 +69,7 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // BRAVE SEARCH section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -120,7 +121,7 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // COMPUTER USAGE section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -144,7 +145,7 @@ struct SettingsPanel: View {
                     VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // AMBIENT AGENT section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -164,13 +165,37 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // DISPLAY section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("DISPLAY")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        Text("Theme")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Picker("", selection: Binding(
+                            get: { themePreference },
+                            set: { newValue in
+                                themePreference = newValue
+                                UserDefaults.standard.set(newValue, forKey: "themePreference")
+                                UserDefaults.standard.synchronize()
+                                if let delegate = NSApp.delegate as? AppDelegate {
+                                    delegate.applyThemePreference()
+                                }
+                            }
+                        )) {
+                            Text("System").tag("system")
+                            Text("Light").tag("light")
+                            Text("Dark").tag("dark")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
+                    }
 
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -186,7 +211,7 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // ARCHIVED THREADS section
                 if !threadManager.archivedThreads.isEmpty {
@@ -214,7 +239,7 @@ struct SettingsPanel: View {
                         }
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
 
                 // PERMISSIONS section
@@ -229,7 +254,7 @@ struct SettingsPanel: View {
                         granted: PermissionManager.accessibilityStatus() == .granted
                     )
                     .padding(VSpacing.md)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
 
                     permissionRow(
                         emoji: "\u{1F355}",
@@ -237,10 +262,10 @@ struct SettingsPanel: View {
                         granted: PermissionManager.screenRecordingStatus() == .granted
                     )
                     .padding(VSpacing.md)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // SCHEDULED TASKS section
                 if daemonClient != nil {
@@ -265,7 +290,7 @@ struct SettingsPanel: View {
                         }
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
 
                 // REMINDERS section
@@ -291,7 +316,7 @@ struct SettingsPanel: View {
                         }
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
 
                 // TRUST RULES section
@@ -319,7 +344,7 @@ struct SettingsPanel: View {
                         }
                     }
                     .padding(VSpacing.lg)
-                    .vCard(background: Slate._900)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
 
                 // PRIVACY & SECURITY section
@@ -339,7 +364,7 @@ struct SettingsPanel: View {
                     }
                 }
                 .padding(VSpacing.lg)
-                .vCard(background: Slate._900)
+                .vCard(background: VColor.surfaceSubtle)
             }
         }
         .onAppear {

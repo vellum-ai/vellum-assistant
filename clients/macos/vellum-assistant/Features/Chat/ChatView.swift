@@ -158,6 +158,8 @@ struct ChatView: View {
         )
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @ViewBuilder
     private var chatBackground: some View {
         if let url = ResourceBundle.bundle.url(forResource: "background", withExtension: "png"),
@@ -165,6 +167,7 @@ struct ChatView: View {
             Image(nsImage: nsImage)
                 .resizable()
                 .scaledToFit()
+                .opacity(colorScheme == .light ? 0 : 1.0)
                 .allowsHitTesting(false)
         }
     }
@@ -311,7 +314,7 @@ struct ChatView: View {
                     }
 
                     if isThinking {
-                        ThinkingIndicator()
+                        ThinkingIndicator(label: messages.count <= 1 ? "Waking up..." : "Thinking")
                             .id("thinking-indicator")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -839,12 +842,19 @@ private struct ChatBubble: View {
 // MARK: - Thinking Indicator
 
 private struct ThinkingIndicator: View {
+    var label: String = "Thinking"
     @State private var phase: Int = 0
     @State private var timer: Timer?
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Thinking")
+            Image("OwlIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 12, height: 12)
+                .foregroundColor(VColor.textSecondary)
+
+            Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 

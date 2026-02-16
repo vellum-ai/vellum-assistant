@@ -296,7 +296,7 @@ struct MainWindowView: View {
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredThread == thread.id || menuOpen ? Color.white.opacity(0.08) : Color.clear)
+        .background(isSelected || isHoveredThread == thread.id || menuOpen ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(alignment: .topTrailing) {
             if menuOpen {
@@ -349,10 +349,10 @@ struct MainWindowView: View {
 
             Spacer()
 
-            // Parental Controls
+            // Control Center
             VColor.surfaceBorder.frame(height: 1)
 
-            ParentalControlsMenuButton(
+            ControlCenterMenuButton(
                 onSettings: { windowState.togglePanel(.settings) },
                 onSkills: { windowState.togglePanel(.agent) },
                 onDirectory: { windowState.togglePanel(.directory) },
@@ -453,70 +453,115 @@ struct MainWindowView: View {
                     }
                 )
             }
+        } else if let panel = windowState.activePanel, panel != .activity {
+            // Full-window panels: settings, skills, debug, doctor
+            fullWindowPanel(panel)
         } else {
-            VSplitView(panelWidth: $sidePanelWidth, showPanel: windowState.activePanel != nil, main: {
-                if let viewModel = threadManager.activeViewModel {
-                    ChatView(
-                        messages: viewModel.messages,
-                        inputText: Binding(
-                            get: { viewModel.inputText },
-                            set: { viewModel.inputText = $0 }
-                        ),
-                        hasAPIKey: windowState.hasAPIKey,
-                        isThinking: viewModel.isThinking,
-                        isSending: viewModel.isSending,
-                        errorText: viewModel.errorText,
-                        pendingQueuedCount: viewModel.pendingQueuedCount,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        isRecording: viewModel.isRecording,
-                        onOpenSettings: {
-                            // Always provide an immediate, visible fallback.
-                            windowState.activePanel = .settings
-                            Self.openSettings()
-                        },
-                        onSend: viewModel.sendMessage,
-                        onStop: viewModel.stopGenerating,
-                        onDismissError: viewModel.dismissError,
-                        onAcceptSuggestion: viewModel.acceptSuggestion,
-                        onAttach: { Self.openFilePicker(viewModel: viewModel) },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-                        onDropImageData: { data, name in
-                            let filename: String
-                            if let name {
-                                let basename = (name as NSString).lastPathComponent
-                                let base = (basename as NSString).deletingPathExtension
-                                filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                            } else {
-                                filename = "Dropped Image.png"
-                            }
-                            viewModel.addAttachment(imageData: data, filename: filename)
-                        },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-                        onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-                        onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
-                        onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-                        onRegenerate: { viewModel.regenerateLastMessage() },
-                        sessionError: viewModel.sessionError,
-                        onRetry: { viewModel.retryAfterSessionError() },
-                        onDismissSessionError: { viewModel.dismissSessionError() },
-                        onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
-                        watchSession: ambientAgent.activeWatchSession,
-                        onStopWatch: { viewModel.stopWatchSession() },
-                        onOpenActivity: { messageId in
-                            print("DEBUG: onOpenActivity called with message ID: \(messageId)")
-                            windowState.toggleActivityPanel(with: messageId)
-                            print("DEBUG: activePanel is now \(String(describing: windowState.activePanel))")
-                        },
-                        isActivityPanelOpen: windowState.activePanel == .activity
+            VSplitView(panelWidth: $sidePanelWidth, showPanel: windowState.activePanel == .activity, main: {
+                chatView
+            }, panel: {
+                if windowState.activePanel == .activity {
+                    ActivityPanel(
+                        toolCalls: windowState.activityToolCalls,
+                        onClose: { windowState.activePanel = nil }
                     )
                 }
-            }, panel: {
-                panelContent
             })
+        }
+    }
+
+    @ViewBuilder
+    private var chatView: some View {
+        if let viewModel = threadManager.activeViewModel {
+            ChatView(
+                messages: viewModel.messages,
+                inputText: Binding(
+                    get: { viewModel.inputText },
+                    set: { viewModel.inputText = $0 }
+                ),
+                hasAPIKey: windowState.hasAPIKey,
+                isThinking: viewModel.isThinking,
+                isSending: viewModel.isSending,
+                errorText: viewModel.errorText,
+                pendingQueuedCount: viewModel.pendingQueuedCount,
+                suggestion: viewModel.suggestion,
+                pendingAttachments: viewModel.pendingAttachments,
+                isRecording: viewModel.isRecording,
+                onOpenSettings: {
+                    windowState.activePanel = .settings
+                },
+                onSend: viewModel.sendMessage,
+                onStop: viewModel.stopGenerating,
+                onDismissError: viewModel.dismissError,
+                onAcceptSuggestion: viewModel.acceptSuggestion,
+                onAttach: { Self.openFilePicker(viewModel: viewModel) },
+                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+                onDropImageData: { data, name in
+                    let filename: String
+                    if let name {
+                        let basename = (name as NSString).lastPathComponent
+                        let base = (basename as NSString).deletingPathExtension
+                        filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                    } else {
+                        filename = "Dropped Image.png"
+                    }
+                    viewModel.addAttachment(imageData: data, filename: filename)
+                },
+                onPaste: { viewModel.addAttachmentFromPasteboard() },
+                onMicrophoneToggle: onMicrophoneToggle,
+                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+                onRegenerate: { viewModel.regenerateLastMessage() },
+                sessionError: viewModel.sessionError,
+                onRetry: { viewModel.retryAfterSessionError() },
+                onDismissSessionError: { viewModel.dismissSessionError() },
+                onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
+                watchSession: ambientAgent.activeWatchSession,
+                onStopWatch: { viewModel.stopWatchSession() },
+                onOpenActivity: { toolCalls in
+                    windowState.toggleActivityPanel(with: toolCalls)
+                },
+                isActivityPanelOpen: windowState.activePanel == .activity
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func fullWindowPanel(_ panel: SidePanelType) -> some View {
+        switch panel {
+        case .settings:
+            SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+        case .agent:
+            AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
+                if threadManager.activeViewModel == nil {
+                    threadManager.createThread()
+                }
+                if let viewModel = threadManager.activeViewModel {
+                    viewModel.pendingSkillInvocation = SkillInvocationData(
+                        name: skill.name,
+                        emoji: skill.emoji,
+                        description: skill.description
+                    )
+                    viewModel.inputText = "Use the \(skill.name) skill"
+                    viewModel.sendMessage()
+                    viewModel.pendingSkillInvocation = nil
+                }
+                windowState.activePanel = nil
+            }, daemonClient: daemonClient)
+        case .debug:
+            DebugPanel(
+                traceStore: traceStore,
+                daemonClient: daemonClient,
+                activeSessionId: threadManager.activeViewModel?.sessionId,
+                onClose: { windowState.activePanel = nil }
+            )
+        case .doctor:
+            DoctorPanel(onClose: { windowState.activePanel = nil })
+        default:
+            EmptyView()
         }
     }
 
@@ -532,22 +577,6 @@ struct MainWindowView: View {
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             viewModel.addAttachment(url: url)
-        }
-    }
-
-    @MainActor
-    private static func openSettings() {
-        NSApp.setActivationPolicy(.regular)
-
-        let selector = Selector(("showSettingsWindow:"))
-        if let delegate = NSApp.delegate as? NSObject, delegate.responds(to: selector) {
-            _ = delegate.perform(selector, with: nil)
-        } else {
-            _ = NSApp.sendAction(selector, to: nil, from: nil)
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
@@ -838,59 +867,6 @@ struct MainWindowView: View {
         }
     }
 
-    @ViewBuilder
-    private var panelContent: some View {
-        if let panel = windowState.activePanel {
-            switch panel {
-            case .generated:
-                Color.clear.frame(width: 0, height: 0)
-                    .onAppear { windowState.activePanel = nil }
-            case .agent:
-                AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
-                    if threadManager.activeViewModel == nil {
-                        threadManager.createThread()
-                    }
-                    if let viewModel = threadManager.activeViewModel {
-                        viewModel.pendingSkillInvocation = SkillInvocationData(
-                            name: skill.name,
-                            emoji: skill.emoji,
-                            description: skill.description
-                        )
-                        viewModel.inputText = "Use the \(skill.name) skill"
-                        viewModel.sendMessage()
-                        // Clear leaked metadata if sendMessage() returned early
-                        viewModel.pendingSkillInvocation = nil
-                    }
-                }, daemonClient: daemonClient)
-            case .settings:
-                SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
-            case .directory:
-                Color.clear.frame(width: 0, height: 0)
-                    .onAppear { /* handled full-screen in chatContentView */ }
-            case .debug:
-                DebugPanel(
-                    traceStore: traceStore,
-                    daemonClient: daemonClient,
-                    activeSessionId: threadManager.activeViewModel?.sessionId,
-                    onClose: { windowState.activePanel = nil }
-                )
-            case .doctor:
-                DoctorPanel(onClose: { windowState.activePanel = nil })
-            case .activity:
-                if let viewModel = threadManager.activeViewModel,
-                   let messageId = windowState.activityMessageId {
-                    ActivityPanel(
-                        viewModel: viewModel,
-                        messageId: messageId,
-                        onClose: { windowState.activePanel = nil }
-                    )
-                } else {
-                    Color.clear.frame(width: 0, height: 0)
-                        .onAppear { windowState.activePanel = nil }
-                }
-            }
-        }
-    }
 }
 
 private struct ZoomIndicatorView: View {
@@ -933,7 +909,7 @@ private struct NewConversationButton: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(VColor.surface)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -951,7 +927,7 @@ private struct NewConversationButton: View {
     }
 }
 
-private struct ParentalControlsMenuButton: View {
+private struct ControlCenterMenuButton: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
     let onDirectory: () -> Void
@@ -967,14 +943,13 @@ private struct ParentalControlsMenuButton: View {
             }
         } label: {
             HStack(spacing: VSpacing.md) {
-                Text("P")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(width: 32, height: 32)
-                    .background(VColor.textMuted)
-                    .clipShape(Circle())
+                Image("OwlIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 20, height: 20)
 
-                Text("Parental Controls")
+                Text("Control Center")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textPrimary)
 
@@ -986,7 +961,7 @@ private struct ParentalControlsMenuButton: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
-            .background(isHovered || showDrawer ? Color.white.opacity(0.05) : Color.clear)
+            .background(isHovered || showDrawer ? VColor.hoverOverlay.opacity(0.05) : Color.clear)
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
@@ -1065,7 +1040,7 @@ private struct DrawerMenuItem: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? Color.white.opacity(0.06) : Color.clear)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1091,7 +1066,7 @@ private struct ArchivePopup: View {
             .foregroundColor(VColor.textPrimary)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.xs + 2)
-            .background(isHovered ? Color.white.opacity(0.12) : VColor.surface)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.12) : VColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)

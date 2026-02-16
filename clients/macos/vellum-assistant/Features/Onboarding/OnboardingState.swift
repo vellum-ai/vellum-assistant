@@ -27,7 +27,7 @@ final class OnboardingState {
     private static let currentFlowVersion = 2
 
     var currentStep: Int = 0
-    var assistantName: String = ""
+    var assistantName: String = "Velly"
     var chosenKey: ActivationKey = .fn
     var speechGranted: Bool = false
     var accessibilityGranted: Bool = false
@@ -85,7 +85,7 @@ final class OnboardingState {
             } else {
                 currentStep = saved
             }
-            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? ""
+            assistantName = UserDefaults.standard.string(forKey: "onboarding.name") ?? "Velly"
             if let raw = UserDefaults.standard.string(forKey: "onboarding.key"),
                let key = ActivationKey(rawValue: raw) {
                 chosenKey = key
@@ -106,11 +106,20 @@ final class OnboardingState {
         if currentStep > maxStep {
             currentStep = maxStep
         }
+        // Skip naming step (step 1) if restored to it
+        if onboardingVariant == .default && currentStep == 1 {
+            currentStep = 2
+        }
     }
 
     func advance() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             currentStep += 1
+            // Skip naming step (step 1) — name defaults to "Velly"
+            // Skip everything after API key (steps 3+) — go straight to chat
+            if currentStep == 1 {
+                currentStep = 2
+            }
         }
         persist()
     }

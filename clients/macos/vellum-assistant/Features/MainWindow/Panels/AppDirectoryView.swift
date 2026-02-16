@@ -8,7 +8,6 @@ struct AppDirectoryView: View {
     let onOpenApp: (UiSurfaceShowMessage) -> Void
 
     @State private var searchText = ""
-    @State private var isSearchExpanded = false
     @State private var displayItems: [DirectoryAppItem] = []
     @State private var isLoading = false
     @State private var hoveredAppId: String?
@@ -18,146 +17,81 @@ struct AppDirectoryView: View {
     @State private var pendingResponses = 0
 
     private let columns = [
-        GridItem(.flexible(), spacing: VSpacing.lg),
-        GridItem(.flexible(), spacing: VSpacing.lg),
-        GridItem(.flexible(), spacing: VSpacing.lg),
+        GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
+        GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
     ]
 
     var body: some View {
-        ZStack {
-            VColor.background.ignoresSafeArea()
+        VSidePanel(title: "Directory", onClose: onBack, pinnedContent: {
+            // Search bar (only when there are items to search)
+            if !displayItems.isEmpty || !searchText.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
 
-            VStack(spacing: 0) {
-                // Top bar
-                HStack {
-                    backButton
-
-                    Spacer()
-
-                    Text("App Directory")
-                        .font(.system(size: 18, weight: .semibold))
+                    TextField("Search apps...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
 
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+
+                Divider().background(VColor.surfaceBorder)
+            }
+        }) {
+            if isLoading {
+                HStack {
                     Spacer()
-
-                    // Collapsible search
-                    if !displayItems.isEmpty || !searchText.isEmpty {
-                        HStack(spacing: VSpacing.sm) {
-                            if isSearchExpanded {
-                                TextField("Search apps...", text: $searchText)
-                                    .textFieldStyle(.plain)
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .frame(width: 160)
-
-                                if !searchText.isEmpty {
-                                    Button(action: { searchText = "" }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(VColor.textMuted)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            Button(action: {
-                                withAnimation(VAnimation.fast) {
-                                    isSearchExpanded.toggle()
-                                    if !isSearchExpanded {
-                                        searchText = ""
-                                    }
-                                }
-                            }) {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, isSearchExpanded ? VSpacing.md : VSpacing.sm)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(
-                            isSearchExpanded
-                                ? AnyShapeStyle(VColor.surface)
-                                : AnyShapeStyle(.clear)
-                        )
-                        .clipShape(Capsule())
-                        .overlay(
-                            isSearchExpanded
-                                ? Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
-                                : nil
-                        )
-                    } else {
-                        // Balance the back button width when no search
-                        Color.clear.frame(width: 80, height: 1)
+                    ProgressView()
+                        .controlSize(.regular)
+                    Spacer()
+                }
+                .frame(height: 300)
+            } else if displayItems.isEmpty {
+                VEmptyState(
+                    title: "No apps yet",
+                    subtitle: "Apps built with your assistant will appear here",
+                    icon: "square.grid.2x2"
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, VSpacing.xxxl)
+            } else if filteredItems.isEmpty {
+                VEmptyState(
+                    title: "No results",
+                    subtitle: "No apps matched \"\(searchText)\"",
+                    icon: "magnifyingglass"
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.top, VSpacing.xxxl)
+            } else {
+                LazyVGrid(columns: columns, spacing: VSpacing.lg) {
+                    ForEach(filteredItems) { item in
+                        appCard(item)
                     }
                 }
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.lg)
-
-                // Content
-                ScrollView {
-                    if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .controlSize(.regular)
-                            Spacer()
-                        }
-                        .frame(height: 300)
-                    } else if displayItems.isEmpty {
-                        VEmptyState(
-                            title: "No apps yet",
-                            subtitle: "Apps built with your assistant will appear here",
-                            icon: "square.grid.2x2"
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.xxxl)
-                    } else if filteredItems.isEmpty {
-                        VEmptyState(
-                            title: "No results",
-                            subtitle: "No apps matched \"\(searchText)\"",
-                            icon: "magnifyingglass"
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.xxxl)
-                    } else {
-                        LazyVGrid(columns: columns, spacing: VSpacing.lg) {
-                            ForEach(filteredItems) { item in
-                                appCard(item)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.xl)
-                        .padding(.bottom, VSpacing.xl)
-                    }
-                }
+                .padding(.bottom, VSpacing.md)
             }
         }
         .onAppear { fetchApps() }
-    }
-
-    // MARK: - Back Button
-
-    private var backButton: some View {
-        Button(action: onBack) {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("Chat")
-                    .font(VFont.bodyMedium)
-            }
-            .foregroundColor(VColor.textPrimary)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                Capsule()
-                    .fill(VColor.surface.opacity(0.85))
-                    .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Back to chat")
     }
 
     // MARK: - App Card
@@ -235,12 +169,13 @@ struct AppDirectoryView: View {
             }
             .padding(VSpacing.md)
         }
-        .background(isHovered ? Slate._800 : VColor.surface)
+        .background(isHovered ? VColor.ghostHover : VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(isHovered ? VColor.surfaceBorder.opacity(0.8) : VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(VAnimation.fast, value: isHovered)
         .contentShape(Rectangle())

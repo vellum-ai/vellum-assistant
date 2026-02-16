@@ -74,7 +74,7 @@ public struct VSlider: View {
         ZStack(alignment: .leading) {
             // Unfilled track (edge-to-edge)
             Rectangle()
-                .fill(Slate._700)
+                .fill(VColor.ghostHover)
                 .frame(height: trackHeight)
 
             // Filled track (from left edge to thumb center)
@@ -131,7 +131,7 @@ public struct VSlider: View {
                         let tickX = trackWidth * tickFraction + thumbWidth / 2
 
                         RoundedRectangle(cornerRadius: 0.5)
-                            .fill(Slate._600)
+                            .fill(VColor.ghostPressed)
                             .frame(width: tickMarkWidth, height: trackHeight)
                             .offset(x: tickX - tickMarkWidth / 2)
                     }

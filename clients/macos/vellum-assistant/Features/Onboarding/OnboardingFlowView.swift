@@ -10,109 +10,101 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                VColor.background
-                    .ignoresSafeArea()
+        ZStack {
+            VColor.background.ignoresSafeArea()
 
-                // Dimmed mock chrome — gives the "chat UI behind" effect
-                VStack(spacing: 0) {
-                    mockToolbar
-                    Spacer()
-                    mockInputBar
-                }
-                .opacity(0.25)
-                .allowsHitTesting(false)
-
-                if state.currentStep <= 7 {
-                    // Vertical card layout (steps 0-7)
-                    VStack(spacing: 0) {
-                        // TOP: Meadow background + stage image
-                        ZStack {
-                            MeadowBackground()
-
-                            OnboardingStageImage(currentStep: state.currentStep)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .padding(VSpacing.xxl)
-                        }
-                        .frame(height: 350)
-                        .clipped()
-
-                        // BOTTOM: Dark content panel
-                        VStack(spacing: VSpacing.lg) {
-                            Group {
-                                switch state.currentStep {
-                                case 0:
-                                    WakeUpStepView(state: state)
-                                case 1:
-                                    NamingStepView(state: state)
-                                case 2:
-                                    APIKeyStepView(state: state)
-                                case 3:
-                                    FnKeyStepView(state: state)
-                                case 4:
-                                    SpeechPermissionStepView(state: state)
-                                case 5:
-                                    AccessibilityPermissionStepView(state: state)
-                                case 6:
-                                    ScreenPermissionStepView(state: state)
-                                case 7:
-                                    AliveStepView(
-                                        state: state,
-                                        onComplete: onComplete,
-                                        onOpenSettings: onOpenSettings
-                                    )
-                                default:
-                                    EmptyView()
-                                }
-                            }
-                            .transition(
-                                .asymmetric(
-                                    insertion: .opacity.combined(with: .offset(y: 12)),
-                                    removal: .opacity.combined(with: .offset(y: -8))
-                                )
-                            )
-                            .id(state.currentStep)
-
-                            OnboardingProgressDots(currentStep: state.currentStep)
-                                .padding(.top, VSpacing.xs)
-                        }
-                        .padding(.horizontal, VSpacing.xxl)
-                        .padding(.top, VSpacing.xl)
-                        .padding(.bottom, VSpacing.xxl)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            Rectangle()
-                                .fill(.ultraThinMaterial)
-                                .overlay(
-                                    Rectangle()
-                                        .fill(Meadow.panelBackground)
-                                )
-                        )
-                    }
-                    .frame(maxWidth: 640)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.xl)
-                            .stroke(Meadow.panelBorder, lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
-                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                } else {
-                    // Step 8: Interview — manages its own layout
-                    InterviewStepView(
-                        state: state,
-                        daemonClient: daemonClient,
-                        onComplete: onComplete
-                    )
+            if state.currentStep == 0 {
+                // Step 0: Full-window welcome screen
+                WakeUpStepView(state: state)
                     .transition(
-                        .opacity.combined(with: .scale(scale: 0.97))
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 12)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
                     )
                     .id(state.currentStep)
+            } else if state.currentStep == 2 {
+                // Step 2: Full-window API key screen
+                APIKeyStepView(state: state)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 12)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
+                    )
+                    .id(state.currentStep)
+            } else if state.currentStep <= 7 {
+                // Steps 1-7: Egg + content panel layout
+                VStack(spacing: 0) {
+                    // TOP: Stage image (egg)
+                    OnboardingStageImage(currentStep: state.currentStep)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, VSpacing.xxl)
+
+                    // BOTTOM: Content panel
+                    VStack(spacing: VSpacing.lg) {
+                        Group {
+                            switch state.currentStep {
+                            case 1:
+                                NamingStepView(state: state)
+                            case 2:
+                                APIKeyStepView(state: state)
+                            case 3:
+                                FnKeyStepView(state: state)
+                            case 4:
+                                SpeechPermissionStepView(state: state)
+                            case 5:
+                                AccessibilityPermissionStepView(state: state)
+                            case 6:
+                                ScreenPermissionStepView(state: state)
+                            case 7:
+                                AliveStepView(
+                                    state: state,
+                                    onComplete: onComplete,
+                                    onOpenSettings: onOpenSettings
+                                )
+                            default:
+                                EmptyView()
+                            }
+                        }
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 12)),
+                                removal: .opacity.combined(with: .offset(y: -8))
+                            )
+                        )
+                        .id(state.currentStep)
+
+                        OnboardingProgressDots(currentStep: state.currentStep)
+                            .padding(.top, VSpacing.xs)
+                    }
+                    .padding(.horizontal, VSpacing.xxl)
+                    .padding(.top, VSpacing.xl)
+                    .padding(.bottom, VSpacing.xxl)
+                    .frame(maxWidth: .infinity)
+                    .background(VColor.background)
                 }
+                .ignoresSafeArea(edges: .top)
+            } else {
+                // Step 8: Interview — manages its own layout
+                InterviewStepView(
+                    state: state,
+                    daemonClient: daemonClient,
+                    onComplete: onComplete
+                )
+                .transition(
+                    .opacity.combined(with: .scale(scale: 0.97))
+                )
+                .id(state.currentStep)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
         }
         .ignoresSafeArea()
+        .onChange(of: state.currentStep) { _, newStep in
+            if newStep > 2 {
+                onComplete()
+            }
+        }
     }
 
     // MARK: - Mock Chrome

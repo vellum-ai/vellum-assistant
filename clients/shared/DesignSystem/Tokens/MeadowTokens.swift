@@ -3,8 +3,14 @@ import SwiftUI
 /// Onboarding-specific design tokens for the Pixel Meadow theme.
 public enum Meadow {
     // Panel
-    public static let panelBackground = Slate._900.opacity(0.75)
-    public static let panelBorder = Slate._700.opacity(0.4)
+    public static let panelBackground = adaptiveColor(
+        light: Color.white.opacity(0.85),
+        dark: Slate._900.opacity(0.75)
+    )
+    public static let panelBorder = adaptiveColor(
+        light: Slate._200.opacity(0.6),
+        dark: Slate._700.opacity(0.4)
+    )
 
     // Egg glow
     public static let eggGlow = Amber._500
@@ -12,7 +18,10 @@ public enum Meadow {
     public static let crackLight = Amber._200
 
     // Bottom caption
-    public static let captionText = Color.white.opacity(0.5)
+    public static let captionText = adaptiveColor(
+        light: Color.black.opacity(0.4),
+        dark: Color.white.opacity(0.5)
+    )
 
     // Pixel scaling factor
     public static let pixelScale: CGFloat = 2.0
