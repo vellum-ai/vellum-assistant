@@ -131,7 +131,7 @@ export class ToolExecutor {
           sandboxed,
         });
 
-        void getHookManager().trigger('permission-request', {
+        await getHookManager().trigger('permission-request', {
           toolName: name,
           input: sanitizeToolInput(name, input),
           riskLevel,
@@ -152,7 +152,7 @@ export class ToolExecutor {
 
         decision = response.decision;
 
-        void getHookManager().trigger('permission-resolve', {
+        await getHookManager().trigger('permission-resolve', {
           toolName: name,
           decision: response.decision,
           riskLevel,
