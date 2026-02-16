@@ -315,7 +315,7 @@ struct ChatView: View {
                     }
 
                     if isThinking {
-                        ThinkingIndicator(label: !hasEverSentMessage ? "Waking up..." : "Thinking")
+                        ThinkingIndicator(label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking")
                             .id("thinking-indicator")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -340,8 +340,9 @@ struct ChatView: View {
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("thinking-indicator", anchor: .bottom)
                     }
-                    // Mark that the user has sent at least one message (after showing "Waking up...")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                } else {
+                    // Thinking finished — mark flag so next message shows "Thinking"
+                    if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true
                     }
                 }
@@ -573,15 +574,21 @@ private struct ChatBubble: View {
         }
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var bubbleFill: AnyShapeStyle {
         if isUser {
-            AnyShapeStyle(
-                LinearGradient(
-                    colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+            if colorScheme == .dark {
+                AnyShapeStyle(
+                    LinearGradient(
+                        colors: [Meadow.userBubbleGradientStart, Meadow.userBubbleGradientEnd],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                 )
-            )
+            } else {
+                AnyShapeStyle(VColor.userBubble)
+            }
         } else {
             AnyShapeStyle(VColor.surface)
         }
@@ -699,13 +706,13 @@ private struct ChatBubble: View {
             if hasText {
                 Text(markdownText)
                     .font(.system(size: 13))
-                    .foregroundColor(isUser ? .white : VColor.textPrimary)
-                    .tint(isUser ? .white : VColor.accent)
+                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
                     .textSelection(.enabled)
             } else if !message.attachments.isEmpty {
                 Text(attachmentSummary)
                     .font(VFont.caption)
-                    .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
+                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
             }
 
             if !partitioned.images.isEmpty {
@@ -735,7 +742,6 @@ private struct ChatBubble: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(bubbleFill)
         )
-        .vShadow(VShadow.sm)
         .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
         .opacity(bubbleOpacity)
     }
@@ -759,22 +765,22 @@ private struct ChatBubble: View {
         HStack(spacing: VSpacing.xs) {
             Image(systemName: fileIcon(for: attachment.mimeType))
                 .font(VFont.caption)
-                .foregroundColor(isUser ? .white.opacity(0.8) : VColor.textSecondary)
+                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
 
             Text(attachment.filename)
                 .font(VFont.caption)
-                .foregroundColor(isUser ? .white : VColor.textPrimary)
+                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                 .lineLimit(1)
 
             Text(formattedFileSize(base64Length: attachment.dataLength))
                 .font(VFont.small)
-                .foregroundColor(isUser ? .white.opacity(0.6) : VColor.textMuted)
+                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isUser ? Color.white.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
+                .fill(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
         )
     }
 

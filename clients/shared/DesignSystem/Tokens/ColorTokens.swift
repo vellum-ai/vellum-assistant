@@ -123,7 +123,7 @@ public enum VColor {
     // Backgrounds
     public static let background = adaptiveColor(light: .white, dark: Slate._950)
     public static let backgroundSubtle = adaptiveColor(light: Slate._100, dark: Slate._800)
-    public static let chatBackground = adaptiveColor(light: Slate._50, dark: Slate._900)
+    public static let chatBackground = adaptiveColor(light: .white, dark: Slate._900)
     public static let surface = adaptiveColor(light: .white, dark: Slate._800)
     public static let surfaceBorder = adaptiveColor(light: Slate._200, dark: Slate._700)
     public static let surfaceSubtle = adaptiveColor(light: Slate._50, dark: Slate._900)
@@ -146,6 +146,11 @@ public enum VColor {
     public static let success = adaptiveColor(light: Emerald._700, dark: Emerald._600)
     public static let error = adaptiveColor(light: Rose._700, dark: Rose._600)
     public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
+
+    // Chat
+    public static let userBubble = adaptiveColor(light: Slate._200, dark: Violet._600)
+    public static let userBubbleText = adaptiveColor(light: Slate._900, dark: .white)
+    public static let userBubbleTextSecondary = adaptiveColor(light: Slate._600, dark: Color.white.opacity(0.8))
 
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Slate._100, dark: Slate._700)

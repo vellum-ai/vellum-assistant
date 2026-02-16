@@ -1025,10 +1025,6 @@ private struct NewConversationButton: View {
             .padding(.vertical, VSpacing.sm)
             .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isHovered ? VColor.surfaceBorder.opacity(0.8) : VColor.surfaceBorder.opacity(0.4), lineWidth: 1)
-            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
