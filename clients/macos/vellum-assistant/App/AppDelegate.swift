@@ -227,6 +227,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             skipSessionCreate: true,
             notificationService: self.services.activityNotificationService
         )
+        // Wire relatedViewModel to enable tool call extraction for notifications
+        session.relatedViewModel = mainWindow?.threadManager.activeViewModel
         self.currentSession = session
 
         let overlay = SessionOverlayWindow(session: session)
@@ -1086,6 +1088,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     skipSessionCreate: true,
                     notificationService: self.services.activityNotificationService
                 )
+                // Wire relatedViewModel to enable tool call extraction for notifications
+                session.relatedViewModel = self.mainWindow?.threadManager.activeViewModel
                 self.currentSession = session
                 let overlay = SessionOverlayWindow(session: session)
                 overlay.show()

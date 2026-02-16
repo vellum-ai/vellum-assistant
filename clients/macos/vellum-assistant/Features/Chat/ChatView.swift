@@ -639,10 +639,10 @@ private struct ChatBubble: View {
     }
 
     /// Current step indicator rendered outside the bubble.
-    /// Shows when message is streaming or has tool calls.
+    /// Shows only when there are actual tool calls.
     @ViewBuilder
     private func toolCallChips(_ calls: [ToolCallData]) -> some View {
-        if !isUser && (message.isStreaming || !calls.isEmpty) {
+        if !isUser && !calls.isEmpty {
             CurrentStepIndicator(
                 toolCalls: calls,
                 isActivityPanelOpen: isActivityPanelOpen,
