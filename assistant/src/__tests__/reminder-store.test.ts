@@ -8,6 +8,8 @@ import {
   listReminders,
   cancelReminder,
   claimDueReminders,
+  completeReminder,
+  failReminder,
   setReminderConversationId,
 } from '../tools/reminder/reminder-store.js';
 
@@ -121,7 +123,7 @@ describe('reminder-store', () => {
     const claimed = claimDueReminders(now);
     expect(claimed).toHaveLength(1);
     expect(claimed[0].label).toBe('Past');
-    expect(claimed[0].status).toBe('fired');
+    expect(claimed[0].status).toBe('firing');
     expect(claimed[0].firedAt).toBe(now);
   });
 
@@ -157,6 +159,49 @@ describe('reminder-store', () => {
 
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(0);
+  });
+
+  // ── completeReminder ─────────────────────────────────────────────
+
+  test('completeReminder transitions firing to fired', () => {
+    const now = Date.now();
+    const r = insertReminder({ label: 'Complete me', message: 'x', fireAt: now - 1000, mode: 'notify' });
+
+    claimDueReminders(now);
+    expect(getReminder(r.id)!.status).toBe('firing');
+
+    completeReminder(r.id);
+    expect(getReminder(r.id)!.status).toBe('fired');
+  });
+
+  // ── failReminder ────────────────────────────────────────────────
+
+  test('failReminder reverts firing back to pending', () => {
+    const now = Date.now();
+    const r = insertReminder({ label: 'Fail me', message: 'x', fireAt: now - 1000, mode: 'execute' });
+
+    claimDueReminders(now);
+    expect(getReminder(r.id)!.status).toBe('firing');
+
+    failReminder(r.id);
+
+    const fetched = getReminder(r.id)!;
+    expect(fetched.status).toBe('pending');
+    expect(fetched.firedAt).toBeNull();
+  });
+
+  test('failReminder allows the reminder to be reclaimed', () => {
+    const now = Date.now();
+    const r = insertReminder({ label: 'Retry me', message: 'x', fireAt: now - 1000, mode: 'execute' });
+
+    // Claim, then fail
+    claimDueReminders(now);
+    failReminder(r.id);
+
+    // Should be claimable again
+    const reclaimed = claimDueReminders(now);
+    expect(reclaimed).toHaveLength(1);
+    expect(reclaimed[0].id).toBe(r.id);
   });
 
   // ── setReminderConversationId ──────────────────────────────────────

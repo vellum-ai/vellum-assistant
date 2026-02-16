@@ -9,7 +9,7 @@ export interface ReminderRow {
   message: string;
   fireAt: number;
   mode: 'notify' | 'execute';
-  status: 'pending' | 'fired' | 'cancelled';
+  status: 'pending' | 'firing' | 'fired' | 'cancelled';
   firedAt: number | null;
   conversationId: string | null;
   createdAt: number;
@@ -73,8 +73,9 @@ export function cancelReminder(id: string): boolean {
 
 /**
  * Claim all pending reminders where fire_at <= now.
- * Uses optimistic locking: UPDATE ... SET status='fired' WHERE status='pending' AND id=?
- * Same pattern as claimDueSchedules in schedule-store.ts.
+ * Transitions to 'firing' (not 'fired') so the reminder stays recoverable
+ * if execution fails. Call completeReminder() after successful delivery
+ * to move to the terminal 'fired' state.
  */
 export function claimDueReminders(now: number): ReminderRow[] {
   const db = getDb();
@@ -89,7 +90,7 @@ export function claimDueReminders(now: number): ReminderRow[] {
   for (const row of candidates) {
     const result = db
       .update(reminders)
-      .set({ status: 'fired', firedAt: now, updatedAt: now })
+      .set({ status: 'firing', firedAt: now, updatedAt: now })
       .where(and(eq(reminders.id, row.id), eq(reminders.status, 'pending')))
       .run() as unknown as { changes?: number };
 
@@ -97,12 +98,30 @@ export function claimDueReminders(now: number): ReminderRow[] {
 
     claimed.push(parseRow({
       ...row,
-      status: 'fired',
+      status: 'firing',
       firedAt: now,
       updatedAt: now,
     }));
   }
   return claimed;
+}
+
+/** Mark a claimed reminder as successfully delivered. */
+export function completeReminder(id: string): void {
+  const db = getDb();
+  db.update(reminders)
+    .set({ status: 'fired', updatedAt: Date.now() })
+    .where(and(eq(reminders.id, id), eq(reminders.status, 'firing')))
+    .run();
+}
+
+/** Revert a claimed reminder back to pending so it can be retried. */
+export function failReminder(id: string): void {
+  const db = getDb();
+  db.update(reminders)
+    .set({ status: 'pending', firedAt: null, updatedAt: Date.now() })
+    .where(and(eq(reminders.id, id), eq(reminders.status, 'firing')))
+    .run();
 }
 
 export function setReminderConversationId(id: string, conversationId: string): void {
