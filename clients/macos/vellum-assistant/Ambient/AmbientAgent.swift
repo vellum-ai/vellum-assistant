@@ -41,6 +41,14 @@ public final class AmbientAgent: ObservableObject {
         rideShotgunTrigger.start()
     }
 
+    func pause() {
+        rideShotgunTrigger.stop()
+    }
+
+    func resume() {
+        rideShotgunTrigger.start()
+    }
+
     func teardown() {
         rideShotgunTrigger.stop()
         currentSession?.cancel()

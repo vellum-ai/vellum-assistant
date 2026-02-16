@@ -285,6 +285,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let overlay = SessionOverlayWindow(session: session)
         overlay.show()
         self.overlayWindow = overlay
+        self.ambientAgent.pause()
 
         // Close the text response window but keep the text session reference
         // (no de-escalation for MVP — text session is effectively done)
@@ -298,6 +299,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.overlayWindow = nil
             self.currentSession = nil
             self.currentTextSession = nil
+            self.ambientAgent.resume()
         }
     }
 
@@ -749,6 +751,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.thinkingWindow = nil
                     self?.currentSession?.cancel()
                     self?.currentTextSession?.cancel()
+                    self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationManager.dismissAll()
                     self?.secretPromptManager.dismissAll()
@@ -1152,11 +1155,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 let overlay = SessionOverlayWindow(session: session)
                 overlay.show()
                 self.overlayWindow = overlay
+                self.ambientAgent.pause()
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
                 self.overlayWindow = nil
                 self.currentSession = nil
+                self.ambientAgent.resume()
 
             default: // text_qa
                 let session = TextSession(
@@ -1172,12 +1177,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 let window = TextResponseWindow(session: session, inputState: inputState)
                 window.show()
                 self.textResponseWindow = window
+                self.ambientAgent.pause()
 
                 // Clean up when the user closes the panel
                 window.onClose = { [weak self] in
                     self?.currentTextSession?.cancel()
                     self?.textResponseWindow = nil
                     self?.currentTextSession = nil
+                    self?.ambientAgent.resume()
                 }
 
                 await session.run()
