@@ -92,6 +92,19 @@ function classifyError(err: unknown): ErrorCategory {
     return 'retryable';
   }
 
+  // Parse HTTP status codes from error messages (e.g., "request failed (429): ...")
+  // Gemini and Ollama backends embed status codes in plain Error messages
+  if (err instanceof Error) {
+    const statusMatch = err.message.match(/\((\d{3})\)/);
+    if (statusMatch) {
+      const status = parseInt(statusMatch[1], 10);
+      if (status === 429) return 'retryable';
+      if (status >= 500) return 'retryable';
+      // 4xx client errors → fatal
+      if (status >= 400 && status < 500) return 'fatal';
+    }
+  }
+
   // Connection/network errors without a status code
   if (err instanceof Error && /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
     return 'retryable';
