@@ -81,11 +81,11 @@ struct BundleConfirmationView: View {
             Image(systemName: "checkmark.seal.fill")
                 .foregroundColor(VColor.success)
         case .signed:
-            Image(systemName: "info.circle.fill")
-                .foregroundColor(VColor.textSecondary)
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundColor(VColor.accent)
         case .unsigned:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(VColor.warning)
+            Image(systemName: "lock.open")
+                .foregroundColor(VColor.textSecondary)
         case .tampered:
             Image(systemName: "xmark.seal.fill")
                 .foregroundColor(VColor.error)
@@ -108,19 +108,19 @@ struct BundleConfirmationView: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("Signed")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(VColor.accent)
                 let keyId = viewModel.signatureResult.signerKeyId ?? "unknown"
                 let shortKey = keyId.count > 8 ? String(keyId.prefix(8)) + "..." : keyId
-                Text("Created by an unverified user (key: \(shortKey)). Content not modified.")
+                Text("Created by \(viewModel.signatureResult.signerDisplayName ?? shortKey). Content hasn't been modified.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
             }
         case .unsigned:
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Unsigned")
+                Text("Not signed")
                     .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.warning)
-                Text("This app is unsigned.")
+                    .foregroundColor(VColor.textSecondary)
+                Text("This app hasn't been signed. Only open apps from sources you trust.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -141,9 +141,9 @@ struct BundleConfirmationView: View {
         case .verified:
             return VColor.success.opacity(0.1)
         case .signed:
-            return VColor.surface
+            return VColor.accent.opacity(0.1)
         case .unsigned:
-            return VColor.warning.opacity(0.1)
+            return VColor.surface
         case .tampered:
             return VColor.error.opacity(0.1)
         }
@@ -171,11 +171,11 @@ struct BundleConfirmationView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Button(action: { viewModel.warningsExpanded.toggle() }) {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                        Text("Security scan: \(viewModel.scanResult.warnings.count) warning\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
+                        Image(systemName: "info.circle")
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Scan complete — \(viewModel.scanResult.warnings.count) note\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
                             .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.warning)
+                            .foregroundColor(VColor.textSecondary)
                         Spacer()
                         Image(systemName: viewModel.warningsExpanded ? "chevron.up" : "chevron.down")
                             .foregroundColor(VColor.textSecondary)
@@ -189,7 +189,7 @@ struct BundleConfirmationView: View {
                         ForEach(viewModel.scanResult.warnings, id: \.self) { warning in
                             HStack(alignment: .top, spacing: VSpacing.sm) {
                                 Text("\u{2022}")
-                                    .foregroundColor(VColor.warning)
+                                    .foregroundColor(VColor.textMuted)
                                 Text(warning)
                                     .font(VFont.caption)
                                     .foregroundColor(VColor.textSecondary)
@@ -201,7 +201,7 @@ struct BundleConfirmationView: View {
             }
             .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.warning.opacity(0.1))
+            .background(VColor.surface)
             .cornerRadius(VRadius.md)
         } else {
             // Clean scan
@@ -282,7 +282,7 @@ struct BundleConfirmationView: View {
             } else {
                 // Normal "Open in Vellum" button
                 Button(action: { viewModel.confirm() }) {
-                    Text("Open in Vellum")
+                    Text("\(viewModel.manifest.icon ?? "\u{1F4E6}") Open in Vellum")
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textPrimary)
                         .padding(.vertical, VSpacing.buttonV)
