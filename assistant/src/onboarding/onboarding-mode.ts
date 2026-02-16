@@ -1,8 +1,7 @@
 export type OnboardingPhase =
   | 'post_hatch'
   | 'identity_and_profile'
-  | 'home_base_handoff'
-  | 'continuation';
+  | 'home_base_handoff';
 
 export type OnboardingSource = 'transport_hints' | 'transport_ux_brief' | 'playbook';
 
@@ -37,7 +36,7 @@ function resolvePhase(hints: string[]): OnboardingPhase {
   const raw = phaseHint.slice(PHASE_HINT_PREFIX.length);
   if (raw === 'identity_and_profile') return 'identity_and_profile';
   if (raw === 'home_base_handoff') return 'home_base_handoff';
-  if (raw === 'continuation') return 'continuation';
+  if (raw === 'continuation') return 'home_base_handoff';
   return 'post_hatch';
 }
 

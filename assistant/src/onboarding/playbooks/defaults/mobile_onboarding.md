@@ -10,7 +10,7 @@
 - [ ] Start talking to your assistant
 - [ ] Define assistant identity and personality (or confirm existing)
 - [ ] Capture user profile basics (name, preferred reference, goals, locale) in USER.md
-- [ ] If onboarding already completed elsewhere, adapt to a short continuation path
+- [ ] If onboarding already completed elsewhere, skip to normal chat
 - [ ] Defer dashboard customization and permission tasks to desktop Home Base
 
 ## Notes

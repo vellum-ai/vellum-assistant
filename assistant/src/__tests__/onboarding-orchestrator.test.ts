@@ -49,7 +49,7 @@ describe('onboarding orchestrator', () => {
     const resolved = resolveOnboardingRuntimeContext({
       channelId: 'telegram',
       hints: ['onboarding-active'],
-      uxBrief: 'Onboarding continuation for messaging channel.',
+      uxBrief: 'Onboarding for messaging channel.',
       playbookContent: [
         '# Telegram',
         '- [ ] Start talking to your assistant',

@@ -18,9 +18,6 @@ function renderPhaseLine(phase: OnboardingModeState['phase']): string {
   if (phase === 'home_base_handoff') {
     return 'Current onboarding phase focus: Home Base generation + handoff.';
   }
-  if (phase === 'continuation') {
-    return 'Current onboarding phase focus: continuation from prior onboarding progress.';
-  }
   return 'Current onboarding phase focus: post-hatch first conversation.';
 }
 
@@ -34,7 +31,7 @@ export function buildOnboardingRuntimePrompt(
     'Capture onboarding profile details in USER.md directly using normal file_edit flows.',
     'Do not create or rely on a separate locale/profile memory subsystem.',
     'Do not proactively request microphone or computer-control permissions during hatch + first conversation.',
-    'Permission setup should stay user-initiated during onboarding: explicit user ask or Home Base action IDs `home_base_onboarding_enable_voice_mode` / `home_base_onboarding_enable_computer_control`.',
+    'Permission setup should stay user-initiated during onboarding: explicit user ask or optional setup prompts from Home Base.',
   ];
 
   if (mode.assistantName) {
