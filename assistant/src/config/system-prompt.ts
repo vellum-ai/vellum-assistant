@@ -113,6 +113,7 @@ function buildDynamicUiSection(): string {
     '- `auto_open` defaults to true — the app opens immediately after creation',
     '- Always include `preview`: `{ title, icon (emoji), metrics: [{ label, value }] }` for an inline chat card',
     '- For iteration on an existing app: use `app_update` to change the HTML, then `app_open` to reopen it',
+    '- Home Base starts from a prebuilt scaffold. When updating Home Base, preserve required task-lane anchors and apply updates through normal `app_update` flows',
     '- For complex apps: call `skill_load` with `id: "app-builder"` for the full design reference',
     '',
     '### Quality standards',

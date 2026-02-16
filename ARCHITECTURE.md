@@ -72,6 +72,7 @@ graph TB
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
             PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
             ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence + Home Base handoff<br/>runtime onboarding-mode prompt"]
+            HOME_BASE_SEED["HomeBaseSeed<br/>prebuilt scaffold seeding<br/>idempotent bootstrap"]
         end
 
         subgraph "Inference"
@@ -170,6 +171,7 @@ graph TB
         KEYCHAIN["Keychain<br/>API key storage"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
+        APPS_DATA["~/.vellum/workspace/data/apps/<br/>app JSON + pages"]
         SESSION_LOGS["logs/session-*.json"]
     end
 
@@ -233,6 +235,8 @@ graph TB
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     PLAYBOOK_MGR --> ONBOARD_ORCH
     ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
+    IPC_SERVER -.->|"daemon startup bootstrap"| HOME_BASE_SEED
+    HOME_BASE_SEED --> APPS_DATA
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
@@ -314,6 +318,7 @@ graph TB
 - `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies first-time fast-path vs cross-channel reconciliation.
 - `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
+- Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
 
 ---
 
@@ -416,6 +421,7 @@ graph LR
         CONFIG["config files<br/>Hot-reloaded by daemon"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
+        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
     end
 
     subgraph "PostgreSQL (Web Server Only)"

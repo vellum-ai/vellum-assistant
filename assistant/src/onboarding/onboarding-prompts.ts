@@ -24,7 +24,10 @@ function renderPhaseLine(phase: OnboardingModeState['phase']): string {
   return 'Current onboarding phase focus: post-hatch first conversation.';
 }
 
-export function buildOnboardingRuntimePrompt(mode: OnboardingModeState): string {
+export function buildOnboardingRuntimePrompt(
+  mode: OnboardingModeState,
+  homeBaseAppId?: string,
+): string {
   const lines: string[] = [
     'You are in onboarding mode for this session.',
     renderPhaseLine(mode.phase),
@@ -35,6 +38,10 @@ export function buildOnboardingRuntimePrompt(mode: OnboardingModeState): string 
 
   if (mode.assistantName) {
     lines.push(`Assistant identity hint from client: ${mode.assistantName}.`);
+  }
+
+  if (homeBaseAppId) {
+    lines.push(`Prebuilt Home Base app id: ${homeBaseAppId}. Reuse this app_id for Home Base flows.`);
   }
 
   lines.push(...renderPostHatchSequenceLines());

@@ -1,4 +1,15 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
+
+mock.module('../home-base/prebuilt/seed.js', () => ({
+  findSeededHomeBaseApp: () => ({ id: 'home-base-123' }),
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
 import { resolveOnboardingRuntimeContext } from '../onboarding/onboarding-orchestrator.js';
 
 describe('onboarding orchestrator', () => {
@@ -20,6 +31,7 @@ describe('onboarding orchestrator', () => {
     expect(resolved?.prompt).toContain('Capture onboarding profile details in USER.md directly');
     expect(resolved?.prompt).toContain('Do not proactively request microphone or computer-control permissions');
     expect(resolved?.prompt).toContain('Make it mine');
+    expect(resolved?.homeBaseAppId).toBe('home-base-123');
   });
 
   test('does not activate onboarding runtime guidance for unrelated sessions', () => {

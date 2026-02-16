@@ -12,6 +12,10 @@ import type { ToolExecutionResult } from '../tools/types.js';
 import { getApp, updateApp } from '../memory/app-store.js';
 import { getLogger } from '../util/logger.js';
 import { buildSessionErrorMessage } from './session-error.js';
+import {
+  getPrebuiltHomeBasePreview,
+  findSeededHomeBaseApp,
+} from '../home-base/prebuilt/seed.js';
 
 const log = getLogger('session-surfaces');
 
@@ -483,8 +487,17 @@ export async function surfaceProxyResolver(
     const preview = input.preview as DynamicPageSurfaceData['preview'];
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
+    const seededHomeBase = findSeededHomeBaseApp();
+    const defaultPreview = seededHomeBase && seededHomeBase.id === app.id
+      ? getPrebuiltHomeBasePreview()
+      : undefined;
 
-    const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, appType: app.appType, preview };
+    const surfaceData: DynamicPageSurfaceData = {
+      html: app.htmlDefinition,
+      appId: app.id,
+      appType: app.appType,
+      preview: preview ?? defaultPreview,
+    };
     const surfaceId = uuid();
     ctx.surfaceState.set(surfaceId, {
       surfaceType: 'dynamic_page',

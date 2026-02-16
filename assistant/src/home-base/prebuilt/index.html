@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Home Base</title>
+  <style>
+    :root {
+      --bg: #f8f5ef;
+      --surface: #ffffff;
+      --ink: #202226;
+      --muted: #5f6674;
+      --accent: #0b7e73;
+      --border: #d7dce5;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 0% 0%, #f3ece1 0%, var(--bg) 45%);
+      color: var(--ink);
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 24px 40px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero {
+      background: linear-gradient(120deg, #ecf8f5, #ffffff 60%);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 38px);
+      letter-spacing: -0.02em;
+    }
+
+    .hero p {
+      margin: 8px 0 0;
+      color: var(--muted);
+    }
+
+    .lanes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .lane {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      min-height: 280px;
+    }
+
+    .lane h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.01em;
+    }
+
+    .lane p {
+      margin: 6px 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+
+    li {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fbfcff;
+    }
+
+    .task {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .task-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-right: 8px;
+    }
+
+    .accent {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .lanes { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main id="home-base-root" data-vellum-home-base="v1" class="wrap">
+    <section class="hero">
+      <h1>Home Base</h1>
+      <p>This is your customizable dashboard. Ask your assistant to change anything you want.</p>
+      <div style="margin-top: 12px;">
+        <span class="chip">Primary surface: <span class="accent">Dashboard</span></span>
+        <span class="chip">Chat: <span class="accent">Docked panel</span></span>
+      </div>
+    </section>
+
+    <section class="lanes">
+      <article id="home-base-onboarding-lane" class="lane">
+        <h2>Onboarding Tasks</h2>
+        <p>These are optional or next-step setup tasks for your assistant.</p>
+        <ul>
+          <li><div class="task">Make it mine</div><div class="task-meta">Tune dashboard appearance to your preferences.</div></li>
+          <li><div class="task">Enable voice mode</div><div class="task-meta">Optional permission task.</div></li>
+          <li><div class="task">Enable computer control</div><div class="task-meta">Optional permission task.</div></li>
+          <li><div class="task">Try ambient mode</div><div class="task-meta">Enable ongoing support while you work.</div></li>
+        </ul>
+      </article>
+
+      <article id="home-base-starter-lane" class="lane">
+        <h2>Starter Tasks</h2>
+        <p>Concrete actions that demonstrate immediate assistant value.</p>
+        <ul>
+          <li><div class="task">Change the look and feel</div><div class="task-meta">Color-first customization flow.</div></li>
+          <li><div class="task">Research something for me about X</div><div class="task-meta">Assistant gathers and summarizes findings.</div></li>
+          <li><div class="task">Turn it into a webpage or interactive UI</div><div class="task-meta">Build a visual app from your idea.</div></li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
