@@ -252,7 +252,7 @@ struct TextResponseView: View {
 
 // MARK: - Conversation Bubble
 
-private struct ConversationBubble: View {
+struct ConversationBubble: View {
     let message: ConversationMessage
 
     private var isAssistant: Bool { message.role == .assistant }
@@ -319,7 +319,7 @@ private struct ConversationBubble: View {
 
 // MARK: - Bouncing Dots
 
-private struct BouncingDots: View {
+struct BouncingDots: View {
     @State private var phase: Int = 0
     @State private var timer: Timer?
 
@@ -347,7 +347,7 @@ private struct BouncingDots: View {
 
 // MARK: - Conditional Modifier
 
-private extension View {
+extension View {
     @ViewBuilder
     func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
         if condition {
