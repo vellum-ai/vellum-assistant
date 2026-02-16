@@ -4,7 +4,7 @@ import { scanBundle } from '../../bundler/bundle-scanner.js';
 import { verifyBundleSignature } from '../../bundler/signature-verifier.js';
 import { getLogger } from '../../util/logger.js';
 import type { OpenBundleRequest, OpenBundleResponse } from '../ipc-protocol.js';
-import type { HandlerContext } from '../handlers.js';
+import type { HandlerContext } from './shared.js';
 
 const log = getLogger('open-bundle-handler');
 

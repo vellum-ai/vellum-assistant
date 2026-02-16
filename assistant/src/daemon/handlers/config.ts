@@ -1,0 +1,509 @@
+import * as net from 'node:net';
+import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
+import { initializeProviders } from '../../providers/registry.js';
+import { addRule, removeRule, updateRule, getAllRules } from '../../permissions/trust-store.js';
+import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
+import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
+import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { postToSlackWebhook } from '../../slack/slack-webhook.js';
+import { getApp } from '../../memory/app-store.js';
+import { listStatuses, getIntegration, disconnect as disconnectIntegration } from '../../integrations/registry.js';
+import { startOAuth2Flow } from '../../integrations/oauth2.js';
+import type {
+  ModelSetRequest,
+  AddTrustRule,
+  RemoveTrustRule,
+  UpdateTrustRule,
+  ScheduleToggle,
+  ScheduleRemove,
+  ReminderCancel,
+  ShareToSlackRequest,
+  SlackWebhookConfigRequest,
+  VercelApiConfigRequest,
+} from '../ipc-protocol.js';
+import type { IntegrationConnectRequest, IntegrationDisconnectRequest } from '../ipc-contract.js';
+import { log, type HandlerContext } from './shared.js';
+
+export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
+  const config = getConfig();
+  ctx.send(socket, {
+    type: 'model_info',
+    model: config.model,
+    provider: config.provider,
+  });
+}
+
+export function handleModelSet(
+  msg: ModelSetRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    // Use raw config to avoid persisting env-var API keys to disk
+    const raw = loadRawConfig();
+    raw.model = msg.model;
+
+    // Suppress the file watcher callback — handleModelSet already does
+    // the full reload sequence; a redundant watcher-triggered reload
+    // would incorrectly evict sessions created after this method returns.
+    ctx.setSuppressConfigReload(true);
+    try {
+      saveRawConfig(raw);
+    } catch (err) {
+      ctx.setSuppressConfigReload(false);
+      throw err;
+    }
+    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+    // Re-initialize provider with the new model so LLM calls use it
+    const config = getConfig();
+    initializeProviders(config);
+
+    // Evict idle sessions immediately; mark busy ones as stale so they
+    // get recreated with the new provider once they finish processing.
+    for (const [id, session] of ctx.sessions) {
+      if (!session.isProcessing()) {
+        session.dispose();
+        ctx.sessions.delete(id);
+      } else {
+        session.markStale();
+      }
+    }
+
+    ctx.updateConfigFingerprint();
+
+    ctx.send(socket, {
+      type: 'model_info',
+      model: config.model,
+      provider: config.provider,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
+  }
+}
+
+export function handleAddTrustRule(
+  msg: AddTrustRule,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  try {
+    addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
+    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to add trust rule');
+  }
+}
+
+export function handleTrustRulesList(socket: net.Socket, ctx: HandlerContext): void {
+  const rules = getAllRules();
+  ctx.send(socket, { type: 'trust_rules_list_response', rules });
+}
+
+export function handleRemoveTrustRule(
+  msg: RemoveTrustRule,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  try {
+    const removed = removeRule(msg.id);
+    if (!removed) {
+      log.warn({ id: msg.id }, 'Trust rule not found for removal');
+    } else {
+      log.info({ id: msg.id }, 'Trust rule removed via client');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to remove trust rule');
+  }
+}
+
+export function handleUpdateTrustRule(
+  msg: UpdateTrustRule,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  try {
+    updateRule(msg.id, {
+      tool: msg.tool,
+      pattern: msg.pattern,
+      scope: msg.scope,
+      decision: msg.decision,
+      priority: msg.priority,
+    });
+    log.info({ id: msg.id }, 'Trust rule updated via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to update trust rule');
+  }
+}
+
+export function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): void {
+  const jobs = listSchedules();
+  ctx.send(socket, {
+    type: 'schedules_list_response',
+    schedules: jobs.map((j) => ({
+      id: j.id,
+      name: j.name,
+      enabled: j.enabled,
+      cronExpression: j.cronExpression,
+      timezone: j.timezone,
+      message: j.message,
+      nextRunAt: j.nextRunAt,
+      lastRunAt: j.lastRunAt,
+      lastStatus: j.lastStatus,
+      description: describeCronExpression(j.cronExpression),
+    })),
+  });
+}
+
+export function handleScheduleToggle(
+  msg: ScheduleToggle,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    updateSchedule(msg.id, { enabled: msg.enabled });
+    log.info({ id: msg.id, enabled: msg.enabled }, 'Schedule toggled via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to toggle schedule');
+  }
+  handleSchedulesList(socket, ctx);
+}
+
+export function handleScheduleRemove(
+  msg: ScheduleRemove,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const removed = deleteSchedule(msg.id);
+    if (!removed) {
+      log.warn({ id: msg.id }, 'Schedule not found for removal');
+    } else {
+      log.info({ id: msg.id }, 'Schedule removed via client');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to remove schedule');
+  }
+  handleSchedulesList(socket, ctx);
+}
+
+export function handleRemindersList(socket: net.Socket, ctx: HandlerContext): void {
+  const items = listReminders();
+  ctx.send(socket, {
+    type: 'reminders_list_response',
+    reminders: items.map((r) => ({
+      id: r.id,
+      label: r.label,
+      message: r.message,
+      fireAt: r.fireAt,
+      mode: r.mode,
+      status: r.status,
+      firedAt: r.firedAt,
+      createdAt: r.createdAt,
+    })),
+  });
+}
+
+export function handleReminderCancel(
+  msg: ReminderCancel,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const cancelled = cancelReminder(msg.id);
+    if (!cancelled) {
+      log.warn({ id: msg.id }, 'Reminder not found or already fired/cancelled');
+    } else {
+      log.info({ id: msg.id }, 'Reminder cancelled via client');
+    }
+  } catch (err) {
+    log.error({ err }, 'Failed to cancel reminder');
+  }
+  handleRemindersList(socket, ctx);
+}
+
+export async function handleShareToSlack(
+  msg: ShareToSlackRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const config = loadRawConfig();
+    const webhookUrl = config.slackWebhookUrl as string | undefined;
+    if (!webhookUrl) {
+      ctx.send(socket, {
+        type: 'share_to_slack_response',
+        success: false,
+        error: 'No Slack webhook URL configured. Set one in Settings.',
+      });
+      return;
+    }
+
+    const app = getApp(msg.appId);
+    if (!app) {
+      ctx.send(socket, {
+        type: 'share_to_slack_response',
+        success: false,
+        error: `App not found: ${msg.appId}`,
+      });
+      return;
+    }
+
+    await postToSlackWebhook(
+      webhookUrl,
+      app.name,
+      app.description ?? '',
+      '\u{1F4F1}',
+    );
+
+    ctx.send(socket, { type: 'share_to_slack_response', success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to share app to Slack');
+    ctx.send(socket, {
+      type: 'share_to_slack_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+export function handleSlackWebhookConfig(
+  msg: SlackWebhookConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const config = loadRawConfig();
+    if (msg.action === 'get') {
+      ctx.send(socket, {
+        type: 'slack_webhook_config_response',
+        webhookUrl: (config.slackWebhookUrl as string) ?? undefined,
+        success: true,
+      });
+    } else {
+      config.slackWebhookUrl = msg.webhookUrl ?? '';
+      saveRawConfig(config);
+      ctx.send(socket, {
+        type: 'slack_webhook_config_response',
+        success: true,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Slack webhook config');
+    ctx.send(socket, {
+      type: 'slack_webhook_config_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+export function handleVercelApiConfig(
+  msg: VercelApiConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const existing = getSecureKey('credential:vercel:api_token');
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: !!existing,
+        success: true,
+      });
+    } else if (msg.action === 'set') {
+      if (!msg.apiToken) {
+        ctx.send(socket, {
+          type: 'vercel_api_config_response',
+          hasToken: false,
+          success: false,
+          error: 'apiToken is required for set action',
+        });
+        return;
+      }
+      const stored = setSecureKey('credential:vercel:api_token', msg.apiToken);
+      if (!stored) {
+        ctx.send(socket, {
+          type: 'vercel_api_config_response',
+          hasToken: false,
+          success: false,
+          error: 'Failed to store API token in secure storage',
+        });
+        return;
+      }
+      upsertCredentialMetadata('vercel', 'api_token', {
+        allowedTools: ['publish_page', 'unpublish_page'],
+      });
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: true,
+        success: true,
+      });
+    } else {
+      deleteSecureKey('credential:vercel:api_token');
+      deleteCredentialMetadata('vercel', 'api_token');
+      ctx.send(socket, {
+        type: 'vercel_api_config_response',
+        hasToken: false,
+        success: true,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Vercel API config');
+    ctx.send(socket, {
+      type: 'vercel_api_config_response',
+      hasToken: false,
+      success: false,
+      error: message,
+    });
+  }
+}
+
+export function handleIntegrationList(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const statuses = listStatuses();
+  ctx.send(socket, {
+    type: 'integration_list_response',
+    integrations: statuses.map((s) => ({
+      id: s.id,
+      connected: s.connected,
+      accountInfo: s.accountInfo,
+      connectedAt: s.connectedAt,
+      lastUsed: s.lastUsed,
+      error: s.error,
+    })),
+  });
+}
+
+export async function handleIntegrationConnect(
+  msg: IntegrationConnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const def = getIntegration(msg.integrationId);
+  if (!def) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" not found`,
+    });
+    return;
+  }
+
+  if (def.authType !== 'oauth2' || !def.oauth2Config) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `Integration "${msg.integrationId}" does not support OAuth2`,
+    });
+    return;
+  }
+
+  // Load clientId from config
+  const config = getConfig();
+  const integrationConfig = config.integrations[msg.integrationId];
+  const clientId = integrationConfig?.clientId || def.oauth2Config.clientId;
+
+  if (!clientId) {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: `No clientId configured for "${msg.integrationId}". Set integrations.${msg.integrationId}.clientId in config.`,
+    });
+    return;
+  }
+
+  try {
+    const oauthConfig = { ...def.oauth2Config, clientId };
+    const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
+      openUrl: (url) => ctx.send(socket, { type: 'open_url', url, title: `Connect ${def.name}` }),
+    });
+
+    // Store tokens in vault
+    const tokenStored = setSecureKey(`integration:${def.id}:access_token`, tokens.accessToken);
+    if (!tokenStored) {
+      ctx.send(socket, {
+        type: 'integration_connect_result',
+        integrationId: msg.integrationId,
+        success: false,
+        error: 'Failed to store access token in secure storage',
+      });
+      return;
+    }
+
+    const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
+
+    // Fetch account info (email) if the integration has a userinfo endpoint
+    let accountInfo: string | undefined;
+    const userinfoUrl = def.oauth2Config.userinfoUrl;
+    if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
+      try {
+        const resp = await fetch(userinfoUrl, {
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        });
+        if (resp.ok) {
+          const info = await resp.json() as { email?: string };
+          accountInfo = info.email;
+        }
+      } catch {
+        // Non-fatal — account info is optional
+      }
+    }
+
+    upsertCredentialMetadata(`integration:${def.id}`, 'access_token', {
+      allowedTools: def.allowedTools,
+      expiresAt,
+      grantedScopes,
+      accountInfo: accountInfo ?? null,
+    });
+
+    if (tokens.refreshToken) {
+      const refreshStored = setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken);
+      if (!refreshStored) {
+        log.warn({ integrationId: def.id }, 'Failed to store refresh token in secure storage');
+      } else {
+        upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
+      }
+    }
+
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: def.id,
+      success: true,
+      accountInfo,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
+    log.error({ err, integrationId: msg.integrationId }, 'Integration connect failed');
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: message,
+    });
+  }
+}
+
+export function handleIntegrationDisconnect(
+  msg: IntegrationDisconnectRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  disconnectIntegration(msg.integrationId);
+  log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
+  // Send updated list so the client refreshes
+  handleIntegrationList(socket, ctx);
+}
