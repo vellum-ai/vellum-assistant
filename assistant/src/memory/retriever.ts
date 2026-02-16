@@ -158,7 +158,11 @@ async function collectAndMergeCandidates(
     try {
       semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
     } catch (err) {
-      log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+      if (isQdrantConnectionError(err)) {
+        log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+      } else {
+        log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+      }
     }
   }
 
@@ -1695,6 +1699,11 @@ function buildFtsMatchQuery(text: string): string | null {
 function isAbortError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === 'AbortError' || err.name === 'APIUserAbortError';
+}
+
+function isQdrantConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message);
 }
 
 // ── Simple search API for memory tools ───────────────────────────────
