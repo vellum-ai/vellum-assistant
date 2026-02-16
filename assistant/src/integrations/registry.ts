@@ -43,6 +43,7 @@ export function getStatus(id: string): IntegrationStatus {
   return {
     id,
     connected: true,
+    accountInfo: metadata?.accountInfo,
     connectedAt: metadata?.createdAt,
     lastUsed: metadata?.updatedAt,
   };
