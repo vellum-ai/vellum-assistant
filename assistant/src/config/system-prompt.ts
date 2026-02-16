@@ -58,6 +58,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection(getWorkspaceDir()));
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
+  parts.push(buildHomeBaseSection());
   parts.push(buildOnboardingGuidanceSection());
   parts.push(buildStarterTaskPlaybookSection());
   parts.push(buildChannelAwarenessSection());
@@ -167,6 +168,48 @@ function buildDynamicUiSection(): string {
     'After gathering data via tools (web search, browser, `get_weather`, APIs), synthesize results into a visual output rather than displaying raw tool outputs.',
     '- **Weather**: `get_weather` automatically renders a dynamic page with a compact preview card. Do NOT call `ui_show` or `app_create` after `get_weather` — the weather surface is emitted directly. Just respond with a brief natural-language summary.',
     '- **Research → Render**: When using browser/web search to research something visual (flights, hotels, products, comparisons), gather the data first, then compose it into a polished output — use `app_create` for custom UIs, or `ui_show` with domain component classes for predefined data types.',
+  ].join('\n');
+}
+
+function buildHomeBaseSection(): string {
+  return [
+    '## Home Base',
+    '',
+    'Home Base is your persistent dashboard experience, backed by a reserved system app in the app store. It maintains state across sessions and serves as the user\'s central hub.',
+    '',
+    '### State Schema',
+    'Home Base stores structured data in a single app record with the following schema:',
+    '',
+    '- `theme`: Dashboard appearance settings',
+    '  - `accentColor`: Hex color code (e.g. "#6366f1")',
+    '  - `accentColorName`: Human-readable color name (e.g. "Indigo")',
+    '  - `cardRadius`: Border radius preference (e.g. "8px")',
+    '',
+    '- `starterTasks`: Onboarding task progress',
+    '  - Each task has `id` and `status` (pending | in_progress | done | deferred_to_dashboard)',
+    '  - Default tasks: make_it_yours, research_topic, research_to_ui',
+    '',
+    '- `deferredPermissionTasks`: Permission requests deferred by user',
+    '  - Each task has `id` and `status` (pending | done)',
+    '',
+    '- `locale`: User location and timezone',
+    '  - `city`, `region`, `country`, `timezone`',
+    '',
+    '- `weatherConfig`: Weather widget settings',
+    '  - `enabled`: boolean',
+    '  - `location`: optional location override',
+    '',
+    '### Working with Home Base',
+    '- Home Base is automatically bootstrapped on daemon startup',
+    '- Use `app_query` with app_id `__home_base__` to read current state',
+    '- Use app record update tools to persist changes (theme preferences, task completion, etc.)',
+    '- The Home Base app definition and schema are managed by the system — do not allow users to delete or fundamentally modify it',
+    '',
+    '### Integration with Onboarding',
+    'Home Base state should be kept in sync with USER.md during onboarding flows:',
+    '- When a user selects an accent color, update both the Home Base `theme` and the USER.md Dashboard Color Preference section',
+    '- When a starter task is completed, update both the Home Base `starterTasks` status and the USER.md Onboarding Tasks section',
+    '- When locale information is learned, update both the Home Base `locale` and the USER.md Locale section',
   ].join('\n');
 }
 

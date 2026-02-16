@@ -29,6 +29,7 @@ import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
+import { getOrCreateHomeBase } from '../memory/app-store.js';
 
 const log = getLogger('lifecycle');
 
@@ -193,6 +194,14 @@ export async function runDaemon(): Promise<void> {
   installTemplates();
   ensurePromptFiles();
   initializeDb();
+
+  // Bootstrap Home Base reserved app
+  try {
+    getOrCreateHomeBase();
+    log.info('Home Base app bootstrapped');
+  } catch (err) {
+    log.warn({ err }, 'Failed to bootstrap Home Base app');
+  }
 
   const config = loadConfig();
 
