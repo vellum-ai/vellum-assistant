@@ -506,9 +506,9 @@ struct MainWindowView: View {
                         onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
                         watchSession: ambientAgent.activeWatchSession,
                         onStopWatch: { viewModel.stopWatchSession() },
-                        onOpenActivity: { toolCalls in
-                            print("DEBUG: onOpenActivity called with \(toolCalls.count) tool calls")
-                            windowState.toggleActivityPanel(with: toolCalls)
+                        onOpenActivity: { messageId in
+                            print("DEBUG: onOpenActivity called with message ID: \(messageId)")
+                            windowState.toggleActivityPanel(with: messageId)
                             print("DEBUG: activePanel is now \(String(describing: windowState.activePanel))")
                         },
                         isActivityPanelOpen: windowState.activePanel == .activity
@@ -877,10 +877,17 @@ struct MainWindowView: View {
             case .doctor:
                 DoctorPanel(onClose: { windowState.activePanel = nil })
             case .activity:
-                ActivityPanel(
-                    toolCalls: windowState.activityToolCalls,
-                    onClose: { windowState.activePanel = nil }
-                )
+                if let viewModel = threadManager.activeViewModel,
+                   let messageId = windowState.activityMessageId {
+                    ActivityPanel(
+                        viewModel: viewModel,
+                        messageId: messageId,
+                        onClose: { windowState.activePanel = nil }
+                    )
+                } else {
+                    Color.clear.frame(width: 0, height: 0)
+                        .onAppear { windowState.activePanel = nil }
+                }
             }
         }
     }
