@@ -270,18 +270,18 @@ describe('renderHistoryContent', () => {
 describe('mergeToolResults', () => {
   test('merges tool_result user messages into preceding assistant toolCalls', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['fetch this page'], contentOrder: ['text:0'] },
+      { role: 'user', text: 'fetch this page', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['fetch this page'], contentOrder: ['text:0'], surfaces: [] },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'web_fetch', input: { url: 'https://example.com' } }],
-        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'],
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'], surfaces: [],
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'page content', isError: false }],
-        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [], surfaces: [],
       },
-      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [], toolCallsBeforeText: false, textSegments: ['Here is what I found.'], contentOrder: ['text:0'] },
+      { role: 'assistant', text: 'Here is what I found.', timestamp: 4, toolCalls: [], toolCallsBeforeText: false, textSegments: ['Here is what I found.'], contentOrder: ['text:0'], surfaces: [] },
     ]);
 
     expect(result).toHaveLength(3);
@@ -295,16 +295,16 @@ describe('mergeToolResults', () => {
 
   test('suppresses tool_result-only user messages from visible history', () => {
     const result = mergeToolResults([
-      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['hello'], contentOrder: ['text:0'] },
+      { role: 'user', text: 'hello', timestamp: 1, toolCalls: [], toolCallsBeforeText: false, textSegments: ['hello'], contentOrder: ['text:0'], surfaces: [] },
       {
         role: 'assistant', text: '', timestamp: 2,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
-        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'],
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0'], surfaces: [],
       },
       {
         role: 'user', text: '', timestamp: 3,
         toolCalls: [{ name: 'unknown', input: {}, result: 'file.txt', isError: false }],
-        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [], surfaces: [],
       },
     ]);
 
@@ -317,7 +317,7 @@ describe('mergeToolResults', () => {
       {
         role: 'user', text: 'user typed something', timestamp: 1,
         toolCalls: [{ name: 'unknown', input: {}, result: 'data', isError: false }],
-        toolCallsBeforeText: false, textSegments: ['user typed something'], contentOrder: ['text:0'],
+        toolCallsBeforeText: false, textSegments: ['user typed something'], contentOrder: ['text:0'], surfaces: [],
       },
     ]);
 
@@ -333,7 +333,7 @@ describe('mergeToolResults', () => {
           { name: 'bash', input: { command: 'ls' } },
           { name: 'bash', input: { command: 'pwd' } },
         ],
-        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0', 'tool:1'],
+        toolCallsBeforeText: true, textSegments: [], contentOrder: ['tool:0', 'tool:1'], surfaces: [],
       },
       {
         role: 'user', text: '', timestamp: 2,
@@ -341,7 +341,7 @@ describe('mergeToolResults', () => {
           { name: 'unknown', input: {}, result: 'file.txt', isError: false },
           { name: 'unknown', input: {}, result: '/home/user', isError: false },
         ],
-        toolCallsBeforeText: false, textSegments: [], contentOrder: [],
+        toolCallsBeforeText: false, textSegments: [], contentOrder: [], surfaces: [],
       },
     ]);
 
@@ -355,12 +355,12 @@ describe('mergeToolResults', () => {
       {
         role: 'assistant', text: '', timestamp: 1,
         toolCalls: [{ name: 'bash', input: { command: 'ls' } }],
-        toolCallsBeforeText: true, textSegments: [] as string[], contentOrder: ['tool:0'],
+        toolCallsBeforeText: true, textSegments: [] as string[], contentOrder: ['tool:0'], surfaces: [],
       },
       {
         role: 'user', text: '', timestamp: 2,
         toolCalls: [{ name: 'unknown', input: {}, result: 'output', isError: false }],
-        toolCallsBeforeText: false, textSegments: [] as string[], contentOrder: [] as string[],
+        toolCallsBeforeText: false, textSegments: [] as string[], contentOrder: [] as string[], surfaces: [],
       },
     ];
 

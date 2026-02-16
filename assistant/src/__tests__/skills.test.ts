@@ -17,6 +17,12 @@ mock.module('../util/platform.js', () => ({
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
   getPlatformName: () => process.platform,
+  getWorkspaceConfigPath: () => join(TEST_DIR, 'config.json'),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
+  getWorkspaceDir: () => TEST_DIR,
+  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
+  migrateToDataLayout: () => {},
+  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module('../util/logger.js', () => ({
