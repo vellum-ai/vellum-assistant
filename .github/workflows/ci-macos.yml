@@ -1,0 +1,41 @@
+name: PR macOS Build Check
+
+on:
+  pull_request:
+    paths:
+      - 'clients/macos/**'
+      - '.github/workflows/ci-macos.yml'
+
+jobs:
+  build-check:
+    name: macOS Build
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          echo "Daemon binary built:"
+          ls -lh ../clients/macos/daemon-bin/vellum-daemon
+
+      - name: Build release .app
+        working-directory: clients/macos
+        run: |
+          ./build.sh release
+          ls -la dist/Vellum.app
