@@ -4,6 +4,7 @@ import type { Message, ContentBlock, ImageContent } from '../providers/types.js'
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
 import { getQdrantClient } from '../memory/qdrant-client.js';
+import { enqueueMemoryJob } from '../memory/jobs-store.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
@@ -1906,6 +1907,8 @@ export class Session {
 
   /**
    * Delete Qdrant vector entries for the given segment and item IDs.
+   * Individual deletion failures are logged and enqueued as retry jobs
+   * to prevent silently orphaned vectors.
    */
   private async cleanupQdrantVectors(segmentIds: string[], orphanedItemIds: string[]): Promise<void> {
     let qdrant: ReturnType<typeof getQdrantClient>;
@@ -1915,18 +1918,40 @@ export class Session {
       return; // Qdrant not initialized — nothing to clean up.
     }
 
-    const deletions: Promise<void>[] = [];
+    if (segmentIds.length === 0 && orphanedItemIds.length === 0) return;
+
+    const targets: Array<{ targetType: string; targetId: string }> = [];
     for (const segId of segmentIds) {
-      deletions.push(qdrant.deleteByTarget('segment', segId));
+      targets.push({ targetType: 'segment', targetId: segId });
     }
     for (const itemId of orphanedItemIds) {
-      deletions.push(qdrant.deleteByTarget('item', itemId));
+      targets.push({ targetType: 'item', targetId: itemId });
     }
 
-    if (deletions.length > 0) {
-      await Promise.all(deletions);
+    const results = await Promise.allSettled(
+      targets.map((t) => qdrant.deleteByTarget(t.targetType, t.targetId)),
+    );
+
+    let succeeded = 0;
+    let failed = 0;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') {
+        succeeded++;
+      } else {
+        failed++;
+        const { targetType, targetId } = targets[i];
+        log.warn(
+          { err: result.reason, targetType, targetId, conversationId: this.conversationId },
+          'Qdrant vector deletion failed, enqueuing retry job',
+        );
+        enqueueMemoryJob('delete_qdrant_vectors', { targetType, targetId });
+      }
+    }
+
+    if (succeeded > 0) {
       log.info(
-        { conversationId: this.conversationId, segments: segmentIds.length, items: orphanedItemIds.length },
+        { conversationId: this.conversationId, succeeded, failed, segments: segmentIds.length, items: orphanedItemIds.length },
         'Cleaned up Qdrant vectors after regenerate',
       );
     }
