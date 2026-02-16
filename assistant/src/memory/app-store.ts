@@ -31,6 +31,7 @@ export interface AppDefinition {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
+  appType?: 'app' | 'site';
   /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
   pages?: Record<string, string>;
   createdAt: number;
@@ -107,6 +108,7 @@ export function createApp(params: {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
+  appType?: 'app' | 'site';
   pages?: Record<string, string>;
 }): AppDefinition {
   const dir = getAppsDir();
@@ -120,6 +122,7 @@ export function createApp(params: {
     schemaJson: params.schemaJson,
     htmlDefinition: params.htmlDefinition,
     version: params.version,
+    appType: params.appType,
     createdAt: now,
     updatedAt: now,
   };
@@ -170,7 +173,7 @@ export function listApps(): AppDefinition[] {
 
 export function updateApp(
   id: string,
-  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'icon' | 'preview' | 'schemaJson' | 'htmlDefinition' | 'version' | 'pages'>>,
+  updates: Partial<Pick<AppDefinition, 'name' | 'description' | 'icon' | 'preview' | 'schemaJson' | 'htmlDefinition' | 'version' | 'appType' | 'pages'>>,
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
