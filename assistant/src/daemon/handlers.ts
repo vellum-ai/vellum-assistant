@@ -1454,11 +1454,15 @@ async function handleTaskSubmit(
         type: 'error',
         message: taskIngressCheck.userNotice!,
       });
-      // Create a session so the secret_response lifecycle works end-to-end
+      // Create an ephemeral session so the secret_response lifecycle works
+      // end-to-end. The conversation is deleted after the prompt resolves
+      // to avoid accumulating placeholder entries in session history.
       const conversation = conversationStore.createConversation('(blocked — secret detected)');
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
-      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes);
+      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes, () => {
+        conversationStore.deleteConversation(conversation.id);
+      });
       return;
     }
 

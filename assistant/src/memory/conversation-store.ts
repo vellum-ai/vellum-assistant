@@ -38,6 +38,19 @@ export function getConversation(id: string) {
   return result ?? null;
 }
 
+/**
+ * Delete a conversation and all its messages.
+ * Used for ephemeral conversations (e.g. secret-redirect placeholders)
+ * that should not persist in session history.
+ */
+export function deleteConversation(id: string): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    tx.delete(conversations).where(eq(conversations.id, id)).run();
+  });
+}
+
 export function listConversations(limit?: number) {
   const db = getDb();
   const query = db
