@@ -7,6 +7,9 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
 
+/// Model used for generating conversation titles from the first user message.
+private let titleGenerationModel = "claude-haiku-4-5-20251001"
+
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
@@ -341,7 +344,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         do {
             let result = try await client.sendToolUseRequest(
-                model: "claude-haiku-4-5-20251001",
+                model: titleGenerationModel,
                 maxTokens: 60,
                 system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Use sentence case (only capitalize the first word and proper nouns). Be specific and concise. Never use quotes, asterisks, or any markdown formatting.",
                 tools: [tool],
