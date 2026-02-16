@@ -639,7 +639,11 @@ private struct ChatBubble: View {
     /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if !message.inlineSurfaces.isEmpty { return false }
+        if !message.inlineSurfaces.isEmpty {
+            // Show bubble text when all surfaces are completed (collapsed to chips)
+            let allCompleted = message.inlineSurfaces.allSatisfy { $0.completionState != nil }
+            if !allCompleted { return false }
+        }
         return hasText || !message.attachments.isEmpty
     }
 
