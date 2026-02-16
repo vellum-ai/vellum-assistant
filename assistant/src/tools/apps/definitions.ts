@@ -63,6 +63,11 @@ export const appCreateTool: Tool = {
               'with <a href="settings.html">. Do not include index.html here — use the html parameter instead.',
             additionalProperties: { type: 'string' },
           },
+          type: {
+            type: 'string',
+            enum: ['app', 'site'],
+            description: "Type of creation: 'app' for interactive apps with data/state, 'site' for presentational content (portfolios, landing pages, blogs)",
+          },
           auto_open: {
             type: 'boolean',
             description:
@@ -96,7 +101,7 @@ export const appCreateTool: Tool = {
             required: ['title'],
           },
         },
-        required: ['name', 'schema_json', 'html'],
+        required: ['name', 'html'],
       },
     };
   },
@@ -104,13 +109,14 @@ export const appCreateTool: Tool = {
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const name = input.name as string;
     const description = input.description as string | undefined;
-    const schemaJson = input.schema_json as string;
+    const schemaJson = (input.schema_json as string | undefined) ?? '{}';
     const htmlDefinition = input.html as string;
     const pages = input.pages as Record<string, string> | undefined;
     const autoOpen = input.auto_open !== false; // default true
     const preview = input.preview as Record<string, unknown> | undefined;
+    const appType = (input.type as string | undefined) === 'site' ? 'site' as const : 'app' as const;
 
-    const app = appStore.createApp({ name, description, schemaJson, htmlDefinition, pages });
+    const app = appStore.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
 
     // Auto-open the app via the proxy resolver if available
     if (autoOpen && context.proxyToolResolver) {
