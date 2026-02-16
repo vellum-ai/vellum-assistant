@@ -19,6 +19,7 @@ struct MainWindowView: View {
 
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
+    @AppStorage("themePreference") private var themePreference: String = "system"
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     @State private var drawerDragStartWidth: Double?
@@ -272,6 +273,7 @@ struct MainWindowView: View {
                 threadManager.activeViewModel?.activeSurfaceId = surfaceId
             }
         }
+        .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : nil)
     }
 
     @ViewBuilder

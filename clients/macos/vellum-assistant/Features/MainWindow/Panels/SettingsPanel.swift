@@ -203,8 +203,6 @@ struct SettingsPanel: View {
                             get: { themePreference },
                             set: { newValue in
                                 themePreference = newValue
-                                UserDefaults.standard.set(newValue, forKey: "themePreference")
-                                UserDefaults.standard.synchronize()
                                 if let delegate = NSApp.delegate as? AppDelegate {
                                     delegate.applyThemePreference()
                                 }

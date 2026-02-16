@@ -162,21 +162,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             appearance = nil // follow system
         }
-        NSApp.appearance = appearance
-        // Propagate to all existing windows so the change takes effect immediately
-        for window in NSApp.windows {
-            window.appearance = appearance
-            window.invalidateShadow()
-            window.contentView?.needsDisplay = true
-            window.displayIfNeeded()
-        }
-        // Force SwiftUI to re-evaluate adaptive colors by toggling the appearance
-        DispatchQueue.main.async {
+
+        if appearance == nil {
+            // When switching back to "system", explicitly set the current system
+            // appearance first so windows see an immediate change, then clear the
+            // override on the next run loop so future system changes propagate.
+            let systemAppearance = NSAppearance(named:
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? .darkAqua : .aqua)
+            NSApp.appearance = systemAppearance
             for window in NSApp.windows {
-                window.contentView?.effectiveAppearance.performAsCurrentDrawingAppearance {
-                    window.contentView?.needsLayout = true
+                window.appearance = systemAppearance
+                window.invalidateShadow()
+                window.contentView?.needsDisplay = true
+            }
+            DispatchQueue.main.async {
+                NSApp.appearance = nil
+                for window in NSApp.windows {
+                    window.appearance = nil
+                    window.invalidateShadow()
                     window.contentView?.needsDisplay = true
                 }
+            }
+        } else {
+            NSApp.appearance = appearance
+            for window in NSApp.windows {
+                window.appearance = appearance
+                window.invalidateShadow()
+                window.contentView?.needsDisplay = true
+                window.displayIfNeeded()
             }
         }
     }
