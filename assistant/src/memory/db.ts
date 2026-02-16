@@ -452,6 +452,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE memory_segments ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_summaries ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_segments ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);

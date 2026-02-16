@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
 import type { MemoryConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
@@ -52,9 +53,18 @@ export function indexMessageNow(
 
   // Wrap all segment inserts and job enqueues in a single transaction so they
   // either all succeed or all roll back, preventing partial/orphaned state.
+  let skippedEmbedJobs = 0;
   db.transaction((tx) => {
     for (const segment of segments) {
       const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
+      const hash = createHash('sha256').update(segment.text).digest('hex');
+
+      // Check if this segment already exists with the same content hash
+      const existing = tx.select({ contentHash: memorySegments.contentHash })
+        .from(memorySegments)
+        .where(eq(memorySegments.id, segmentId))
+        .get();
+
       tx.insert(memorySegments).values({
         id: segmentId,
         messageId: input.messageId,
@@ -64,6 +74,7 @@ export function indexMessageNow(
         text: segment.text,
         tokenEstimate: segment.tokenEstimate,
         scopeId: input.scopeId ?? 'default',
+        contentHash: hash,
         createdAt: input.createdAt,
         updatedAt: now,
       }).onConflictDoUpdate({
@@ -72,10 +83,16 @@ export function indexMessageNow(
           text: segment.text,
           tokenEstimate: segment.tokenEstimate,
           scopeId: input.scopeId ?? 'default',
+          contentHash: hash,
           updatedAt: now,
         },
       }).run();
-      enqueueMemoryJob('embed_segment', { segmentId }, Date.now(), tx);
+
+      if (existing?.contentHash === hash) {
+        skippedEmbedJobs++;
+      } else {
+        enqueueMemoryJob('embed_segment', { segmentId }, Date.now(), tx);
+      }
     }
 
     if (shouldExtract) {
@@ -87,9 +104,13 @@ export function indexMessageNow(
     enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId }, Date.now(), tx);
   });
 
+  if (skippedEmbedJobs > 0) {
+    log.debug(`Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`);
+  }
+
   enqueueSummaryRollupJobsIfDue();
 
-  const enqueuedJobs = segments.length + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);
+  const enqueuedJobs = (segments.length - skippedEmbedJobs) + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

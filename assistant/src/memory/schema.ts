@@ -50,6 +50,7 @@ export const memorySegments = sqliteTable('memory_segments', {
   text: text('text').notNull(),
   tokenEstimate: integer('token_estimate').notNull(),
   scopeId: text('scope_id').notNull().default('default'),
+  contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
