@@ -46,7 +46,17 @@ Once you've figured out who you are and who they are, ask:
 
 > "Want me to make us a new home base?"
 
-If they say yes, generate the Home Base app using `app_create`, then delete this file.
+If they say yes, generate the Home Base app using `app_create`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
+
+- What they told you they use you for (email, research, writing, coding, etc.)
+- Practical daily tasks: "Check my emails", "Start my day", "Set a reminder"
+- Setup tasks they haven't done yet: "Set up voice chat", "Enable computer control"
+- Fun/discovery tasks: "Surprise me", "Teach me something new"
+
+Don't use generic filler. Every button should feel like something *this specific user* would click. Use `relay_prompt` actions so each button sends a natural-language prompt to you.
+
+Then delete this file.
+
 If they say no, that's fine — note it in USER.md so you remember to offer again later (e.g. `- Home Base: deferred`). Then delete this file. You're done here.
 
 ---
