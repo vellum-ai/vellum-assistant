@@ -78,11 +78,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-<<<<<<< HEAD
-        Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, currentHTML: data.html, sandboxMode: sandboxMode)
-=======
         Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
->>>>>>> 96cab3e0 (feat: add vellum.openLink JS bridge and coordinator handler)
     }
 
     func makeNSView(context: Context) -> WKWebView {
