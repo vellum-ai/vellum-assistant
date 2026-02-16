@@ -1001,8 +1001,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Subscribe to active ChatViewModel's objectWillChange so menu bar icon
         // updates when isThinking or errorText changes, even though SwiftUI
         // views now use ActiveChatViewWrapper for their own observation.
+        //
+        // Use the emitted UUID directly (not activeViewModel) because $activeThreadId
+        // fires during willSet — at that point activeThreadId still holds the old value,
+        // so activeViewModel would resolve to the previous thread's view model.
         statusIconCancellable = mainWindow?.threadManager.$activeThreadId
-            .compactMap { [weak mainWindow] _ in mainWindow?.threadManager.activeViewModel }
+            .compactMap { [weak mainWindow] id in
+                guard let id else { return nil }
+                return mainWindow?.threadManager.chatViewModel(for: id)
+            }
             .handleEvents(receiveOutput: { [weak self] _ in
                 // Update immediately when switching threads
                 self?.updateMenuBarIcon()
