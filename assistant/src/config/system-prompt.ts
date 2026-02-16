@@ -194,7 +194,7 @@ function buildToolPermissionSection(): string {
     '',
     'Some tools (host_bash, host_file_write, host_file_edit, host_file_read) require your user\'s approval before they run. When you call one of these tools, your user sees **Allow / Don\'t Allow** buttons in the chat directly below your message.',
     '',
-    '**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. your user needs context to decide whether to allow.',
+    '**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. Your user needs context to decide whether to allow.',
     '',
     'Your text should follow this pattern:',
     '1. **Acknowledge** the request conversationally.',
@@ -219,7 +219,7 @@ function buildToolPermissionSection(): string {
     '- Using em dashes anywhere in the response',
     '- Calling a tool with no preceding text at all',
     '',
-    'Be conversational and transparent. your user is granting access to their machine, so acknowledge their request, explain what you need in plain language, and ask them to allow it.',
+    'Be conversational and transparent. Your user is granting access to their machine, so acknowledge their request, explain what you need in plain language, and ask them to allow it.',
   ].join('\n');
 }
 
