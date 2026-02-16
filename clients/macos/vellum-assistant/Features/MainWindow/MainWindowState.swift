@@ -7,6 +7,7 @@ import VellumAssistantShared
 final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = true
+    @AppStorage("chatDockOpen") private var chatDockOpen = false
     @Published var activePanel: SidePanelType? {
         didSet {
             // Persist non-activity panels only (activity is message-specific)
@@ -22,6 +23,9 @@ final class MainWindowState: ObservableObject {
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
+    @Published var isChatDockOpen = UserDefaults.standard.bool(forKey: "chatDockOpen") {
+        didSet { chatDockOpen = isChatDockOpen }
+    }
     @Published var activityMessageId: UUID?
     @Published var layoutConfig: LayoutConfig
 
@@ -66,6 +70,10 @@ final class MainWindowState: ObservableObject {
         isDynamicExpanded = false
         activeDynamicSurface = nil
         activeDynamicParsedSurface = nil
+    }
+
+    func toggleChatDock() {
+        isChatDockOpen.toggle()
     }
 
     func resetLayout() {

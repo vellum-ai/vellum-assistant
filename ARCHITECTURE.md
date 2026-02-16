@@ -54,7 +54,7 @@ graph TB
         end
 
         subgraph "Dynamic Workspace"
-            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer"]
+            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer + optional docked chat"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
         end
 

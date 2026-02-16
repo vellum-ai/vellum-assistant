@@ -461,7 +461,11 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let sidePanelVisible = windowState.activePanel != nil && !(windowState.isDynamicExpanded && windowState.activePanel == .generated) && windowState.activePanel != .directory
+                        let sidePanelVisible =
+                            (windowState.activePanel != nil &&
+                             !(windowState.isDynamicExpanded && windowState.activePanel == .generated) &&
+                             windowState.activePanel != .directory) ||
+                            (windowState.isDynamicExpanded && windowState.activePanel == .generated && windowState.isChatDockOpen)
                         let activePanelWidth: CGFloat = sidePanelVisible ? sidePanelWidth : 0
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
@@ -606,8 +610,16 @@ struct MainWindowView: View {
         } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                // Workspace mode: full-window dynamic page
-                dynamicWorkspaceView(surface: surface, data: dpData)
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: windowState.isChatDockOpen,
+                    main: {
+                        dynamicWorkspaceView(surface: surface, data: dpData)
+                    },
+                    panel: {
+                        chatView
+                    }
+                )
             } else {
                 // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
@@ -726,6 +738,8 @@ struct MainWindowView: View {
                 workspaceEditorContentHeight: $workspaceEditorContentHeight,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
+                isChatDockOpen: windowState.isChatDockOpen,
+                onToggleChatDock: { windowState.toggleChatDock() },
                 onMicrophoneToggle: onMicrophoneToggle
             )
         }
@@ -1015,6 +1029,8 @@ private struct DynamicWorkspaceWrapper: View {
     @Binding var workspaceEditorContentHeight: CGFloat
     let onPublishPage: (String, String?) -> Void
     let onBundleAndShare: (String) -> Void
+    let isChatDockOpen: Bool
+    let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
 
     private var composerReservedHeight: CGFloat {
@@ -1059,14 +1075,11 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Button(action: {
-                        showSharePicker = false
-                        windowState.closeDynamicPanel()
-                    }) {
+                    Button(action: onToggleChatDock) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "chevron.left")
+                            Image(systemName: "sidebar.right")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Chat")
+                            Text(isChatDockOpen ? "Hide Chat" : "Show Chat")
                                 .font(VFont.bodyMedium)
                         }
                         .foregroundColor(VColor.textPrimary)
@@ -1079,7 +1092,7 @@ private struct DynamicWorkspaceWrapper: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Back to chat")
+                    .accessibilityLabel(isChatDockOpen ? "Hide docked chat panel" : "Show docked chat panel")
 
                     Spacer()
 
