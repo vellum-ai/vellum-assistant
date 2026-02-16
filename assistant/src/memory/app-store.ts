@@ -18,9 +18,12 @@ import {
   mkdirSync,
   unlinkSync,
   rmSync,
+  statSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import { getDataDir } from '../util/platform.js';
+import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
+import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
 
 export interface AppDefinition {
   id: string;
@@ -77,6 +80,35 @@ export function getAppsDir(): string {
   return dir;
 }
 
+/**
+ * Validate a relative file path within an app directory.
+ * Prevents path traversal and access to protected directories.
+ * Returns the resolved absolute path.
+ */
+function validateFilePath(appId: string, path: string): string {
+  if (!path || path.trim() === '') {
+    throw new Error(`Invalid file path: path is empty`);
+  }
+  if (isAbsolute(path)) {
+    throw new Error(`Invalid file path: absolute paths are not allowed`);
+  }
+  if (path.includes('..')) {
+    throw new Error(`Invalid file path: '..' is not allowed`);
+  }
+  // Reject paths targeting records/ directory
+  const normalized = path.replace(/\\/g, '/');
+  if (normalized === 'records' || normalized.startsWith('records/')) {
+    throw new Error(`Invalid file path: 'records/' directory is protected`);
+  }
+  const appDir = join(getAppsDir(), appId);
+  const resolved = resolve(appDir, path);
+  // Ensure the resolved path is still within the app directory
+  if (!resolved.startsWith(appDir + '/') && resolved !== appDir) {
+    throw new Error(`Invalid file path: resolves outside app directory`);
+  }
+  return resolved;
+}
+
 /** Persist pages as individual files under ~/.vellum/apps/{appId}/pages/. */
 function savePages(appId: string, pages: Record<string, string>): void {
   const pagesDir = join(getAppsDir(), appId, 'pages');
@@ -126,7 +158,15 @@ export function createApp(params: {
     createdAt: now,
     updatedAt: now,
   };
-  writeFileSync(join(dir, `${app.id}.json`), JSON.stringify(app, null, 2));
+
+  // Write htmlDefinition to {appId}/index.html on disk
+  const appDir = join(dir, app.id);
+  mkdirSync(appDir, { recursive: true });
+  writeFileSync(join(appDir, 'index.html'), params.htmlDefinition, 'utf-8');
+
+  // Strip htmlDefinition and pages from the JSON file — only store metadata
+  const { htmlDefinition: _html, pages: _pages, ...jsonDef } = app;
+  writeFileSync(join(dir, `${app.id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Persist additional pages as separate files
   if (params.pages && Object.keys(params.pages).length > 0) {
@@ -143,6 +183,12 @@ export function getApp(id: string): AppDefinition | null {
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
   const app = JSON.parse(raw) as AppDefinition;
+
+  // Read htmlDefinition from {appId}/index.html on disk
+  const indexPath = join(getAppsDir(), id, 'index.html');
+  app.htmlDefinition = existsSync(indexPath)
+    ? readFileSync(indexPath, 'utf-8')
+    : (app.htmlDefinition ?? '');
 
   // Load pages from disk
   const pages = loadPages(id);
@@ -179,8 +225,8 @@ export function updateApp(
   const existing = getApp(id);
   if (!existing) throw new Error(`App not found: ${id}`);
 
-  // Extract pages before spreading into the JSON-persisted definition
-  const { pages, ...jsonUpdates } = updates;
+  // Extract pages and htmlDefinition before spreading into the JSON-persisted definition
+  const { pages, htmlDefinition: htmlUpdate, ...jsonUpdates } = updates;
 
   const updated: AppDefinition = {
     ...existing,
@@ -188,8 +234,16 @@ export function updateApp(
     updatedAt: Date.now(),
   };
 
-  // Don't persist pages in the JSON file — they live as separate files
-  const { pages: _existingPages, ...jsonDef } = updated;
+  // Write htmlDefinition to {appId}/index.html if provided in updates
+  if (htmlUpdate !== undefined) {
+    updated.htmlDefinition = htmlUpdate;
+    const appDir = join(getAppsDir(), id);
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'index.html'), htmlUpdate, 'utf-8');
+  }
+
+  // Don't persist htmlDefinition or pages in the JSON file — they live as separate files
+  const { pages: _existingPages, htmlDefinition: _html, ...jsonDef } = updated;
   writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Clear existing pages directory before writing new pages to prevent stale files
@@ -295,3 +349,93 @@ export function deleteAppRecord(appId: string, recordId: string): void {
     unlinkSync(filePath);
   }
 }
+
+// ---------------------------------------------------------------------------
+// File-based app storage
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively list all files under `{appId}/`, excluding `records/` subdirectory
+ * and `app.json`. Returns relative paths like `index.html`, `styles.css`, `js/app.js`.
+ */
+export function listAppFiles(appId: string): string[] {
+  validateId(appId);
+  const appDir = join(getAppsDir(), appId);
+  if (!existsSync(appDir)) return [];
+
+  const results: string[] = [];
+
+  function walk(dir: string): void {
+    const entries = readdirSync(dir);
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      const relPath = relative(appDir, fullPath);
+      // Skip records/ directory
+      const normalized = relPath.replace(/\\/g, '/');
+      if (normalized === 'records' || normalized.startsWith('records/')) continue;
+      // Skip app.json
+      if (normalized === 'app.json') continue;
+
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        walk(fullPath);
+      } else {
+        results.push(normalized);
+      }
+    }
+  }
+
+  walk(appDir);
+  return results.sort();
+}
+
+/**
+ * Read a file from the app directory.
+ * Path is validated to prevent traversal.
+ */
+export function readAppFile(appId: string, path: string): string {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return readFileSync(resolved, 'utf-8');
+}
+
+/**
+ * Write a file to the app directory.
+ * Auto-creates intermediate directories. Path is validated to prevent traversal.
+ */
+export function writeAppFile(appId: string, path: string, content: string): void {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  const dir = join(resolved, '..');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolved, content, 'utf-8');
+}
+
+/**
+ * Edit a file in the app directory using the edit engine (match/replace).
+ * Returns the EditEngineResult from applyEdit.
+ */
+export function editAppFile(
+  appId: string,
+  path: string,
+  oldString: string,
+  newString: string,
+  replaceAll?: boolean,
+): EditEngineResult {
+  validateId(appId);
+  const resolved = validateFilePath(appId, path);
+  if (!existsSync(resolved)) {
+    throw new Error(`File not found: ${path}`);
+  }
+  const content = readFileSync(resolved, 'utf-8');
+  const result = applyEdit(content, oldString, newString, replaceAll ?? false);
+  if (result.ok) {
+    writeFileSync(resolved, result.updatedContent, 'utf-8');
+  }
+  return result;
+}
+
+export type { EditEngineResult };
