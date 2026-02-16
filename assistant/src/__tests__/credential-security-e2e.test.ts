@@ -40,13 +40,14 @@ mock.module('../security/secure-keys.js', () => ({
   getBackendType: () => 'encrypted',
 }));
 
-mock.module('./metadata-store.js', () => ({
+mock.module('../tools/credentials/metadata-store.js', () => ({
   upsertCredentialMetadata: () => {},
   deleteCredentialMetadata: () => {},
   getCredentialMetadata: () => null,
+  assertMetadataWritable: () => {},
 }));
 
-mock.module('./policy-validate.js', () => ({
+mock.module('../tools/credentials/policy-validate.js', () => ({
   validatePolicyInput: () => ({ valid: true, errors: [] }),
   toPolicyFromInput: (input: Record<string, unknown>) => ({
     allowedTools: input.allowed_tools ?? [],
@@ -277,7 +278,12 @@ describe('E2E: domain policy enforcement', () => {
 // ---------------------------------------------------------------------------
 
 describe('E2E: cross-cutting secret leak prevention', () => {
-  beforeEach(() => storedKeys.clear());
+  beforeEach(() => {
+    storedKeys.clear();
+    mockConfig.secretDetection.enabled = true;
+    mockConfig.secretDetection.action = 'block';
+    mockConfig.secretDetection.allowOneTimeSend = false;
+  });
 
   test('store output never contains the stored value', async () => {
     const secret = ['sk', '-proj-', 'abc123xyz'].join('');
@@ -304,8 +310,8 @@ describe('E2E: cross-cutting secret leak prevention', () => {
   test('ingress notice never contains the detected secret', () => {
     const awsKey = ['AKIA', 'IOSFODNN7', 'REALKEY'].join('');
     const check = checkIngressForSecrets(awsKey);
-    if (check.userNotice) {
-      expect(check.userNotice).not.toContain(awsKey);
-    }
+    expect(check.blocked).toBe(true);
+    expect(check.userNotice).toBeDefined();
+    expect(check.userNotice).not.toContain(awsKey);
   });
 });
