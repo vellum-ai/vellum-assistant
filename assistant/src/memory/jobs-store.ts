@@ -39,8 +39,9 @@ export function enqueueMemoryJob(
   type: MemoryJobType,
   payload: Record<string, unknown>,
   runAfter = Date.now(),
+  dbOverride?: Parameters<ReturnType<typeof getDb>['transaction']>[0] extends (tx: infer T) => unknown ? T : never,
 ): string {
-  const db = getDb();
+  const db = dbOverride ?? getDb();
   const id = uuid();
   const now = Date.now();
   db.insert(memoryJobs).values({
@@ -99,14 +100,15 @@ export function enqueueBackfillEntityRelationsJob(force = false): string {
 export function enqueueResolvePendingConflictsForMessageJob(
   messageId: string,
   scopeId = 'default',
+  dbOverride?: Parameters<ReturnType<typeof getDb>['transaction']>[0] extends (tx: infer T) => unknown ? T : never,
 ): string {
   const normalizedMessageId = messageId.trim();
   if (!normalizedMessageId) {
     throw new Error('enqueueResolvePendingConflictsForMessageJob requires a non-empty messageId');
   }
   const normalizedScopeId = scopeId.trim() || 'default';
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
+  // Dedup check always uses root db since tx doesn't expose $client
+  const raw = (getDb() as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
   const existing = raw.query(`
     SELECT id
     FROM memory_jobs
@@ -122,7 +124,7 @@ export function enqueueResolvePendingConflictsForMessageJob(
   return enqueueMemoryJob('resolve_pending_conflicts_for_message', {
     messageId: normalizedMessageId,
     scopeId: normalizedScopeId,
-  });
+  }, Date.now(), dbOverride);
 }
 
 export function enqueueCleanupResolvedConflictsJob(retentionMs?: number): string {

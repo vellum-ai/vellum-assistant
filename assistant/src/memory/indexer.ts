@@ -45,42 +45,48 @@ export function indexMessageNow(
     config.segmentation.targetTokens,
     config.segmentation.overlapTokens,
   );
-  for (const segment of segments) {
-    const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
-    db.insert(memorySegments).values({
-      id: segmentId,
-      messageId: input.messageId,
-      conversationId: input.conversationId,
-      role: input.role,
-      segmentIndex: segment.segmentIndex,
-      text: segment.text,
-      tokenEstimate: segment.tokenEstimate,
-      scopeId: input.scopeId ?? 'default',
-      createdAt: input.createdAt,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: memorySegments.id,
-      set: {
-        text: segment.text,
-        tokenEstimate: segment.tokenEstimate,
-        scopeId: input.scopeId ?? 'default',
-        updatedAt: now,
-      },
-    }).run();
-    enqueueMemoryJob('embed_segment', { segmentId });
-  }
-
   const shouldExtract =
     input.role === 'user' ||
     (input.role === 'assistant' && config.extraction.extractFromAssistant);
-  if (shouldExtract) {
-    enqueueMemoryJob('extract_items', { messageId: input.messageId });
-  }
   const shouldResolveConflicts = input.role === 'user' && config.conflicts.enabled;
-  if (shouldResolveConflicts) {
-    enqueueResolvePendingConflictsForMessageJob(input.messageId, input.scopeId ?? 'default');
-  }
-  enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId });
+
+  // Wrap all segment inserts and job enqueues in a single transaction so they
+  // either all succeed or all roll back, preventing partial/orphaned state.
+  db.transaction((tx) => {
+    for (const segment of segments) {
+      const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
+      tx.insert(memorySegments).values({
+        id: segmentId,
+        messageId: input.messageId,
+        conversationId: input.conversationId,
+        role: input.role,
+        segmentIndex: segment.segmentIndex,
+        text: segment.text,
+        tokenEstimate: segment.tokenEstimate,
+        scopeId: input.scopeId ?? 'default',
+        createdAt: input.createdAt,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: memorySegments.id,
+        set: {
+          text: segment.text,
+          tokenEstimate: segment.tokenEstimate,
+          scopeId: input.scopeId ?? 'default',
+          updatedAt: now,
+        },
+      }).run();
+      enqueueMemoryJob('embed_segment', { segmentId }, Date.now(), tx);
+    }
+
+    if (shouldExtract) {
+      enqueueMemoryJob('extract_items', { messageId: input.messageId }, Date.now(), tx);
+    }
+    if (shouldResolveConflicts) {
+      enqueueResolvePendingConflictsForMessageJob(input.messageId, input.scopeId ?? 'default', tx);
+    }
+    enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId }, Date.now(), tx);
+  });
+
   enqueueSummaryRollupJobsIfDue();
 
   const enqueuedJobs = segments.length + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);
