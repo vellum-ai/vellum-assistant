@@ -87,12 +87,12 @@ All credential security settings live under `secretDetection` in the assistant c
 ### Operator guidance
 
 - **Default posture is strict**: `action: "block"` and `allowOneTimeSend: false` ensure secrets always go through the Keychain.
-- **Relaxing `action` to `"warn"` or `"redact"`**: These modes do **not** block inbound messages. When set to `"warn"`, a warning is logged but the message passes through to the model unchanged. When set to `"redact"`, detected secrets are masked in logs but the message itself still passes through. Only `"block"` prevents secrets from reaching the model context. Useful during migration but significantly reduces security.
+- **Relaxing `action` to `"warn"` or `"redact"`**: These modes **completely disable** inbound secret scanning. The ingress check returns immediately without scanning, logging, or redacting — secrets in user messages pass through to the model with no detection at all. These modes only affect tool-output handling, not user input. Only `"block"` scans inbound messages and prevents secrets from reaching the model context. Useful during migration but significantly reduces security.
 - **Enabling `allowOneTimeSend`**: Adds a "Send Once" button to the secret prompt. The value is used for one operation and then discarded. Useful for temporary tokens. The value is still never shown to the model.
 
 ## Rollback
 
-- If ingress blocking is too aggressive, set `secretDetection.action` to `"redact"` while tuning false positives.
+- If ingress blocking is too aggressive, set `secretDetection.action` to `"warn"` or `"redact"` while tuning false positives. Note that this completely disables inbound secret scanning — secrets in user messages will pass through to the model undetected.
 - If one-time send behaves incorrectly, set `allowOneTimeSend` to `false` to revert to store-only mode.
 - The `CredentialBroker` can be bypassed by reverting its integration PR — the vault tool continues to work for storage without brokered use.
 
