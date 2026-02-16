@@ -76,10 +76,12 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
       '8. Keep your text response to 1 brief sentence confirming what you changed.',
     );
 
-    // File tree with sizes
+    // File tree with sizes (capped at 50 files to bound prompt size)
     const files = ctx.appFiles ?? listAppFiles(ctx.appId);
+    const MAX_FILE_TREE_ENTRIES = 50;
+    const displayFiles = files.slice(0, MAX_FILE_TREE_ENTRIES);
     lines.push('', 'App files:');
-    for (const filePath of files) {
+    for (const filePath of displayFiles) {
       let sizeLabel: string;
       try {
         const bytes = statSync(join(getAppsDir(), ctx.appId, filePath)).size;
@@ -88,6 +90,9 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
         sizeLabel = '? KB';
       }
       lines.push(`  ${filePath} (${sizeLabel})`);
+    }
+    if (files.length > MAX_FILE_TREE_ENTRIES) {
+      lines.push(`  ... and ${files.length - MAX_FILE_TREE_ENTRIES} more files`);
     }
 
     // Schema metadata
@@ -112,7 +117,8 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 
     // Line-numbered current file content
     const schemaSize = schema ? Math.min(schema.length, MAX_SCHEMA_LENGTH) : 0;
-    let mainBudget = MAX_CONTEXT_LENGTH - schemaSize;
+    // Reduce budget by 15% to account for line-number prefix overhead (~7 chars/line)
+    let mainBudget = Math.floor((MAX_CONTEXT_LENGTH - schemaSize) * 0.85);
     const additionalPageBlocks: string[] = [];
 
     // Build additional page content (all pages except the primary one)

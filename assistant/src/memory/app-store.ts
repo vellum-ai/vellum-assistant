@@ -242,6 +242,15 @@ export function updateApp(
     writeFileSync(join(appDir, 'index.html'), htmlUpdate, 'utf-8');
   }
 
+  // Backfill migration: if index.html doesn't exist yet (pre-migration app), write it
+  // before stripping htmlDefinition from JSON to prevent data loss on metadata-only updates.
+  const indexPath = join(getAppsDir(), id, 'index.html');
+  if (!existsSync(indexPath) && updated.htmlDefinition) {
+    const appDir = join(getAppsDir(), id);
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(indexPath, updated.htmlDefinition, 'utf-8');
+  }
+
   // Don't persist htmlDefinition or pages in the JSON file — they live as separate files
   const { pages: _existingPages, htmlDefinition: _html, ...jsonDef } = updated;
   writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(jsonDef, null, 2));
