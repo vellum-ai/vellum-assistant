@@ -158,7 +158,7 @@ struct ChatView: View {
         return base + attachments + error + queue
     }
 
-    private var composerOverlay: some View {
+    @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
                 WatchProgressView(session: watchSession, onStop: onStopWatch)
