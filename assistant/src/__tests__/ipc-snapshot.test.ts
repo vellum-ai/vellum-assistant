@@ -100,13 +100,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     captureDisplayId: 69734112,
     executionResult: 'click completed',
   },
-  ambient_observation: {
-    type: 'ambient_observation',
-    requestId: 'req-amb-001',
-    ocrText: 'Hello world visible on screen',
-    appName: 'Safari',
-    windowTitle: 'Google',
-    timestamp: 1700000000,
+  ride_shotgun_start: {
+    type: 'ride_shotgun_start',
+    durationSeconds: 300,
+    intervalSeconds: 10,
   },
   watch_observation: {
     type: 'watch_observation',
@@ -568,12 +565,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-routed-001',
     interactionType: 'computer_use',
   },
-  ambient_result: {
-    type: 'ambient_result',
-    requestId: 'req-amb-001',
-    decision: 'suggest',
-    summary: 'User appears to be debugging a test failure',
-    suggestion: 'Try running the test with --verbose flag for more details',
+  ride_shotgun_result: {
+    type: 'ride_shotgun_result',
+    sessionId: 'sess-shotgun-001',
+    watchId: 'watch-shotgun-001',
+    summary: 'User was debugging a test failure',
+    observationCount: 5,
   },
   ui_surface_show: {
     type: 'ui_surface_show',

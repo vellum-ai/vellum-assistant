@@ -1,7 +1,6 @@
 {
   "clientMessageTypes": [
     "AddTrustRule",
-    "AmbientObservation",
     "AppDataRequest",
     "AppOpenRequest",
     "AppUpdatePreviewRequest",
@@ -25,6 +24,7 @@
     "PingMessage",
     "PublishPageRequest",
     "RegenerateRequest",
+    "RideShotgunStart",
     "ReminderCancel",
     "RemindersList",
     "RemoveTrustRule",
@@ -67,7 +67,6 @@
     "WatchObservation"
   ],
   "serverMessageTypes": [
-    "AmbientResult",
     "AppDataResponse",
     "AppUpdatePreviewResponse",
     "AppsListResponse",
@@ -101,6 +100,7 @@
     "PublishPageResponse",
     "ReminderFired",
     "RemindersListResponse",
+    "RideShotgunResult",
     "SchedulesListResponse",
     "SecretDetected",
     "SecretRequest",
@@ -139,7 +139,6 @@
   ],
   "clientWireTypes": [
     "add_trust_rule",
-    "ambient_observation",
     "app_data_request",
     "app_open_request",
     "app_update_preview",
@@ -163,6 +162,7 @@
     "ping",
     "publish_page",
     "regenerate",
+    "ride_shotgun_start",
     "reminder_cancel",
     "reminders_list",
     "remove_trust_rule",
@@ -205,7 +205,6 @@
     "watch_observation"
   ],
   "serverWireTypes": [
-    "ambient_result",
     "app_data_response",
     "app_update_preview_response",
     "apps_list_response",
@@ -239,6 +238,7 @@
     "publish_page_response",
     "reminder_fired",
     "reminders_list_response",
+    "ride_shotgun_result",
     "schedules_list_response",
     "secret_detected",
     "secret_request",
