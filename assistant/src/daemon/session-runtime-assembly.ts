@@ -6,6 +6,9 @@
  */
 
 import type { Message } from '../providers/types.js';
+import { listAppFiles, readAppFile, getAppsDir } from '../memory/app-store.js';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** Context about the active workspace surface, passed to applyRuntimeInjections. */
 export interface ActiveSurfaceContext {
@@ -19,6 +22,8 @@ export interface ActiveSurfaceContext {
   appPages?: Record<string, string>;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
+  /** Pre-fetched list of files in the app directory. */
+  appFiles?: string[];
 }
 
 /**
@@ -59,56 +64,53 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
       `The user is viewing app "${ctx.appName ?? 'Untitled'}" (app_id: "${ctx.appId}") in workspace mode.`,
       '',
       'RULES FOR WORKSPACE MODIFICATION:',
-      `1. You MUST call \`app_update\` with app_id "${ctx.appId}" and the updated \`html\` to apply changes.`,
-      '   The surface refreshes automatically — do NOT call ui_show or ui_update.',
-      '   NEVER respond with only text — the user expects a visual update every time they',
-      '   send a message here. Even if the page appears to already show what they want,',
-      '   call app_update anyway (the user sees a broken experience when no update arrives).',
-      '2. You MAY call other tools first to gather data (get_weather, web_search, etc.)',
-      '   before calling app_update.',
-      '3. Make ONLY the changes the user requested. Preserve all existing content,',
-      '   styling, and functionality unless explicitly asked to change them.',
-      '4. When adding new content, match the existing visual style.',
-      '5. Keep your text response to 1 brief sentence confirming what you changed.',
+      `1. Use \`app_file_edit\` with app_id "${ctx.appId}" for surgical changes.`,
+      '   Provide old_string (exact match) and new_string (replacement).',
+      '   Include a short `status` message describing what you\'re doing (e.g. "adding dark mode styles").',
+      '2. Use `app_file_write` to create new files or fully rewrite files. Include `status`.',
+      '3. Use `app_file_read` to read any file with line numbers before editing.',
+      '4. Use `app_file_list` to see all files in the app.',
+      '5. The surface refreshes automatically after file edits — do NOT call app_update, ui_show, or ui_update.',
+      '6. NEVER respond with only text — the user expects a visual update.',
+      '7. Make ONLY the changes the user requested. Preserve existing content/styling.',
+      '8. Keep your text response to 1 brief sentence confirming what you changed.',
     );
 
-    // App structure metadata
-    lines.push('', 'App structure:');
-    const pageNames = ctx.appPages ? Object.keys(ctx.appPages) : [];
-    const viewingPage = ctx.currentPage && ctx.currentPage !== 'index.html' ? ctx.currentPage : null;
+    // File tree with sizes
+    const files = ctx.appFiles ?? listAppFiles(ctx.appId);
+    lines.push('', 'App files:');
+    for (const filePath of files) {
+      let sizeLabel: string;
+      try {
+        const bytes = statSync(join(getAppsDir(), ctx.appId, filePath)).size;
+        sizeLabel = bytes < 1000 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+      } catch {
+        sizeLabel = '? KB';
+      }
+      lines.push(`  ${filePath} (${sizeLabel})`);
+    }
 
-    if (viewingPage) {
-      lines.push(`- Currently viewing: ${viewingPage}`);
-    }
-    lines.push(`- Main page (index.html)${viewingPage ? '' : ': shown below'}`);
-    if (pageNames.length > 0) {
-      lines.push(`- Additional pages: ${pageNames.join(', ')}`);
-      lines.push('  To modify additional pages, include the `pages` parameter in `app_update`.');
-      lines.push('  IMPORTANT: The `pages` parameter is a full replacement — always include ALL');
-      lines.push('  existing pages (with their current content) alongside any modified or new pages.');
-    } else {
-      lines.push('- Additional pages: none');
-    }
+    // Schema metadata
     const schema = ctx.appSchemaJson;
     const MAX_SCHEMA_LENGTH = 10_000;
     if (schema && schema !== '"{}"' && schema !== '{}') {
       const truncatedSchema = schema.length > MAX_SCHEMA_LENGTH
         ? schema.slice(0, MAX_SCHEMA_LENGTH) + '… (truncated)'
         : schema;
-      lines.push(`- Data schema: ${truncatedSchema}`);
-    } else {
-      lines.push('- Data schema: none (display-only)');
+      lines.push('', `Data schema: ${truncatedSchema}`);
     }
 
-    // Determine which HTML to show as primary based on the currently viewed page
+    // Determine which file content to show based on the currently viewed page
+    const pageNames = ctx.appPages ? Object.keys(ctx.appPages) : [];
+    const viewingPage = ctx.currentPage && ctx.currentPage !== 'index.html' ? ctx.currentPage : null;
     let primaryLabel = 'index.html';
-    let primaryHtml = ctx.html;
+    let primaryContent = ctx.html;
     if (viewingPage && ctx.appPages?.[viewingPage]) {
       primaryLabel = viewingPage;
-      primaryHtml = ctx.appPages[viewingPage];
+      primaryContent = ctx.appPages[viewingPage];
     }
 
-    // Primary page HTML — reserve budget for additional pages (and schema)
+    // Line-numbered current file content
     const schemaSize = schema ? Math.min(schema.length, MAX_SCHEMA_LENGTH) : 0;
     let mainBudget = MAX_CONTEXT_LENGTH - schemaSize;
     const additionalPageBlocks: string[] = [];
@@ -116,7 +118,6 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     // Build additional page content (all pages except the primary one)
     const otherPages: Record<string, string> = {};
     if (viewingPage && primaryLabel !== 'index.html') {
-      // Show index.html as additional context
       otherPages['index.html'] = ctx.html;
     }
     if (ctx.appPages) {
@@ -133,14 +134,20 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
         additionalSize += filename.length + content.length + 30;
         additionalPageBlocks.push(`--- ${filename} ---`, content);
       }
-      if (additionalSize + primaryHtml.length > MAX_CONTEXT_LENGTH - schemaSize) {
+      if (additionalSize + primaryContent.length > MAX_CONTEXT_LENGTH - schemaSize) {
         additionalPageBlocks.length = 0;
       } else {
         mainBudget = MAX_CONTEXT_LENGTH - schemaSize - additionalSize;
       }
     }
 
-    lines.push('', `Current HTML (${primaryLabel}):`, truncateHtml(primaryHtml, mainBudget));
+    // Format file content with line numbers (cat -n style)
+    const truncatedContent = truncateHtml(primaryContent, mainBudget);
+    const numberedLines = truncatedContent.split('\n').map((line, i) => {
+      const num = String(i + 1);
+      return `${num.padStart(6)}\t${line}`;
+    }).join('\n');
+    lines.push('', `--- ${primaryLabel} ---`, numberedLines);
 
     if (additionalPageBlocks.length > 0) {
       lines.push('', 'Additional page content:', ...additionalPageBlocks);

@@ -54,7 +54,7 @@ import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { recordUsageEvent } from '../memory/llm-usage-store.js';
-import { getApp } from '../memory/app-store.js';
+import { getApp, listAppFiles } from '../memory/app-store.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
@@ -743,6 +743,7 @@ export class Session {
               activeSurface.appId = app.id;
               activeSurface.appName = app.name;
               activeSurface.appSchemaJson = app.schemaJson;
+              activeSurface.appFiles = listAppFiles(app.id);
               if (app.pages && Object.keys(app.pages).length > 0) {
                 activeSurface.appPages = app.pages;
               }
