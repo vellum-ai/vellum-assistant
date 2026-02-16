@@ -867,9 +867,13 @@ export class Session {
           }
         }
       }
+      // Refresh workspace top-level context before injection
+      this.refreshWorkspaceTopLevelContextIfNeeded();
+
       runMessages = applyRuntimeInjections(runMessages, {
         softConflictInstruction,
         activeSurface,
+        workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
@@ -892,6 +896,9 @@ export class Session {
       // Track whether llm_call_started has been emitted for the current provider turn.
       // Reset on each usage event (which marks the end of a provider call).
       let llmCallStartedEmitted = false;
+
+      // Map tool_use_id → toolName so tool_result processing can identify the originating tool.
+      const toolUseIdToName = new Map<string, string>();
 
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         // Emit llm_call_started once per provider call. Called on first streaming
@@ -926,6 +933,7 @@ export class Session {
             onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
             break;
           case 'tool_use':
+            toolUseIdToName.set(event.id, event.name);
             onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: this.conversationId });
             break;
           case 'tool_output_chunk':
@@ -935,6 +943,13 @@ export class Session {
             const imageBlock = event.contentBlocks?.find((b): b is ImageContent => b.type === 'image');
             onEvent({ type: 'tool_result', toolName: '', result: event.content, isError: event.isError, diff: event.diff, status: event.status, sessionId: this.conversationId, imageData: imageBlock?.source.data });
             pendingToolResults.set(event.toolUseId, { content: event.content, isError: event.isError, contentBlocks: event.contentBlocks });
+            // Mark workspace context dirty on successful mutation tools
+            if (!event.isError) {
+              const toolName = toolUseIdToName.get(event.toolUseId);
+              if (toolName === 'file_write' || toolName === 'file_edit' || toolName === 'bash') {
+                this.markWorkspaceTopLevelDirty();
+              }
+            }
             // Collect image/file content blocks for assistant attachment conversion
             if (event.contentBlocks) {
               for (const cb of event.contentBlocks) {
@@ -1150,8 +1165,10 @@ export class Session {
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-      this.messages = stripActiveSurfaceContext(
-        stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+      this.messages = stripWorkspaceTopLevelContext(
+        stripActiveSurfaceContext(
+          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+        ),
       );
 
       this.recordUsage(exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);

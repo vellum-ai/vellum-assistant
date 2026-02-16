@@ -6,7 +6,7 @@ import type { Message, ToolDefinition } from '../providers/types.js';
 // ---------------------------------------------------------------------------
 
 let lastStreamParams: Record<string, unknown> | null = null;
-let lastStreamOptions: Record<string, unknown> | null = null;
+let _lastStreamOptions: Record<string, unknown> | null = null;
 
 const fakeResponse = {
   content: [{ type: 'text', text: 'Hello' }],
@@ -36,7 +36,7 @@ mock.module('@anthropic-ai/sdk', () => ({
     messages = {
       stream: (params: Record<string, unknown>, options?: Record<string, unknown>) => {
         lastStreamParams = JSON.parse(JSON.stringify(params));
-        lastStreamOptions = options ?? null;
+        _lastStreamOptions = options ?? null;
         const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
         return {
           on(event: string, cb: (...args: unknown[]) => void) {
@@ -98,7 +98,7 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
 
   beforeEach(() => {
     lastStreamParams = null;
-    lastStreamOptions = null;
+    _lastStreamOptions = null;
     provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-5-20250929');
   });
 
@@ -289,5 +289,108 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(result.usage.inputTokens).toBe(100 + 50 + 30); // input + creation + read
     expect(result.usage.cacheCreationInputTokens).toBe(50);
     expect(result.usage.cacheReadInputTokens).toBe(30);
+  });
+
+  // -----------------------------------------------------------------------
+  // Cache compatibility with workspace context injection
+  // -----------------------------------------------------------------------
+  test('workspace-prepended user message caches trailing block, not workspace block', async () => {
+    // Simulates what applyRuntimeInjections does: prepend workspace block, keep user text as trailing
+    const workspaceInjectedUser: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>' },
+        { type: 'text', text: 'What files are in src?' },
+      ],
+    };
+    await provider.sendMessage([workspaceInjectedUser]);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+    }>;
+    const user = sent[0];
+    expect(user.content).toHaveLength(2);
+    // Workspace block (first): no cache_control
+    expect(user.content[0].cache_control).toBeUndefined();
+    // User text (last): gets cache_control
+    expect(user.content[1].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('workspace + dynamic profile: cache still lands on trailing block', async () => {
+    // Simulates workspace prepended + dynamic profile appended
+    const injectedUser: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, tests\n</workspace_top_level>' },
+        { type: 'text', text: 'Help me debug this' },
+        { type: 'text', text: '<dynamic_profile>\nUser prefers TypeScript.\n</dynamic_profile>' },
+      ],
+    };
+    await provider.sendMessage([injectedUser]);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+    }>;
+    const user = sent[0];
+    expect(user.content).toHaveLength(3);
+    // Workspace block (first): no cache
+    expect(user.content[0].cache_control).toBeUndefined();
+    // User text (middle): no cache
+    expect(user.content[1].cache_control).toBeUndefined();
+    // Dynamic profile (last): gets cache_control
+    expect(user.content[2].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('multi-turn with workspace injection: cache on last two user turns only', async () => {
+    const messages: Message[] = [
+      // Turn 1: workspace + user text (should NOT get cache - it's the 3rd-to-last user turn)
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src\n</workspace_top_level>' },
+          { type: 'text', text: 'Turn 1' },
+        ],
+      },
+      assistantMsg('Response 1'),
+      // Turn 2: workspace + user text (should get cache - second-to-last)
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib\n</workspace_top_level>' },
+          { type: 'text', text: 'Turn 2' },
+        ],
+      },
+      assistantMsg('Response 2'),
+      // Turn 3: workspace + user text (should get cache - last)
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<workspace_top_level>\nRoot: /sandbox\nDirectories: src, lib, docs\n</workspace_top_level>' },
+          { type: 'text', text: 'Turn 3' },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+    }>;
+    const userMsgs = sent.filter(m => m.role === 'user');
+    expect(userMsgs).toHaveLength(3);
+
+    // Turn 1: no cache on any block
+    expect(userMsgs[0].content[0].cache_control).toBeUndefined();
+    expect(userMsgs[0].content[1].cache_control).toBeUndefined();
+
+    // Turn 2: cache on last block only
+    expect(userMsgs[1].content[0].cache_control).toBeUndefined();
+    expect(userMsgs[1].content[1].cache_control).toEqual({ type: 'ephemeral' });
+
+    // Turn 3: cache on last block only
+    expect(userMsgs[2].content[0].cache_control).toBeUndefined();
+    expect(userMsgs[2].content[1].cache_control).toEqual({ type: 'ephemeral' });
   });
 });

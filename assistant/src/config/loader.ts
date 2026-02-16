@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
-import { ensureDataDir, getWorkspaceConfigPath } from '../util/platform.js';
+import { ensureDataDir, getWorkspaceConfigPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { DEFAULT_CONFIG } from './defaults.js';
@@ -18,6 +18,18 @@ let loading = false;
 function getConfigPath(): string {
   return getWorkspaceConfigPath();
 }
+
+/**
+ * Run migrations before creating workspace dirs, so legacy files are
+ * moved into workspace/ before ensureDataDir() creates empty dirs that
+ * would cause migration moves to no-op.
+ */
+function ensureMigratedDataDir(): void {
+  migrateToDataLayout();
+  migrateToWorkspaceLayout();
+  ensureDataDir();
+}
+
 
 function cloneDefaultConfig(): AssistantConfig {
   return structuredClone(DEFAULT_CONFIG);
@@ -81,7 +93,7 @@ export function loadConfig(): AssistantConfig {
   loading = true;
 
   try {
-    ensureDataDir();
+    ensureMigratedDataDir();
     const configPath = getConfigPath();
 
     let fileConfig: Record<string, unknown> = {};
@@ -201,7 +213,7 @@ export function loadConfig(): AssistantConfig {
 }
 
 export function saveConfig(config: AssistantConfig): void {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
 
   // Route apiKeys to secure storage, write config without them
@@ -239,7 +251,7 @@ export function invalidateConfigCache(): void {
  * Used by CLI config commands to read/write the file directly.
  */
 export function loadRawConfig(): Record<string, unknown> {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
   let raw: Record<string, unknown> = {};
   if (existsSync(configPath)) {
@@ -270,7 +282,7 @@ export function loadRawConfig(): Record<string, unknown> {
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
-  ensureDataDir();
+  ensureMigratedDataDir();
   const configPath = getConfigPath();
 
   // Route apiKeys to secure storage and strip from plaintext file

@@ -1,12 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema.js';
-import { getDbPath, ensureDataDir } from '../util/platform.js';
+import { getDbPath, ensureDataDir, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
 export function getDb() {
   if (!db) {
+    migrateToDataLayout();
+    migrateToWorkspaceLayout();
     ensureDataDir();
     const sqlite = new Database(getDbPath());
     sqlite.exec('PRAGMA journal_mode=WAL');
