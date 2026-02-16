@@ -257,10 +257,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Only call thread-safe cancellation methods here — Task.cancel() and
         // NWConnection.cancel() are safe from any thread.
         //
-        // Subscriber continuations are NOT finished here because iterating the
-        // @MainActor-isolated `subscribers` dictionary would be a data race.
-        // Callers should call disconnect() before releasing the last reference
-        // to ensure subscriber streams terminate cleanly.
+        // We must finish subscriber continuations to prevent hanging `for await` loops.
+        // To safely access the @MainActor-isolated `subscribers` dictionary from deinit,
+        // we use MainActor.assumeIsolated, which is safe here because:
+        // 1. deinit only runs when the last reference is released
+        // 2. No other code can be concurrently accessing this instance's isolated state
+        // 3. The class is marked @MainActor, so all references must be released from MainActor
+        MainActor.assumeIsolated {
+            for continuation in subscribers.values {
+                continuation.finish()
+            }
+        }
+
         reconnectTask?.cancel()
         pingTask?.cancel()
         pongTimeoutTask?.cancel()
