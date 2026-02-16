@@ -1169,6 +1169,18 @@ public final class ChatViewModel: ObservableObject {
         try? daemonClient.send(msg)
     }
 
+    /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
+    /// Used when archiving a thread before session_info arrives: we want to
+    /// discard the pending message (so it isn't sent once the session is claimed)
+    /// but preserve the correlation ID so the VM only claims its own session.
+    public func cancelPendingMessage() {
+        pendingUserMessage = nil
+        pendingUserAttachments = nil
+        isWorkspaceRefinementInFlight = false
+        isThinking = false
+        isSending = false
+    }
+
     public func stopGenerating() {
         guard isSending else { return }
 
