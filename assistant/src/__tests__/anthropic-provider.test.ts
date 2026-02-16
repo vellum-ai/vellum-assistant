@@ -577,6 +577,33 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
     expect(sent[1].content[1].text).toBe('More valid text');
   });
 
+  test('assistant message with only whitespace text does not get placeholder', async () => {
+    const messages: Message[] = [
+      userMsg('Start'),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '   ' },
+          { type: 'text', text: '\n\t' },
+        ],
+      },
+      userMsg('Continue'),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // Whitespace-only assistant messages should be dropped entirely, not replaced with placeholder
+    expect(sent).toHaveLength(2);
+    expect(sent[0].role).toBe('user');
+    expect(sent[0].content[0].text).toBe('Start');
+    expect(sent[1].role).toBe('user');
+    expect(sent[1].content[0].text).toBe('Continue');
+  });
+
   // -----------------------------------------------------------------------
   // Workspace context injection + cache control
   // -----------------------------------------------------------------------

@@ -337,15 +337,24 @@ export class AnthropicProvider implements Provider {
     let sentMessages: Anthropic.MessageParam[] | undefined;
     try {
       const formatted = messages.map((m) => {
+        // Track whether an unknown block was dropped during filtering
+        let droppedUnknownBlock = false;
+
         const content = m.content
-          .map((block) => this.toAnthropicBlockSafe(block))
+          .map((block) => {
+            const result = this.toAnthropicBlockSafe(block);
+            if (result === null) {
+              droppedUnknownBlock = true;
+            }
+            return result;
+          })
           .filter((block): block is Anthropic.ContentBlockParam => block !== null)
           .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim()));
 
         // Preserve assistant turns that would otherwise become empty after filtering
         // unknown block types (e.g. ui_surface). Dropping these messages can violate
         // Anthropic's role alternation requirement.
-        if (content.length === 0 && m.role === 'assistant') {
+        if (content.length === 0 && m.role === 'assistant' && droppedUnknownBlock) {
           return {
             role: m.role,
             content: [{ type: 'text' as const, text: '[internal blocks omitted]' }],
