@@ -122,6 +122,7 @@ struct MainWindowView: View {
                         threadDrawerView
                             .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
                             .clipped()
+                            .allowsHitTesting(sidebarOpen)
                             .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
                             .animation(nil, value: threadDrawerWidth)
 
@@ -131,6 +132,7 @@ struct MainWindowView: View {
 
                         // Right: Chat content
                         chatContentView(geometry: geometry)
+                            .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
                             .overlay(alignment: .topLeading) {
                                 // Toggle button when sidebar is hidden
                                 if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
