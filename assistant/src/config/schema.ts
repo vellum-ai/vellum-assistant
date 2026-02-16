@@ -454,12 +454,18 @@ export const MemoryEntityConfigSchema = z.object({
       .gt(0, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be > 0')
       .lte(1, 'memory.entity.relationRetrieval.neighborScoreMultiplier must be <= 1')
       .default(0.7),
+    maxDepth: z
+      .number({ error: 'memory.entity.relationRetrieval.maxDepth must be a number' })
+      .int('memory.entity.relationRetrieval.maxDepth must be an integer')
+      .positive('memory.entity.relationRetrieval.maxDepth must be a positive integer')
+      .default(3),
   }).default({
     enabled: true,
     maxSeedEntities: 8,
     maxNeighborEntities: 20,
     maxEdges: 40,
     neighborScoreMultiplier: 0.7,
+    maxDepth: 3,
   }),
 });
 
@@ -589,6 +595,7 @@ export const MemoryConfigSchema = z.object({
       maxNeighborEntities: 20,
       maxEdges: 40,
       neighborScoreMultiplier: 0.7,
+      maxDepth: 3,
     },
   }),
   conflicts: MemoryConflictsConfigSchema.default({
@@ -795,6 +802,7 @@ export const AssistantConfigSchema = z.object({
         maxNeighborEntities: 20,
         maxEdges: 40,
         neighborScoreMultiplier: 0.7,
+        maxDepth: 3,
       },
     },
     conflicts: {

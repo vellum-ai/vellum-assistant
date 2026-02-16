@@ -174,6 +174,7 @@ describe('AssistantConfigSchema', () => {
       maxNeighborEntities: 20,
       maxEdges: 40,
       neighborScoreMultiplier: 0.7,
+      maxDepth: 3,
     });
   });
 

@@ -839,6 +839,7 @@ function entitySearch(
     seedEntityIds,
     relationConfig.maxEdges,
     relationConfig.maxNeighborEntities,
+    relationConfig.maxDepth,
   );
   const relationNeighborEntityCount = neighborEntityIds.length;
   const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));
@@ -926,49 +927,73 @@ function findMatchedEntities(query: string, maxMatches: number): MatchedEntityRo
   return matchedEntities;
 }
 
+/**
+ * BFS traversal across entity relations with visited-set cycle detection
+ * and configurable max depth to prevent unbounded graph walking.
+ */
 function findNeighborEntities(
   seedEntityIds: string[],
   maxEdges: number,
   maxNeighborEntities: number,
+  maxDepth: number = 3,
 ): { neighborEntityIds: string[]; traversedEdgeCount: number } {
-  if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0) {
+  if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
     return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
 
   const db = getDb();
-  const rows = db
-    .select({
-      sourceEntityId: memoryEntityRelations.sourceEntityId,
-      targetEntityId: memoryEntityRelations.targetEntityId,
-    })
-    .from(memoryEntityRelations)
-    .where(or(
-      inArray(memoryEntityRelations.sourceEntityId, seedEntityIds),
-      inArray(memoryEntityRelations.targetEntityId, seedEntityIds),
-    ))
-    .orderBy(desc(memoryEntityRelations.lastSeenAt))
-    .limit(Math.max(1, maxEdges))
-    .all();
-
-  const seedSet = new Set(seedEntityIds);
-  const seen = new Set<string>();
+  const visited = new Set<string>(seedEntityIds);
   const neighbors: string[] = [];
-  for (const row of rows) {
-    if (seedSet.has(row.sourceEntityId) && !seedSet.has(row.targetEntityId) && !seen.has(row.targetEntityId)) {
-      neighbors.push(row.targetEntityId);
-      seen.add(row.targetEntityId);
+  let totalEdgesTraversed = 0;
+
+  // BFS frontier starts with seed entities
+  let frontier = [...seedEntityIds];
+
+  for (let depth = 0; depth < maxDepth; depth++) {
+    if (frontier.length === 0 || neighbors.length >= maxNeighborEntities) break;
+
+    const edgeBudget = maxEdges - totalEdgesTraversed;
+    if (edgeBudget <= 0) break;
+
+    const rows = db
+      .select({
+        sourceEntityId: memoryEntityRelations.sourceEntityId,
+        targetEntityId: memoryEntityRelations.targetEntityId,
+      })
+      .from(memoryEntityRelations)
+      .where(or(
+        inArray(memoryEntityRelations.sourceEntityId, frontier),
+        inArray(memoryEntityRelations.targetEntityId, frontier),
+      ))
+      .orderBy(desc(memoryEntityRelations.lastSeenAt))
+      .limit(Math.max(1, edgeBudget))
+      .all();
+
+    totalEdgesTraversed += rows.length;
+
+    const nextFrontier: string[] = [];
+    const frontierSet = new Set(frontier);
+    for (const row of rows) {
+      if (neighbors.length >= maxNeighborEntities) break;
+      if (frontierSet.has(row.sourceEntityId) && !visited.has(row.targetEntityId)) {
+        visited.add(row.targetEntityId);
+        neighbors.push(row.targetEntityId);
+        nextFrontier.push(row.targetEntityId);
+      }
+      if (neighbors.length >= maxNeighborEntities) break;
+      if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
+        visited.add(row.sourceEntityId);
+        neighbors.push(row.sourceEntityId);
+        nextFrontier.push(row.sourceEntityId);
+      }
     }
-    if (neighbors.length >= maxNeighborEntities) break;
-    if (seedSet.has(row.targetEntityId) && !seedSet.has(row.sourceEntityId) && !seen.has(row.sourceEntityId)) {
-      neighbors.push(row.sourceEntityId);
-      seen.add(row.sourceEntityId);
-    }
-    if (neighbors.length >= maxNeighborEntities) break;
+
+    frontier = nextFrontier;
   }
 
   return {
     neighborEntityIds: neighbors.slice(0, maxNeighborEntities),
-    traversedEdgeCount: rows.length,
+    traversedEdgeCount: totalEdgesTraversed,
   };
 }
 

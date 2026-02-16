@@ -99,6 +99,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         maxNeighborEntities: 20,
         maxEdges: 40,
         neighborScoreMultiplier: 0.7,
+        maxDepth: 3,
       },
     },
     conflicts: {
