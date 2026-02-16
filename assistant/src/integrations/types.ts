@@ -13,6 +13,8 @@ export interface OAuth2Config {
   scopes: string[];
   clientId: string;
   extraParams?: Record<string, string>;
+  /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
+  userinfoUrl?: string;
 }
 
 export interface IntegrationDefinition {

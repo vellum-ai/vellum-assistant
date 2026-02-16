@@ -17,6 +17,7 @@ export const gmailIntegration: IntegrationDefinition = {
     ],
     clientId: '', // loaded from config at runtime
     extraParams: { access_type: 'offline', prompt: 'consent' },
+    userinfoUrl: 'https://www.googleapis.com/oauth2/v1/userinfo',
   },
   credentialFields: ['access_token', 'refresh_token'],
   allowedTools: [
