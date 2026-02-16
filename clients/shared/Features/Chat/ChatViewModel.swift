@@ -138,6 +138,10 @@ public final class ChatViewModel: ObservableObject {
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     private var bootstrapCorrelationId: String?
+    /// Whether this view model is currently bootstrapping a new session
+    /// (session_create sent, awaiting session_info). Used by ThreadManager
+    /// to decide whether it's safe to release the VM on archive.
+    public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
     private var messageLoopTask: Task<Void, Never>?
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
