@@ -502,8 +502,12 @@ export function handleIntegrationDisconnect(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  disconnectIntegration(msg.integrationId);
-  log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
+  const success = disconnectIntegration(msg.integrationId);
+  if (!success) {
+    log.warn({ integrationId: msg.integrationId }, 'Integration not found for disconnect');
+  } else {
+    log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
+  }
   // Send updated list so the client refreshes
   handleIntegrationList(socket, ctx);
 }

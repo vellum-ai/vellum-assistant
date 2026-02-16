@@ -58,10 +58,12 @@ export function listStatuses(): IntegrationStatus[] {
  * Remove all credentials for an integration from the vault.
  * Secure keys are deleted first in a separate pass so that a failure in
  * metadata deletion cannot leave secrets partially cleaned up.
+ *
+ * @returns true if the integration was found and disconnected, false if not found
  */
-export function disconnect(id: string): void {
+export function disconnect(id: string): boolean {
   const def = integrations.get(id);
-  if (!def) return;
+  if (!def) return false;
 
   for (const field of def.credentialFields) {
     deleteSecureKey(`integration:${id}:${field}`);
@@ -69,4 +71,6 @@ export function disconnect(id: string): void {
   for (const field of def.credentialFields) {
     deleteCredentialMetadata(`integration:${id}`, field);
   }
+
+  return true;
 }
