@@ -173,6 +173,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     log.warn({ surfaceId, actionId }, 'No pending surface action found');
     return;
   }
+  const retainPending = pending.surfaceType === 'dynamic_page';
   // selection_changed is a non-terminal state update — don't consume the
   // pending entry or send a message.
   if (actionId === 'selection_changed') {
@@ -200,7 +201,9 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   const result = ctx.enqueueMessage(content, [], onEvent, requestId);
   if (result.queued) {
     const position = ctx.getQueueDepth();
-    ctx.pendingSurfaceActions.delete(surfaceId);
+    if (!retainPending) {
+      ctx.pendingSurfaceActions.delete(surfaceId);
+    }
     log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
     ctx.traceEmitter.emit('request_queued', `Surface action queued at position ${position}`, {
       requestId,
@@ -232,7 +235,9 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     return;
   }
 
-  ctx.pendingSurfaceActions.delete(surfaceId);
+  if (!retainPending) {
+    ctx.pendingSurfaceActions.delete(surfaceId);
+  }
   log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
   ctx.processMessage(content, [], onEvent, requestId).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -520,6 +525,8 @@ export async function surfaceProxyResolver(
       title: app.name,
       data: surfaceData,
     });
+
+    ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: 'dynamic_page' });
 
     return { content: JSON.stringify({ surfaceId, appId }), isError: false };
   }

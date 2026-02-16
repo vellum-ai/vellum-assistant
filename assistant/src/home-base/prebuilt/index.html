@@ -100,6 +100,54 @@
       font-size: 12px;
     }
 
+    .task-controls {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .task-input {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      font-size: 12px;
+      min-width: 190px;
+      color: var(--ink);
+      background: #ffffff;
+    }
+
+    .task-button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      background: #ffffff;
+      cursor: pointer;
+    }
+
+    .task-button:hover {
+      border-color: var(--accent);
+    }
+
+    .task-button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .task-button.secondary {
+      background: transparent;
+    }
+
+    .task-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
     .chip {
       display: inline-flex;
       align-items: center;
@@ -149,12 +197,104 @@
         <h2>Starter Tasks</h2>
         <p>Concrete actions that demonstrate immediate assistant value.</p>
         <ul>
-          <li><div class="task">Change the look and feel</div><div class="task-meta">Color-first customization flow.</div></li>
-          <li><div class="task">Research something for me about X</div><div class="task-meta">Assistant gathers and summarizes findings.</div></li>
-          <li><div class="task">Turn it into a webpage or interactive UI</div><div class="task-meta">Build a visual app from your idea.</div></li>
+          <li>
+            <div class="task">Change the look and feel</div>
+            <div class="task-meta">Color-first customization flow.</div>
+            <div class="task-controls">
+              <input id="home-base-color-input" class="task-input" type="color" value="#0b7e73" />
+              <button id="home-base-look-start" class="task-button primary" type="button">Start with assistant</button>
+              <button id="home-base-look-confirm" class="task-button secondary" type="button" style="display:none;">Confirm apply</button>
+              <button id="home-base-look-cancel" class="task-button secondary" type="button" style="display:none;">Cancel</button>
+            </div>
+            <div class="task-note" id="home-base-look-note">Pick a color, then start the assistant flow.</div>
+          </li>
+          <li>
+            <div class="task">Research something for me about X</div>
+            <div class="task-meta">Assistant gathers and summarizes findings.</div>
+            <div class="task-controls">
+              <input id="home-base-research-input" class="task-input" type="text" placeholder="Enter topic X" />
+              <button id="home-base-research-start" class="task-button primary" type="button">Start research</button>
+            </div>
+          </li>
+          <li>
+            <div class="task">Turn it into a webpage or interactive UI</div>
+            <div class="task-meta">Build a visual app from your idea.</div>
+            <div class="task-controls">
+              <input id="home-base-web-input" class="task-input" type="text" placeholder="Describe what to build" />
+              <button id="home-base-web-start" class="task-button primary" type="button">Build it</button>
+            </div>
+          </li>
         </ul>
       </article>
     </section>
   </main>
+  <script>
+    (function () {
+      function sendAction(actionId, data) {
+        if (window.vellum && typeof window.vellum.sendAction === 'function') {
+          window.vellum.sendAction(actionId, data || {});
+        }
+      }
+
+      function byId(id) {
+        return document.getElementById(id);
+      }
+
+      var colorInput = byId('home-base-color-input');
+      var lookStart = byId('home-base-look-start');
+      var lookConfirm = byId('home-base-look-confirm');
+      var lookCancel = byId('home-base-look-cancel');
+      var lookNote = byId('home-base-look-note');
+
+      function colorPayload() {
+        return {
+          accentColor: colorInput && colorInput.value ? colorInput.value : '#0b7e73',
+          scope: 'full_dashboard'
+        };
+      }
+
+      if (lookStart) {
+        lookStart.addEventListener('click', function () {
+          sendAction('home_base_starter_change_look_and_feel', colorPayload());
+          if (lookConfirm) lookConfirm.style.display = 'inline-flex';
+          if (lookCancel) lookCancel.style.display = 'inline-flex';
+          if (lookNote) lookNote.textContent = 'Assistant will ask for confirmation before applying.';
+        });
+      }
+
+      if (lookConfirm) {
+        lookConfirm.addEventListener('click', function () {
+          sendAction('home_base_color_apply_confirm', colorPayload());
+        });
+      }
+
+      if (lookCancel) {
+        lookCancel.addEventListener('click', function () {
+          sendAction('home_base_color_apply_cancel', colorPayload());
+          if (lookConfirm) lookConfirm.style.display = 'none';
+          lookCancel.style.display = 'none';
+          if (lookNote) lookNote.textContent = 'Pick a color, then start the assistant flow.';
+        });
+      }
+
+      var researchInput = byId('home-base-research-input');
+      var researchStart = byId('home-base-research-start');
+      if (researchStart) {
+        researchStart.addEventListener('click', function () {
+          var topic = researchInput && researchInput.value ? researchInput.value.trim() : '';
+          sendAction('home_base_starter_research', { topic: topic });
+        });
+      }
+
+      var webInput = byId('home-base-web-input');
+      var webStart = byId('home-base-web-start');
+      if (webStart) {
+        webStart.addEventListener('click', function () {
+          var brief = webInput && webInput.value ? webInput.value.trim() : '';
+          sendAction('home_base_starter_webpage', { brief: brief });
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
