@@ -169,6 +169,7 @@ mock.module('../memory/retriever.js', () => ({
     relationTraversedEdgeCount: 0,
     relationNeighborEntityCount: 0,
     relationExpandedItemCount: 0,
+    earlyTerminated: false,
     mergedCount: 0,
     selectedCount: 0,
     rerankApplied: false,

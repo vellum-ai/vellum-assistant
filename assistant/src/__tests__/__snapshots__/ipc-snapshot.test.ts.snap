@@ -825,6 +825,7 @@ exports[`IPC message snapshots ServerMessage types secret_detected serializes to
 
 exports[`IPC message snapshots ServerMessage types memory_recalled serializes to expected JSON 1`] = `
 {
+  "earlyTerminated": false,
   "entityHits": 3,
   "injectedTokens": 480,
   "latencyMs": 55,

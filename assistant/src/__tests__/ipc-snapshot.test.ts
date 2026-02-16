@@ -538,6 +538,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     relationTraversedEdgeCount: 5,
     relationNeighborEntityCount: 3,
     relationExpandedItemCount: 4,
+    earlyTerminated: false,
     mergedCount: 18,
     selectedCount: 10,
     rerankApplied: false,

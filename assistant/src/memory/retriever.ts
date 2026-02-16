@@ -73,6 +73,7 @@ export interface MemoryRecallResult {
   relationTraversedEdgeCount: number;
   relationNeighborEntityCount: number;
   relationExpandedItemCount: number;
+  earlyTerminated: boolean;
   mergedCount: number;
   selectedCount: number;
   rerankApplied: boolean;
@@ -98,6 +99,7 @@ interface CollectedCandidates {
   relationTraversedEdgeCount: number;
   relationNeighborEntityCount: number;
   relationExpandedItemCount: number;
+  earlyTerminated: boolean;
   merged: Candidate[];
 }
 
@@ -142,6 +144,7 @@ async function collectAndMergeCandidates(
   // Build the list of scope IDs to include in queries
   const scopeIds = buildScopeFilter(scopeId, scopePolicy);
 
+  // ── Phase 1: cheap local searches (always run) ─────────────────────
   const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
 
   const recency = opts?.conversationId
@@ -152,38 +155,6 @@ async function collectAndMergeCandidates(
         scopeIds,
       )
     : [];
-
-  let semantic: Candidate[] = [];
-  if (queryVector) {
-    try {
-      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
-    } catch (err) {
-      if (isQdrantConnectionError(err)) {
-        log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
-      } else {
-        log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
-      }
-    }
-  }
-
-  let entity: Candidate[] = [];
-  let relationSeedEntityCount = 0;
-  let relationTraversedEdgeCount = 0;
-  let relationNeighborEntityCount = 0;
-  let relationExpandedItemCount = 0;
-  if (config.memory.entity.enabled) {
-    const entitySearchResult = entitySearch(
-      query,
-      config.memory.entity,
-      scopeIds,
-      excludeMessageIds,
-    );
-    entity = entitySearchResult.candidates;
-    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
-    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
-    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
-  }
 
   // Direct item search supplements FTS with LIKE-based matching.
   // Overfetch when exclusions are present so that filtering doesn't
@@ -208,6 +179,56 @@ async function collectAndMergeCandidates(
     directItems = directItems.slice(0, directLimit);
   }
 
+  // ── Early termination check ────────────────────────────────────────
+  // If cheap sources already produced enough high-confidence candidates,
+  // skip the expensive semantic search (Qdrant network call) and entity
+  // relation traversal to reduce recall latency.
+  const etConfig = config.memory.retrieval.earlyTermination;
+  const cheapCandidates = [...lexical, ...recency, ...directItems];
+  const canTerminateEarly = etConfig.enabled
+    && cheapCandidates.length >= etConfig.minCandidates
+    && cheapCandidates.filter((c) => c.confidence >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
+
+  // ── Phase 2: expensive searches (skipped on early termination) ─────
+  let semantic: Candidate[] = [];
+  if (queryVector && !canTerminateEarly) {
+    try {
+      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
+    } catch (err) {
+      if (isQdrantConnectionError(err)) {
+        log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+      } else {
+        log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+      }
+    }
+  }
+
+  let entity: Candidate[] = [];
+  let relationSeedEntityCount = 0;
+  let relationTraversedEdgeCount = 0;
+  let relationNeighborEntityCount = 0;
+  let relationExpandedItemCount = 0;
+  if (config.memory.entity.enabled && !canTerminateEarly) {
+    const entitySearchResult = entitySearch(
+      query,
+      config.memory.entity,
+      scopeIds,
+      excludeMessageIds,
+    );
+    entity = entitySearchResult.candidates;
+    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
+    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
+    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
+  }
+
+  if (canTerminateEarly) {
+    log.debug(
+      { cheapCandidateCount: cheapCandidates.length, highConfidenceCount: cheapCandidates.filter((c) => c.confidence >= etConfig.confidenceThreshold).length },
+      'Early termination: skipping semantic and entity search — sufficient high-confidence candidates from cheap sources',
+    );
+  }
+
   const relationScoreMultiplier = config.memory.entity.enabled && config.memory.entity.relationRetrieval.enabled
     ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
     : undefined;
@@ -222,6 +243,7 @@ async function collectAndMergeCandidates(
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
+    earlyTerminated: canTerminateEarly,
     merged,
   };
 }
@@ -350,6 +372,7 @@ export async function buildMemoryRecall(
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
+    earlyTerminated,
   } = collected;
   let merged = applySourceCaps(collected.merged, config);
 
@@ -410,6 +433,7 @@ export async function buildMemoryRecall(
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
+    earlyTerminated,
     mergedCount,
     selected: selected.length,
     maxInjectTokens,
@@ -432,6 +456,7 @@ export async function buildMemoryRecall(
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
+    earlyTerminated,
     mergedCount,
     selectedCount: selected.length,
     rerankApplied,
@@ -1693,6 +1718,7 @@ function emptyResult(
     relationTraversedEdgeCount: 0,
     relationNeighborEntityCount: 0,
     relationExpandedItemCount: 0,
+    earlyTerminated: false,
     mergedCount: 0,
     selectedCount: 0,
     rerankApplied: false,

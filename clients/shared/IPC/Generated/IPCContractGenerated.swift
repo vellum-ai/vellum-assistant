@@ -555,6 +555,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let relationTraversedEdgeCount: Int?
     public let relationNeighborEntityCount: Int?
     public let relationExpandedItemCount: Int?
+    public let earlyTerminated: Bool?
     public let mergedCount: Int
     public let selectedCount: Int
     public let rerankApplied: Bool
