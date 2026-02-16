@@ -119,11 +119,15 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        upsertCredentialMetadata(service, field, {
-          allowedTools: policy.allowedTools,
-          allowedDomains: policy.allowedDomains,
-          usageDescription: policy.usageDescription,
-        });
+        try {
+          upsertCredentialMetadata(service, field, {
+            allowedTools: policy.allowedTools,
+            allowedDomains: policy.allowedDomains,
+            usageDescription: policy.usageDescription,
+          });
+        } catch (err) {
+          log.warn({ service, field, err }, 'metadata write failed after storing credential');
+        }
         return { content: `Stored credential for ${service}/${field}.`, isError: false };
       }
 
@@ -171,7 +175,11 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: `Error: credential ${service}/${field} not found`, isError: true };
         }
-        deleteCredentialMetadata(service, field);
+        try {
+          deleteCredentialMetadata(service, field);
+        } catch (err) {
+          log.warn({ service, field, err }, 'metadata delete failed after removing credential');
+        }
         return { content: `Deleted credential for ${service}/${field}.`, isError: false };
       }
 
@@ -260,11 +268,15 @@ class CredentialStoreTool implements Tool {
         if (!ok) {
           return { content: 'Error: failed to store credential', isError: true };
         }
-        upsertCredentialMetadata(service, field, {
-          allowedTools: promptPolicy.allowedTools,
-          allowedDomains: promptPolicy.allowedDomains,
-          usageDescription: promptPolicy.usageDescription,
-        });
+        try {
+          upsertCredentialMetadata(service, field, {
+            allowedTools: promptPolicy.allowedTools,
+            allowedDomains: promptPolicy.allowedDomains,
+            usageDescription: promptPolicy.usageDescription,
+          });
+        } catch (err) {
+          log.warn({ service, field, err }, 'metadata write failed after storing credential');
+        }
         return { content: `Credential stored for ${service}/${field}.`, isError: false };
       }
 
