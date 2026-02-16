@@ -25,7 +25,7 @@ import { handleMessage, type HandlerContext, type SessionCreateOptions } from '.
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { resolveOnboardingPlaybook } from '../onboarding/playbooks/manager.js';
-import { ensurePrebuiltHomeBaseSeeded } from '../home-base/prebuilt/seed.js';
+import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 
 const log = getLogger('server');
 
@@ -127,9 +127,9 @@ export class DaemonServer {
     this.lastConfigFingerprint = this.configFingerprint(config);
 
     try {
-      ensurePrebuiltHomeBaseSeeded();
+      bootstrapHomeBaseAppLink();
     } catch (err) {
-      log.warn({ err }, 'Failed to seed prebuilt Home Base app at daemon startup');
+      log.warn({ err }, 'Failed to bootstrap Home Base app link at daemon startup');
     }
 
     ensureBlobDir();

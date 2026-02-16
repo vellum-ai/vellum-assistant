@@ -1501,3 +1501,47 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "type": "integration_connect_result",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types home_base_get serializes to expected JSON 1`] = `
+{
+  "ensureLinked": true,
+  "type": "home_base_get",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types home_base_get_response serializes to expected JSON 1`] = `
+{
+  "homeBase": {
+    "appId": "home-base-001",
+    "onboardingTasks": [
+      "Make it mine",
+      "Enable voice mode",
+      "Enable computer control",
+      "Try ambient mode",
+    ],
+    "preview": {
+      "description": "Prebuilt onboarding + starter task canvas",
+      "icon": "🏠",
+      "metrics": [
+        {
+          "label": "Starter tasks",
+          "value": "3",
+        },
+        {
+          "label": "Onboarding tasks",
+          "value": "4",
+        },
+      ],
+      "subtitle": "Dashboard",
+      "title": "Home Base",
+    },
+    "source": "prebuilt_seed",
+    "starterTasks": [
+      "Change the look and feel",
+      "Research something for me about X",
+      "Turn it into a webpage or interactive UI",
+    ],
+  },
+  "type": "home_base_get_response",
+}
+`;

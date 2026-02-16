@@ -3,7 +3,7 @@ import {
   type OnboardingModeState,
 } from './onboarding-mode.js';
 import { buildOnboardingRuntimePrompt } from './onboarding-prompts.js';
-import { findSeededHomeBaseApp } from '../home-base/prebuilt/seed.js';
+import { resolveHomeBaseAppId } from '../home-base/bootstrap.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('onboarding-orchestrator');
@@ -28,9 +28,9 @@ export function resolveOnboardingRuntimeContext(input: {
   let homeBaseAppId: string | undefined;
   if (mode.channelId === 'desktop') {
     try {
-      homeBaseAppId = findSeededHomeBaseApp()?.id;
+      homeBaseAppId = resolveHomeBaseAppId() ?? undefined;
     } catch (err) {
-      log.warn({ err }, 'Failed to resolve prebuilt Home Base while building onboarding context');
+      log.warn({ err }, 'Failed to resolve Home Base app while building onboarding context');
     }
   }
 

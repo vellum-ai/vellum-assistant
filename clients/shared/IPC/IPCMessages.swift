@@ -396,6 +396,16 @@ extension IPCAppsListRequest {
     }
 }
 
+/// Sent to resolve Home Base app metadata from the daemon.
+/// Backed by generated `IPCHomeBaseGetRequest`.
+public typealias HomeBaseGetRequestMessage = IPCHomeBaseGetRequest
+
+extension IPCHomeBaseGetRequest {
+    public init(ensureLinked: Bool = true) {
+        self.init(type: "home_base_get", ensureLinked: ensureLinked)
+    }
+}
+
 /// Sent to request the list of shared/received apps.
 /// Backed by generated `IPCSharedAppsListRequest`.
 public typealias SharedAppsListRequestMessage = IPCSharedAppsListRequest
@@ -1110,6 +1120,10 @@ extension IPCAppsListResponseApp: Identifiable {}
 /// Backed by generated `IPCAppsListResponse`.
 public typealias AppsListResponseMessage = IPCAppsListResponse
 
+/// Home Base metadata returned by the daemon.
+/// Backed by generated `IPCHomeBaseGetResponse`.
+public typealias HomeBaseGetResponseMessage = IPCHomeBaseGetResponse
+
 /// A single shared app item returned from the daemon.
 /// Backed by generated `IPCSharedAppsListResponseApp`.
 public typealias SharedAppItem = IPCSharedAppsListResponseApp
@@ -1493,6 +1507,7 @@ public enum ServerMessage: Decodable, Sendable {
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
+    case homeBaseGetResponse(HomeBaseGetResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
@@ -1660,6 +1675,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "apps_list_response":
             let message = try AppsListResponseMessage(from: decoder)
             self = .appsListResponse(message)
+        case "home_base_get_response":
+            let message = try HomeBaseGetResponseMessage(from: decoder)
+            self = .homeBaseGetResponse(message)
         case "app_update_preview_response":
             let message = try AppUpdatePreviewResponseMessage(from: decoder)
             self = .appUpdatePreviewResponse(message)

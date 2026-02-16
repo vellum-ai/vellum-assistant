@@ -473,6 +473,38 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let imageData: String?
 }
 
+public struct IPCHomeBaseGetRequest: Codable, Sendable {
+    public let type: String
+    /// If true, daemon ensures a durable Home Base link exists before responding.
+    public let ensureLinked: Bool?
+}
+
+public struct IPCHomeBaseGetResponse: Codable, Sendable {
+    public let type: String
+    public let homeBase: IPCHomeBaseGetResponseHomeBase?
+}
+
+public struct IPCHomeBaseGetResponseHomeBase: Codable, Sendable {
+    public let appId: String
+    public let source: String
+    public let starterTasks: [String]
+    public let onboardingTasks: [String]
+    public let preview: IPCHomeBaseGetResponseHomeBasePreview
+}
+
+public struct IPCHomeBaseGetResponseHomeBasePreview: Codable, Sendable {
+    public let title: String
+    public let subtitle: String
+    public let description: String
+    public let icon: String
+    public let metrics: [IPCHomeBaseGetResponseHomeBasePreviewMetric]
+}
+
+public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
+    public let label: String
+    public let value: String
+}
+
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String

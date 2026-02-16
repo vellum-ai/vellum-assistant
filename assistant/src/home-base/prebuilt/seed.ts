@@ -16,6 +16,11 @@ interface SeedMetadata {
   onboardingTasks: string[];
 }
 
+export interface PrebuiltHomeBaseTaskPayload {
+  starterTasks: string[];
+  onboardingTasks: string[];
+}
+
 function getPrebuiltDir(): string {
   return import.meta.dirname ?? __dirname;
 }
@@ -64,6 +69,14 @@ export function getPrebuiltHomeBasePreview(): {
       { label: 'Starter tasks', value: '3' },
       { label: 'Onboarding tasks', value: '4' },
     ],
+  };
+}
+
+export function getPrebuiltHomeBaseTaskPayload(): PrebuiltHomeBaseTaskPayload {
+  const metadata = loadSeedMetadata();
+  return {
+    starterTasks: metadata.starterTasks,
+    onboardingTasks: metadata.onboardingTasks,
   };
 }
 

@@ -73,6 +73,8 @@ graph TB
             PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
             ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence + Home Base handoff<br/>runtime onboarding-mode prompt"]
             HOME_BASE_SEED["HomeBaseSeed<br/>prebuilt scaffold seeding<br/>idempotent bootstrap"]
+            HOME_BASE_BOOT["HomeBaseBootstrap<br/>durable app-link resolution + repair"]
+            HOME_BASE_LINK["HomeBaseAppLinkStore<br/>home_base_app_links table"]
         end
 
         subgraph "Inference"
@@ -111,6 +113,7 @@ graph TB
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
             DB_REMINDERS["reminders"]
+            DB_HOME["home_base_app_links"]
         end
 
         subgraph "Tracing"
@@ -235,7 +238,10 @@ graph TB
     PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     PLAYBOOK_MGR --> ONBOARD_ORCH
     ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
-    IPC_SERVER -.->|"daemon startup bootstrap"| HOME_BASE_SEED
+    IPC_SERVER -.->|"daemon startup bootstrap + home_base_get"| HOME_BASE_BOOT
+    HOME_BASE_BOOT --> HOME_BASE_SEED
+    HOME_BASE_BOOT --> HOME_BASE_LINK
+    HOME_BASE_LINK --> DB_HOME
     HOME_BASE_SEED --> APPS_DATA
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG

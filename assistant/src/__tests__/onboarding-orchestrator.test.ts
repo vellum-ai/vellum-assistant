@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 
-mock.module('../home-base/prebuilt/seed.js', () => ({
-  findSeededHomeBaseApp: () => ({ id: 'home-base-123' }),
+mock.module('../home-base/bootstrap.js', () => ({
+  resolveHomeBaseAppId: () => 'home-base-123',
 }));
 
 mock.module('../util/logger.js', () => ({

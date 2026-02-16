@@ -323,6 +323,12 @@ export interface AppsListRequest {
   type: 'apps_list';
 }
 
+export interface HomeBaseGetRequest {
+  type: 'home_base_get';
+  /** If true, daemon ensures a durable Home Base link exists before responding. */
+  ensureLinked?: boolean;
+}
+
 export interface AppOpenRequest {
   type: 'app_open_request';
   appId: string;
@@ -674,6 +680,7 @@ export type ClientMessage =
   | ReminderCancel
   | BundleAppRequest
   | AppsListRequest
+  | HomeBaseGetRequest
   | AppOpenRequest
   | SharedAppsListRequest
   | SharedAppDeleteRequest
@@ -1165,6 +1172,23 @@ export interface AppsListResponse {
   }>;
 }
 
+export interface HomeBaseGetResponse {
+  type: 'home_base_get_response';
+  homeBase: {
+    appId: string;
+    source: string;
+    starterTasks: string[];
+    onboardingTasks: string[];
+    preview: {
+      title: string;
+      subtitle: string;
+      description: string;
+      icon: string;
+      metrics: Array<{ label: string; value: string }>;
+    };
+  } | null;
+}
+
 export interface SharedAppsListResponse {
   type: 'shared_apps_list_response';
   apps: Array<{
@@ -1497,6 +1521,7 @@ export type ServerMessage =
   | RemindersListResponse
   | BundleAppResponse
   | AppsListResponse
+  | HomeBaseGetResponse
   | SharedAppsListResponse
   | SharedAppDeleteResponse
   | ForkSharedAppResponse
