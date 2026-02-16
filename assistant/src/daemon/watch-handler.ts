@@ -126,7 +126,7 @@ async function generateCommentary(session: WatchSession): Promise<void> {
   }
 }
 
-async function generateSummary(session: WatchSession): Promise<void> {
+export async function generateSummary(session: WatchSession): Promise<void> {
   try {
     const client = new Anthropic();
 
