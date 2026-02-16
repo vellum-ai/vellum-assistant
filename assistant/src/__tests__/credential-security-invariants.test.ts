@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -33,6 +33,11 @@ _overrideDeps({
   isMacOS: () => false,
   isLinux: () => false,
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
+});
+
+// Restore process-level keychain deps so later test files are not affected
+afterAll(() => {
+  _resetDeps();
 });
 
 import { _resetBackend } from '../security/secure-keys.js';
