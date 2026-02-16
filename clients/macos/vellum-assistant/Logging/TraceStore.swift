@@ -156,7 +156,7 @@ public final class TraceStore: ObservableObject {
     /// Count of `llm_call_finished` events in a session.
     public func llmCallCount(sessionId: String) -> Int {
         guard let events = eventsBySession[sessionId] else { return 0 }
-        return events.count(where: { $0.kind == "llm_call_finished" })
+        return events.filter { $0.kind == "llm_call_finished" }.count
     }
 
     /// Total input tokens across all `llm_call_finished` events.
@@ -183,7 +183,7 @@ public final class TraceStore: ObservableObject {
     /// Count of `tool_failed` events in a session.
     public func toolFailureCount(sessionId: String) -> Int {
         guard let events = eventsBySession[sessionId] else { return 0 }
-        return events.count(where: { $0.kind == "tool_failed" })
+        return events.filter { $0.kind == "tool_failed" }.count
     }
 
     // MARK: - Reset
