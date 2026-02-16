@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ComposerView: View {
-    private let composerVerticalTextInset: CGFloat = 2
+    private let composerVerticalTextInset: CGFloat = 8
 
     @Binding var inputText: String
     let hasAPIKey: Bool
