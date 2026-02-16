@@ -270,10 +270,15 @@ struct AppDirectoryView: View {
         pendingResponses = 2
 
         Task { @MainActor in
+            // Save the previous onError handler so we can restore it once our
+            // requests complete, avoiding swallowing unrelated daemon errors.
+            let previousOnError = daemonClient.onError
+
             daemonClient.onAppsListResponse = { response in
                 self.localApps = response.apps
                 self.pendingResponses -= 1
                 if self.pendingResponses <= 0 {
+                    daemonClient.onError = previousOnError
                     self.buildDisplayItems()
                     self.isLoading = false
                 }
@@ -283,18 +288,22 @@ struct AppDirectoryView: View {
                 self.sharedApps = response.apps
                 self.pendingResponses -= 1
                 if self.pendingResponses <= 0 {
+                    daemonClient.onError = previousOnError
                     self.buildDisplayItems()
                     self.isLoading = false
                 }
             }
 
-            daemonClient.onError = { _ in
+            daemonClient.onError = { error in
                 if self.isLoading {
                     self.pendingResponses -= 1
                     if self.pendingResponses <= 0 {
+                        daemonClient.onError = previousOnError
                         self.buildDisplayItems()
                         self.isLoading = false
                     }
+                } else {
+                    previousOnError?(error)
                 }
             }
 
@@ -311,6 +320,7 @@ struct AppDirectoryView: View {
             }
 
             if pendingResponses <= 0 {
+                daemonClient.onError = previousOnError
                 buildDisplayItems()
                 isLoading = false
             }

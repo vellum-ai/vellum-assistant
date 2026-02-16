@@ -377,10 +377,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         context.coordinator.desiredTopInset = newTop
         context.coordinator.desiredBottomInset = newBottom
 
+        // Update the snapshot callback so navigating between surfaces picks up the new closure.
+        context.coordinator.onSnapshotCaptured = onSnapshotCaptured
+
         // Reload if the HTML content has changed.
         if data.html != context.coordinator.currentHTML {
             let previousHTML = context.coordinator.currentHTML
             context.coordinator.currentHTML = data.html
+            context.coordinator.hasCapturedSnapshot = false
             let origin = appId.map { "https://\($0).vellum.local/" } ?? "https://surface.vellum.local/"
 
             if previousHTML.isEmpty {
@@ -447,7 +451,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         var desiredBottomInset: Int = 0
         /// JSON string with {x, y} scroll position to restore after the next page load.
         var pendingScrollRestore: String?
-        private var hasCapturedSnapshot = false
+        var hasCapturedSnapshot = false
 
         init(
             onAction: @escaping (String, Any?) -> Void,
