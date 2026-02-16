@@ -59,16 +59,10 @@ import { ConflictGate } from './session-conflict-gate.js';
 import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import {
-  applyRuntimeInjections,
-  stripActiveSurfaceContext,
-  stripChannelOnboardingContext,
-  stripWorkspaceTopLevelContext,
-} from './session-runtime-assembly.js';
+import { applyRuntimeInjections, stripActiveSurfaceContext, stripWorkspaceTopLevelContext } from './session-runtime-assembly.js';
 import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
-import type { ActiveSurfaceContext, ChannelOnboardingContext } from './session-runtime-assembly.js';
-import { refreshPlaybookContent } from '../onboarding/playbooks/manager.js';
+import type { ActiveSurfaceContext } from './session-runtime-assembly.js';
 import type { UsageActor } from '../usage/actors.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
@@ -141,7 +135,6 @@ export class Session {
   /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   private workspaceTopLevelContext: string | null = null;
   private workspaceTopLevelDirty = true;
-  private channelOnboardingContext: ChannelOnboardingContext | null = null;
   public readonly traceEmitter: TraceEmitter;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
@@ -768,13 +761,11 @@ export class Session {
         }
       }
       // Refresh workspace top-level context before injection
-      this.refreshChannelOnboardingContext();
       this.refreshWorkspaceTopLevelContextIfNeeded();
 
       runMessages = applyRuntimeInjections(runMessages, {
         softConflictInstruction,
         activeSurface,
-        channelOnboarding: this.channelOnboardingContext,
         workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
 
@@ -1098,9 +1089,7 @@ export class Session {
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
       this.messages = stripWorkspaceTopLevelContext(
         stripActiveSurfaceContext(
-          stripChannelOnboardingContext(
-            stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
-          ),
+          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
         ),
       );
 
@@ -1770,24 +1759,6 @@ export class Session {
   /** Check if workspace context is marked dirty (for testing). */
   isWorkspaceTopLevelDirty(): boolean {
     return this.workspaceTopLevelDirty;
-  }
-
-  setChannelOnboardingContext(context: ChannelOnboardingContext | null): void {
-    this.channelOnboardingContext = context;
-  }
-
-  getChannelOnboardingContext(): ChannelOnboardingContext | null {
-    return this.channelOnboardingContext;
-  }
-
-  private refreshChannelOnboardingContext(): void {
-    if (!this.channelOnboardingContext) return;
-    const latest = refreshPlaybookContent(this.channelOnboardingContext.playbookPath);
-    if (latest.length === 0) return;
-    this.channelOnboardingContext = {
-      ...this.channelOnboardingContext,
-      playbookContent: latest,
-    };
   }
 
   /**

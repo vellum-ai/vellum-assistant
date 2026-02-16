@@ -68,11 +68,6 @@ graph TB
         HANDLERS["Message Handlers<br/>session routing"]
         SESSION_MGR["Session Manager<br/>in-memory pool<br/>stale eviction"]
 
-        subgraph "Onboarding Control Plane"
-            PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
-            PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
-        end
-
         subgraph "Inference"
             ANTHROPIC["Anthropic Claude<br/>primary provider"]
             OPENAI["OpenAI<br/>secondary provider"]
@@ -227,9 +222,6 @@ graph TB
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
     SESSION_MGR --> PROFILE_COMPILER
-    HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
-    PLAYBOOK_MGR --> PLAYBOOK_REG
-    PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
@@ -255,7 +247,6 @@ graph TB
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP"| HTTP_SERVER
-    HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
@@ -304,12 +295,6 @@ graph TB
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
-
-### Channel Onboarding Playbook Bootstrap
-
-- Transport metadata arrives via `session_create.transport` (IPC) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
-- `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies first-time fast-path vs cross-channel reconciliation.
-- Session runtime assembly injects `<channel_onboarding_playbook>` context before provider calls and strips it from persisted conversation history.
 
 ---
 
@@ -410,8 +395,6 @@ graph LR
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
-        ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
-        ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
     end
 
     subgraph "PostgreSQL (Web Server Only)"

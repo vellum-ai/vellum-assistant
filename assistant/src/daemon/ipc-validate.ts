@@ -85,23 +85,6 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     if (obj.maxResponseTokens !== undefined && typeof obj.maxResponseTokens !== 'number') {
       return 'session_create "maxResponseTokens" must be a number when present';
     }
-    if (obj.transport !== undefined) {
-      if (obj.transport == null || typeof obj.transport !== 'object' || Array.isArray(obj.transport)) {
-        return 'session_create "transport" must be an object when present';
-      }
-      const transport = obj.transport as Record<string, unknown>;
-      if (typeof transport.channelId !== 'string' || transport.channelId.trim().length === 0) {
-        return 'session_create "transport.channelId" must be a non-empty string';
-      }
-      if (transport.uxBrief !== undefined && typeof transport.uxBrief !== 'string') {
-        return 'session_create "transport.uxBrief" must be a string when present';
-      }
-      if (transport.hints !== undefined) {
-        if (!Array.isArray(transport.hints) || !transport.hints.every((value) => typeof value === 'string')) {
-          return 'session_create "transport.hints" must be an array of strings when present';
-        }
-      }
-    }
     return null;
   },
 

@@ -56,23 +56,12 @@ export interface SessionListRequest {
   type: 'session_list';
 }
 
-/** Lightweight session transport metadata for channel identity and natural-language guidance. */
-export interface SessionTransportMetadata {
-  /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
-  channelId: string;
-  /** Optional natural-language hints for channel-specific UX behavior. */
-  hints?: string[];
-  /** Optional concise UX brief for this channel. */
-  uxBrief?: string;
-}
-
 export interface SessionCreateRequest {
   type: 'session_create';
   title?: string;
   systemPromptOverride?: string;
   maxResponseTokens?: number;
   correlationId?: string;
-  transport?: SessionTransportMetadata;
 }
 
 export interface SessionSwitchRequest {

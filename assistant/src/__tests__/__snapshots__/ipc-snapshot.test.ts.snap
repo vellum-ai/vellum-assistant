@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://goo.gl/fbAQLP
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -28,13 +28,6 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
 {
   "correlationId": "corr-001",
   "title": "New session",
-  "transport": {
-    "channelId": "desktop",
-    "hints": [
-      "dashboard-capable",
-    ],
-    "uxBrief": "Prefer dashboard-first onboarding.",
-  },
   "type": "session_create",
 }
 `;
@@ -573,15 +566,6 @@ file2.ts
 "
 ,
   "type": "tool_output_chunk",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types tool_input_delta serializes to expected JSON 1`] = `
-{
-  "content": "{"html": "<div>Hello</div>"}",
-  "sessionId": "sess-001",
-  "toolName": "app_create",
-  "type": "tool_input_delta",
 }
 `;
 
@@ -1499,5 +1483,14 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "integrationId": "gmail",
   "success": true,
   "type": "integration_connect_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_input_delta serializes to expected JSON 1`] = `
+{
+  "content": "{"html": "<div>Hello</div>"}",
+  "sessionId": "sess-001",
+  "toolName": "app_create",
+  "type": "tool_input_delta",
 }
 `;
