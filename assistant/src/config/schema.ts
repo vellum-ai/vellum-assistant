@@ -23,6 +23,11 @@ export const TimeoutConfigSchema = z.object({
     .finite('timeouts.permissionTimeoutSec must be finite')
     .positive('timeouts.permissionTimeoutSec must be a positive number')
     .default(300),
+  toolExecutionTimeoutSec: z
+    .number({ error: 'timeouts.toolExecutionTimeoutSec must be a number' })
+    .finite('timeouts.toolExecutionTimeoutSec must be finite')
+    .positive('timeouts.toolExecutionTimeoutSec must be a positive number')
+    .default(120),
 });
 
 export const DockerConfigSchema = z.object({
@@ -811,6 +816,7 @@ export const AssistantConfigSchema = z.object({
     shellMaxTimeoutSec: 600,
     shellDefaultTimeoutSec: 120,
     permissionTimeoutSec: 300,
+    toolExecutionTimeoutSec: 120,
   }),
   sandbox: SandboxConfigSchema.default({
     enabled: true,

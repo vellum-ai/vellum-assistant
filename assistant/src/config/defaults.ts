@@ -118,6 +118,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     shellDefaultTimeoutSec: 120,
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
+    toolExecutionTimeoutSec: 120,
   },
   sandbox: {
     enabled: true,

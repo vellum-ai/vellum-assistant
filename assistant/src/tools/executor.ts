@@ -238,6 +238,7 @@ export class ToolExecutor {
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
+      const toolTimeoutMs = getConfig().timeouts.toolExecutionTimeoutSec * 1000;
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
           const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
@@ -259,9 +260,17 @@ export class ToolExecutor {
           });
           return { content: msg, isError: true };
         }
-        execResult = await context.proxyToolResolver(name, input);
+        execResult = await executeWithTimeout(
+          context.proxyToolResolver(name, input),
+          toolTimeoutMs,
+          name,
+        );
       } else {
-        execResult = await tool.execute(input, context);
+        execResult = await executeWithTimeout(
+          tool.execute(input, context),
+          toolTimeoutMs,
+          name,
+        );
       }
 
       // Secret detection on tool output
@@ -403,6 +412,31 @@ export class ToolExecutor {
       return { content: `Tool "${name}" encountered an unexpected error: ${msg}`, isError: true };
     }
   }
+}
+
+const TIMEOUT_SENTINEL = Symbol('tool-timeout');
+
+/**
+ * Race a tool execution promise against a timeout. Returns a timeout error
+ * result instead of throwing so the agent loop can continue gracefully.
+ */
+async function executeWithTimeout(
+  promise: Promise<ToolExecutionResult>,
+  timeoutMs: number,
+  toolName: string,
+): Promise<ToolExecutionResult> {
+  const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
+    setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+  });
+  const result = await Promise.race([promise, timeoutPromise]);
+  if (result === TIMEOUT_SENTINEL) {
+    const sec = Math.round(timeoutMs / 1000);
+    return {
+      content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
+      isError: true,
+    };
+  }
+  return result;
 }
 
 function resolveExecutionTarget(toolName: string): ExecutionTarget {
