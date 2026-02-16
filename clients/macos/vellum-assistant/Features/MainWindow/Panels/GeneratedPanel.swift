@@ -592,7 +592,8 @@ struct GeneratedPanel: View {
                 title: item.name,
                 data: AnyCodable(["html": html]),
                 actions: nil,
-                display: "panel"
+                display: "panel",
+                messageId: nil
             )
             if let onOpenApp {
                 onOpenApp(surfaceMsg)

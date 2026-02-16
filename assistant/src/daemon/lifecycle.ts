@@ -241,6 +241,13 @@ export async function runDaemon(): Promise<void> {
         message: reminder.message,
       });
     },
+    (schedule) => {
+      server.broadcast({
+        type: 'schedule_complete',
+        scheduleId: schedule.id,
+        name: schedule.name,
+      });
+    },
   );
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set

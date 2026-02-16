@@ -126,6 +126,9 @@ public final class ChatViewModel: ObservableObject {
 
     /// Maximum file size per attachment (20 MB).
     private static let maxFileSize = 20 * 1024 * 1024
+    /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
+    /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
+    private static let maxImageSize = 4 * 1024 * 1024
     /// Maximum number of attachments per message.
     private static let maxAttachments = 5
 
@@ -263,12 +266,40 @@ public final class ChatViewModel: ObservableObject {
         }
 
         let filename = url.lastPathComponent
-        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        let base64 = data.base64EncodedString()
+        var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+
+        // Compress images if needed
+        var finalData = data
+        var wasCompressed = false
+        if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
+            let (compressedData, didCompress) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
+            finalData = compressedData
+            wasCompressed = didCompress
+
+            // Update MIME type if compression changed format
+            if wasCompressed && finalData.count < data.count {
+                // Detect format from magic bytes
+                let header = [UInt8](finalData.prefix(4))
+                if header[0] == 0xFF && header[1] == 0xD8 {
+                    mimeType = "image/jpeg"
+                } else if header == [0x89, 0x50, 0x4E, 0x47] {
+                    mimeType = "image/png"
+                }
+            }
+        }
+
+        let base64 = finalData.base64EncodedString()
 
         var thumbnail: Data?
         if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-            thumbnail = Self.generateThumbnail(from: data, maxDimension: 120)
+            thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+        }
+
+        // Inform user if image was compressed
+        if wasCompressed {
+            let originalMB = Double(data.count) / (1024 * 1024)
+            let compressedMB = Double(finalData.count) / (1024 * 1024)
+            log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
         }
 
         #if os(macOS)
@@ -383,8 +414,27 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
-        let base64 = pngData.base64EncodedString()
-        let thumbnail = Self.generateThumbnail(from: pngData, maxDimension: 120)
+        // Compress image if needed
+        let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
+
+        // Inform user if image was compressed
+        if wasCompressed {
+            let originalMB = Double(pngData.count) / (1024 * 1024)
+            let compressedMB = Double(finalData.count) / (1024 * 1024)
+            log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
+        }
+
+        let base64 = finalData.base64EncodedString()
+        let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+
+        // Detect MIME type from compressed data
+        var mimeType = "image/png"
+        if wasCompressed {
+            let header = [UInt8](finalData.prefix(4))
+            if header[0] == 0xFF && header[1] == 0xD8 {
+                mimeType = "image/jpeg"
+            }
+        }
 
         #if os(macOS)
         let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
@@ -397,7 +447,7 @@ public final class ChatViewModel: ObservableObject {
         let attachment = ChatAttachment(
             id: UUID().uuidString,
             filename: filename,
-            mimeType: "image/png",
+            mimeType: mimeType,
             data: base64,
             thumbnailData: thumbnail,
             dataLength: base64.count,
@@ -435,6 +485,140 @@ public final class ChatViewModel: ObservableObject {
         let resized = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         return resized?.pngData()
+        #else
+        #error("Unsupported platform")
+        #endif
+    }
+
+    /// Compress image data if it exceeds the size limit.
+    /// Returns (compressedData, wasCompressed) tuple.
+    private static func compressImageIfNeeded(data: Data, maxSize: Int) -> (Data, Bool) {
+        // Check if compression is needed
+        guard data.count > maxSize else {
+            return (data, false)
+        }
+
+        #if os(macOS)
+        guard let image = NSImage(data: data),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            // Not a valid image, return as-is
+            return (data, false)
+        }
+
+        let originalWidth = CGFloat(cgImage.width)
+        let originalHeight = CGFloat(cgImage.height)
+        guard originalWidth > 0 && originalHeight > 0 else {
+            return (data, false)
+        }
+
+        // Calculate scale factor needed to reduce file size
+        // Rough heuristic: file size scales roughly with pixel count
+        let sizeReduction = Double(maxSize) / Double(data.count)
+        let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
+        let scale = min(CGFloat(pixelReduction), 1.0)
+
+        let newWidth = Int(originalWidth * scale)
+        let newHeight = Int(originalHeight * scale)
+
+        // Create bitmap context for resizing
+        guard let colorSpace = cgImage.colorSpace,
+              let context = CGContext(
+                data: nil,
+                width: newWidth,
+                height: newHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return (data, false)
+        }
+
+        // Draw scaled image
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+
+        guard let scaledCGImage = context.makeImage() else {
+            return (data, false)
+        }
+
+        let scaledImage = NSImage(cgImage: scaledCGImage, size: NSSize(width: newWidth, height: newHeight))
+
+        // Try JPEG compression first (better for photos)
+        if let tiffData = scaledImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffData),
+           let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75]) {
+            if jpeg.count <= maxSize {
+                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
+                return (jpeg, true)
+            }
+        }
+
+        // Fallback: try PNG
+        if let tiffData = scaledImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiffData),
+           let png = bitmap.representation(using: .png, properties: [:]) {
+            if png.count <= maxSize {
+                log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
+                return (png, true)
+            }
+        }
+
+        // If still too large, warn and return original
+        log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
+        return (data, false)
+
+        #elseif os(iOS)
+        guard let image = UIImage(data: data) else {
+            return (data, false)
+        }
+
+        let originalSize = image.size
+        guard originalSize.width > 0 && originalSize.height > 0 else {
+            return (data, false)
+        }
+
+        // Calculate scale factor
+        let sizeReduction = Double(maxSize) / Double(data.count)
+        let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% for safety margin
+        let scale = min(CGFloat(pixelReduction), 1.0)
+
+        let newSize = CGSize(
+            width: originalSize.width * scale,
+            height: originalSize.height * scale
+        )
+
+        // Resize image
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resized = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+
+        guard let resized = resized else {
+            return (data, false)
+        }
+
+        // Try JPEG compression
+        if let jpeg = resized.jpegData(compressionQuality: 0.75) {
+            if jpeg.count <= maxSize {
+                let dimensions = "\(Int(newSize.width))×\(Int(newSize.height))"
+                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(dimensions))")
+                return (jpeg, true)
+            }
+        }
+
+        // Fallback: try PNG
+        if let png = resized.pngData() {
+            if png.count <= maxSize {
+                let dimensions = "\(Int(newSize.width))×\(Int(newSize.height))"
+                log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(dimensions))")
+                return (png, true)
+            }
+        }
+
+        // If still too large, warn and return original
+        log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
+        return (data, false)
         #else
         #error("Unsupported platform")
         #endif
@@ -1047,9 +1231,20 @@ public final class ChatViewModel: ObservableObject {
             }
 
         case .uiSurfaceShow(let msg):
-            guard belongsToSession(msg.sessionId) else { return }
-            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else { break }
-            guard let surface = Surface.from(msg) else { break }
+            log.info("Received ui_surface_show: surfaceId=\(msg.surfaceId), messageId=\(msg.messageId ?? "nil"), display=\(msg.display ?? "nil")")
+            log.info("Current messages count: \(self.messages.count), IDs: \(self.messages.map { $0.id.uuidString }.joined(separator: ", "))")
+            guard belongsToSession(msg.sessionId) else {
+                log.info("Skipping surface - wrong session")
+                return
+            }
+            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else {
+                log.info("Skipping surface - display mode is '\(msg.display ?? "nil")'")
+                break
+            }
+            guard let surface = Surface.from(msg) else {
+                log.info("Skipping surface - failed to create Surface from message")
+                break
+            }
 
             // On macOS, dynamic pages with no explicit display mode (or "panel")
             // are routed to the workspace by SurfaceManager. If the dynamic page
@@ -1059,7 +1254,10 @@ public final class ChatViewModel: ObservableObject {
             if case .dynamicPage(let dpData) = surface.data, msg.display == nil || msg.display == "panel" {
                 isThinking = false
                 // Only render inline preview if the dynamic page has preview metadata
-                guard dpData.preview != nil else { break }
+                guard dpData.preview != nil else {
+                    log.info("Skipping inline surface - no preview metadata")
+                    break
+                }
             }
             #endif
 
@@ -1072,8 +1270,16 @@ public final class ChatViewModel: ObservableObject {
                 actions: surface.actions,
                 surfaceMessage: msg
             )
-            if let existingId = currentAssistantMessageId,
+
+            // If messageId is provided (from history loading), attach to that specific message
+            if let messageId = msg.messageId,
+               let messageUUID = UUID(uuidString: messageId),
+               let index = messages.firstIndex(where: { $0.id == messageUUID }) {
+                log.info("Attaching surface to message by messageId: \(messageId)")
+                messages[index].inlineSurfaces.append(inlineSurface)
+            } else if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
+                log.info("Attaching surface to currentAssistantMessage: \(existingId)")
                 let surfIdx = messages[index].inlineSurfaces.count
                 messages[index].inlineSurfaces.append(inlineSurface)
                 messages[index].contentOrder.append(.surface(surfIdx))
@@ -1082,11 +1288,13 @@ public final class ChatViewModel: ObservableObject {
                       let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
                 // Scope to the current turn so we never attach to an assistant message
                 // from a previous conversation turn.
+                log.info("Attaching surface to last assistant message in current turn")
                 let surfIdx = messages[idx].inlineSurfaces.count
                 messages[idx].inlineSurfaces.append(inlineSurface)
                 messages[idx].contentOrder.append(.surface(surfIdx))
                 lastContentWasToolCall = true
             } else {
+                log.info("Creating new assistant message for surface")
                 var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
                 newMsg.contentOrder = [.surface(0)]
                 currentAssistantMessageId = newMsg.id
@@ -1645,13 +1853,28 @@ public final class ChatViewModel: ObservableObject {
             // Skip empty messages (internal tool-result-only turns already filtered by daemon)
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
-            var chatMsg = ChatMessage(
-                role: role,
-                text: item.text,
-                timestamp: timestamp,
-                attachments: attachments,
-                toolCalls: toolCalls
-            )
+
+            // Use the database message ID if available (for matching surfaces)
+            var chatMsg: ChatMessage
+            if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
+                chatMsg = ChatMessage(
+                    id: uuid,
+                    role: role,
+                    text: item.text,
+                    timestamp: timestamp,
+                    attachments: attachments,
+                    toolCalls: toolCalls
+                )
+            } else {
+                chatMsg = ChatMessage(
+                    role: role,
+                    text: item.text,
+                    timestamp: timestamp,
+                    attachments: attachments,
+                    toolCalls: toolCalls
+                )
+            }
+
             // Use daemon-provided segments/order when available; fall back to legacy
             if let segments = item.textSegments, let orderStrings = item.contentOrder, !segments.isEmpty {
                 chatMsg.textSegments = segments

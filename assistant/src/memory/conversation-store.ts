@@ -285,6 +285,18 @@ export interface DeletedMemoryIds {
 }
 
 /**
+ * Update the content of an existing message. Used when consolidating
+ * multiple assistant messages into one.
+ */
+export function updateMessageContent(messageId: string, newContent: string): void {
+  const db = getDb();
+  db.update(messages)
+    .set({ content: newContent })
+    .where(eq(messages.id, messageId))
+    .run();
+}
+
+/**
  * Delete a single message by ID without cascading to message_runs or
  * channel_inbound_events. Nullable FK columns in those tables are set to
  * NULL before the message row is removed, so associated run and event

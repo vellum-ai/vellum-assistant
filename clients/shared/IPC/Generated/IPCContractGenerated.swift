@@ -411,6 +411,7 @@ public struct IPCHistoryResponse: Codable, Sendable {
 }
 
 public struct IPCHistoryResponseMessage: Codable, Sendable {
+    public let id: String?
     public let role: String
     public let text: String
     public let timestamp: Double
@@ -678,6 +679,12 @@ public struct IPCRideShotgunStart: Codable, Sendable {
 public struct IPCSandboxSetRequest: Codable, Sendable {
     public let type: String
     public let enabled: Bool
+}
+
+public struct IPCScheduleComplete: Codable, Sendable {
+    public let type: String
+    public let scheduleId: String
+    public let name: String
 }
 
 public struct IPCScheduleRemove: Codable, Sendable {
@@ -1174,6 +1181,8 @@ public struct IPCUiSurfaceShowCard: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
@@ -1185,6 +1194,8 @@ public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
@@ -1196,6 +1207,8 @@ public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowFileUpload: Codable, Sendable {
@@ -1207,6 +1220,8 @@ public struct IPCUiSurfaceShowFileUpload: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowForm: Codable, Sendable {
@@ -1218,6 +1233,8 @@ public struct IPCUiSurfaceShowForm: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowList: Codable, Sendable {
@@ -1229,6 +1246,8 @@ public struct IPCUiSurfaceShowList: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowTable: Codable, Sendable {
@@ -1240,6 +1259,8 @@ public struct IPCUiSurfaceShowTable: Codable, Sendable {
     public let title: String?
     public let actions: [IPCSurfaceAction]?
     public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceUndoRequest: Codable, Sendable {

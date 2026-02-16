@@ -130,6 +130,8 @@ export class Session {
   /** Per-surface undo stack: stores previous HTML strings for workspace refinement undo. */
   private surfaceUndoStacks = new Map<string, string[]>();
   private static readonly MAX_UNDO_DEPTH = 10;
+  /** Surfaces created during the current agent loop turn, to be persisted with the message. */
+  private currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
   private onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   private workspaceTopLevelContext: string | null = null;
   private workspaceTopLevelDirty = true;
@@ -1027,13 +1029,30 @@ export class Session {
             accumulatedDirectives.push(...msgDirectives);
             directiveWarnings.push(...msgWarnings);
 
-            // Save assistant message with cleaned content (tags stripped)
+            // Add surface blocks to content for persistence
+            const contentWithSurfaces: ContentBlock[] = [...cleanedContent];
+            for (const surface of this.currentTurnSurfaces) {
+              contentWithSurfaces.push({
+                type: 'ui_surface' as any,
+                surfaceId: surface.surfaceId,
+                surfaceType: surface.surfaceType,
+                title: surface.title,
+                data: surface.data,
+                actions: surface.actions,
+                display: surface.display,
+              } as any);
+            }
+
+            // Save assistant message with cleaned content (tags stripped) plus surfaces
             const assistantMsg = conversationStore.addMessage(
               this.conversationId,
               'assistant',
-              JSON.stringify(cleanedContent),
+              JSON.stringify(contentWithSurfaces),
             );
             lastAssistantMessageId = assistantMsg.id;
+
+            // Clear surfaces for next turn
+            this.currentTurnSurfaces = [];
 
             // Emit assistant_message trace with content metrics.
             // Char count only includes text blocks; thinking blocks are
@@ -1324,9 +1343,124 @@ export class Session {
       this.currentRequestId = undefined;
       this.currentActiveSurfaceId = undefined;
 
+      // Consolidate consecutive assistant messages from this agent loop run
+      if (userMessageId) {
+        this.consolidateAssistantMessages(userMessageId);
+      }
+
       // Drain the next queued message, if any
       this.drainQueue(yieldedForHandoff ? 'checkpoint_handoff' : 'loop_complete');
     }
+  }
+
+  /**
+   * Consolidate consecutive assistant messages created during an agent loop.
+   * After the loop completes, merge all assistant messages that came after
+   * the user message into a single message, and delete the internal tool_result
+   * user messages. This ensures the database matches what the client sees
+   * during streaming (one consolidated message per user request).
+   */
+  private consolidateAssistantMessages(userMessageId: string): void {
+    const allMessages = conversationStore.getMessages(this.conversationId);
+    const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
+    if (userMsgIndex === -1) return;
+
+    const messagesToConsolidate: typeof allMessages = [];
+    const internalToolResultMessages: typeof allMessages = [];
+    const messagesToDelete: string[] = [];
+
+    // Collect all assistant messages and internal tool_result user messages after this user message
+    for (let i = userMsgIndex + 1; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      if (msg.role === 'assistant') {
+        messagesToConsolidate.push(msg);
+      } else if (msg.role === 'user') {
+        // Check if this is an internal tool_result message (no text, only tool_result blocks)
+        try {
+          const content = JSON.parse(msg.content);
+          const isToolResultOnly = Array.isArray(content) &&
+            content.every((block) => block.type === 'tool_result') &&
+            content.length > 0;
+          if (isToolResultOnly) {
+            internalToolResultMessages.push(msg);
+            messagesToDelete.push(msg.id);
+          } else {
+            // Hit a real user message, stop consolidating
+            break;
+          }
+        } catch {
+          // Can't parse, assume it's a real user message
+          break;
+        }
+      }
+    }
+
+    // Only consolidate if there are multiple assistant messages
+    if (messagesToConsolidate.length <= 1) {
+      // Still delete internal tool_result messages even if only one assistant message
+      for (const id of messagesToDelete) {
+        conversationStore.deleteMessageById(id);
+      }
+      return;
+    }
+
+    log.info({
+      conversationId: this.conversationId,
+      userMessageId,
+      assistantCount: messagesToConsolidate.length,
+      internalMessageCount: messagesToDelete.length,
+    }, 'Consolidating assistant messages');
+
+    // Merge all content blocks from all assistant messages AND tool_result blocks from internal user messages
+    const consolidatedContent: ContentBlock[] = [];
+    for (const msg of messagesToConsolidate) {
+      try {
+        const content = JSON.parse(msg.content);
+        if (Array.isArray(content)) {
+          const toolUseBlocks = content.filter((b: any) => b.type === 'tool_use');
+          log.info({ messageId: msg.id, blockCount: content.length, toolUseCount: toolUseBlocks.length }, 'Consolidating assistant message content');
+          consolidatedContent.push(...content);
+        }
+      } catch (err) {
+        log.warn({ err, messageId: msg.id }, 'Failed to parse message content during consolidation');
+      }
+    }
+
+    // Also merge tool_result blocks from internal user messages
+    for (const msg of internalToolResultMessages) {
+      try {
+        const content = JSON.parse(msg.content);
+        if (Array.isArray(content)) {
+          const toolResultBlocks = content.filter((b: any) => b.type === 'tool_result');
+          log.info({ messageId: msg.id, blockCount: content.length, toolResultCount: toolResultBlocks.length }, 'Merging tool_result blocks from internal user message');
+          consolidatedContent.push(...content);
+        }
+      } catch (err) {
+        log.warn({ err, messageId: msg.id }, 'Failed to parse internal tool_result message during consolidation');
+      }
+    }
+
+    const toolUseBlocksInConsolidated = consolidatedContent.filter((b: any) => b.type === 'tool_use').length;
+    const toolResultBlocksInConsolidated = consolidatedContent.filter((b: any) => b.type === 'tool_result').length;
+    log.info({ totalBlocks: consolidatedContent.length, toolUseBlocks: toolUseBlocksInConsolidated, toolResultBlocks: toolResultBlocksInConsolidated }, 'Final consolidated content');
+
+    // Update the first assistant message with all content
+    const firstAssistantMsg = messagesToConsolidate[0];
+    conversationStore.updateMessageContent(firstAssistantMsg.id, JSON.stringify(consolidatedContent));
+
+    // Delete the other assistant messages and internal tool_result messages
+    for (let i = 1; i < messagesToConsolidate.length; i++) {
+      conversationStore.deleteMessageById(messagesToConsolidate[i].id);
+    }
+    for (const id of messagesToDelete) {
+      conversationStore.deleteMessageById(id);
+    }
+
+    log.info({
+      conversationId: this.conversationId,
+      consolidatedMessageId: firstAssistantMsg.id,
+      deletedCount: messagesToConsolidate.length - 1 + messagesToDelete.length,
+    }, 'Assistant messages consolidated');
   }
 
   /**
@@ -1981,6 +2115,14 @@ export class Session {
         data,
       } as UiSurfaceShow);
 
+      // Track surface for persistence
+      this.currentTurnSurfaces.push({
+        surfaceId,
+        surfaceType: 'file_upload',
+        title: 'File Request',
+        data,
+      });
+
       // Non-blocking: return immediately, user action arrives as follow-up message
       this.pendingSurfaceActions.set(surfaceId, { surfaceType: 'file_upload' as SurfaceType });
       return {
@@ -2016,6 +2158,8 @@ export class Session {
 
       const display = (input.display as string) === 'panel' ? 'panel' : 'inline';
 
+      const mappedActions = actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' }));
+
       this.sendToClient({
         type: 'ui_surface_show',
         sessionId: this.conversationId,
@@ -2023,9 +2167,19 @@ export class Session {
         surfaceType,
         title,
         data,
-        actions: actions?.map(a => ({ id: a.id, label: a.label, style: (a.style ?? 'secondary') as 'primary' | 'secondary' | 'destructive' })),
+        actions: mappedActions,
         display,
       } as unknown as UiSurfaceShow);
+
+      // Track surface for persistence with the message
+      this.currentTurnSurfaces.push({
+        surfaceId,
+        surfaceType,
+        title,
+        data,
+        actions: mappedActions,
+        display,
+      });
 
       if (awaitAction) {
         this.pendingSurfaceActions.set(surfaceId, { surfaceType });
@@ -2124,6 +2278,14 @@ export class Session {
         title: app.name,
         data: surfaceData,
       } as UiSurfaceShow);
+
+      // Track surface for persistence
+      this.currentTurnSurfaces.push({
+        surfaceId,
+        surfaceType: 'dynamic_page',
+        title: app.name,
+        data: surfaceData,
+      });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
     }
