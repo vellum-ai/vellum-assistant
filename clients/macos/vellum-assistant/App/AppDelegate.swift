@@ -998,7 +998,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func observeAssistantStatus() {
-        statusIconCancellable = mainWindow?.threadManager.objectWillChange
+        // Subscribe to active ChatViewModel's objectWillChange so menu bar icon
+        // updates when isThinking or errorText changes, even though SwiftUI
+        // views now use ActiveChatViewWrapper for their own observation.
+        statusIconCancellable = mainWindow?.threadManager.$activeThreadId
+            .compactMap { [weak mainWindow] _ in mainWindow?.threadManager.activeViewModel }
+            .flatMap { $0.objectWillChange }
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
