@@ -111,7 +111,6 @@ public struct SettingsView: View {
                         Spacer()
                         Button("Save") {
                             store.saveVercelKey(vercelKeyText)
-                            vercelKeyText = ""
                         }
                         .disabled(vercelKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
