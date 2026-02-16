@@ -399,6 +399,8 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
                 for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                     messages[index].toolCalls[j].isComplete = true
                     messages[index].toolCalls[j].completedAt = Date()
@@ -438,6 +440,8 @@ public final class ChatViewModel: ObservableObject {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
                 for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                     messages[index].toolCalls[j].isComplete = true
                     messages[index].toolCalls[j].completedAt = Date()
@@ -474,6 +478,8 @@ public final class ChatViewModel: ObservableObject {
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             messages[index].isStreaming = false
+            messages[index].streamingCodePreview = nil
+            messages[index].streamingCodeToolName = nil
             for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
                 messages[index].toolCalls[j].isComplete = true
                 messages[index].toolCalls[j].completedAt = Date()

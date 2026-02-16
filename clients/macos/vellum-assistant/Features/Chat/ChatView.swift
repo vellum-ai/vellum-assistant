@@ -801,7 +801,7 @@ private struct ChatBubble: View {
             && message.toolCalls.allSatisfy({ $0.isComplete }) && message.isStreaming
         let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
         let hasPermission = decidedConfirmation != nil
-        let hasStreamingCode = message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
+        let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
 
         if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
