@@ -128,6 +128,10 @@ struct ComposerView: View {
     // wraps past a single line, reset when text clears. Prevents layout
     // oscillation and keeps ChatView.composerReservedHeight in sync.
 
+    private var clampedComposerHeight: CGFloat {
+        min(max(editorContentHeight, 28), 200)
+    }
+
     private var isScrolledToBottom: Bool {
         let maxOffset = editorContentHeight - 200
         return maxOffset <= 0 || composerScrollOffset >= maxOffset - 5
@@ -136,6 +140,10 @@ struct ComposerView: View {
     private var composerTextField: some View {
         ScrollViewReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
+            Color.clear
+                .frame(height: 0)
+                .id("composer-top")
+
             ZStack(alignment: .leading) {
                 TextField(
                     ghostSuffix != nil ? "" : placeholderText,
@@ -176,7 +184,11 @@ struct ComposerView: View {
                     }
                 )
             }
-            .frame(minHeight: min(max(editorContentHeight, 28), 200), maxHeight: .infinity, alignment: .center)
+            // Keep the measured text content pinned to the top of the scroll view.
+            // An unbounded max-height here can retain stale internal offsets after
+            // multiline edits and clip the first visible line.
+            .frame(minHeight: clampedComposerHeight, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(ScrollOffsetReader(offset: $composerScrollOffset))
 
             // Invisible anchor for auto-scroll; extra height provides breathing room
@@ -190,16 +202,15 @@ struct ComposerView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollDisabled(editorContentHeight <= 200)
+        .onAppear {
+            syncComposerScrollPosition(proxy)
+        }
         .onChange(of: inputText) {
-            if editorContentHeight > 200 {
-                proxy.scrollTo("composer-bottom", anchor: .bottom)
-            }
+            syncComposerScrollPosition(proxy)
             if inputText.isEmpty { isComposerExpanded = false }
         }
         .onChange(of: editorContentHeight) {
-            if editorContentHeight > 200 {
-                proxy.scrollTo("composer-bottom", anchor: .bottom)
-            }
+            syncComposerScrollPosition(proxy)
             if editorContentHeight > 28 { isComposerExpanded = true }
         }
         .onKeyPress(.tab, phases: .down) { keyPress in
@@ -261,6 +272,15 @@ struct ComposerView: View {
             return .ignored
         }
         } // ScrollViewReader
+    }
+
+    private func syncComposerScrollPosition(_ proxy: ScrollViewProxy) {
+        if editorContentHeight > 200 {
+            proxy.scrollTo("composer-bottom", anchor: .bottom)
+            return
+        }
+        proxy.scrollTo("composer-top", anchor: .top)
+        composerScrollOffset = 0
     }
 
     @ViewBuilder
