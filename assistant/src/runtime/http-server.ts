@@ -23,6 +23,7 @@ import type { RunOrchestrator } from './run-orchestrator.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getApp } from '../memory/app-store.js';
 import * as sharedAppLinksStore from '../memory/shared-app-links-store.js';
+import { setSecureKey } from '../security/secure-keys.js';
 import JSZip from 'jszip';
 import type { AppManifest } from '../bundler/manifest.js';
 
@@ -262,6 +263,10 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
         return await this.handleChannelDeliveryAck(assistantId, req);
+      }
+
+      if (endpoint === 'secrets' && req.method === 'POST') {
+        return await this.handleAddSecret(req);
       }
 
       return Response.json({ error: 'Not found' }, { status: 404 });
@@ -724,6 +729,31 @@ export class RuntimeHttpServer {
       log.error({ err }, 'Failed to add trust rule');
       return Response.json({ error: 'Failed to add trust rule' }, { status: 500 });
     }
+  }
+
+  private async handleAddSecret(req: Request): Promise<Response> {
+    const body = await req.json() as {
+      key?: string;
+      value?: string;
+    };
+
+    const key = typeof body.key === 'string' ? body.key.trim() : '';
+    const value = body.value;
+
+    if (!key) {
+      return Response.json({ error: 'key is required' }, { status: 400 });
+    }
+    if (!value || typeof value !== 'string') {
+      return Response.json({ error: 'value is required' }, { status: 400 });
+    }
+
+    const ok = setSecureKey(key, value);
+    if (!ok) {
+      return Response.json({ error: 'Failed to store secret' }, { status: 500 });
+    }
+
+    log.info({ key }, 'Secret stored via HTTP');
+    return Response.json({ accepted: true });
   }
 
   // ── Attachment endpoints ────────────────────────────────────────────
