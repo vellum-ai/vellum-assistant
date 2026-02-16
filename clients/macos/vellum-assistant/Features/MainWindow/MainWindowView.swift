@@ -116,7 +116,14 @@ struct MainWindowView: View {
         }
     }
 
+    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
+    /// When true, the client shows a chat-only interface — no Home Base dashboard.
+    private var isBootstrapOnboardingActive: Bool {
+        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+    }
+
     private func requestHomeBaseDashboardIfNeeded() {
+        guard !isBootstrapOnboardingActive else { return }
         guard homeBaseDashboardDefaultEnabled else { return }
         guard daemonClient.isConnected else { return }
         guard !requestedHomeBaseAtLaunch else { return }
@@ -1037,6 +1044,7 @@ private struct DynamicWorkspaceWrapper: View {
     let onMicrophoneToggle: () -> Void
 
     private var composerReservedHeight: CGFloat {
+        guard !isChatDockOpen else { return 0 }
         let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
         let expanded = windowState.workspaceComposerExpanded
@@ -1081,11 +1089,16 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Button(action: onToggleChatDock) {
+                    Button(action: {
+                        if !isChatDockOpen {
+                            windowState.workspaceComposerExpanded = false
+                        }
+                        onToggleChatDock()
+                    }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "sidebar.right")
+                            Image(systemName: isChatDockOpen ? "arrow.down.left.and.arrow.up.right" : "arrow.up.right.and.arrow.down.left")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text(isChatDockOpen ? "Hide Chat" : "Show Chat")
+                            Text(isChatDockOpen ? "Move Chat To Bottom" : "Move Chat To Side")
                                 .font(VFont.bodyMedium)
                         }
                         .foregroundColor(VColor.textPrimary)
@@ -1098,7 +1111,7 @@ private struct DynamicWorkspaceWrapper: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isChatDockOpen ? "Hide docked chat panel" : "Show docked chat panel")
+                    .accessibilityLabel(isChatDockOpen ? "Move chat to bottom composer" : "Move chat to docked side panel")
 
                     Spacer()
 
@@ -1248,30 +1261,29 @@ private struct DynamicWorkspaceWrapper: View {
 
                 WorkspaceActivityFeed(viewModel: viewModel)
 
-                let placeholder = data.appId != nil
-                    ? "Describe changes to \(surface.title ?? "this app")..."
-                    : "Describe changes to this page..."
-                ComposerView(
-                    inputText: Binding(
-                        get: { viewModel.inputText },
-                        set: { viewModel.inputText = $0 }
-                    ),
-                    hasAPIKey: windowState.hasAPIKey,
-                    isSending: viewModel.isSending,
-                    isRecording: viewModel.isRecording,
-                    suggestion: viewModel.suggestion,
-                    pendingAttachments: viewModel.pendingAttachments,
-                    onSend: viewModel.sendMessage,
-                    onStop: viewModel.stopGenerating,
-                    onAcceptSuggestion: viewModel.acceptSuggestion,
-                    onAttach: { openFilePicker(viewModel: viewModel) },
-                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                    onPaste: { viewModel.addAttachmentFromPasteboard() },
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder,
-                    editorContentHeight: $workspaceEditorContentHeight,
-                    isComposerExpanded: $windowState.workspaceComposerExpanded
-                )
+                if !isChatDockOpen {
+                    ComposerView(
+                        inputText: Binding(
+                            get: { viewModel.inputText },
+                            set: { viewModel.inputText = $0 }
+                        ),
+                        hasAPIKey: windowState.hasAPIKey,
+                        isSending: viewModel.isSending,
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        onSend: viewModel.sendMessage,
+                        onStop: viewModel.stopGenerating,
+                        onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onAttach: { openFilePicker(viewModel: viewModel) },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        placeholderText: "Message your assistant...",
+                        editorContentHeight: $workspaceEditorContentHeight,
+                        isComposerExpanded: $windowState.workspaceComposerExpanded
+                    )
+                }
             }
         }
     }
