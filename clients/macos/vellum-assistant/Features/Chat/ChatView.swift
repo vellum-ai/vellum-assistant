@@ -1111,27 +1111,12 @@ private struct ChatBubble: View {
 
             if hasText {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    if isExpanded && message.text.count > truncationLimit {
-                        // For expanded long messages, use a scrollable container with fixed height
-                        ScrollView {
-                            Text(markdownText)
-                                .font(.system(size: 13))
-                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(height: 400)
-                        .background(Color.black.opacity(0.1))
-                        .cornerRadius(4)
-                    } else {
-                        Text(markdownText)
-                            .font(.system(size: 13))
-                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(markdownText)
+                        .font(.system(size: 13))
+                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                        .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if shouldTruncate || (isExpanded && (message.text.count > truncationLimit || message.text.components(separatedBy: .newlines).count > lineLimit)) {
                         Button(action: { isExpanded.toggle() }) {
