@@ -461,7 +461,7 @@ describe('Memory lifecycle E2E regression', () => {
     expect(runtimeExisting?.status).toBe('active');
     expect(runtimeCandidate?.status).toBe('superseded');
 
-    const profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n- prefers concise answers';
+    const profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n- prefers concise answers\n</dynamic-user-profile>';
     const baseUserMessage: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'Plan next sprint milestones.' }],

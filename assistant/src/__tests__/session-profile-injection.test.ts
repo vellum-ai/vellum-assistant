@@ -7,7 +7,7 @@ let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
 let profileEnabled = true;
 let memoryEnabled = true;
-let profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles';
+let profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
 
 const persistedMessages: Array<{ id: string; role: string; content: string; createdAt: number }> = [];
 
@@ -257,7 +257,7 @@ describe('Session dynamic profile injection', () => {
     profileCompilerCalls = 0;
     profileEnabled = true;
     memoryEnabled = true;
-    profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles';
+    profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
   });
 
   test('injects profile context for runtime and strips it from persisted history', async () => {
