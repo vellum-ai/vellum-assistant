@@ -13,6 +13,7 @@ mock.module('../util/logger.js', () => ({
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     provider: 'anthropic',
+    providerOrder: ['anthropic'],
     apiKeys: { anthropic: 'test-key' },
     swarm: {
       enabled: true,
@@ -26,24 +27,27 @@ mock.module('../config/loader.js', () => ({
   }),
   getSwarmDisabledConfig: () => ({
     provider: 'anthropic',
+    providerOrder: ['anthropic'],
     apiKeys: { anthropic: 'test-key' },
     swarm: { enabled: false, maxWorkers: 3, maxTasks: 8, maxRetriesPerTask: 1, workerTimeoutSec: 900, plannerModel: 'h', synthesizerModel: 's' },
   }),
 }));
 
 // Mock provider registry — returns a mock provider
+const mockProvider = {
+  name: 'test',
+  async sendMessage() {
+    return {
+      content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
+      model: 'test',
+      usage: { inputTokens: 10, outputTokens: 10 },
+      stopReason: 'end_turn',
+    };
+  },
+};
 mock.module('../providers/registry.js', () => ({
-  getProvider: () => ({
-    name: 'test',
-    async sendMessage() {
-      return {
-        content: [{ type: 'text', text: '{"tasks":[{"id":"t1","role":"coder","objective":"Do it","dependencies":[]}]}' }],
-        model: 'test',
-        usage: { inputTokens: 10, outputTokens: 10 },
-        stopReason: 'end_turn',
-      };
-    },
-  }),
+  getProvider: () => mockProvider,
+  getFailoverProvider: () => mockProvider,
 }));
 
 // Mock the Agent SDK to prevent real subprocess spawning

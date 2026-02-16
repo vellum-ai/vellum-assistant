@@ -78,6 +78,7 @@ mock.module('../util/platform.js', () => ({
 
 mock.module('../providers/registry.js', () => ({
   getProvider: () => ({ name: 'mock-provider' }),
+  getFailoverProvider: () => ({ name: 'mock-provider' }),
   initializeProviders: () => {},
 }));
 
@@ -90,6 +91,7 @@ mock.module('../providers/ratelimit.js', () => ({
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     provider: 'mock-provider',
+    providerOrder: ['mock-provider'],
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
