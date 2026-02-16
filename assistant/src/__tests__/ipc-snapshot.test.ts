@@ -36,6 +36,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'session_create',
     title: 'New session',
     correlationId: 'corr-001',
+    transport: {
+      channelId: 'desktop',
+      hints: ['dashboard-capable'],
+      uxBrief: 'Prefer dashboard-first onboarding.',
+    },
   },
   session_switch: {
     type: 'session_switch',

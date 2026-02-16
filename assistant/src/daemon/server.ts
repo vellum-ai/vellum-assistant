@@ -24,6 +24,7 @@ import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
+import { resolveOnboardingPlaybook } from '../onboarding/playbooks/manager.js';
 
 const log = getLogger('server');
 
@@ -56,6 +57,58 @@ export class DaemonServer {
   private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
   private static readonly MAX_CONNECTIONS = 50;
+
+  private normalizeTransportChannelId(channelId: string): string {
+    const normalized = channelId
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return normalized.length > 0 ? normalized : 'desktop';
+  }
+
+  private applyTransportMetadata(session: Session, options: SessionCreateOptions | undefined): void {
+    const transport = options?.transport;
+    if (!transport) return;
+
+    const normalizedChannelId = this.normalizeTransportChannelId(transport.channelId);
+    const normalizedHints = Array.isArray(transport.hints)
+      ? transport.hints.map((hint) => hint.trim()).filter((hint) => hint.length > 0)
+      : undefined;
+    const normalizedUxBrief = typeof transport.uxBrief === 'string' && transport.uxBrief.trim().length > 0
+      ? transport.uxBrief.trim()
+      : undefined;
+
+    const existing = session.getChannelOnboardingContext();
+    if (existing && existing.channelId === normalizedChannelId) {
+      session.setChannelOnboardingContext({
+        ...existing,
+        uxBrief: normalizedUxBrief ?? existing.uxBrief,
+        hints: normalizedHints ?? existing.hints,
+      });
+      return;
+    }
+
+    try {
+      const playbook = resolveOnboardingPlaybook(transport);
+      session.setChannelOnboardingContext({
+        channelId: playbook.channelId,
+        playbookPath: playbook.playbookPath,
+        playbookName: playbook.playbookName,
+        playbookContent: playbook.playbookContent,
+        uxBrief: normalizedUxBrief ?? playbook.uxBrief,
+        hints: normalizedHints ?? playbook.hints,
+        guidanceBullets: playbook.guidanceBullets,
+        reconciliation: {
+          firstTimeFastPath: playbook.reconciliation.firstTimeFastPath,
+          attempted: playbook.reconciliation.attempted,
+          sourceChannels: playbook.reconciliation.sourceChannels,
+        },
+      });
+    } catch (err) {
+      log.warn({ err, transport }, 'Failed to resolve onboarding playbook context from transport metadata');
+    }
+  }
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -558,7 +611,7 @@ export class DaemonServer {
     };
 
     // Persist session options so they survive eviction/recreation.
-    if (options && (options.systemPromptOverride || options.maxResponseTokens)) {
+    if (options && (options.systemPromptOverride || options.maxResponseTokens || options.transport)) {
       this.sessionOptions.set(conversationId, {
         ...this.sessionOptions.get(conversationId),
         ...options,
@@ -613,6 +666,7 @@ export class DaemonServer {
           newSession.updateClient(sendToClient, true);
         }
         await newSession.loadFromDb();
+        this.applyTransportMetadata(newSession, storedOptions);
         if (rebindClient && socket) {
           newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
         }
@@ -629,6 +683,7 @@ export class DaemonServer {
     } else {
       // Rebind to the new socket so IPC goes to the current client.
       maybeBindClient(session);
+      this.applyTransportMetadata(session, options);
     }
     return session;
   }
@@ -683,8 +738,9 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
-    const session = await this.getOrCreateSession(conversationId);
+    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     // Reject concurrent requests upfront. The HTTP path should never use
     // the message queue — it returns 409 to the caller instead.
@@ -729,8 +785,9 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
-    const session = await this.getOrCreateSession(conversationId);
+    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
