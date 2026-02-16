@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import { createHash } from 'node:crypto';
 import { deployHtmlToVercel, deleteVercelDeployment } from '../../services/vercel-deploy.js';
-import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId } from '../../memory/published-pages-store.js';
+import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId, updatePublishedPage } from '../../memory/published-pages-store.js';
 import { setSecureKey } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { credentialBroker } from '../../tools/credentials/broker.js';
@@ -24,6 +24,10 @@ export async function handlePublishPage(
     // Check if already published (no credential needed)
     const existing = getPublishedPageByHash(htmlHash);
     if (existing) {
+      // Link the existing deployment to this app if not already linked
+      if (msg.appId && !existing.appId) {
+        updatePublishedPage(existing.id, { appId: msg.appId });
+      }
       ctx.send(socket, {
         type: 'publish_page_response',
         success: true,

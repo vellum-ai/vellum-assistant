@@ -126,6 +126,7 @@ export function updatePublishedPage(
     publicUrl?: string;
     htmlHash?: string;
     publishedAt?: number;
+    appId?: string;
   },
 ): void {
   const db = getDb();
