@@ -98,6 +98,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     private var zoomManager: ZoomManager { services.zoomManager }
 
+    private let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+
     private var onboardingWindow: OnboardingWindow?
     private var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
@@ -379,46 +381,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let mainWindowVisible = self.mainWindow?.isVisible == true && NSApp.isActive
             let workspaceExpanded = self.mainWindow?.windowState.isDynamicExpanded == true
-            // Show floating panel when window not visible OR workspace is expanded
-            // (in workspace mode the chat is hidden behind the surface)
+            // Post a native notification when the window isn't visible or workspace is expanded
             if !mainWindowVisible || workspaceExpanded {
-                self.toolConfirmationManager.showConfirmation(msg)
-            }
-        }
-        toolConfirmationManager.onResponse = { [weak self] requestId, decision in
-            guard let self else { return false }
-            // Send the response to daemon; return false on failure so
-            // the floating panel stays visible for retry.
-            do {
-                try self.daemonClient.sendConfirmationResponse(
-                    requestId: requestId,
-                    decision: decision
-                )
-            } catch {
-                log.error("Failed to send confirmation response: \(error.localizedDescription)")
-                return false
-            }
-            // Sync the inline message state across ALL ChatViewModels so the
-            // originating thread is updated even if the user switched threads.
-            self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
-                requestId: requestId,
-                decision: decision
-            )
-            return true
-        }
-        toolConfirmationManager.onAddTrustRule = { [weak self] toolName, pattern, scope, decision in
-            guard let self else { return false }
-            do {
-                try self.daemonClient.sendAddTrustRule(
-                    toolName: toolName,
-                    pattern: pattern,
-                    scope: scope,
-                    decision: decision
-                )
-                return true
-            } catch {
-                log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
-                return false
+                Task { @MainActor in
+                    let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+                    do {
+                        try self.daemonClient.sendConfirmationResponse(
+                            requestId: msg.requestId,
+                            decision: decision
+                        )
+                    } catch {
+                        log.error("Failed to send confirmation response: \(error.localizedDescription)")
+                    }
+                    // Sync the inline message state across ALL ChatViewModels so the
+                    // originating thread is updated even if the user switched threads.
+                    self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                        requestId: msg.requestId,
+                        decision: decision
+                    )
+                }
             }
         }
     }
@@ -755,6 +736,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.ambientAgent.resume()
                     self?.surfaceManager.dismissAll()
                     self?.toolConfirmationManager.dismissAll()
+                    self?.toolConfirmationNotificationService.dismissAll()
                     self?.secretPromptManager.dismissAll()
                 }
             }
@@ -1461,6 +1443,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ambientAgent.teardown()
         surfaceManager.dismissAll()
         toolConfirmationManager.dismissAll()
+        toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
         daemonLauncher.stop()
     }
@@ -1484,6 +1467,28 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         if categoryId == "ACTIVITY_COMPLETE" {
             await MainActor.run {
                 self.showMainWindow()
+            }
+            return
+        }
+
+        // Handle tool confirmation notifications
+        if categoryId == "TOOL_CONFIRMATION" {
+            let requestId = response.notification.request.content.userInfo["requestId"] as? String ?? ""
+            let decision: String
+            switch response.actionIdentifier {
+            case "CONFIRM_ALLOW":
+                decision = "allow"
+            case "CONFIRM_DENY":
+                decision = "deny"
+            case UNNotificationDismissActionIdentifier:
+                decision = "deny"
+            default:
+                // Default action (clicked banner) — deny and bring app forward
+                decision = "deny"
+                await MainActor.run { self.showMainWindow() }
+            }
+            await MainActor.run {
+                self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
             }
             return
         }
