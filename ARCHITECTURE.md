@@ -327,7 +327,7 @@ graph TB
 - `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 - Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
-- Home Base onboarding task actions (`home_base_onboarding_enable_voice_mode`, `home_base_onboarding_enable_computer_control`) are the explicit permission-setup entry points; hatch + first-conversation flows avoid proactive permission asks.
+- Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
 ---
 

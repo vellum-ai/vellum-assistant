@@ -53,22 +53,67 @@ function makeContext(): SurfaceSessionContext {
 }
 
 describe('starter task surface actions', () => {
-  test('keeps dynamic_page pending actions for repeated CTA clicks', () => {
+  test('forwards prompt payload as normal message content', () => {
+    const forwarded: string[] = [];
     const ctx = makeContext();
+    ctx.processMessage = async (content) => {
+      forwarded.push(content);
+      return 'ok';
+    };
     ctx.pendingSurfaceActions.set('surf-1', { surfaceType: 'dynamic_page' });
 
-    handleSurfaceAction(ctx, 'surf-1', 'home_base_starter_change_look_and_feel', { accentColor: '#0b7e73' });
+    handleSurfaceAction(ctx, 'surf-1', 'relay_prompt', {
+      prompt: 'Help me customize Home Base with a calmer palette.',
+      task: 'change_look_and_feel',
+    });
 
+    expect(forwarded).toEqual(['Help me customize Home Base with a calmer palette.']);
     expect(ctx.pendingSurfaceActions.has('surf-1')).toBe(true);
   });
 
-  test('keeps dynamic_page pending actions for onboarding optional task triggers', () => {
+  test('falls back to structured payload when prompt is absent', () => {
+    const forwarded: string[] = [];
     const ctx = makeContext();
+    ctx.processMessage = async (content) => {
+      forwarded.push(content);
+      return 'ok';
+    };
     ctx.pendingSurfaceActions.set('surf-2', { surfaceType: 'dynamic_page' });
 
-    handleSurfaceAction(ctx, 'surf-2', 'home_base_onboarding_enable_voice_mode', {});
+    handleSurfaceAction(ctx, 'surf-2', 'relay_prompt', { topic: 'weather in sf' });
 
+    expect(forwarded).toHaveLength(1);
+    const parsed = JSON.parse(forwarded[0]) as {
+      surfaceAction: boolean;
+      surfaceId: string;
+      actionId: string;
+      data: Record<string, unknown>;
+    };
+    expect(parsed.surfaceAction).toBe(true);
+    expect(parsed.surfaceId).toBe('surf-2');
+    expect(parsed.actionId).toBe('relay_prompt');
+    expect(parsed.data.topic).toBe('weather in sf');
     expect(ctx.pendingSurfaceActions.has('surf-2')).toBe(true);
+  });
+
+  test('does not treat prompt-like fields as relay content for non-relay actions', () => {
+    const forwarded: string[] = [];
+    const ctx = makeContext();
+    ctx.processMessage = async (content) => {
+      forwarded.push(content);
+      return 'ok';
+    };
+    ctx.pendingSurfaceActions.set('surf-3', { surfaceType: 'dynamic_page' });
+
+    handleSurfaceAction(ctx, 'surf-3', 'save_filters', { prompt: 'keep this literal field' });
+
+    expect(forwarded).toHaveLength(1);
+    const parsed = JSON.parse(forwarded[0]) as {
+      actionId: string;
+      data: Record<string, unknown>;
+    };
+    expect(parsed.actionId).toBe('save_filters');
+    expect(parsed.data.prompt).toBe('keep this literal field');
   });
 
   test('consumes non-dynamic pending actions after forwarding', () => {

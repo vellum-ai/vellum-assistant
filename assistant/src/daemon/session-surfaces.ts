@@ -181,7 +181,12 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     return;
   }
   ctx.lastSurfaceAction.set(surfaceId, { actionId, data });
-  const content = JSON.stringify({
+  const shouldRelayPrompt = actionId === 'relay_prompt' || actionId === 'agent_prompt';
+  const prompt =
+    shouldRelayPrompt && typeof data?.prompt === 'string'
+      ? data.prompt.trim()
+      : '';
+  const content = prompt || JSON.stringify({
     surfaceAction: true,
     surfaceId,
     surfaceType: pending.surfaceType,

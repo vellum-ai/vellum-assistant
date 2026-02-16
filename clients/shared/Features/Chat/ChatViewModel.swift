@@ -651,10 +651,6 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isWorkspaceRefinement = activeSurfaceId != nil
-
-        // Append user message immediately for responsive UX —
-        // skip for workspace refinements to avoid leaking into the chat view.
         let willBeQueued = isSending && sessionId != nil
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
