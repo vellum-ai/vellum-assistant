@@ -317,22 +317,22 @@ async function scanHtmlEntry(
   // --- Warn-level: suspicious JS patterns ---
 
   const warnPatterns: { pattern: RegExp; code: string; message: string }[] = [
-    { pattern: /\bfetch\s*\(/g, code: "network_fetch", message: "Makes network requests \u2014 could send or receive data from external servers" },
-    { pattern: /\bXMLHttpRequest\b/g, code: "network_xhr", message: "Makes network requests \u2014 could send or receive data from external servers" },
+    { pattern: /\bfetch\s*\(/g, code: "network_fetch", message: "Uses fetch() for network requests \u2014 could send or receive data from external servers" },
+    { pattern: /\bXMLHttpRequest\b/g, code: "network_xhr", message: "Uses XMLHttpRequest for network requests \u2014 could send or receive data from external servers" },
     { pattern: /\bnew\s+WebSocket\b/g, code: "network_websocket", message: "Uses WebSocket connections \u2014 could maintain persistent communication with a server" },
     { pattern: /\bEventSource\b/g, code: "network_eventsource", message: "Uses server-sent events \u2014 could receive live data from a server" },
     { pattern: /\bdocument\.cookie\b/g, code: "cookie_access", message: "Accesses browser cookies \u2014 could read or store tracking data" },
-    { pattern: /\beval\s*\(/g, code: "eval_usage", message: "Uses dynamic code execution \u2014 could run code not visible in the source" },
-    { pattern: /\bFunction\s*\(/g, code: "function_constructor", message: "Uses dynamic code execution \u2014 could run code not visible in the source" },
+    { pattern: /\beval\s*\(/g, code: "eval_usage", message: "Uses eval() for dynamic code execution \u2014 could run code not visible in the source" },
+    { pattern: /\bFunction\s*\(/g, code: "function_constructor", message: "Uses Function() constructor for dynamic code execution \u2014 could run code not visible in the source" },
     {
       pattern: /\bsetTimeout\s*\(\s*["'`]/g,
       code: "settimeout_string",
-      message: "Uses string-based code execution \u2014 could run code not visible in the source",
+      message: "Uses setTimeout() with string for code execution \u2014 could run code not visible in the source",
     },
     {
       pattern: /\bsetInterval\s*\(\s*["'`]/g,
       code: "setinterval_string",
-      message: "Uses string-based code execution \u2014 could run code not visible in the source",
+      message: "Uses setInterval() with string for code execution \u2014 could run code not visible in the source",
     },
     { pattern: /\bwindow\.open\s*\(/g, code: "window_open", message: "Opens new windows \u2014 could navigate to external sites" },
     {
