@@ -964,7 +964,7 @@ private struct DynamicWorkspaceWrapper: View {
         let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
         let hasAttachments = !viewModel.pendingAttachments.isEmpty
         let attachmentStrip: CGFloat = hasAttachments ? VSpacing.sm + 36 + VSpacing.xs : 0
-        return VSpacing.md + 18 + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
+        return VSpacing.sm + VSpacing.md + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
     }
 
     var body: some View {
