@@ -59,6 +59,53 @@ class BackendUnavailableError extends Error {
   }
 }
 
+// ── Error classification for LLM / API errors ─────────────────────
+
+type ErrorCategory = 'retryable' | 'fatal';
+
+const RETRY_BASE_DELAY_MS = 5_000;
+const RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
+const RETRY_MAX_ATTEMPTS = 8;
+
+/**
+ * Classify an error as retryable or fatal based on its HTTP status or type.
+ *
+ * Retryable: timeouts, 429 rate limits, 5xx server errors, connection errors.
+ * Fatal: 400 bad request, 401 auth, 403 permission, other 4xx client errors.
+ */
+function classifyError(err: unknown): ErrorCategory {
+  // Timeout errors from our own Promise.race wrappers
+  if (err instanceof Error && err.message.includes('timeout')) {
+    return 'retryable';
+  }
+
+  // SDK APIError subclasses (Anthropic and OpenAI share the same shape)
+  if (err != null && typeof err === 'object' && 'status' in err) {
+    const status = (err as { status?: number }).status;
+    if (typeof status === 'number') {
+      if (status === 429) return 'retryable';
+      if (status >= 500) return 'retryable';
+      // 400, 401, 403, 404, 409, 422, other 4xx → fatal
+      return 'fatal';
+    }
+    // No status (connection error) → retryable
+    return 'retryable';
+  }
+
+  // Connection/network errors without a status code
+  if (err instanceof Error && /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
+    return 'retryable';
+  }
+
+  // Unknown errors default to fatal to avoid infinite retry loops
+  return 'fatal';
+}
+
+/** Exponential backoff delay: base * 2^(attempt-1), capped. */
+function retryDelayForAttempt(attempts: number): number {
+  return Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)), RETRY_MAX_DELAY_MS);
+}
+
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
 const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
@@ -169,8 +216,18 @@ export async function runMemoryJobsOnce(
         }
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        failMemoryJob(job.id, message);
-        log.warn({ err, jobId: job.id, type: job.type }, 'Memory job failed');
+        const category = classifyError(err);
+        if (category === 'retryable') {
+          const delay = retryDelayForAttempt(job.attempts + 1);
+          failMemoryJob(job.id, message, {
+            retryDelayMs: delay,
+            maxAttempts: RETRY_MAX_ATTEMPTS,
+          });
+          log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
+        } else {
+          failMemoryJob(job.id, message, { maxAttempts: 1 });
+          log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
+        }
       }
     }
   }
