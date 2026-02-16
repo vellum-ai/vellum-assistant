@@ -120,6 +120,14 @@ graph TB
             SYNTH["Synthesizer<br/>LLM + markdown fallback"]
         end
 
+        subgraph "Integrations"
+            INT_REGISTRY["IntegrationRegistry<br/>in-memory definitions"]
+            INT_OAUTH["OAuth2 PKCE Flow<br/>Bun.serve loopback"]
+            INT_TOKEN["TokenManager<br/>auto-refresh + retry"]
+            GMAIL_CLIENT["GmailClient<br/>REST API wrapper"]
+            GMAIL_TOOLS["Gmail Tools<br/>search, archive, send, etc."]
+        end
+
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
@@ -144,7 +152,7 @@ graph TB
             PG_CHAN["assistant_channel_accounts"]
             PG_CONTACT["assistant_channel_contacts"]
             PG_USER["user / session / account"]
-            PG_TOKENS["assistant_auth_tokens"]
+            PG_TOKENS["assistant tokens (OAuth)"]
             PG_APIKEYS["api_keys"]
         end
 
@@ -267,6 +275,15 @@ graph TB
     TRACE_EMITTER -->|"trace_event"| IPC_SERVER
     IPC_SERVER -->|"trace_event"| TRACE_STORE
     TRACE_STORE --> DEBUG_PANEL
+
+    %% Integration data flow
+    HANDLERS -->|"integration_connect"| INT_REGISTRY
+    INT_REGISTRY --> INT_OAUTH
+    INT_OAUTH -->|"open_url"| IPC_SERVER
+    INT_OAUTH -->|"store tokens"| KEYCHAIN
+    GMAIL_TOOLS --> INT_TOKEN
+    INT_TOKEN -->|"auto-refresh"| KEYCHAIN
+    INT_TOKEN --> GMAIL_CLIENT
 
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS
@@ -1591,6 +1608,95 @@ graph LR
 
 ---
 
+## Integrations — OAuth2 + Gmail
+
+The integration framework lets Vellum connect to third-party services (starting with Gmail) via OAuth2 PKCE. The architecture follows these principles:
+
+- **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
+- **PKCE flow, no client secret** — Desktop apps use the OAuth2 Authorization Code flow with PKCE (S256). A temporary `Bun.serve` HTTP server on `127.0.0.1` captures the callback.
+- **Extensible registry** — New integrations register via `IntegrationDefinition` objects. The registry derives connection status from vault presence rather than maintaining separate state.
+
+### Data Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as Settings UI (Swift)
+    participant IPC as IPC Socket
+    participant Handler as Daemon Handlers
+    participant Registry as IntegrationRegistry
+    participant OAuth as OAuth2 PKCE Flow
+    participant Browser as System Browser
+    participant Google as Google OAuth Server
+    participant Vault as Credential Vault
+    participant TokenMgr as TokenManager
+    participant Tool as Gmail Tool Executor
+    participant API as Gmail REST API
+
+    Note over UI,API: Connection Flow
+    UI->>IPC: integration_connect {integrationId: "gmail"}
+    IPC->>Handler: dispatch
+    Handler->>Registry: getIntegration("gmail")
+    Registry-->>Handler: IntegrationDefinition
+    Handler->>OAuth: startOAuth2Flow(config)
+    OAuth->>OAuth: generate code_verifier + code_challenge (S256)
+    OAuth->>OAuth: start Bun.serve on random port
+    OAuth->>IPC: open_url (Google consent URL)
+    IPC->>Browser: open URL
+    Browser->>Google: user authorizes
+    Google->>OAuth: callback with auth code
+    OAuth->>Google: exchange code + code_verifier for tokens
+    Google-->>OAuth: access + refresh tokens
+    OAuth->>Vault: setSecureKey (access + refresh)
+    OAuth->>Vault: upsertCredentialMetadata (allowedTools, expiresAt)
+    OAuth-->>Handler: success + account email
+    Handler->>IPC: integration_connect_result {success, accountInfo}
+    IPC->>UI: show connected state
+
+    Note over UI,API: Tool Execution Flow
+    Tool->>TokenMgr: withValidToken("gmail", callback)
+    TokenMgr->>Vault: getSecureKey("integration:gmail:access_token")
+    TokenMgr->>Vault: getMetadata (check expiresAt)
+    alt Token expired
+        TokenMgr->>Google: refresh with refresh_token
+        Google-->>TokenMgr: new access token
+        TokenMgr->>Vault: update access token + expiresAt
+    end
+    TokenMgr->>Tool: callback(validToken)
+    Tool->>API: Gmail REST API call with Bearer token
+    API-->>Tool: response
+    alt 401 Unauthorized
+        Tool->>TokenMgr: retry (auto-refresh + re-execute)
+    end
+```
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| PKCE (no client secret) | Desktop apps cannot securely store client secrets; PKCE is the recommended flow |
+| `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
+| `allowedTools` only (no `allowedDomains`) | Gmail tools run server-side; domain restrictions would block the credential broker's `serverUse` path |
+| Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
+| Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
+| Newsletter analyzer is a helper, not a tool | Grouping logic runs in the tool executor, not as a separate LLM-callable tool — reduces round-trips |
+
+### Source Files
+
+| File | Role |
+|------|------|
+| `assistant/src/integrations/types.ts` | `IntegrationDefinition`, `IntegrationStatus`, `OAuth2Config` type definitions |
+| `assistant/src/integrations/registry.ts` | In-memory registry; status derived from vault presence |
+| `assistant/src/integrations/oauth2.ts` | PKCE loopback flow: code_verifier, Bun.serve callback, token exchange |
+| `assistant/src/integrations/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
+| `assistant/src/integrations/definitions/gmail.ts` | Gmail `IntegrationDefinition` with scopes and allowed tools |
+| `assistant/src/integrations/gmail/client.ts` | Thin Gmail REST API wrapper (listMessages, getMessage, modify, send, etc.) |
+| `assistant/src/integrations/gmail/types.ts` | Gmail API response types |
+| `assistant/src/integrations/gmail/newsletter-analyzer.ts` | `groupBySender()` helper for email declutter flow |
+| `assistant/src/tools/gmail/definitions.ts` | Gmail tool definitions with risk levels and confidence scoring |
+| `assistant/src/tools/gmail/executors.ts` | Tool executors using `withValidToken` pattern |
+
+---
+
 ## Credential Storage and Secret Security
 
 The credential system enforces four security invariants:
@@ -1702,6 +1808,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | API key | macOS Keychain | Encrypted binary | `/usr/bin/security` CLI | Permanent |
 | Credential secrets | macOS Keychain (or encrypted file fallback) | Encrypted binary | `secure-keys.ts` wrapper | Permanent (until deleted via tool) |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | JSON | Atomic file write | Permanent (until deleted via tool) |
+| Integration OAuth tokens | macOS Keychain (via `secure-keys.ts`) | Encrypted binary | `TokenManager` auto-refresh | Until disconnected or revoked |
 | User preferences | UserDefaults | plist | Foundation | Permanent |
 | Session logs | `~/Library/.../logs/session-*.json` | JSON per session | Swift Codable | Unbounded |
 | Conversations & messages | `~/.vellum/workspace/data/db/assistant.db` | SQLite + WAL | Drizzle ORM (Bun) | Permanent |
