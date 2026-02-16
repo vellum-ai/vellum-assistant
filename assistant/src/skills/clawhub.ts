@@ -70,8 +70,11 @@ function computeSkillHash(skillDir: string): string | null {
 
   const hasher = new Bun.CryptoHasher('sha256');
   for (const file of files) {
-    // Include the relative path in the hash so renames are detected
-    hasher.update(file.relPath);
+    // Length-prefix each segment to prevent boundary ambiguity collisions
+    const pathBuf = Buffer.from(file.relPath, 'utf-8');
+    hasher.update(`${pathBuf.length}:`);
+    hasher.update(pathBuf);
+    hasher.update(`${file.content.length}:`);
     hasher.update(file.content);
   }
   return hasher.digest('hex');
