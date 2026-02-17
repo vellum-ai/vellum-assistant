@@ -203,7 +203,13 @@ function resolveRun(index: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Import resolveSlash AFTER mocks are registered.
+// ---------------------------------------------------------------------------
+
+import { resolveSlash } from '../daemon/session-slash.js';
+
+// ---------------------------------------------------------------------------
+// Tests — Session integration
 // ---------------------------------------------------------------------------
 
 describe('Session slash command — known', () => {
@@ -255,5 +261,102 @@ describe('Session slash command — known', () => {
 
     resolveRun(0);
     await promise;
+  });
+
+  test('trailing args are preserved in the rewritten content', async () => {
+    const session = makeSession();
+    const events: ServerMessage[] = [];
+    const onEvent = (msg: ServerMessage) => events.push(msg);
+
+    const promise = session.processMessage('/start-the-day weather in SF', [], onEvent);
+    await waitForPendingRun(1);
+
+    const lastUserMsg = pendingRuns[0].messages[pendingRuns[0].messages.length - 1];
+    const text = lastUserMsg.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('');
+    expect(text).toContain('weather in SF');
+    expect(text).toContain('start-the-day');
+
+    resolveRun(0);
+    await promise;
+  });
+
+  test('unknown slash command does not trigger agent run and emits error', async () => {
+    const session = makeSession();
+    const events: ServerMessage[] = [];
+    const onEvent = (msg: ServerMessage) => events.push(msg);
+
+    await session.processMessage('/nonexistent-skill', [], onEvent);
+
+    // No agent run should have been started
+    expect(pendingRuns.length).toBe(0);
+
+    // Should emit assistant_text_delta with the error message
+    const textDeltas = events.filter((e) => e.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThan(0);
+    const errorText = (textDeltas[0] as { type: 'assistant_text_delta'; text: string }).text;
+    expect(errorText).toContain('Unknown command `/nonexistent-skill`');
+    expect(errorText).toContain('/start-the-day');
+
+    // Should emit message_complete
+    const completes = events.filter((e) => e.type === 'message_complete');
+    expect(completes.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — resolveSlash() direct unit tests
+// ---------------------------------------------------------------------------
+
+describe('resolveSlash — direct characterization', () => {
+  test('known slash returns {kind: "rewritten"} with model-facing content', () => {
+    const result = resolveSlash('/start-the-day');
+    expect(result.kind).toBe('rewritten');
+    if (result.kind !== 'rewritten') throw new Error('unreachable');
+    expect(result.content).toContain('slash command');
+    expect(result.content).toContain('start-the-day');
+    expect(result.content).toContain('Start the Day');
+    // The rewritten content includes the skill ID instruction
+    expect(result.content).toContain('ID: start-the-day');
+    // It is NOT the raw user input
+    expect(result.content).not.toBe('/start-the-day');
+  });
+
+  test('known slash with trailing args includes args in rewritten content', () => {
+    const result = resolveSlash('/start-the-day check emails and calendar');
+    expect(result.kind).toBe('rewritten');
+    if (result.kind !== 'rewritten') throw new Error('unreachable');
+    expect(result.content).toContain('User arguments: check emails and calendar');
+  });
+
+  test('normal text returns {kind: "passthrough"} with content unchanged', () => {
+    const result = resolveSlash('hello world');
+    expect(result.kind).toBe('passthrough');
+    if (result.kind !== 'passthrough') throw new Error('unreachable');
+    expect(result.content).toBe('hello world');
+  });
+
+  test('path-like input returns passthrough (not treated as slash)', () => {
+    const result = resolveSlash('/tmp/some-file.txt');
+    expect(result.kind).toBe('passthrough');
+    if (result.kind !== 'passthrough') throw new Error('unreachable');
+    expect(result.content).toBe('/tmp/some-file.txt');
+  });
+
+  test('unknown slash returns {kind: "unknown"} with message listing available commands', () => {
+    const result = resolveSlash('/does-not-exist');
+    expect(result.kind).toBe('unknown');
+    if (result.kind !== 'unknown') throw new Error('unreachable');
+    expect(result.message).toContain('Unknown command `/does-not-exist`');
+    expect(result.message).toContain('/start-the-day');
+  });
+
+  test('empty input returns passthrough', () => {
+    const result = resolveSlash('');
+    expect(result.kind).toBe('passthrough');
+    if (result.kind !== 'passthrough') throw new Error('unreachable');
+    expect(result.content).toBe('');
   });
 });
