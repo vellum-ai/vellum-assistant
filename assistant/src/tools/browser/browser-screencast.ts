@@ -143,15 +143,23 @@ export async function getElementBounds(
 ): Promise<{ x: number; y: number; w: number; h: number } | null> {
   try {
     const page = await browserManager.getOrCreateSessionPage(sessionId);
-    const bounds = await page.evaluate(`
+    const result = await page.evaluate(`
       (() => {
-        const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
+        const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
         const rect = el.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height, vw: window.innerWidth, vh: window.innerHeight };
       })()
-    `) as { x: number; y: number; w: number; h: number } | null;
-    return bounds;
+    `) as { x: number; y: number; w: number; h: number; vw: number; vh: number } | null;
+    if (!result) return null;
+    const scaleX = 800 / result.vw;
+    const scaleY = 600 / result.vh;
+    return {
+      x: result.x * scaleX,
+      y: result.y * scaleY,
+      w: result.w * scaleX,
+      h: result.h * scaleY,
+    };
   } catch {
     return null;
   }
