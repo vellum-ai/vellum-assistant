@@ -90,14 +90,14 @@ AGE_SECONDS=$((NOW - CREATED_EPOCH))
 CODEX_PLUS_ONE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | length > 0' "$TMPDIR_WORK/reactions.json")
 
 # Get codex reviews
-CODEX_REVIEWS=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector[bot]") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
+CODEX_REVIEWS=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
 
 # Get codex inline comments
 CODEX_INLINE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]")]' "$TMPDIR_WORK/inline.json")
 
 # Check for rate limiting in most recent comment
 CODEX_RATE_LIMITED=$(jq '
-  [.comments[] | select(.author.login == "chatgpt-codex-connector[bot]")]
+  [.comments[] | select(.author.login == "chatgpt-codex-connector")]
   | sort_by(.createdAt)
   | last
   | if . == null then false
@@ -123,7 +123,7 @@ fi
 # --- Classify Devin ---
 
 # Get devin reviews
-DEVIN_REVIEWS=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration[bot]") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
+DEVIN_REVIEWS=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
 
 # Get devin inline comments
 DEVIN_INLINE=$(jq '[.[] | select(.user == "devin-ai-integration[bot]")]' "$TMPDIR_WORK/inline.json")
