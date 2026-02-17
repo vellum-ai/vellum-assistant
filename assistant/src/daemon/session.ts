@@ -1235,6 +1235,7 @@ export class Session {
       [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
       [], // no tools
       undefined, // no system prompt
+      { config: { max_tokens: 30 } },
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');
