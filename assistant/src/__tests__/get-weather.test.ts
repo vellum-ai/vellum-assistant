@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { weatherCodeToDescription, executeGetWeather } from '../tools/weather/get-weather.js';
+import { weatherCodeToDescription, executeGetWeather } from '../tools/weather/service.js';
 
 // ---------------------------------------------------------------------------
 // Helper: build a mock fetch that returns predefined geocoding & weather data
