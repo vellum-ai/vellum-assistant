@@ -1424,6 +1424,21 @@ extension IPCUnpublishPageRequest {
 /// Backed by generated `IPCUnpublishPageResponse`.
 public typealias UnpublishPageResponseMessage = IPCUnpublishPageResponse
 
+// MARK: - Push Notification Device Token (Manual)
+
+/// Sent to register an APNS device token so the daemon can route push notifications.
+/// Kept hand-maintained — not yet part of the generated IPC contract.
+public struct RegisterDeviceTokenMessage: Encodable, Sendable {
+    public let type: String = "register_device_token"
+    public let token: String
+    public let platform: String
+
+    public init(token: String, platform: String) {
+        self.token = token
+        self.platform = platform
+    }
+}
+
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
