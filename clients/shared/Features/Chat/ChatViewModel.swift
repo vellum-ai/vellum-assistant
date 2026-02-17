@@ -286,10 +286,15 @@ public final class ChatViewModel: ObservableObject {
         // daemon has disconnected between turns.
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
-            lastFailedMessageText = text
-            lastFailedMessageAttachments = attachments
-            lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
-            errorText = lastFailedSendError
+            // Only update UI error state for the primary send (not a queued
+            // retry). A queued retry failing must not clobber the active turn's
+            // isSending/isThinking flags or show an error banner over it.
+            if queuedMessageId == nil {
+                lastFailedMessageText = text
+                lastFailedMessageAttachments = attachments
+                lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+                errorText = lastFailedSendError
+            }
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
                 pendingMessageIds.removeAll { $0 == queuedMessageId }
