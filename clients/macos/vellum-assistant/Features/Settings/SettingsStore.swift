@@ -11,6 +11,8 @@ public final class SettingsStore: ObservableObject {
     @Published var hasKey: Bool
     @Published var hasBraveKey: Bool
     @Published var hasVercelKey: Bool = false
+    @Published var maskedKey: String = ""
+    @Published var maskedBraveKey: String = ""
 
     // MARK: - Settings Values
 
@@ -39,8 +41,12 @@ public final class SettingsStore: ObservableObject {
         self.daemonClient = daemonClient
 
         // Seed from UserDefaults / Keychain
-        self.hasKey = APIKeyManager.getKey() != nil
-        self.hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
+        let anthropicKey = APIKeyManager.getKey()
+        self.hasKey = anthropicKey != nil
+        self.maskedKey = Self.maskKey(anthropicKey)
+        let braveKey = APIKeyManager.getKey(for: "brave")
+        self.hasBraveKey = braveKey != nil
+        self.maskedBraveKey = Self.maskKey(braveKey)
 
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
@@ -78,11 +84,13 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
         hasKey = true
+        maskedKey = Self.maskKey(trimmed)
     }
 
     func clearAPIKey() {
         APIKeyManager.deleteKey()
         hasKey = false
+        maskedKey = ""
     }
 
     func saveBraveKey(_ raw: String) {
@@ -90,16 +98,34 @@ public final class SettingsStore: ObservableObject {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed, for: "brave")
         hasBraveKey = true
+        maskedBraveKey = Self.maskKey(trimmed)
     }
 
     func clearBraveKey() {
         APIKeyManager.deleteKey(for: "brave")
         hasBraveKey = false
+        maskedBraveKey = ""
     }
 
     func refreshAPIKeyState() {
-        hasKey = APIKeyManager.getKey() != nil
-        hasBraveKey = APIKeyManager.getKey(for: "brave") != nil
+        let anthropicKey = APIKeyManager.getKey()
+        hasKey = anthropicKey != nil
+        maskedKey = Self.maskKey(anthropicKey)
+
+        let braveKey = APIKeyManager.getKey(for: "brave")
+        hasBraveKey = braveKey != nil
+        maskedBraveKey = Self.maskKey(braveKey)
+    }
+
+    /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x"
+    static func maskKey(_ key: String?) -> String {
+        guard let key, !key.isEmpty else { return "" }
+        let prefixLen = min(10, key.count)
+        let suffixLen = min(4, max(0, key.count - prefixLen))
+        if key.count <= prefixLen + suffixLen {
+            return key
+        }
+        return "\(key.prefix(prefixLen))...\(key.suffix(suffixLen))"
     }
 
     func saveVercelKey(_ raw: String) {
