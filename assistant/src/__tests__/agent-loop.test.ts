@@ -915,4 +915,120 @@ describe('AgentLoop', () => {
     // History: user, assistant(t1), user(result1), assistant(t2), user(result2)
     expect(history).toHaveLength(5);
   });
+
+  // ---------------------------------------------------------------------------
+  // Dynamic tool resolver (resolveTools) tests
+  // ---------------------------------------------------------------------------
+
+  // 25. Without resolveTools, static tools are used (backward compatible)
+  test('without resolveTools, static tools are passed to provider', async () => {
+    const { provider, calls } = createMockProvider([textResponse('Hi')]);
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools);
+
+    await loop.run([userMessage], () => {});
+
+    expect(calls[0].tools).toEqual(dummyTools);
+  });
+
+  // 26. resolveTools callback is invoked before each provider call
+  test('resolveTools is invoked before each provider call', async () => {
+    const resolverCalls: Message[][] = [];
+    const resolvedTools: ToolDefinition[] = [
+      { name: 'search', description: 'Search files', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ];
+
+    const { provider } = createMockProvider([
+      toolUseResponse('t1', 'search', { query: 'foo' }),
+      textResponse('Found it'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'result', isError: false });
+
+    const resolveTools = (history: Message[]): ToolDefinition[] => {
+      resolverCalls.push([...history]);
+      return resolvedTools;
+    };
+
+    const loop = new AgentLoop(provider, 'system', {}, [], toolExecutor, resolveTools);
+    await loop.run([userMessage], () => {});
+
+    // resolveTools should be called once per provider turn (2 turns total)
+    expect(resolverCalls).toHaveLength(2);
+
+    // First call receives just the initial user message
+    expect(resolverCalls[0]).toHaveLength(1);
+    expect(resolverCalls[0][0]).toEqual(userMessage);
+
+    // Second call receives the accumulated history (user + assistant + tool_result)
+    expect(resolverCalls[1].length).toBeGreaterThan(1);
+  });
+
+  // 27. Resolved tool list is passed to the provider
+  test('resolved tools are passed to the provider instead of static tools', async () => {
+    const dynamicTools: ToolDefinition[] = [
+      { name: 'dynamic_tool', description: 'Dynamic', input_schema: { type: 'object' } },
+    ];
+
+    const { provider, calls } = createMockProvider([textResponse('Hi')]);
+
+    const resolveTools = (): ToolDefinition[] => dynamicTools;
+
+    // Pass different static tools to verify they are overridden
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, undefined, resolveTools);
+    await loop.run([userMessage], () => {});
+
+    // Provider should receive the dynamically resolved tools, not the static ones
+    expect(calls[0].tools).toEqual(dynamicTools);
+    expect(calls[0].tools).not.toEqual(dummyTools);
+  });
+
+  // 28. Tool list can change between turns
+  test('resolveTools can return different tools on each turn', async () => {
+    const toolsPerTurn: ToolDefinition[][] = [
+      [{ name: 'tool_a', description: 'Tool A', input_schema: { type: 'object' } }],
+      [
+        { name: 'tool_a', description: 'Tool A', input_schema: { type: 'object' } },
+        { name: 'tool_b', description: 'Tool B', input_schema: { type: 'object' } },
+      ],
+      [{ name: 'tool_c', description: 'Tool C', input_schema: { type: 'object' } }],
+    ];
+
+    let turnIndex = 0;
+    const resolveTools = (): ToolDefinition[] => {
+      const tools = toolsPerTurn[turnIndex] ?? toolsPerTurn[toolsPerTurn.length - 1];
+      turnIndex++;
+      return tools;
+    };
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse('t1', 'tool_a', {}),
+      toolUseResponse('t2', 'tool_a', {}),
+      textResponse('Done'),
+    ]);
+
+    const toolExecutor = async () => ({ content: 'ok', isError: false });
+    const loop = new AgentLoop(provider, 'system', {}, [], toolExecutor, resolveTools);
+    await loop.run([userMessage], () => {});
+
+    // Provider should have been called 3 times
+    expect(calls).toHaveLength(3);
+
+    // Each call should have received different tools
+    expect(calls[0].tools).toEqual(toolsPerTurn[0]);
+    expect(calls[1].tools).toEqual(toolsPerTurn[1]);
+    expect(calls[2].tools).toEqual(toolsPerTurn[2]);
+  });
+
+  // 29. resolveTools returning empty array means no tools passed to provider
+  test('resolveTools returning empty array sends no tools to provider', async () => {
+    const resolveTools = (): ToolDefinition[] => [];
+
+    const { provider, calls } = createMockProvider([textResponse('No tools available')]);
+
+    const loop = new AgentLoop(provider, 'system', {}, dummyTools, undefined, resolveTools);
+    await loop.run([userMessage], () => {});
+
+    // Empty array should result in undefined tools (same as no-tools behavior)
+    expect(calls[0].tools).toBeUndefined();
+  });
 });

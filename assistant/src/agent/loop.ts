@@ -44,6 +44,7 @@ export class AgentLoop {
   private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
+  private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
   private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>) | null;
 
   constructor(
@@ -52,11 +53,13 @@ export class AgentLoop {
     config?: Partial<AgentLoopConfig>,
     tools?: ToolDefinition[],
     toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>,
+    resolveTools?: (history: Message[]) => ToolDefinition[],
   ) {
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
+    this.resolveTools = resolveTools ?? null;
     this.toolExecutor = toolExecutor ?? null;
   }
 
@@ -80,6 +83,12 @@ export class AgentLoop {
       let toolUseBlocks: Extract<ContentBlock, { type: 'tool_use' }>[] = [];
 
       try {
+        // Resolve tools for this turn: use the dynamic resolver if provided,
+        // otherwise fall back to the static tool list.
+        const currentTools = this.resolveTools
+          ? this.resolveTools(history)
+          : this.tools;
+
         const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
         if (this.config.thinking?.enabled) {
           // Anthropic requires budget_tokens < max_tokens
@@ -104,7 +113,7 @@ export class AgentLoop {
             lastMessage: history.length > 0
               ? summarizeMessage(history[history.length - 1])
               : null,
-            toolCount: this.tools.length,
+            toolCount: currentTools.length,
             config: providerConfig,
           }, 'Sending request to provider');
         }
@@ -112,7 +121,7 @@ export class AgentLoop {
         const preLlmResult = await getHookManager().trigger('pre-llm-call', {
           systemPrompt: this.systemPrompt,
           messages: history,
-          toolCount: this.tools.length,
+          toolCount: currentTools.length,
         });
 
         if (preLlmResult.blocked) {
@@ -124,7 +133,7 @@ export class AgentLoop {
 
         const response = await this.provider.sendMessage(
           history,
-          this.tools.length > 0 ? this.tools : undefined,
+          currentTools.length > 0 ? currentTools : undefined,
           this.systemPrompt,
           {
             config: providerConfig,
