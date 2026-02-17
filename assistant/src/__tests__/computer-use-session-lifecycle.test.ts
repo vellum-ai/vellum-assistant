@@ -20,13 +20,13 @@ function createProvider(responses: ProviderResponse[]): { provider: Provider; ge
 }
 
 describe('ComputerUseSession lifecycle', () => {
-  test('stops provider loop immediately after terminal cu_done tool', async () => {
+  test('stops provider loop immediately after terminal computer_use_done tool', async () => {
     const { provider, getCalls } = createProvider([
       {
         content: [{
           type: 'tool_use',
           id: 'tu-1',
-          name: 'cu_done',
+          name: 'computer_use_done',
           input: { summary: 'Task finished' },
         }],
         model: 'mock-model',
@@ -63,7 +63,7 @@ describe('ComputerUseSession lifecycle', () => {
 
     await session.handleObservation(observation);
 
-    // If cu_done does not abort the loop, we'd see an extra provider call.
+    // If computer_use_done does not abort the loop, we'd see an extra provider call.
     expect(getCalls()).toBe(1);
     expect(session.getState()).toBe('complete');
     expect(terminalCalls).toBe(1);

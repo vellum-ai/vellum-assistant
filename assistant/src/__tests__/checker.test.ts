@@ -398,11 +398,11 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('prompt');
     });
 
-    test('cu_click prompts by default via computer-use ask rule', async () => {
-      const result = await check('cu_click', { reasoning: 'Click the save button' }, '/tmp');
+    test('computer_use_click prompts by default via computer-use ask rule', async () => {
+      const result = await check('computer_use_click', { reasoning: 'Click the save button' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('ask rule');
-      expect(result.matchedRule?.id).toBe('default:ask-cu_click-global');
+      expect(result.matchedRule?.id).toBe('default:ask-computer_use_click-global');
     });
 
     test('request_computer_control prompts by default via computer-use ask rule', async () => {
@@ -412,17 +412,17 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-request_computer_control-global');
     });
 
-    test('higher-priority allow rule can override default cu ask rule', async () => {
-      addRule('cu_click', 'cu_click:*', 'everywhere', 'allow', 2000);
-      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+    test('higher-priority allow rule can override default computer-use ask rule', async () => {
+      addRule('computer_use_click', 'computer_use_click:*', 'everywhere', 'allow', 2000);
+      const result = await check('computer_use_click', { reasoning: 'Click confirm' }, '/tmp');
       expect(result.decision).toBe('allow');
       expect(result.matchedRule?.decision).toBe('allow');
       expect(result.matchedRule?.priority).toBe(2000);
     });
 
-    test('higher-priority deny rule can override default cu ask rule', async () => {
-      addRule('cu_click', 'cu_click:*', 'everywhere', 'deny', 2001);
-      const result = await check('cu_click', { reasoning: 'Click confirm' }, '/tmp');
+    test('higher-priority deny rule can override default computer-use ask rule', async () => {
+      addRule('computer_use_click', 'computer_use_click:*', 'everywhere', 'deny', 2001);
+      const result = await check('computer_use_click', { reasoning: 'Click confirm' }, '/tmp');
       expect(result.decision).toBe('deny');
       expect(result.matchedRule?.decision).toBe('deny');
       expect(result.matchedRule?.priority).toBe(2001);

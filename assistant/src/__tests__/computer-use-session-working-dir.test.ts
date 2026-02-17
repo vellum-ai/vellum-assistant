@@ -70,7 +70,7 @@ mock.module('../agent/loop.js', () => ({
     }
 
     async run(_messages: unknown, _onEvent: unknown, _signal?: AbortSignal): Promise<void> {
-      await this.runTool('cu_click', { element_id: 1 });
+      await this.runTool('computer_use_click', { element_id: 1 });
     }
   },
 }));

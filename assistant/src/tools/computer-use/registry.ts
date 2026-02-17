@@ -1,7 +1,7 @@
 /**
  * Registers all computer-use proxy tools with the daemon's tool registry.
  *
- * Call `registerComputerUseTools()` during daemon startup to make the 12 `cu_*`
+ * Call `registerComputerUseTools()` during daemon startup to make the 12 `computer_use_*`
  * tools available for inference.
  */
 

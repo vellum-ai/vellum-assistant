@@ -60,7 +60,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   }
 
   // Remove default rules that are no longer in the template set (e.g.
-  // cu_done/cu_respond were removed from the computer-use ask-rule list
+  // computer_use_done/computer_use_respond were removed from the ask-rule list
   // because they are terminal signal tools that don't need approval).
   const templateIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   for (let i = rules.length - 1; i >= 0; i--) {

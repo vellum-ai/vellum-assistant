@@ -348,9 +348,9 @@ export class ComputerUseSession {
       });
 
       // Check for terminal tools
-      if (toolName === 'cu_done' || toolName === 'cu_respond') {
+      if (toolName === 'computer_use_done' || toolName === 'computer_use_respond') {
         const summary =
-          toolName === 'cu_done'
+          toolName === 'computer_use_done'
             ? (typeof input.summary === 'string' ? input.summary : 'Task completed')
             : (typeof input.answer === 'string' ? input.answer : 'No answer provided');
 
@@ -359,7 +359,7 @@ export class ComputerUseSession {
           sessionId: this.sessionId,
           summary,
           stepCount: this.stepCount,
-          isResponse: toolName === 'cu_respond' ? true : undefined,
+          isResponse: toolName === 'computer_use_respond' ? true : undefined,
         });
         this.state = 'complete';
         // Stop AgentLoop immediately so terminal tools cannot trigger extra provider calls.
@@ -439,7 +439,7 @@ export class ComputerUseSession {
         maxTokens: 4096,
         toolChoice: { type: 'any' },
         // Allow MAX_STEPS non-terminal actions plus one terminal turn
-        // (cu_done/cu_respond), since AgentLoop caps tool turns globally.
+        // (computer_use_done/computer_use_respond), since AgentLoop caps tool turns globally.
         maxToolUseTurns: MAX_STEPS + 1,
       },
       toolDefs,
@@ -603,7 +603,7 @@ export class ComputerUseSession {
       parts.push('');
     } else if (hadPreviousAXTree && obs.axTree != null) {
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
-      const wasWait = lastAction?.toolName === 'cu_wait';
+      const wasWait = lastAction?.toolName === 'computer_use_wait';
       if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
         parts.push(
           `WARNING: ${this.consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
@@ -667,7 +667,7 @@ export class ComputerUseSession {
     } else if (hadPreviousAXTree && obs.axTree != null && this.actionHistory.length > 0) {
       // AX tree unchanged — tell the model its action had no effect
       const lastAction = this.actionHistory[this.actionHistory.length - 1];
-      const wasWait = lastAction?.toolName === 'cu_wait';
+      const wasWait = lastAction?.toolName === 'computer_use_wait';
       textParts.push('CHANGES SINCE LAST ACTION:');
       if (this.consecutiveUnchangedSteps >= CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD) {
         textParts.push(
@@ -753,7 +753,7 @@ export class ComputerUseSession {
       if (allIdentical) {
         textParts.push('');
         textParts.push(
-          `WARNING: You have repeated the exact same action (${recent[0].toolName}) ${LOOP_DETECTION_WINDOW} times in a row. You MUST try a completely different approach or call cu_done with an explanation of why you are stuck.`,
+          `WARNING: You have repeated the exact same action (${recent[0].toolName}) ${LOOP_DETECTION_WINDOW} times in a row. You MUST try a completely different approach or call computer_use_done with an explanation of why you are stuck.`,
         );
       }
     }

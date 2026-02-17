@@ -461,7 +461,7 @@ async function executeWithTimeout(
 }
 
 function resolveExecutionTarget(toolName: string): ExecutionTarget {
-  if (toolName.startsWith('host_') || toolName.startsWith('cu_') || toolName === 'request_computer_control') {
+  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
     return 'host';
   }
   // Check the tool's executionMode metadata — proxy tools run on the connected
