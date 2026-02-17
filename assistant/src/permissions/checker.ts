@@ -292,15 +292,6 @@ function isOnboardingAutoAllowed(toolName: string, input: Record<string, unknown
     return ONBOARDING_PROMPT_FILES.some((f) => resolved === getWorkspacePromptPath(f));
   }
 
-  if (toolName === 'bash') {
-    const command = getStringField(input, 'command').trim();
-    const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
-    // Allow rm commands targeting BOOTSTRAP.md (the ritual's final step)
-    if (command.includes('rm') && (command.includes('BOOTSTRAP.md') || command.includes(bootstrapPath))) {
-      return true;
-    }
-  }
-
   return false;
 }
 
