@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
@@ -36,6 +37,8 @@ export function createTelegramWebhookHandler(
   config: GatewayConfig,
   onReply?: OnReply,
 ) {
+  const dedupCache = new DedupCache();
+
   return async (req: Request): Promise<Response> => {
     if (req.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -73,10 +76,35 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
+    // Dedup check — short-circuit retried webhooks before doing any real work
+    const updateId = typeof payload.update_id === "number" ? payload.update_id : undefined;
+    if (updateId !== undefined) {
+      const cached = dedupCache.get(updateId);
+      if (cached) {
+        log.info({ updateId }, "Duplicate update_id, returning cached response");
+        return new Response(cached.body, {
+          status: cached.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    }
+
+    // Helper: build a JSON response and cache it for this update_id
+    const respond = (body: Record<string, unknown>, status = 200): Response => {
+      const json = JSON.stringify(body);
+      if (updateId !== undefined) {
+        dedupCache.set(updateId, json, status);
+      }
+      return new Response(json, {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
-      return Response.json({ ok: true });
+      return respond({ ok: true });
     }
 
     // Handle /new command — reset conversation before it reaches the runtime
@@ -106,7 +134,7 @@ export function createTelegramWebhookHandler(
         }
       }
 
-      return Response.json({ ok: true });
+      return respond({ ok: true });
     }
 
     // Check routing early so we can gate attachments and typing indicator
@@ -199,6 +227,6 @@ export function createTelegramWebhookHandler(
       });
     }
 
-    return Response.json({ ok: true });
+    return respond({ ok: true });
   };
 }
