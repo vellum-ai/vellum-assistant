@@ -74,18 +74,17 @@ function resolveSkillIdAndHash(selector: string, input: Record<string, unknown>)
   const resolved = resolveSkillSelector(selector);
   if (!resolved.skill) return null;
 
-  // Prefer an explicit version_hash from the input (set by the agent loop
-  // or prior enrichment) over computing it on the fly.
-  const explicitHash = getStringField(input, 'version_hash');
-  if (explicitHash) {
-    return { id: resolved.skill.id, versionHash: explicitHash };
-  }
-
-  // Fall back to computing the hash from the skill directory.
+  // Always compute the hash from disk so a modified skill cannot be approved
+  // using a stale hash supplied by the agent. Only fall back to the explicit
+  // version_hash from input when disk computation fails.
   try {
     const hash = computeSkillVersionHash(resolved.skill.directoryPath);
     return { id: resolved.skill.id, versionHash: hash };
   } catch {
+    const explicitHash = getStringField(input, 'version_hash');
+    if (explicitHash) {
+      return { id: resolved.skill.id, versionHash: explicitHash };
+    }
     return { id: resolved.skill.id };
   }
 }
