@@ -95,6 +95,28 @@ final class AppListManager: ObservableObject {
         save()
     }
 
+    /// Move an app to a new position (for drag-and-drop reorder).
+    func moveApp(sourceId: String, beforeId: String) {
+        guard let sourceIdx = apps.firstIndex(where: { $0.id == sourceId }),
+              let targetIdx = apps.firstIndex(where: { $0.id == beforeId }) else { return }
+        let targetApp = apps[targetIdx]
+
+        if targetApp.isPinned {
+            if !apps[sourceIdx].isPinned {
+                apps[sourceIdx].isPinned = true
+            }
+            let targetOrder = targetApp.pinnedOrder ?? 0
+            apps[sourceIdx].pinnedOrder = targetOrder
+            for i in apps.indices where apps[i].isPinned && apps[i].id != sourceId {
+                if let order = apps[i].pinnedOrder, order >= targetOrder {
+                    apps[i].pinnedOrder = order + 1
+                }
+            }
+            recompactPinnedOrders()
+        }
+        save()
+    }
+
     // MARK: - Persistence
 
     private func save() {

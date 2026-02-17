@@ -280,6 +280,32 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads[index].lastInteractedAt = Date()
     }
 
+    /// Move a thread to a new position in the visible list (for drag-and-drop reorder).
+    /// If the source thread is pinned, reorder among pinned items.
+    /// If unpinned, pin it and insert at the target position.
+    func moveThread(sourceId: UUID, beforeId: UUID) {
+        guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
+              let targetIdx = threads.firstIndex(where: { $0.id == beforeId }) else { return }
+        let targetThread = threads[targetIdx]
+
+        // If dropping onto a pinned item, pin the source too and reorder
+        if targetThread.isPinned {
+            if !threads[sourceIdx].isPinned {
+                threads[sourceIdx].isPinned = true
+            }
+            // Set pinnedOrder to place before the target
+            let targetOrder = targetThread.pinnedOrder ?? 0
+            threads[sourceIdx].pinnedOrder = targetOrder
+            // Bump all pinned items at or after targetOrder (except source)
+            for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
+                if let order = threads[i].pinnedOrder, order >= targetOrder {
+                    threads[i].pinnedOrder = order + 1
+                }
+            }
+            recompactPinnedOrders()
+        }
+    }
+
     private func recompactPinnedOrders() {
         let pinned = threads.enumerated()
             .filter { $0.element.isPinned }
