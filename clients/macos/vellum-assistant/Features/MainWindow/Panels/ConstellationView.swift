@@ -104,7 +104,7 @@ private struct DotGridBackground: View {
                         width: dotRadius * 2,
                         height: dotRadius * 2
                     )
-                    context.fill(Circle().path(in: rect), with: .color(Slate._600.opacity(0.25)))
+                    context.fill(Circle().path(in: rect), with: .color(Slate._500.opacity(0.4)))
                 }
             }
         }
