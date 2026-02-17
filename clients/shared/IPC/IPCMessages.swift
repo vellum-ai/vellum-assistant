@@ -615,8 +615,8 @@ extension IPCSkillsInspectRequest {
 public typealias SignBundlePayloadResponseMessage = IPCSignBundlePayloadResponse
 
 extension IPCSignBundlePayloadResponse {
-    public init(signature: String, keyId: String, publicKey: String) {
-        self.init(type: "sign_bundle_payload_response", signature: signature, keyId: keyId, publicKey: publicKey)
+    public init(requestId: String, signature: String, keyId: String, publicKey: String) {
+        self.init(type: "sign_bundle_payload_response", requestId: requestId, signature: signature, keyId: keyId, publicKey: publicKey)
     }
 }
 
@@ -625,8 +625,8 @@ extension IPCSignBundlePayloadResponse {
 public typealias GetSigningIdentityResponseMessage = IPCGetSigningIdentityResponse
 
 extension IPCGetSigningIdentityResponse {
-    public init(keyId: String, publicKey: String) {
-        self.init(type: "get_signing_identity_response", keyId: keyId, publicKey: publicKey)
+    public init(requestId: String, keyId: String, publicKey: String) {
+        self.init(type: "get_signing_identity_response", requestId: requestId, keyId: keyId, publicKey: publicKey)
     }
 }
 
@@ -1162,6 +1162,10 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
 
+/// Request from daemon to get the signing identity.
+/// Backed by generated `IPCGetSigningIdentityRequest`.
+public typealias GetSigningIdentityMessage = IPCGetSigningIdentityRequest
+
 /// Blob probe request sent after connecting to verify filesystem reachability.
 /// Backed by generated `IPCIpcBlobProbe`.
 public typealias IpcBlobProbeMessage = IPCIpcBlobProbe
@@ -1547,7 +1551,7 @@ public enum ServerMessage: Decodable, Sendable {
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
     case appFilesChanged(AppFilesChangedMessage)
-    case getSigningIdentity
+    case getSigningIdentity(GetSigningIdentityMessage)
     case pong
     case unknown(String)
 
@@ -1747,7 +1751,8 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)
         case "get_signing_identity":
-            self = .getSigningIdentity
+            let message = try GetSigningIdentityMessage(from: decoder)
+            self = .getSigningIdentity(message)
         case "daemon_status":
             let message = try DaemonStatusMessage(from: decoder)
             self = .daemonStatus(message)

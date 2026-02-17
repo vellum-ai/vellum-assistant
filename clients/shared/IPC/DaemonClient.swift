@@ -885,6 +885,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             let publicKey = try SigningIdentityManager.shared.getPublicKey()
 
             try send(SignBundlePayloadResponseMessage(
+                requestId: msg.requestId,
                 signature: signature.base64EncodedString(),
                 keyId: keyId,
                 publicKey: publicKey.rawRepresentation.base64EncodedString()
@@ -895,12 +896,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Handle a get_signing_identity request from the daemon.
-    private func handleGetSigningIdentity() {
+    private func handleGetSigningIdentity(_ msg: GetSigningIdentityMessage) {
         do {
             let keyId = try SigningIdentityManager.shared.getKeyId()
             let publicKey = try SigningIdentityManager.shared.getPublicKey()
 
             try send(GetSigningIdentityResponseMessage(
+                requestId: msg.requestId,
                 keyId: keyId,
                 publicKey: publicKey.rawRepresentation.base64EncodedString()
             ))
@@ -1132,8 +1134,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #if os(macOS)
         case .signBundlePayload(let msg):
             handleSignBundlePayload(msg)
-        case .getSigningIdentity:
-            handleGetSigningIdentity()
+        case .getSigningIdentity(let msg):
+            handleGetSigningIdentity(msg)
         #elseif os(iOS)
         case .signBundlePayload:
             log.error("Received sign_bundle_payload request on iOS - signing operations are not supported on iOS due to sandboxing restrictions")
