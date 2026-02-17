@@ -1382,7 +1382,8 @@ export type TraceEventKind =
   | 'generation_handoff'
   | 'message_complete'
   | 'generation_cancelled'
-  | 'request_error';
+  | 'request_error'
+  | 'tool_profiling_summary';
 
 export interface TraceEvent {
   type: 'trace_event';

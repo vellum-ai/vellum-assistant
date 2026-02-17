@@ -40,6 +40,7 @@ import { registerToolMetricsLoggingListener } from '../events/tool-metrics-liste
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
 import { registerToolTraceListener } from '../events/tool-trace-listener.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
+import { ToolProfiler, registerToolProfilingListener } from '../events/tool-profiling-listener.js';
 import {
   ContextWindowManager,
   createContextSummaryMessage,
@@ -110,6 +111,7 @@ export class Session {
   private prompter: PermissionPrompter;
   private secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
+  private profiler: ToolProfiler;
   /** @internal — exposed for session-surfaces.ts module functions. */
   sendToClient: (msg: ServerMessage) => void;
   /** Broadcast a message to all connected sockets (not just this session's client). */
@@ -217,9 +219,11 @@ export class Session {
     });
 
     this.executor = new ToolExecutor(this.prompter);
+    this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
     registerToolNotificationListener(this.eventBus, (msg) => this.sendToClient(msg));
     registerToolTraceListener(this.eventBus, this.traceEmitter);
+    registerToolProfilingListener(this.eventBus, this.profiler);
     const auditToolLifecycleEvent = createToolAuditListener();
     const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
     const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {
@@ -643,6 +647,8 @@ export class Session {
     // from a prior successful run.
     this.lastAssistantAttachments = [];
     this.lastAttachmentWarnings = [];
+
+    this.profiler.startRequest();
 
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
@@ -1205,6 +1211,8 @@ export class Session {
         });
       }
     } finally {
+      this.profiler.emitSummary(this.traceEmitter, reqId);
+
       this.abortController = null;
       this.processing = false;
       this.currentRequestId = undefined;
