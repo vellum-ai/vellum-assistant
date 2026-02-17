@@ -435,7 +435,7 @@ struct MainWindowView: View {
 
             ScrollView {
                 VStack(spacing: VSpacing.xs) {
-                    ForEach(threadManager.visibleThreads.filter { $0.sessionId != nil || threadManager.threadHasMessages($0.id) }) { thread in
+                    ForEach(threadManager.visibleThreads) { thread in
                         threadItem(thread)
                     }
                 }
