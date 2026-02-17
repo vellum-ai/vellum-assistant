@@ -797,6 +797,97 @@ describe('Trust Store', () => {
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
+
+    // ── skill source mutation rules ────────────────────────────────
+
+    test('default rules include ask rules for file_write on skill source paths', () => {
+      const rules = getAllRules();
+      const managed = rules.find((r) => r.id === 'default:ask-file_write-managed-skills');
+      expect(managed).toBeDefined();
+      expect(managed!.tool).toBe('file_write');
+      expect(managed!.decision).toBe('ask');
+      expect(managed!.priority).toBe(1000);
+      expect(managed!.pattern).toContain('workspace/skills/**');
+
+      const bundled = rules.find((r) => r.id === 'default:ask-file_write-bundled-skills');
+      expect(bundled).toBeDefined();
+      expect(bundled!.tool).toBe('file_write');
+      expect(bundled!.decision).toBe('ask');
+      expect(bundled!.priority).toBe(1000);
+    });
+
+    test('default rules include ask rules for file_edit on skill source paths', () => {
+      const rules = getAllRules();
+      const managed = rules.find((r) => r.id === 'default:ask-file_edit-managed-skills');
+      expect(managed).toBeDefined();
+      expect(managed!.tool).toBe('file_edit');
+      expect(managed!.decision).toBe('ask');
+      expect(managed!.priority).toBe(1000);
+      expect(managed!.pattern).toContain('workspace/skills/**');
+
+      const bundled = rules.find((r) => r.id === 'default:ask-file_edit-bundled-skills');
+      expect(bundled).toBeDefined();
+      expect(bundled!.tool).toBe('file_edit');
+      expect(bundled!.decision).toBe('ask');
+      expect(bundled!.priority).toBe(1000);
+    });
+
+    test('default rules include ask rules for host_file_write on skill source paths', () => {
+      const rules = getAllRules();
+      const managed = rules.find((r) => r.id === 'default:ask-host_file_write-managed-skills');
+      expect(managed).toBeDefined();
+      expect(managed!.tool).toBe('host_file_write');
+      expect(managed!.decision).toBe('ask');
+      expect(managed!.priority).toBe(1000);
+      expect(managed!.pattern).toContain('workspace/skills/**');
+
+      const bundled = rules.find((r) => r.id === 'default:ask-host_file_write-bundled-skills');
+      expect(bundled).toBeDefined();
+      expect(bundled!.tool).toBe('host_file_write');
+      expect(bundled!.decision).toBe('ask');
+      expect(bundled!.priority).toBe(1000);
+    });
+
+    test('default rules include ask rules for host_file_edit on skill source paths', () => {
+      const rules = getAllRules();
+      const managed = rules.find((r) => r.id === 'default:ask-host_file_edit-managed-skills');
+      expect(managed).toBeDefined();
+      expect(managed!.tool).toBe('host_file_edit');
+      expect(managed!.decision).toBe('ask');
+      expect(managed!.priority).toBe(1000);
+      expect(managed!.pattern).toContain('workspace/skills/**');
+
+      const bundled = rules.find((r) => r.id === 'default:ask-host_file_edit-bundled-skills');
+      expect(bundled).toBeDefined();
+      expect(bundled!.tool).toBe('host_file_edit');
+      expect(bundled!.decision).toBe('ask');
+      expect(bundled!.priority).toBe(1000);
+    });
+
+    test('no default ask rules exist for file_read on skill source paths', () => {
+      const rules = getAllRules();
+      // There should be no default rules with IDs matching file_read for skill sources
+      const readManagedSkill = rules.find((r) => r.id === 'default:ask-file_read-managed-skills');
+      const readBundledSkill = rules.find((r) => r.id === 'default:ask-file_read-bundled-skills');
+      expect(readManagedSkill).toBeUndefined();
+      expect(readBundledSkill).toBeUndefined();
+    });
+
+    test('findHighestPriorityRule matches default ask for file_write on managed skill path', () => {
+      const skillFile = join(testDir, 'workspace', 'skills', 'my-skill', 'SKILL.md');
+      const match = findHighestPriorityRule('file_write', [`file_write:${skillFile}`], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-file_write-managed-skills');
+      expect(match!.decision).toBe('ask');
+    });
+
+    test('findHighestPriorityRule matches default ask for file_edit on managed skill path', () => {
+      const skillFile = join(testDir, 'workspace', 'skills', 'my-skill', 'tools.ts');
+      const match = findHighestPriorityRule('file_edit', [`file_edit:${skillFile}`], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:ask-file_edit-managed-skills');
+      expect(match!.decision).toBe('ask');
+    });
   });
 
   // ── trust rule schema v3 (PR 14) ──────────────────────────────

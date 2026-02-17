@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { getRootDir } from '../util/platform.js';
+import { getBundledSkillsDir } from '../config/skills.js';
 
 export interface DefaultRuleTemplate {
   id: string;
@@ -121,6 +122,37 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  // Skill source directories — writing or editing skill source files should
+  // require explicit user approval so a compromised agent loop cannot silently
+  // modify skill code to escalate privileges.
+  const managedSkillsDir = join(getRootDir(), 'workspace', 'skills').replaceAll('\\', '/');
+  const bundledSkillsDir = getBundledSkillsDir().replaceAll('\\', '/');
+  const SKILL_MUTATION_TOOLS = ['file_write', 'file_edit'] as const;
+  const HOST_SKILL_MUTATION_TOOLS = ['host_file_write', 'host_file_edit'] as const;
+  const skillDirs = [
+    { dir: managedSkillsDir, label: 'managed' },
+    { dir: bundledSkillsDir, label: 'bundled' },
+  ];
+
+  const skillSourceMutationRules = skillDirs.flatMap(({ dir, label }) => [
+    ...SKILL_MUTATION_TOOLS.map((tool) => ({
+      id: `default:ask-${tool}-${label}-skills`,
+      tool,
+      pattern: `${tool}:${dir}/**`,
+      scope: 'everywhere',
+      decision: 'ask' as const,
+      priority: 1000,
+    })),
+    ...HOST_SKILL_MUTATION_TOOLS.map((tool) => ({
+      id: `default:ask-${tool}-${label}-skills`,
+      tool,
+      pattern: `${tool}:${dir}/**`,
+      scope: 'everywhere',
+      decision: 'ask' as const,
+      priority: 1000,
+    })),
+  ]);
+
   return [
     ...protectedFileRules,
     ...hostFileRules,
@@ -129,5 +161,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...managedSkillRules,
     ...workspacePromptRules,
     bootstrapDeleteRule,
+    ...skillSourceMutationRules,
   ];
 }
