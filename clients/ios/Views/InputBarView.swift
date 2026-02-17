@@ -12,7 +12,9 @@ struct InputBarView: View {
     @Binding var text: String
     var isInputFocused: FocusState<Bool>.Binding
     let isGenerating: Bool
+    let isCancelling: Bool
     let onSend: () -> Void
+    let onStop: () -> Void
 
     var body: some View {
         HStack(spacing: VSpacing.md) {
@@ -26,13 +28,28 @@ struct InputBarView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .focused(isInputFocused)
 
-            // Send button
-            Button(action: onSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+            // Stop button (shown while generating but not yet cancelling)
+            if isGenerating && !isCancelling {
+                Button(action: onStop) {
+                    ZStack {
+                        Circle()
+                            .fill(VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(VColor.background)
+                            .frame(width: 11, height: 11)
+                    }
+                }
+                .accessibilityLabel("Stop generation")
+            } else {
+                // Send button
+                Button(action: onSend) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                }
+                .disabled(!canSend)
             }
-            .disabled(!canSend)
         }
         .padding(VSpacing.md)
         .background(VColor.backgroundSubtle)
@@ -55,7 +72,9 @@ struct InputBarView_Previews: PreviewProvider {
                     text: $text,
                     isInputFocused: $isFocused,
                     isGenerating: false,
-                    onSend: { log.debug("Send tapped") }
+                    isCancelling: false,
+                    onSend: { log.debug("Send tapped") },
+                    onStop: { log.debug("Stop tapped") }
                 )
             }
             .background(VColor.background)
