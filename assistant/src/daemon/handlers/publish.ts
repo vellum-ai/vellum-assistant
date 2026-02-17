@@ -74,7 +74,9 @@ export async function handlePublishPage(
         label: 'Vercel API Token',
         description: 'Required to publish site apps to the web. Create a token at vercel.com/account/tokens.',
         placeholder: 'Enter your Vercel API token',
+        purpose: 'Publish site apps to the web',
         allowedTools,
+        allowedDomains: ['api.vercel.com'],
       });
 
       if (!secretResult.value) {

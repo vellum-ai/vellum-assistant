@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import { estimateBase64Bytes } from '../assistant-attachments.js';
 import type { CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
+import { getConfig } from '../../config/loader.js';
 
 const log = getLogger('handlers');
 
@@ -447,14 +448,24 @@ export function mergeToolResults(messages: ParsedHistoryMessage[]): ParsedHistor
 export function requestSecretStandalone(
   socket: net.Socket,
   ctx: HandlerContext,
-  params: { service: string; field: string; label: string; description?: string; placeholder?: string; allowedTools?: string[] },
+  params: {
+    service: string;
+    field: string;
+    label: string;
+    description?: string;
+    placeholder?: string;
+    purpose?: string;
+    allowedTools?: string[];
+    allowedDomains?: string[];
+  },
 ): Promise<SecretPromptResult> {
   const requestId = uuid();
+  const config = getConfig();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingStandaloneSecrets.delete(requestId);
       resolve({ value: null, delivery: 'store' });
-    }, 120_000);
+    }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
     ctx.send(socket, {
       type: 'secret_request',
@@ -464,8 +475,10 @@ export function requestSecretStandalone(
       label: params.label,
       description: params.description,
       placeholder: params.placeholder,
-      purpose: 'Publish site apps to the web',
+      purpose: params.purpose,
       allowedTools: params.allowedTools,
+      allowedDomains: params.allowedDomains,
+      allowOneTimeSend: config.secretDetection.allowOneTimeSend,
     });
   });
 }
