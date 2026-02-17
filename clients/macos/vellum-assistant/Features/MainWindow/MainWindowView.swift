@@ -1369,7 +1369,9 @@ private struct DynamicWorkspaceWrapper: View {
 
                 Spacer()
 
-                WorkspaceActivityFeed(viewModel: viewModel)
+                if !isChatDockOpen {
+                    WorkspaceActivityFeed(viewModel: viewModel)
+                }
 
                 if !isChatDockOpen {
                     ComposerView(
