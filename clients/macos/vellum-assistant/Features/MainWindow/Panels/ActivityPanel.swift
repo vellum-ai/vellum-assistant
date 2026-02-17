@@ -145,13 +145,14 @@ struct ActivityStepView: View {
 
                     // Result
                     if let result = toolCall.result, !result.isEmpty {
+                        let isDiff = resultIsDiff
                         ZStack(alignment: .topTrailing) {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 0) {
                                     ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                                         Text(line)
                                             .font(VFont.monoSmall)
-                                            .foregroundColor(diffLineColor(line))
+                                            .foregroundColor(diffLineColor(line, isDiff: isDiff))
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                 }
@@ -212,9 +213,9 @@ struct ActivityStepView: View {
         return result.contains("@@") && result.contains("---") && result.contains("+++")
     }
 
-    private func diffLineColor(_ line: String) -> Color {
+    private func diffLineColor(_ line: String, isDiff: Bool) -> Color {
         if toolCall.isError { return VColor.error }
-        guard resultIsDiff else { return VColor.textSecondary }
+        guard isDiff else { return VColor.textSecondary }
         if line.hasPrefix("+") { return Emerald._400 }
         if line.hasPrefix("-") { return Rose._400 }
         if line.hasPrefix("@@") { return VColor.textMuted }
