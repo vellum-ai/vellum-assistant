@@ -190,6 +190,7 @@ final class MainWindow {
             onMicrophoneToggle: onMicrophoneToggle ?? {},
             onClose: { [weak self] in
                 self?.windowState.isChatPoppedOut = false
+                self?.windowState.contentMode = .chat
                 self?.chatWindow = nil
             }
         )
