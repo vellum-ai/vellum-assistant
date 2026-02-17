@@ -41,8 +41,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let activityNotificationService: ActivityNotificationService?
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
-    /// Subscription to activeViewModel's objectWillChange publisher.
-    /// Forwards nested ObservableObject changes to ThreadManager's own objectWillChange.
+    /// Subscription to activeViewModel's messages count changes.
+    /// Forwards only message count changes to ThreadManager's objectWillChange.
     private var activeViewModelCancellable: AnyCancellable?
 
     /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
@@ -464,10 +464,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         isRestoringThreads = false
     }
 
-    /// Subscribe to the active ChatViewModel's objectWillChange publisher.
-    /// When a view reads properties from a nested ObservableObject, the parent
-    /// must subscribe to the child's objectWillChange and forward it so SwiftUI
-    /// can invalidate views that depend on nested properties.
+    /// Subscribe to the active ChatViewModel's messages publisher.
+    /// Only forwards changes when the message count changes, preserving the
+    /// wrapper-view isolation pattern that prevents high-frequency ChatViewModel
+    /// updates (like keystroke events, streaming deltas) from invalidating MainWindowView.
     private func subscribeToActiveViewModel() {
         // Cancel previous subscription
         activeViewModelCancellable?.cancel()
@@ -476,9 +476,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        activeViewModelCancellable = viewModel.objectWillChange.sink { [weak self] _ in
-            // Forward nested ObservableObject changes to ThreadManager's objectWillChange
-            self?.objectWillChange.send()
-        }
+        // Only observe message count changes, not all ChatViewModel property changes
+        activeViewModelCancellable = viewModel.$messages
+            .map { $0.count }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
     }
 }
