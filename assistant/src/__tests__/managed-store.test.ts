@@ -171,6 +171,50 @@ describe('buildSkillMarkdown', () => {
     expect(skill!.name).toBe('path\\name');
   });
 
+  test('includes field emits JSON array in frontmatter', () => {
+    const result = buildSkillMarkdown({
+      name: 'Parent',
+      description: 'Has children',
+      bodyMarkdown: 'Body.',
+      includes: ['child-a', 'child-b'],
+    });
+    expect(result).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('omits includes when not provided', () => {
+    const result = buildSkillMarkdown({
+      name: 'Solo',
+      description: 'No children',
+      bodyMarkdown: 'Body.',
+    });
+    expect(result).not.toContain('includes');
+  });
+
+  test('omits includes when empty array', () => {
+    const result = buildSkillMarkdown({
+      name: 'Empty',
+      description: 'Empty array',
+      bodyMarkdown: 'Body.',
+      includes: [],
+    });
+    expect(result).not.toContain('includes:');
+  });
+
+  test('includes round-trips through write and catalog load', () => {
+    createManagedSkill({
+      id: 'roundtrip-includes',
+      name: 'Roundtrip',
+      description: 'Test roundtrip',
+      bodyMarkdown: 'Body.',
+      includes: ['child-x', 'child-y'],
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, 'skills')]);
+    const skill = catalog.find(s => s.id === 'roundtrip-includes');
+    expect(skill).toBeDefined();
+    expect(skill!.includes).toEqual(['child-x', 'child-y']);
+  });
+
   test('single-quoted frontmatter preserves backslashes literally', () => {
     // Single-quoted YAML values treat backslashes as literal characters.
     // Manually write a SKILL.md with single-quoted frontmatter to simulate
