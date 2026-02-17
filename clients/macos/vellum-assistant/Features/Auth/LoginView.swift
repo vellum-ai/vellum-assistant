@@ -105,6 +105,7 @@ struct LoginView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .frame(maxWidth: .infinity)
 
                 Button {
                     authManager.errorMessage = nil
