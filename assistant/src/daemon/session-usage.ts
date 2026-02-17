@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { ServerMessage, UsageStats } from './ipc-protocol.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { estimateCost, resolvePricingWithOverrides } from '../util/pricing.js';
@@ -73,28 +72,3 @@ export function recordUsage(
   }
 }
 
-export async function generateTitle(conversationId: string, userMessage: string, assistantResponse: string): Promise<void> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return;
-
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 20,
-    messages: [{
-      role: 'user',
-      content: `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
-    }],
-  });
-
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (textBlock && textBlock.type === 'text') {
-    let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
-    const words = title.split(/\s+/);
-    if (words.length > 5) title = words.slice(0, 5).join(' ');
-    if (title.length > 40) title = title.slice(0, 40).trimEnd();
-    conversationStore.updateConversationTitle(conversationId, title);
-    log.info({ conversationId, title }, 'Auto-generated conversation title');
-  }
-}

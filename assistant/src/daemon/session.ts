@@ -77,7 +77,7 @@ import {
   regenerate as regenerateImpl,
   type HistorySessionContext,
 } from './session-history.js';
-import { recordUsage, generateTitle } from './session-usage.js';
+import { recordUsage } from './session-usage.js';
 import { isProviderOrderingError } from './session-slash.js';
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
 import type { UsageActor } from '../usage/actors.js';
@@ -1230,7 +1230,22 @@ export class Session {
   }
 
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
-    return generateTitle(this.conversationId, userMessage, assistantResponse);
+    const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`;
+    const response = await this.provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      [], // no tools
+      undefined, // no system prompt
+    );
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (textBlock && textBlock.type === 'text') {
+      let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
+      const words = title.split(/\s+/);
+      if (words.length > 5) title = words.slice(0, 5).join(' ');
+      if (title.length > 40) title = title.slice(0, 40).trimEnd();
+      conversationStore.updateConversationTitle(this.conversationId, title);
+      log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
+    }
   }
 
 }
