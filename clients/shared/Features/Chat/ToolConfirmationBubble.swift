@@ -234,7 +234,7 @@ public struct ToolConfirmationBubble: View {
 
                     if index < confirmation.allowlistOptions.count - 1 {
                         Divider()
-                            .foregroundColor(VColor.divider)
+                            .background(VColor.divider)
                     }
                 }
             }
