@@ -63,7 +63,7 @@ try {
   const result = await fn(input);
   console.log(JSON.stringify({ __eval_result: result }));
 } catch (err: unknown) {
-  console.error(err instanceof Error ? err.stack : String(err));
+  console.error(err instanceof Error ? err.stack ?? String(err) : String(err));
   process.exit(1);
 }
 `;
