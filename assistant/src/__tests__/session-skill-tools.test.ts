@@ -1825,3 +1825,156 @@ describe('versioned markers through session projection', () => {
     expect(mockUnregisteredSkillIds).toContain('deploy');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hash change re-prompt regression tests (PR 35)
+// Verify that version hash changes trigger re-registration and that the
+// session state accurately tracks the new hash, which downstream components
+// use to decide whether cached approvals still apply.
+// ---------------------------------------------------------------------------
+
+describe('hash change re-prompt regressions (PR 35)', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('approve v1, edit skill (hash changes), v2 triggers re-registration with new hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:approved-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: skill approved and registered with v1 hash
+    const result1 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(sessionState.get('deploy')).toBe('v1:approved-hash');
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Simulate skill edit — hash changes on disk
+    mockVersionHashes = { deploy: 'v2:edited-hash' };
+    mockUnregisteredSkillIds = [];
+
+    // Turn 2: projection detects hash drift, unregisters old, re-registers new
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+
+    // Old version was unregistered
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Session state updated to the new hash
+    expect(sessionState.get('deploy')).toBe('v2:edited-hash');
+
+    // Ref count balanced (unregister decremented, re-register incremented)
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('two consecutive edits each trigger re-registration with correct hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:first-version' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: initial registration
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:first-version');
+
+    // Edit 1: hash changes to v2
+    mockVersionHashes = { deploy: 'v2:second-version' };
+    mockUnregisteredSkillIds = [];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v2:second-version');
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Edit 2: hash changes to v3
+    mockVersionHashes = { deploy: 'v3:third-version' };
+    mockUnregisteredSkillIds = [];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v3:third-version');
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Ref count stays at 1 through all edits
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('hash change in one skill does not affect co-active skill with stable hash', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+    mockVersionHashes = {
+      deploy: 'v1:deploy-stable',
+      oncall: 'v1:oncall-original',
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="oncall" />'),
+    ];
+
+    // Turn 1: both skills registered
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:deploy-stable');
+    expect(sessionState.get('oncall')).toBe('v1:oncall-original');
+
+    // Edit only oncall
+    mockVersionHashes = {
+      deploy: 'v1:deploy-stable', // unchanged
+      oncall: 'v2:oncall-edited',
+    };
+    mockUnregisteredSkillIds = [];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Only oncall was re-registered
+    expect(mockUnregisteredSkillIds).toContain('oncall');
+    expect(mockUnregisteredSkillIds).not.toContain('deploy');
+
+    // Hashes updated correctly
+    expect(sessionState.get('deploy')).toBe('v1:deploy-stable');
+    expect(sessionState.get('oncall')).toBe('v2:oncall-edited');
+  });
+
+  test('registered tools carry updated ownerSkillId after hash change re-registration', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:pre-edit' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    const toolsV1 = mockRegisteredTools.get('deploy');
+    expect(toolsV1).toBeDefined();
+    expect(toolsV1!.length).toBe(1);
+    expect(toolsV1![0].ownerSkillId).toBe('deploy');
+
+    // Edit
+    mockVersionHashes = { deploy: 'v2:post-edit' };
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // After re-registration, tools should still be associated with the skill
+    const toolsV2 = mockRegisteredTools.get('deploy');
+    expect(toolsV2).toBeDefined();
+    expect(toolsV2!.length).toBeGreaterThanOrEqual(1);
+    expect(toolsV2![0].ownerSkillId).toBe('deploy');
+  });
+});
