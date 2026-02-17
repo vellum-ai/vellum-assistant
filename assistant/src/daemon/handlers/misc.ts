@@ -173,7 +173,7 @@ export async function handleSuggestionRequest(
 
     // Try LLM suggestion using the configured provider
     const config = getConfig();
-    if (listProviders().length > 0) {
+    if (listProviders().includes(config.provider)) {
       try {
         const provider = getFailoverProvider(config.provider, config.providerOrder);
         let promise = suggestionInFlight.get(m.id);
@@ -221,6 +221,8 @@ async function generateSuggestion(provider: Provider, assistantText: string): Pr
   const response = await provider.sendMessage(
     [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     [], // no tools
+    undefined, // no system prompt
+    { config: { max_tokens: 30 } },
   );
 
   const textBlock = response.content.find((b) => b.type === 'text');

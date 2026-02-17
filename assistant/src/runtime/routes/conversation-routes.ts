@@ -217,6 +217,8 @@ async function generateLlmSuggestion(provider: Provider, assistantText: string):
   const response = await provider.sendMessage(
     [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     [], // no tools
+    undefined, // no system prompt
+    { config: { max_tokens: 30 } },
   );
 
   const textBlock = response.content.find((b) => b.type === 'text');
@@ -304,7 +306,7 @@ export async function handleGetSuggestion(
 
     // Try LLM suggestion using the configured provider
     const config = getConfig();
-    if (listProviders().length > 0) {
+    if (listProviders().includes(config.provider)) {
       try {
         const provider = getFailoverProvider(config.provider, config.providerOrder);
         // Deduplicate concurrent requests
