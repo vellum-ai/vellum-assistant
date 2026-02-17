@@ -116,7 +116,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: 'default:allow-bash-rm-bootstrap',
     tool: 'bash',
     pattern: 'rm BOOTSTRAP.md',
-    scope: 'everywhere',
+    scope: workspaceDir,
     decision: 'allow',
     priority: 100,
   };
