@@ -1,0 +1,214 @@
+/**
+ * Route handlers for channel inbound messages, delivery acks, and
+ * conversation deletion.
+ */
+import { deleteConversationKey } from '../../memory/conversation-key-store.js';
+import * as conversationStore from '../../memory/conversation-store.js';
+import * as attachmentsStore from '../../memory/attachments-store.js';
+import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
+import { renderHistoryContent } from '../../daemon/handlers.js';
+import { getLogger } from '../../util/logger.js';
+import type {
+  MessageProcessor,
+  RuntimeAttachmentMetadata,
+  RuntimeMessagePayload,
+} from '../http-types.js';
+
+const log = getLogger('runtime-http');
+
+export async function handleDeleteConversation(assistantId: string, req: Request): Promise<Response> {
+  const body = await req.json() as {
+    sourceChannel?: string;
+    externalChatId?: string;
+  };
+
+  const { sourceChannel, externalChatId } = body;
+
+  if (!sourceChannel || typeof sourceChannel !== 'string') {
+    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+  }
+  if (!externalChatId || typeof externalChatId !== 'string') {
+    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+  }
+
+  const conversationKey = `${sourceChannel}:${externalChatId}`;
+  deleteConversationKey(assistantId, conversationKey);
+
+  return Response.json({ ok: true });
+}
+
+export async function handleChannelInbound(
+  assistantId: string,
+  req: Request,
+  processMessage?: MessageProcessor,
+): Promise<Response> {
+  const body = await req.json() as {
+    sourceChannel?: string;
+    externalChatId?: string;
+    externalMessageId?: string;
+    content?: string;
+    senderName?: string;
+    attachmentIds?: string[];
+    senderExternalUserId?: string;
+    senderUsername?: string;
+    sourceMetadata?: Record<string, unknown>;
+  };
+
+  const {
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    content,
+    attachmentIds,
+    sourceMetadata,
+  } = body;
+
+  if (!sourceChannel || typeof sourceChannel !== 'string') {
+    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+  }
+  if (!externalChatId || typeof externalChatId !== 'string') {
+    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+  }
+  if (!externalMessageId || typeof externalMessageId !== 'string') {
+    return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+  }
+
+  // Reject non-string content regardless of whether attachments are present.
+  if (content !== undefined && content !== null && typeof content !== 'string') {
+    return Response.json({ error: 'content must be a string' }, { status: 400 });
+  }
+
+  const trimmedContent = typeof content === 'string' ? content.trim() : '';
+  const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+
+  if (trimmedContent.length === 0 && !hasAttachments) {
+    return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
+  }
+
+  if (hasAttachments) {
+    const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+    if (resolved.length !== attachmentIds.length) {
+      const resolvedIds = new Set(resolved.map((a) => a.id));
+      const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
+      return Response.json(
+        { error: `Attachment IDs not found: ${missing.join(', ')}` },
+        { status: 400 },
+      );
+    }
+  }
+
+  const result = channelDeliveryStore.recordInbound(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+  );
+
+  const metadataHintsRaw = sourceMetadata?.hints;
+  const metadataHints = Array.isArray(metadataHintsRaw)
+    ? metadataHintsRaw.filter((hint): hint is string => typeof hint === 'string' && hint.trim().length > 0)
+    : [];
+  const metadataUxBrief = typeof sourceMetadata?.uxBrief === 'string' && sourceMetadata.uxBrief.trim().length > 0
+    ? sourceMetadata.uxBrief.trim()
+    : undefined;
+
+  // For new (non-duplicate) messages, run the agent loop to generate a reply.
+  let processingSucceeded = false;
+  if (!result.duplicate && processMessage) {
+    try {
+      await processMessage(
+        assistantId,
+        result.conversationId,
+        content ?? '',
+        hasAttachments ? attachmentIds : undefined,
+        {
+          transport: {
+            channelId: sourceChannel,
+            hints: metadataHints.length > 0 ? metadataHints : undefined,
+            uxBrief: metadataUxBrief,
+          },
+        },
+      );
+      processingSucceeded = true;
+    } catch (err) {
+      console.error(`[runtime-http] Processing failed`, err);
+      log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
+    }
+  }
+
+  // Only look up the assistant reply when processing succeeded for a new
+  // (non-duplicate) message.  For duplicates or failed processing, returning
+  // a stale assistant message could cause the caller to resend old replies.
+  let assistantMessage: RuntimeMessagePayload | undefined;
+  if (processingSucceeded) {
+    const msgs = conversationStore.getMessages(result.conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, assistantId);
+        const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          kind: a.kind,
+        }));
+
+        // Include the reply if it has text or attachments
+        if (rendered.text || replyAttachments.length > 0) {
+          assistantMessage = {
+            id: msgs[i].id,
+            role: 'assistant',
+            content: rendered.text,
+            timestamp: new Date(msgs[i].createdAt).toISOString(),
+            attachments: replyAttachments,
+          };
+        }
+        break;
+      }
+    }
+  }
+
+  return Response.json({
+    accepted: result.accepted,
+    duplicate: result.duplicate,
+    eventId: result.eventId,
+    ...(assistantMessage ? { assistantMessage } : {}),
+  });
+}
+
+export async function handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
+  const body = await req.json() as {
+    sourceChannel?: string;
+    externalChatId?: string;
+    externalMessageId?: string;
+  };
+
+  const { sourceChannel, externalChatId, externalMessageId } = body;
+
+  if (!sourceChannel || typeof sourceChannel !== 'string') {
+    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+  }
+  if (!externalChatId || typeof externalChatId !== 'string') {
+    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+  }
+  if (!externalMessageId || typeof externalMessageId !== 'string') {
+    return Response.json({ error: 'externalMessageId is required' }, { status: 400 });
+  }
+
+  const acked = channelDeliveryStore.acknowledgeDelivery(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+  );
+
+  if (!acked) {
+    return Response.json({ error: 'Inbound event not found' }, { status: 404 });
+  }
+
+  return new Response(null, { status: 204 });
+}
