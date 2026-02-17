@@ -196,9 +196,21 @@ export function deleteAttachment(assistantId: string, attachmentId: string): boo
 
   if (!existing) return false;
 
-  db.delete(attachments)
-    .where(eq(attachments.id, attachmentId))
-    .run();
+  // With content-hash deduplication, multiple messages may reference the same
+  // attachment row. Only delete the attachment (and cascade its links) when no
+  // message_attachments rows still point to it.
+  const refCount = db
+    .select({ id: messageAttachments.id })
+    .from(messageAttachments)
+    .where(eq(messageAttachments.attachmentId, attachmentId))
+    .all()
+    .length;
+
+  if (refCount === 0) {
+    db.delete(attachments)
+      .where(eq(attachments.id, attachmentId))
+      .run();
+  }
 
   return true;
 }
