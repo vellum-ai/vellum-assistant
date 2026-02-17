@@ -5,6 +5,7 @@ import { getConfig } from './loader.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
+import { parseToolManifestFile } from '../skills/tool-manifest.js';
 
 const log = getLogger('skills');
 
@@ -310,6 +311,38 @@ function isOutsideSkillsRoot(skillsDir: string, candidatePath: string): boolean 
   return relativePath.startsWith('..') || isAbsolute(relativePath);
 }
 
+// ─── Tool manifest detection ─────────────────────────────────────────────────
+
+/**
+ * Detect and parse a TOOLS.json manifest in a skill directory.
+ * Returns the manifest metadata if the file exists, or undefined if it doesn't.
+ * On parse failure, returns a degraded metadata object (present but invalid).
+ */
+function detectToolManifest(directoryPath: string): SkillToolManifestMeta | undefined {
+  const manifestPath = join(directoryPath, 'TOOLS.json');
+  if (!existsSync(manifestPath)) {
+    return undefined;
+  }
+
+  try {
+    const manifest = parseToolManifestFile(manifestPath);
+    return {
+      present: true,
+      valid: true,
+      toolCount: manifest.tools.length,
+      toolNames: manifest.tools.map((t) => t.name),
+    };
+  } catch (err) {
+    log.warn({ err, manifestPath }, 'Failed to parse TOOLS.json manifest');
+    return {
+      present: true,
+      valid: false,
+      toolCount: 0,
+      toolNames: [],
+    };
+  }
+}
+
 // ─── Skill reading ───────────────────────────────────────────────────────────
 
 function readSkillFromDirectory(directoryPath: string, skillsDir: string, source: SkillSource): SkillDefinition | null {
@@ -353,6 +386,7 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string, source
       disableModelInvocation: parsed.disableModelInvocation,
       source,
       metadata: parsed.metadata,
+      toolManifest: detectToolManifest(directoryPath),
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read skill file');
@@ -392,6 +426,7 @@ function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition |
       disableModelInvocation: parsed.disableModelInvocation,
       source: 'bundled',
       metadata: parsed.metadata,
+      toolManifest: detectToolManifest(directoryPath),
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
@@ -444,6 +479,7 @@ function loadBundledSkills(): SkillSummary[] {
       disableModelInvocation: skill.disableModelInvocation,
       source: 'bundled',
       metadata: skill.metadata,
+      toolManifest: skill.toolManifest,
     });
   }
 
@@ -562,6 +598,7 @@ function skillSummaryFromDefinition(skill: SkillDefinition, source: SkillSource)
     disableModelInvocation: skill.disableModelInvocation,
     source,
     metadata: skill.metadata,
+    toolManifest: skill.toolManifest,
   };
 }
 
@@ -605,6 +642,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
             disableModelInvocation: parsed.disableModelInvocation,
             source: 'extra',
             metadata: parsed.metadata,
+            toolManifest: detectToolManifest(directory),
           });
         } catch (err) {
           log.warn({ err, directory }, 'Failed to read skill from extraDirs');
@@ -685,6 +723,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
           disableModelInvocation: parsed.disableModelInvocation,
           source: 'workspace',
           metadata: parsed.metadata,
+          toolManifest: detectToolManifest(directory),
         };
 
         if (seenIds.has(id)) {

@@ -223,3 +223,102 @@ describe('workspace skills', () => {
     expect(result.skill!.source).toBe('workspace');
   });
 });
+
+describe('tool manifest detection', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('attaches toolManifest metadata when valid TOOLS.json is present', () => {
+    writeSkill('with-tools', 'Tool Skill', 'Skill with tools');
+    const toolsJson = {
+      version: 1,
+      tools: [
+        {
+          name: 'run-lint',
+          description: 'Runs linting',
+          category: 'quality',
+          risk: 'low',
+          input_schema: { type: 'object', properties: {} },
+          executor: 'lint.sh',
+          execution_target: 'host',
+        },
+        {
+          name: 'run-test',
+          description: 'Runs tests',
+          category: 'quality',
+          risk: 'medium',
+          input_schema: { type: 'object', properties: {} },
+          executor: 'test.sh',
+          execution_target: 'sandbox',
+        },
+      ],
+    };
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'with-tools', 'TOOLS.json'),
+      JSON.stringify(toolsJson),
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'with-tools');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toEqual({
+      present: true,
+      valid: true,
+      toolCount: 2,
+      toolNames: ['run-lint', 'run-test'],
+    });
+  });
+
+  test('marks toolManifest as invalid when TOOLS.json fails to parse', () => {
+    writeSkill('bad-tools', 'Bad Tool Skill', 'Skill with invalid tools');
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'bad-tools', 'TOOLS.json'),
+      '{ not valid json !!!',
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'bad-tools');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toEqual({
+      present: true,
+      valid: false,
+      toolCount: 0,
+      toolNames: [],
+    });
+  });
+
+  test('marks toolManifest as invalid when TOOLS.json has schema errors', () => {
+    writeSkill('schema-error', 'Schema Error Skill', 'Skill with schema errors');
+    // Valid JSON but missing required fields
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'schema-error', 'TOOLS.json'),
+      JSON.stringify({ version: 1, tools: [{ name: 'incomplete' }] }),
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'schema-error');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toEqual({
+      present: true,
+      valid: false,
+      toolCount: 0,
+      toolNames: [],
+    });
+  });
+
+  test('does not set toolManifest when TOOLS.json is absent', () => {
+    writeSkill('no-tools', 'No Tool Skill', 'Skill without tools');
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'no-tools');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toBeUndefined();
+  });
+});
