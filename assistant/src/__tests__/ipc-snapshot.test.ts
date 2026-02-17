@@ -4,6 +4,7 @@ import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
+import type { ConfirmationRequest } from '../daemon/ipc-contract.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -1139,7 +1140,7 @@ describe('IPC message snapshots', () => {
   // Baseline assertions for principal context in confirmation_request.
   describe('confirmation principal context baselines', () => {
     test('confirmation_request includes principal context fields', () => {
-      const req = serverMessages.confirmation_request;
+      const req = serverMessages.confirmation_request as ConfirmationRequest;
       expect(req.principalKind).toBe('skill');
       expect(req.principalId).toBe('my-skill');
       expect(req.principalVersion).toBe('sha256:abcdef1234567890');
