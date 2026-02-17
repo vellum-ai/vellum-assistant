@@ -21,14 +21,15 @@ struct WakeUpStepView: View {
 
         // Subtitle
         Text("The safest way to create your personal assistant.")
-            .font(.system(size: 16))
+            .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
+            .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
 
         // Question prompt
         Text("How would you like to start?")
-            .font(.system(size: 16, weight: .medium))
+            .font(.system(size: 16, weight: .medium, design: .monospaced))
             .foregroundColor(VColor.textPrimary)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
@@ -54,14 +55,20 @@ struct WakeUpStepView: View {
                 )
             }
 
-            // Progress dots
-            OnboardingProgressDots(currentStep: 0, totalSteps: 4)
-                .padding(.top, VSpacing.sm)
+            // Progress dots (4 dots)
+            HStack(spacing: VSpacing.sm) {
+                ForEach(0..<4, id: \.self) { index in
+                    Circle()
+                        .fill(index == 0 ? VColor.textPrimary : VColor.textMuted.opacity(0.3))
+                        .frame(width: index == 0 ? 8 : 6, height: index == 0 ? 8 : 6)
+                }
+            }
+            .padding(.top, VSpacing.sm)
 
             // Footer
             Text("2026 Vellum Inc.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(VColor.textMuted.opacity(0.5))
                 .padding(.bottom, VSpacing.sm)
         }
         .padding(.horizontal, VSpacing.xxl)
@@ -90,23 +97,24 @@ struct WakeUpStepView: View {
         description: String,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(spacing: VSpacing.md) {
             Text(title)
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
                 .foregroundColor(VColor.textPrimary)
 
             Text(description)
-                .font(.system(size: 13))
-                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(VColor.textMuted)
                 .lineSpacing(3)
+                .multilineTextAlignment(.center)
 
             Spacer()
 
             Button(action: action) {
                 Text("Start")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, VSpacing.xxl)
                     .padding(.vertical, VSpacing.sm)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.md)
@@ -119,7 +127,7 @@ struct WakeUpStepView: View {
             }
         }
         .padding(VSpacing.xl)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .fill(VColor.surface)
