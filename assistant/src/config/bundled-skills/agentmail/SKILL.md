@@ -5,12 +5,25 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "📬"}}
 ---
 
-Use only CLI/programmatic paths (bash/host_bash).
+## How to run
+
+Run all commands via `host_bash`. The CLI is your own binary — do NOT attempt to install it.
+
+To find the correct invocation, run this discovery command first:
+```
+host_bash("command -v vellum 2>/dev/null && echo 'USE: vellum' || echo \"USE: bun run $(ps -p $(pgrep -f 'daemon/main.ts' | head -1) -o args= 2>/dev/null | sed 's|^bun run ||;s|daemon/main.ts|index.ts|')\"")
+```
+
+- If the output says `USE: vellum`, use `vellum email ...` for all commands.
+- If the output says `USE: bun run /path/to/index.ts`, use that prefix instead of `vellum` (e.g., `bun run /path/to/index.ts email status --json`).
+
+Store the resolved prefix and reuse it for the rest of the session. Do NOT re-discover on every command.
+
 Never use browser/computer-use unless user explicitly approves fallback.
 
 ## Rules
 
-- Always run vellum email commands and parse JSON output.
+- Always run `vellum email` commands via `host_bash` and parse JSON output.
 - Always do `vellum email status --json` preflight first.
 - Prefer `draft create` before any send — never bypass draft flow.
 - Require explicit user confirmation before `draft approve-send --confirm`.
