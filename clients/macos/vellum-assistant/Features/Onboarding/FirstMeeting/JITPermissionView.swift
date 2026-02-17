@@ -7,6 +7,7 @@ struct JITPermissionView: View {
 
     @State private var showContent = false
     @State private var iconScale: CGFloat = 1.0
+    @State private var showTechnicalDetails = false
 
     var body: some View {
         ZStack {
@@ -32,6 +33,7 @@ struct JITPermissionView: View {
         .onAppear {
             if manager.activePermissionRequest != nil {
                 showContent = false
+                showTechnicalDetails = false
                 iconScale = 1.0
                 withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
                     showContent = true
@@ -42,6 +44,7 @@ struct JITPermissionView: View {
         .onChange(of: manager.activePermissionRequest) { _, newValue in
             if newValue != nil {
                 showContent = false
+                showTechnicalDetails = false
                 iconScale = 1.0
                 withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
                     showContent = true
@@ -50,6 +53,7 @@ struct JITPermissionView: View {
             } else {
                 withAnimation(VAnimation.fast) {
                     showContent = false
+                    showTechnicalDetails = false
                 }
             }
         }
@@ -101,7 +105,7 @@ struct JITPermissionView: View {
             .offset(y: showContent ? 0 : 6)
 
             // Explanation card
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "lock.shield")
                         .font(.system(size: 11))
@@ -115,6 +119,33 @@ struct JITPermissionView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Technical details disclosure
+                Button(action: {
+                    withAnimation(VAnimation.standard) {
+                        showTechnicalDetails.toggle()
+                    }
+                }) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: showTechnicalDetails ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VColor.accent)
+                        Text("Technical details")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.accent)
+                    }
+                    .padding(.top, VSpacing.xs)
+                }
+                .buttonStyle(.plain)
+
+                if showTechnicalDetails {
+                    Text(request.technicalDetails)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, VSpacing.xs)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)

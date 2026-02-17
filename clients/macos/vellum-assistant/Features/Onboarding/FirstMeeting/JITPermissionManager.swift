@@ -54,6 +54,14 @@ final class JITPermissionManager {
             }
         }
 
+        var technicalDetails: String {
+            switch self {
+            case .microphone: return "Grants access to the system microphone via the Speech Recognition permission. Used only during voice input activation (Fn key hold). Audio is processed locally by Apple's Speech Framework and transcribed text is sent to Claude for processing."
+            case .accessibility: return "Grants Accessibility API access (AXUIElement) allowing programmatic control of UI elements. Required for computer control features like clicking buttons, typing text, and navigating applications on your behalf. Access is limited to user-initiated tasks."
+            case .screenCapture: return "Grants Screen Recording permission allowing the app to capture screenshots of your display. Used during computer control sessions to provide visual context to Claude. Captures are transient and used only for task execution."
+            }
+        }
+
         var icon: String {
             switch self {
             case .microphone: return "ear"
