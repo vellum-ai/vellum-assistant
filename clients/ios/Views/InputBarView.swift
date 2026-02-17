@@ -1,6 +1,12 @@
 #if canImport(UIKit)
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "InputBarView"
+)
 
 struct InputBarView: View {
     @Binding var text: String
@@ -49,7 +55,7 @@ struct InputBarView_Previews: PreviewProvider {
                     text: $text,
                     isInputFocused: $isFocused,
                     isGenerating: false,
-                    onSend: { print("Send tapped") }
+                    onSend: { log.debug("Send tapped") }
                 )
             }
             .background(VColor.background)

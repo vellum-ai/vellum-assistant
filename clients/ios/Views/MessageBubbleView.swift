@@ -1,6 +1,12 @@
 #if canImport(UIKit)
+import os
 import SwiftUI
 import VellumAssistantShared
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "MessageBubbleView"
+)
 
 struct MessageBubbleView: View {
     let message: ChatMessage
@@ -25,7 +31,7 @@ struct MessageBubbleView: View {
                             onConfirmationResponse?(confirmation.requestId, "deny")
                         },
                         onAddTrustRule: { _, _, _, _ in
-                            print("iOS: Add trust rule not yet implemented")
+                            log.debug("Add trust rule not yet implemented")
                             return false
                         }
                     )
@@ -236,7 +242,7 @@ struct MessageBubbleView: View {
                 toolCalls: []
             ),
             onConfirmationResponse: { requestId, decision in
-                print("Preview: Confirmation \(decision) for \(requestId)")
+                log.debug("Preview: Confirmation \(decision) for \(requestId)")
             },
             onSurfaceAction: nil
         )
