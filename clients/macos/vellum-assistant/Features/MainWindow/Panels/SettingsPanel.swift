@@ -22,6 +22,7 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
+    @State private var modelDropdownFrame: CGRect = .zero
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -127,6 +128,16 @@ struct SettingsPanel: View {
                             .alignmentGuide(.bottom) { d in d[.top] }
                             .padding(.trailing, VSpacing.lg)
                             .transition(.opacity)
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.onAppear {
+                                        modelDropdownFrame = geo.frame(in: .global)
+                                    }
+                                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                                        modelDropdownFrame = newFrame
+                                    }
+                                }
+                            )
                         }
                     }
                     .animation(VAnimation.fast, value: showModelDropdown)
@@ -450,8 +461,23 @@ struct SettingsPanel: View {
             }
             if isOpen {
                 mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-                    DispatchQueue.main.async {
-                        withAnimation(VAnimation.fast) { showModelDropdown = false }
+                    // Only dismiss if the click is outside the dropdown.
+                    // SwiftUI .global uses flipped coords (Y=0 at top);
+                    // AppKit locationInWindow uses Y=0 at bottom.
+                    if let window = event.window {
+                        let windowHeight = window.frame.height
+                        let loc = event.locationInWindow
+                        let flippedY = windowHeight - loc.y
+                        let clickPoint = CGPoint(x: loc.x, y: flippedY)
+                        if !self.modelDropdownFrame.contains(clickPoint) {
+                            DispatchQueue.main.async {
+                                withAnimation(VAnimation.fast) { showModelDropdown = false }
+                            }
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            withAnimation(VAnimation.fast) { showModelDropdown = false }
+                        }
                     }
                     return event
                 }
