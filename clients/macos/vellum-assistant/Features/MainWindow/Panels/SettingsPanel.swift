@@ -586,18 +586,26 @@ struct SettingsPanel: View {
     private func startPermissionPolling() {
         // Hybrid permission checking approach:
         // 1. Primary: scenePhase onChange detects when user returns from System Settings
-        // 2. Fallback: Single delayed check handles edge cases where scenePhase doesn't fire
-        //    (e.g., LSUIElement apps, or user grants permission while app stays focused)
+        // 2. Fallback: Poll every 1 second for 15 seconds to catch edge cases where
+        //    scenePhase doesn't fire (LSUIElement apps, or user grants permission
+        //    while app stays focused)
         //
-        // This avoids wasteful continuous polling while remaining reliable.
+        // Polling stops early if both permissions are granted, minimizing overhead.
         permissionCheckTask?.cancel()
 
         permissionCheckTask = Task { @MainActor in
-            // Wait 3 seconds (gives user time to grant permission if they're quick)
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // Poll for up to 15 seconds (typical time for user to navigate System Settings)
+            for _ in 0..<15 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
 
-            guard !Task.isCancelled else { return }
-            refreshPermissionStatus()
+                guard !Task.isCancelled else { return }
+                refreshPermissionStatus()
+
+                // Stop polling if both permissions are granted
+                if accessibilityGranted && screenRecordingGranted {
+                    return
+                }
+            }
         }
     }
 
