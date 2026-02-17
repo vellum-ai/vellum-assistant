@@ -173,7 +173,7 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 | Tool | Risk Level | Description |
 |------|-----------|-------------|
 | `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter and updates `SKILLS.md` index. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md` index. |
 | `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
 
 All three tools require explicit user approval before execution (Risk Level = High).
@@ -184,6 +184,25 @@ All three tools require explicit user approval before execution (Risk Level = Hi
 - If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
 - After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
+
+### Child Skill Includes
+
+Skills can declare relationships to other skills via the `includes` frontmatter field. This is metadata-only — it does **not** auto-activate child tools or instructions.
+
+```yaml
+---
+name: "Parent Workflow"
+description: "Orchestrates sub-tasks"
+includes: ["data-analysis", "report-generator"]
+---
+```
+
+When a parent skill is loaded via `skill_load`:
+- The include graph is validated recursively (missing children and cycles are rejected).
+- Immediate child metadata (ID, name, description, path) is shown in the output.
+- Child skills are **not** automatically activated — the agent must explicitly call `skill_load` for each child it needs.
+
+The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
 
 ## Permission Modes and Trust Rules
 
