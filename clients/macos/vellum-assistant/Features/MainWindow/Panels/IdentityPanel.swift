@@ -4,6 +4,7 @@ import VellumAssistantShared
 struct IdentityPanel: View {
     let onClose: () -> Void
     let daemonClient: DaemonClient
+    private let appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
     @State private var metadata: AssistantMetadata?
@@ -36,7 +37,7 @@ struct IdentityPanel: View {
 
             // Avatar + ID card side by side
             HStack(alignment: .center, spacing: VSpacing.lg) {
-                DinoSceneView(seed: identity?.name ?? "default")
+                DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                     .frame(width: 180, height: 200)
 
                 if let identity {

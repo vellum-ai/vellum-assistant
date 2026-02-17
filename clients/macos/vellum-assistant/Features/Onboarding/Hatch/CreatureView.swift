@@ -5,6 +5,7 @@ import SwiftUI
 struct CreatureView: View {
     let visible: Bool
     var animated: Bool = true
+    private let appearance = AvatarAppearanceManager.shared
 
     @State private var appeared = false
     @State private var bounceOffset: CGFloat = 0
@@ -51,7 +52,7 @@ struct CreatureView: View {
     }
 
     private var dinoImage: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize))
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)

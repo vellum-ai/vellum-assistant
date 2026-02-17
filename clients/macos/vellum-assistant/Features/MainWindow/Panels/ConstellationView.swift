@@ -208,6 +208,7 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
+    private let appearance = AvatarAppearanceManager.shared
 
     @State private var phase: AnimationPhase = .hidden
     @State private var panOffset: CGSize = .zero
@@ -405,7 +406,7 @@ struct ConstellationView: View {
             }
 
             // Center dino face — non-interactive so drags pass to canvas pan
-            DinoFaceView(seed: identity?.name ?? "default")
+            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                 .frame(width: 80, height: 80)
                 .allowsHitTesting(false)
                 .position(center)

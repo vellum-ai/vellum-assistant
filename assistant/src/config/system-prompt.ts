@@ -7,7 +7,7 @@ import { getConfig } from './loader.js';
 
 const log = getLogger('system-prompt');
 
-const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'LOOKS.md'] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -86,15 +86,19 @@ export function buildSystemPrompt(): string {
   const userPath = getWorkspacePromptPath('USER.md');
   const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
 
+  const looksPath = getWorkspacePromptPath('LOOKS.md');
+
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
+  const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
 
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
+  if (looks) parts.push(looks);
   if (bootstrap) {
     parts.push(
       '# First-Run Ritual\n\n'
@@ -363,6 +367,7 @@ function buildConfigSection(): string {
     '- `IDENTITY.md` — Your name, nature, vibe, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of your user. Update as you learn about them over time.',
+    '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',
     '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
     '',
@@ -385,6 +390,16 @@ function buildConfigSection(): string {
     '',
     '**IDENTITY.md** — update when:',
     '- They rename you or change your role',
+    '',
+    '**LOOKS.md** — update when:',
+    '- They ask you to change your appearance, colors, or outfit',
+    '- You want to refresh your look',
+    '- Available body/cheek colors: violet, emerald, rose, amber, indigo, slate, cyan, blue, green, red, orange, pink',
+    '- Available hats: none, top_hat, crown, cap, beanie, wizard_hat, cowboy_hat',
+    '- Available shirts: none, tshirt, suit, hoodie, tank_top, sweater',
+    '- Available accessories: none, sunglasses, monocle, bowtie, necklace, scarf, cape',
+    '- Available held items: none, sword, staff, shield, balloon',
+    '- Available outfit colors: red, blue, yellow, purple, orange, pink, cyan, brown, black, white, gold, silver',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');

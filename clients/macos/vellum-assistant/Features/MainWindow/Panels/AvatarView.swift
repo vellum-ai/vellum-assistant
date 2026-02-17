@@ -5,9 +5,13 @@ import SceneKit
 /// Seeded from a string so the same name always produces the same dino.
 struct DinoSceneView: NSViewRepresentable {
     let seed: String
+    var palette: DinoPalette = .violet
+    var outfit: DinoOutfit = .none
 
     final class Coordinator {
         var currentSeed: String = ""
+        var currentPalette: DinoPalette = .violet
+        var currentOutfit: DinoOutfit = .none
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -17,24 +21,33 @@ struct DinoSceneView: NSViewRepresentable {
         scnView.backgroundColor = .clear
         scnView.allowsCameraControl = true
         scnView.antialiasingMode = .multisampling4X
-        scnView.scene = DinoVoxelGenerator.buildScene(seed: seed)
+        scnView.scene = DinoVoxelGenerator.buildScene(seed: seed, palette: palette, outfit: outfit)
         context.coordinator.currentSeed = seed
+        context.coordinator.currentPalette = palette
+        context.coordinator.currentOutfit = outfit
         return scnView
     }
 
     func updateNSView(_ nsView: SCNView, context: Context) {
-        guard context.coordinator.currentSeed != seed else { return }
-        context.coordinator.currentSeed = seed
-        nsView.scene = DinoVoxelGenerator.buildScene(seed: seed)
+        let coord = context.coordinator
+        guard coord.currentSeed != seed || coord.currentPalette != palette || coord.currentOutfit != outfit else { return }
+        coord.currentSeed = seed
+        coord.currentPalette = palette
+        coord.currentOutfit = outfit
+        nsView.scene = DinoVoxelGenerator.buildScene(seed: seed, palette: palette, outfit: outfit)
     }
 }
 
 /// 3D voxel dino face only — head cropped from the full model.
 struct DinoFaceView: NSViewRepresentable {
     let seed: String
+    var palette: DinoPalette = .violet
+    var outfit: DinoOutfit = .none
 
     final class Coordinator {
         var currentSeed: String = ""
+        var currentPalette: DinoPalette = .violet
+        var currentOutfit: DinoOutfit = .none
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -44,15 +57,20 @@ struct DinoFaceView: NSViewRepresentable {
         scnView.backgroundColor = .clear
         scnView.allowsCameraControl = true
         scnView.antialiasingMode = .multisampling4X
-        scnView.scene = DinoVoxelGenerator.buildFaceScene(seed: seed)
+        scnView.scene = DinoVoxelGenerator.buildFaceScene(seed: seed, palette: palette, outfit: outfit)
         context.coordinator.currentSeed = seed
+        context.coordinator.currentPalette = palette
+        context.coordinator.currentOutfit = outfit
         return scnView
     }
 
     func updateNSView(_ nsView: SCNView, context: Context) {
-        guard context.coordinator.currentSeed != seed else { return }
-        context.coordinator.currentSeed = seed
-        nsView.scene = DinoVoxelGenerator.buildFaceScene(seed: seed)
+        let coord = context.coordinator
+        guard coord.currentSeed != seed || coord.currentPalette != palette || coord.currentOutfit != outfit else { return }
+        coord.currentSeed = seed
+        coord.currentPalette = palette
+        coord.currentOutfit = outfit
+        nsView.scene = DinoVoxelGenerator.buildFaceScene(seed: seed, palette: palette, outfit: outfit)
     }
 }
 

@@ -5,6 +5,7 @@ struct TextResponseView: View {
     @ObservedObject var session: TextSession
     @Bindable var inputState: ConversationInputState
     var onClose: (() -> Void)?
+    private let appearance = AvatarAppearanceManager.shared
 
     /// Whether the session is actively processing (thinking or streaming).
     private var isActiveState: Bool {
@@ -222,7 +223,7 @@ struct TextResponseView: View {
     // MARK: - Assistant Avatar
 
     private var assistantAvatar: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2))
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
@@ -254,6 +255,7 @@ struct TextResponseView: View {
 
 struct ConversationBubble: View {
     let message: ConversationMessage
+    private let appearance = AvatarAppearanceManager.shared
 
     private var isAssistant: Bool { message.role == .assistant }
 
@@ -308,7 +310,7 @@ struct ConversationBubble: View {
     }
 
     private var assistantAvatar: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2))
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)

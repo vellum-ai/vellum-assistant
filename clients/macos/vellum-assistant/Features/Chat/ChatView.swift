@@ -100,6 +100,7 @@ struct ChatView: View {
     @State private var emptyStatePlaceholder: String = placeholderTexts.randomElement()!
     @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
+    private let appearance = AvatarAppearanceManager.shared
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
@@ -198,7 +199,7 @@ struct ChatView: View {
             Spacer()
             Spacer()
 
-            DinoFaceView(seed: identity?.name ?? "default")
+            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                 .frame(width: 80, height: 80)
                 .allowsHitTesting(false)
                 .opacity(emptyStateVisible ? 1 : 0)

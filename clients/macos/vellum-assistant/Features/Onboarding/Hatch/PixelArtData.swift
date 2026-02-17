@@ -109,4 +109,41 @@ enum PixelArtData {
             [  n,   n,   n,   n,   n,   n,   O,   O,   O,   n,   n,   n,   n,   n,   n,   n,   n,   O,   O,   O,   n,   n,   n,   n,   n,   n], // 21 feet base
         ]
     }()
+
+    // MARK: - Dynamic Palette Dino Grid
+
+    /// Build a dino grid with custom palette colors.
+    static func dino(palette: DinoPalette) -> [[UInt32?]] {
+        let n: UInt32? = nil
+        let O = palette.outline, D = palette.dark, M = palette.mid
+        let L = palette.light, B = palette.belly
+        let W = palette.eyeWhite, P = palette.pupil
+        let K = palette.cheek, T = palette.tongue
+        let a = palette.wingLight, b = palette.wingMid, c = palette.wingDark
+        return [
+            //  0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21   22   23   24   25
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   O,   O,   n,   n,   n,   n,   O,   O,   n,   n,   n,   n,   n,   n,   n,   n,   n], // 0  horns
+            [  n,   n,   n,   n,   n,   n,   n,   n,   O,   D,   M,   O,   n,   n,   O,   M,   D,   O,   n,   n,   n,   n,   n,   n,   n,   n], // 1  horn base
+            [  n,   n,   n,   n,   n,   n,   n,   O,   M,   L,   L,   L,   O,   O,   L,   L,   L,   M,   O,   n,   n,   n,   n,   n,   n,   n], // 2  head top
+            [  n,   n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n,   n,   n], // 3  head
+            [  n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n,   n], // 4  face
+            [  n,   n,   n,   n,   n,   O,   D,   L,   W,   P,   P,   P,   L,   L,   P,   P,   P,   W,   L,   D,   O,   n,   n,   n,   n,   n], // 5  eyes top
+            [  n,   n,   n,   n,   n,   O,   D,   L,   P,   P,   P,   P,   L,   L,   P,   P,   P,   P,   L,   D,   O,   n,   n,   n,   n,   n], // 6  eyes mid
+            [  n,   n,   n,   n,   n,   O,   D,   L,   P,   P,   P,   P,   L,   L,   P,   P,   P,   P,   L,   D,   O,   n,   n,   n,   n,   n], // 7  eyes bottom
+            [  n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n,   n], // 8  below eyes
+            [  n,   n,   n,   n,   O,   D,   M,   L,   K,   K,   L,   O,   L,   L,   O,   L,   K,   K,   L,   M,   D,   O,   n,   n,   n,   n], // 9  cheeks + mouth
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   T,   T,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n], // 10 tongue
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n], // 11 upper body
+            [  n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 12 body widens
+            [  n,   c,   b,   O,   D,   M,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   M,   D,   O,   b,   c,   n], // 13 wings + belly
+            [  c,   b,   a,   O,   D,   M,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   M,   D,   O,   a,   b,   c], // 14 wings peak
+            [  n,   c,   b,   O,   D,   M,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   M,   D,   O,   b,   c,   n], // 15 wings end
+            [  n,   n,   n,   O,   D,   M,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   M,   D,   O,   n,   n,   n], // 16 body + belly
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   B,   B,   B,   B,   B,   B,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n], // 17 lower body
+            [  n,   n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n,   n], // 18 narrow
+            [  n,   n,   n,   n,   n,   n,   O,   D,   M,   M,   L,   L,   L,   L,   L,   L,   M,   M,   D,   O,   n,   n,   n,   n,   n,   n], // 19 bottom
+            [  n,   n,   n,   n,   n,   n,   O,   D,   D,   O,   O,   n,   n,   n,   n,   O,   O,   D,   D,   O,   n,   n,   n,   n,   n,   n], // 20 feet
+            [  n,   n,   n,   n,   n,   n,   O,   O,   O,   n,   n,   n,   n,   n,   n,   n,   n,   O,   O,   O,   n,   n,   n,   n,   n,   n], // 21 feet base
+        ]
+    }
 }

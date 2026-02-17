@@ -5,6 +5,7 @@ import VellumAssistantShared
 /// Displays the user's message, thinking dots, and streaming AI response.
 struct WorkspaceActivityFeed: View {
     @ObservedObject var viewModel: ChatViewModel
+    private let appearance = AvatarAppearanceManager.shared
 
     var body: some View {
         if viewModel.refinementMessagePreview != nil {
@@ -99,7 +100,7 @@ struct WorkspaceActivityFeed: View {
     }
 
     private var assistantAvatar: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2))
+        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)

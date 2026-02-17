@@ -8,6 +8,7 @@ final class VoiceTranscriptionViewModel: ObservableObject {
 
 struct VoiceTranscriptionView: View {
     @ObservedObject var viewModel: VoiceTranscriptionViewModel
+    private let appearance = AvatarAppearanceManager.shared
 
     private let circleSize: CGFloat = 80
     private let dinoPixelSize: CGFloat = 3
@@ -19,7 +20,7 @@ struct VoiceTranscriptionView: View {
                     .stroke(VColor.accent, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: dinoPixelSize))
+                Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
                     .interpolation(.none)
             }
 

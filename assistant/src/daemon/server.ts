@@ -228,6 +228,7 @@ export class DaemonServer {
       'SOUL.md': () => this.evictSessionsForReload(),
       'IDENTITY.md': () => this.evictSessionsForReload(),
       'USER.md': () => this.evictSessionsForReload(),
+      'LOOKS.md': () => this.evictSessionsForReload(),
     };
 
     // Watch protected/ for trust rules and secret allowlist

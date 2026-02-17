@@ -15,6 +15,12 @@ enum DinoVoxelGenerator {
             self.r = r; self.g = g; self.b = b
         }
 
+        init(hex: UInt32) {
+            self.r = UInt8((hex >> 16) & 0xFF)
+            self.g = UInt8((hex >> 8) & 0xFF)
+            self.b = UInt8(hex & 0xFF)
+        }
+
         var nsColor: NSColor {
             NSColor(
                 red: CGFloat(r) / 255.0,
@@ -31,13 +37,24 @@ enum DinoVoxelGenerator {
 
     // MARK: - Color Palette
 
-    private static let dinoGreen = RGB(76, 175, 80)
-    private static let dinoLight = RGB(129, 199, 132)
-    private static let dinoBelly = RGB(200, 230, 201)
-    private static let dinoDark  = RGB(56, 142, 60)
+    private static let defaultDinoGreen = RGB(76, 175, 80)
+    private static let defaultDinoLight = RGB(129, 199, 132)
+    private static let defaultDinoBelly = RGB(200, 230, 201)
+    private static let defaultDinoDark  = RGB(56, 142, 60)
     private static let eyeWhite  = RGB(255, 255, 255)
     private static let eyeBlack  = RGB(33, 33, 33)
-    private static let cheekPink = RGB(255, 160, 170)
+    private static let defaultCheekPink = RGB(255, 160, 170)
+
+    /// Derive 3D voxel colors from a DinoPalette.
+    private static func voxelColors(from palette: DinoPalette) -> (main: RGB, light: RGB, belly: RGB, dark: RGB, cheek: RGB) {
+        return (
+            main: RGB(hex: palette.mid),
+            light: RGB(hex: palette.light),
+            belly: RGB(hex: palette.belly),
+            dark: RGB(hex: palette.dark),
+            cheek: RGB(hex: palette.cheek)
+        )
+    }
 
     private static let palette: [String: RGB] = [
         "red": RGB(244, 67, 54),
@@ -211,8 +228,29 @@ enum DinoVoxelGenerator {
 
     // MARK: - Base Dino (chibi proportions)
 
-    private static func createBaseDino() -> [VoxelPos: RGB] {
+    private static func createBaseDino(palette: DinoPalette? = nil) -> [VoxelPos: RGB] {
         var voxels: [VoxelPos: RGB] = [:]
+
+        // Derive colors from palette or use defaults
+        let dinoMain: RGB
+        let dinoLt: RGB
+        let dinoBl: RGB
+        let dinoDk: RGB
+        let cheek: RGB
+        if let palette {
+            let c = voxelColors(from: palette)
+            dinoMain = c.main
+            dinoLt = c.light
+            dinoBl = c.belly
+            dinoDk = c.dark
+            cheek = c.cheek
+        } else {
+            dinoMain = defaultDinoGreen
+            dinoLt = defaultDinoLight
+            dinoBl = defaultDinoBelly
+            dinoDk = defaultDinoDark
+            cheek = defaultCheekPink
+        }
 
         func set(_ x: Int, _ y: Int, _ z: Int, _ color: RGB) {
             voxels[VoxelPos(x: x, y: y, z: z)] = color
@@ -226,7 +264,7 @@ enum DinoVoxelGenerator {
                 let edgeX = (x == 4 || x == 11)
                 let edgeZ = (z == 4 || z == 11)
                 if edgeX && edgeZ { continue }
-                set(x, 13, z, dinoGreen)
+                set(x, 13, z, dinoMain)
             }
         }
 
@@ -237,7 +275,7 @@ enum DinoVoxelGenerator {
                     let edgeX = (x == 3 || x == 12)
                     let edgeZ = (z == 3 || z == 12)
                     if edgeX && edgeZ { continue }
-                    set(x, y, z, dinoGreen)
+                    set(x, y, z, dinoMain)
                 }
             }
         }
@@ -248,28 +286,28 @@ enum DinoVoxelGenerator {
                 let edgeX = (x == 4 || x == 11)
                 let edgeZ = (z == 4 || z == 11)
                 if edgeX && edgeZ { continue }
-                set(x, 21, z, dinoGreen)
+                set(x, 21, z, dinoMain)
             }
         }
 
         // Top cap (y=22): small 6×6
-        for x in 5...10 { for z in 5...10 { set(x, 22, z, dinoGreen) } }
+        for x in 5...10 { for z in 5...10 { set(x, 22, z, dinoMain) } }
 
         // === SNOUT (protruding forward, lighter color) ===
         for x in 5...10 {
             for y in 14...17 {
                 for z in 12...14 {
-                    set(x, y, z, dinoLight)
+                    set(x, y, z, dinoLt)
                 }
             }
         }
 
         // Nostrils (dark dots on snout front)
-        set(6, 16, 14, dinoDark)
-        set(9, 16, 14, dinoDark)
+        set(6, 16, 14, dinoDk)
+        set(9, 16, 14, dinoDk)
 
         // Mouth line
-        for x in 6...9 { set(x, 14, 14, dinoDark) }
+        for x in 6...9 { set(x, 14, 14, dinoDk) }
 
         // === EYES (4×3 each, big & expressive) ===
 
@@ -290,19 +328,19 @@ enum DinoVoxelGenerator {
         set(10, 18, 12, eyeBlack)
 
         // Rosy cheeks (below and outside each eye)
-        set(4, 16, 12, cheekPink)
-        set(3, 16, 12, cheekPink)
-        set(11, 16, 12, cheekPink)
-        set(12, 16, 12, cheekPink)
+        set(4, 16, 12, cheek)
+        set(3, 16, 12, cheek)
+        set(11, 16, 12, cheek)
+        set(12, 16, 12, cheek)
 
         // === BODY (y=6-12) ===
         for x in 5...10 {
             for y in 6...12 {
                 for z in 5...10 {
                     if z >= 9 {
-                        set(x, y, z, dinoBelly)
+                        set(x, y, z, dinoBl)
                     } else {
-                        set(x, y, z, dinoGreen)
+                        set(x, y, z, dinoMain)
                     }
                 }
             }
@@ -311,25 +349,25 @@ enum DinoVoxelGenerator {
         // === ARMS (tiny T-rex style, y=9-11) ===
         for y in 9...11 {
             for z in 7...9 {
-                set(4, y, z, dinoGreen)
-                set(11, y, z, dinoGreen)
+                set(4, y, z, dinoMain)
+                set(11, y, z, dinoMain)
             }
         }
 
         // === LEGS (y=1-5, two stumpy legs) ===
         for y in 1...5 {
             for z in 6...9 {
-                set(5, y, z, dinoGreen)
-                set(6, y, z, dinoGreen)
-                set(9, y, z, dinoGreen)
-                set(10, y, z, dinoGreen)
+                set(5, y, z, dinoMain)
+                set(6, y, z, dinoMain)
+                set(9, y, z, dinoMain)
+                set(10, y, z, dinoMain)
             }
         }
 
         // === FEET (y=0, wider than legs for cute look) ===
         for z in 5...10 {
-            for x in 4...7 { set(x, 0, z, dinoGreen) }
-            for x in 8...11 { set(x, 0, z, dinoGreen) }
+            for x in 4...7 { set(x, 0, z, dinoMain) }
+            for x in 8...11 { set(x, 0, z, dinoMain) }
         }
 
         // === TAIL (extends behind, tapering) ===
@@ -339,18 +377,18 @@ enum DinoVoxelGenerator {
             let width = max(2, 4 - i)
             let startX = 8 - width / 2
             for dx in 0..<width {
-                set(startX + dx, 7, z, dinoGreen)
-                if i < 3 { set(startX + dx, 8, z, dinoGreen) }
+                set(startX + dx, 7, z, dinoMain)
+                if i < 3 { set(startX + dx, 8, z, dinoMain) }
             }
         }
-        set(7, 7, 0, dinoDark)
+        set(7, 7, 0, dinoDk)
 
         // === SPIKES (along back of head) ===
         for spikeY in [15, 18, 21] {
-            set(7, spikeY, 2, dinoLight)
-            set(8, spikeY, 2, dinoLight)
-            set(7, spikeY + 1, 2, dinoLight)
-            set(8, spikeY + 1, 2, dinoLight)
+            set(7, spikeY, 2, dinoLt)
+            set(8, spikeY, 2, dinoLt)
+            set(7, spikeY + 1, 2, dinoLt)
+            set(8, spikeY + 1, 2, dinoLt)
         }
 
         return voxels
@@ -365,7 +403,7 @@ enum DinoVoxelGenerator {
     ) {
         func applyItem(_ def: ClothingDef?, colorOverride: String) {
             guard let def else { return }
-            let color = palette[colorOverride] ?? palette[def.defaultColor] ?? dinoGreen
+            let color = palette[colorOverride] ?? palette[def.defaultColor] ?? defaultDinoGreen
             for pos in def.positions {
                 guard pos.x >= 0, pos.x < 16, pos.y >= 0, pos.y < 30, pos.z >= 0, pos.z < 16 else { continue }
                 voxels[pos] = color
@@ -397,19 +435,48 @@ enum DinoVoxelGenerator {
 
     // MARK: - Public API
 
-    static func generate(seed: String) -> [VoxelPos: RGB] {
+    static func generate(seed: String, palette: DinoPalette? = nil, outfit: DinoOutfit? = nil) -> [VoxelPos: RGB] {
         let hash = hashSeed(seed)
         var shift = 0
 
-        let hat = pick(hatNames, hash: hash, shift: &shift)
-        let shirt = pick(shirtNames, hash: hash, shift: &shift)
-        let accessory = pick(accessoryNames, hash: hash, shift: &shift)
-        let heldItem = pick(heldItemNames, hash: hash, shift: &shift)
-        let hatColor = pick(clothingColorNames, hash: hash, shift: &shift)
-        let shirtColor = pick(clothingColorNames, hash: hash, shift: &shift)
-        let accColor = pick(clothingColorNames, hash: hash, shift: &shift)
+        // Use outfit overrides when provided, otherwise derive from seed
+        let hat: String
+        let shirt: String
+        let accessory: String
+        let heldItem: String
+        let hatColor: String
+        let shirtColor: String
+        let accColor: String
 
-        var model = createBaseDino()
+        if let outfit {
+            hat = outfit.hat
+            shirt = outfit.shirt
+            accessory = outfit.accessory
+            heldItem = outfit.heldItem
+            // For colors, use outfit color or fall back to seed-derived
+            // (advance shift for each pick so seed hash stays deterministic)
+            let seedHat = pick(hatNames, hash: hash, shift: &shift)
+            let seedShirt = pick(shirtNames, hash: hash, shift: &shift)
+            let seedAccessory = pick(accessoryNames, hash: hash, shift: &shift)
+            let seedHeldItem = pick(heldItemNames, hash: hash, shift: &shift)
+            _ = (seedHat, seedShirt, seedAccessory, seedHeldItem) // suppress warnings
+            let seedHatColor = pick(clothingColorNames, hash: hash, shift: &shift)
+            let seedShirtColor = pick(clothingColorNames, hash: hash, shift: &shift)
+            let seedAccColor = pick(clothingColorNames, hash: hash, shift: &shift)
+            hatColor = outfit.hatColor ?? seedHatColor
+            shirtColor = outfit.shirtColor ?? seedShirtColor
+            accColor = outfit.accessoryColor ?? seedAccColor
+        } else {
+            hat = pick(hatNames, hash: hash, shift: &shift)
+            shirt = pick(shirtNames, hash: hash, shift: &shift)
+            accessory = pick(accessoryNames, hash: hash, shift: &shift)
+            heldItem = pick(heldItemNames, hash: hash, shift: &shift)
+            hatColor = pick(clothingColorNames, hash: hash, shift: &shift)
+            shirtColor = pick(clothingColorNames, hash: hash, shift: &shift)
+            accColor = pick(clothingColorNames, hash: hash, shift: &shift)
+        }
+
+        var model = createBaseDino(palette: palette)
         applyClothing(
             &model,
             hatName: hat, shirtName: shirt, accessoryName: accessory, heldItemName: heldItem,
@@ -419,8 +486,8 @@ enum DinoVoxelGenerator {
     }
 
     /// Builds a SceneKit scene from a voxel model for 3D rendering.
-    static func buildScene(seed: String) -> SCNScene {
-        let voxels = generate(seed: seed)
+    static func buildScene(seed: String, palette: DinoPalette? = nil, outfit: DinoOutfit? = nil) -> SCNScene {
+        let voxels = generate(seed: seed, palette: palette, outfit: outfit)
         let scene = SCNScene()
 
         let modelNode = SCNNode()
@@ -496,8 +563,8 @@ enum DinoVoxelGenerator {
     }
 
     /// Builds a SceneKit scene showing only the dino's face/head (y >= 12).
-    static func buildFaceScene(seed: String) -> SCNScene {
-        let allVoxels = generate(seed: seed)
+    static func buildFaceScene(seed: String, palette: DinoPalette? = nil, outfit: DinoOutfit? = nil) -> SCNScene {
+        let allVoxels = generate(seed: seed, palette: palette, outfit: outfit)
         let scene = SCNScene()
 
         // Filter to head region only (y >= 12 captures neck, head, hat, spikes)

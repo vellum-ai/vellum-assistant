@@ -46,7 +46,8 @@ final class EggHatchScene: SKScene {
         let ps = Meadow.artPixelSize
 
         // Build dino sprite (behind egg, starts invisible)
-        let (dinoTex, dinoSize) = PixelSpriteBuilder.buildTexture(from: PixelArtData.dino, pixelSize: ps)
+        let palette = AvatarAppearanceManager.shared.palette
+        let (dinoTex, dinoSize) = PixelSpriteBuilder.buildTexture(from: PixelArtData.dino(palette: palette), pixelSize: ps)
         dinoNode = SKSpriteNode(texture: dinoTex, size: dinoSize)
         dinoNode.position = CGPoint(x: 0, y: 10)
         dinoNode.zPosition = 8

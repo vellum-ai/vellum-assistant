@@ -122,6 +122,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         applyThemePreference()
         registerBundledFonts()
+        AvatarAppearanceManager.shared.start()
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
