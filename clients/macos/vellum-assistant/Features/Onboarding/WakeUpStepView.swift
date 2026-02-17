@@ -108,21 +108,7 @@ struct WakeUpStepView: View {
 
             Spacer()
 
-            Button(action: action) {
-                Text("Start")
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, VSpacing.xxl)
-                    .padding(.vertical, VSpacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .fill(Violet._600)
-                    )
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            VButton(label: "Start", action: action)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xl)
