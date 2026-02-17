@@ -101,6 +101,7 @@ describe('Permission Checker', () => {
     testConfig.skills = { load: { extraDirs: [] } };
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
+    try { rmSync(join(checkerTestDir, 'workspace', 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
 
   // ── classifyRisk ────────────────────────────────────────────────
@@ -2156,17 +2157,32 @@ describe('Permission Checker', () => {
   // ── user override of skill mutation default ask rules (priority fix) ──
   // Regression tests: user-created allow rules (priority 100) must override
   // the default ask rules for skill-source mutations (priority 50).
+  //
+  // Paths use getRootDir()/workspace/skills/ (not getWorkspaceSkillsDir())
+  // because getDefaultRuleTemplates builds the managed-skill ask rule from
+  // getRootDir(), so using a different prefix would avoid contention with
+  // the default rule and silently pass even if the priority regressed.
+  // The workspace/skills dir is registered as an extraDir so that
+  // isSkillSourcePath correctly classifies the paths as High risk.
 
   describe('user override of skill mutation default ask rules', () => {
+    // Must match the path getDefaultRuleTemplates computes for managedSkillsDir
+    const wsSkillsDir = join(checkerTestDir, 'workspace', 'skills');
+
     function ensureSkillsDir(): void {
-      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+      mkdirSync(wsSkillsDir, { recursive: true });
     }
+
+    beforeEach(() => {
+      // Register workspace/skills as an extra skill dir so isSkillSourcePath
+      // detects it (the mock for getWorkspaceSkillsDir points elsewhere).
+      testConfig.skills.load.extraDirs = [wsSkillsDir];
+    });
 
     test('user allowHighRisk rule at priority 100 overrides default ask for skill source writes', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // Simulate the rule the prompt UX creates: priority 100, allowHighRisk: true
-      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100, { allowHighRisk: true });
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
+      addRule('file_write', `file_write:${wsSkillsDir}/**`, 'everywhere', 'allow', 100, { allowHighRisk: true });
       const result = await check('file_write', { path: skillPath }, '/tmp');
       // The user's allow rule (priority 100) must win over the default ask (priority 50),
       // and allowHighRisk must auto-allow the High-risk skill mutation.
@@ -2177,9 +2193,8 @@ describe('Permission Checker', () => {
 
     test('user allow rule without allowHighRisk at priority 100 overrides default ask but high-risk still prompts', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // User allow rule without allowHighRisk — priority 100 still beats default ask at 50
-      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100);
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
+      addRule('file_write', `file_write:${wsSkillsDir}/**`, 'everywhere', 'allow', 100);
       const result = await check('file_write', { path: skillPath }, '/tmp');
       // The user rule wins over default ask, but skill mutations are High risk,
       // so the allow rule without allowHighRisk falls through to high-risk prompt.
@@ -2187,12 +2202,15 @@ describe('Permission Checker', () => {
       expect(result.reason).toContain('High risk');
     });
 
-    test('without user rule, default ask still prompts for skill source mutations', async () => {
+    test('without user rule, default ask rule matches and prompts for skill source mutations', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // No user rule — the default ask rule (priority 50) is the only match
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
       const result = await check('file_write', { path: skillPath }, '/tmp');
       expect(result.decision).toBe('prompt');
+      // Verify the default ask rule is what matched, not just a generic high-risk fallback
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.decision).toBe('ask');
+      expect(result.reason).toContain('ask rule');
     });
   });
 
