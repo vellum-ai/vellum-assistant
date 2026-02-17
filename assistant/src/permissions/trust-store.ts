@@ -5,7 +5,7 @@ import { minimatch } from 'minimatch';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getDefaultRuleTemplates } from './defaults.js';
-import type { TrustRule } from './types.js';
+import type { TrustRule, PolicyContext } from './types.js';
 
 const log = getLogger('trust-store');
 
@@ -284,14 +284,65 @@ function findRuleByDecision(tool: string, command: string, scope: string, decisi
 }
 
 /**
+ * Check whether a rule's principal constraints match the given policy context.
+ *
+ * A missing field on the rule acts as a wildcard — it matches any value
+ * (or absence) in the context. When a rule specifies a principal field,
+ * the context must provide a matching value for the rule to apply.
+ */
+function matchesPrincipal(rule: TrustRule, ctx?: PolicyContext): boolean {
+  // If the rule has no principal constraints it matches everything (wildcard).
+  if (rule.principalKind == null && rule.principalId == null && rule.principalVersion == null) {
+    return true;
+  }
+
+  const principal = ctx?.principal;
+
+  // Rule specifies a principalKind — context must supply one that matches.
+  if (rule.principalKind != null) {
+    if (principal?.kind !== rule.principalKind) return false;
+  }
+
+  // Rule specifies a principalId — context must supply one that matches.
+  if (rule.principalId != null) {
+    if (principal?.id !== rule.principalId) return false;
+  }
+
+  // Rule specifies a principalVersion — context must supply one that matches.
+  // If the rule omits principalVersion, any version (or none) is accepted.
+  if (rule.principalVersion != null) {
+    if (principal?.version !== rule.principalVersion) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Check whether a rule's executionTarget constraint matches the context.
+ *
+ * If the rule does not specify an executionTarget it matches any target
+ * (wildcard). If specified, it must match exactly.
+ */
+function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
+  if (rule.executionTarget == null) return true;
+  return ctx?.executionTarget === rule.executionTarget;
+}
+
+/**
  * Find the highest-priority rule that matches any of the command candidates.
  * Rules are pre-sorted by priority descending, so the first match wins.
+ *
+ * When a `PolicyContext` is provided, rules that specify principal or
+ * executionTarget constraints are filtered accordingly. Rules without
+ * those constraints act as wildcards and match any context.
  */
-export function findHighestPriorityRule(tool: string, commands: string[], scope: string): TrustRule | null {
+export function findHighestPriorityRule(tool: string, commands: string[], scope: string, ctx?: PolicyContext): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesPrincipal(rule, ctx)) continue;
+    if (!matchesExecutionTarget(rule, ctx)) continue;
     for (const command of commands) {
       if (minimatch(command, rule.pattern)) {
         return rule;

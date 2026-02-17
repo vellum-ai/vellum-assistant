@@ -1192,4 +1192,457 @@ describe('Trust Store', () => {
       expect(userRule).not.toHaveProperty('principalKind');
     });
   });
+
+  // ── principal-aware rule matching (PR 16) ──────────────────────
+
+  describe('principal-aware rule matching (PR 16)', () => {
+    /**
+     * Helper: write a v3 trust file with the given rules directly to disk,
+     * then clear the cache so the next getRules() call picks them up.
+     */
+    function seedRules(rules: Array<Record<string, unknown>>): void {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules }));
+      clearCache();
+    }
+
+    // ── wildcard semantics (no principal fields on rule) ──────────
+
+    describe('wildcard semantics — rules without principal fields', () => {
+      test('rule with no principal fields matches when no context is provided', () => {
+        addRule('bash', 'git *', '/tmp', 'allow', 200);
+        const match = findHighestPriorityRule('bash', ['git status'], '/tmp');
+        expect(match).not.toBeNull();
+        expect(match!.decision).toBe('allow');
+      });
+
+      test('rule with no principal fields matches any principal context', () => {
+        addRule('bash', 'git *', '/tmp', 'allow', 200);
+        const match = findHighestPriorityRule('bash', ['git status'], '/tmp', {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v1' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.decision).toBe('allow');
+      });
+
+      test('rule with no principal fields matches any execution target', () => {
+        addRule('bash', 'git *', '/tmp', 'allow', 200);
+        const match = findHighestPriorityRule('bash', ['git status'], '/tmp', {
+          executionTarget: '/usr/bin/node',
+        });
+        expect(match).not.toBeNull();
+        expect(match!.decision).toBe('allow');
+      });
+
+      test('rule with no principal fields matches context with both principal and target', () => {
+        addRule('bash', 'npm *', '/tmp', 'allow', 200);
+        const match = findHighestPriorityRule('bash', ['npm install'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder', version: 'sha256-xyz' },
+          executionTarget: '/usr/local/bin/bun',
+        });
+        expect(match).not.toBeNull();
+      });
+    });
+
+    // ── principalKind matching ────────────────────────────────────
+
+    describe('principalKind matching', () => {
+      test('rule with principalKind matches when context kind matches', () => {
+        seedRules([{
+          id: 'pk-match',
+          tool: 'bash',
+          pattern: 'echo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+        }]);
+        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp', {
+          principal: { kind: 'skill' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('pk-match');
+      });
+
+      test('rule with principalKind does NOT match when context kind differs', () => {
+        seedRules([{
+          id: 'pk-mismatch',
+          tool: 'bash',
+          pattern: 'echo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+        }]);
+        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp', {
+          principal: { kind: 'core' },
+        });
+        // Should not match the pk-mismatch rule; may still match a default rule
+        expect(match === null || match.id !== 'pk-mismatch').toBe(true);
+      });
+
+      test('rule with principalKind does NOT match when no context is provided', () => {
+        seedRules([{
+          id: 'pk-no-ctx',
+          tool: 'bash',
+          pattern: 'echo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+        }]);
+        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp');
+        expect(match === null || match.id !== 'pk-no-ctx').toBe(true);
+      });
+    });
+
+    // ── principalId matching ──────────────────────────────────────
+
+    describe('principalId matching', () => {
+      test('rule with principalKind + principalId matches exact principal', () => {
+        seedRules([{
+          id: 'pid-exact',
+          tool: 'bash',
+          pattern: 'deploy *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'deployer',
+        }]);
+        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
+          principal: { kind: 'skill', id: 'deployer' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('pid-exact');
+      });
+
+      test('rule with principalId does NOT match different id', () => {
+        seedRules([{
+          id: 'pid-diff',
+          tool: 'bash',
+          pattern: 'deploy *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'deployer',
+        }]);
+        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
+          principal: { kind: 'skill', id: 'other-skill' },
+        });
+        expect(match === null || match.id !== 'pid-diff').toBe(true);
+      });
+    });
+
+    // ── principalVersion matching ─────────────────────────────────
+
+    describe('principalVersion matching', () => {
+      test('rule with principalVersion matches exact version', () => {
+        seedRules([{
+          id: 'pv-exact',
+          tool: 'bash',
+          pattern: 'build *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'builder',
+          principalVersion: 'sha256-abc123',
+        }]);
+        const match = findHighestPriorityRule('bash', ['build all'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder', version: 'sha256-abc123' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('pv-exact');
+      });
+
+      test('rule with principalVersion does NOT match different version', () => {
+        seedRules([{
+          id: 'pv-diff',
+          tool: 'bash',
+          pattern: 'build *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'builder',
+          principalVersion: 'sha256-abc123',
+        }]);
+        const match = findHighestPriorityRule('bash', ['build all'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder', version: 'sha256-DIFFERENT' },
+        });
+        expect(match === null || match.id !== 'pv-diff').toBe(true);
+      });
+
+      test('rule WITHOUT principalVersion matches any version (wildcard)', () => {
+        seedRules([{
+          id: 'pv-wildcard',
+          tool: 'bash',
+          pattern: 'build *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'builder',
+          // no principalVersion — should match any version
+        }]);
+        const matchV1 = findHighestPriorityRule('bash', ['build all'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder', version: 'v1' },
+        });
+        expect(matchV1).not.toBeNull();
+        expect(matchV1!.id).toBe('pv-wildcard');
+
+        const matchV2 = findHighestPriorityRule('bash', ['build all'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder', version: 'v2' },
+        });
+        expect(matchV2).not.toBeNull();
+        expect(matchV2!.id).toBe('pv-wildcard');
+
+        const matchNoVersion = findHighestPriorityRule('bash', ['build all'], '/tmp', {
+          principal: { kind: 'skill', id: 'builder' },
+        });
+        expect(matchNoVersion).not.toBeNull();
+        expect(matchNoVersion!.id).toBe('pv-wildcard');
+      });
+    });
+
+    // ── executionTarget matching ──────────────────────────────────
+
+    describe('executionTarget matching', () => {
+      test('rule with executionTarget matches exact target', () => {
+        seedRules([{
+          id: 'et-exact',
+          tool: 'bash',
+          pattern: 'run *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          executionTarget: '/usr/local/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+          executionTarget: '/usr/local/bin/node',
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('et-exact');
+      });
+
+      test('rule with executionTarget does NOT match different target', () => {
+        seedRules([{
+          id: 'et-diff',
+          tool: 'bash',
+          pattern: 'run *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          executionTarget: '/usr/local/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+          executionTarget: '/usr/local/bin/bun',
+        });
+        expect(match === null || match.id !== 'et-diff').toBe(true);
+      });
+
+      test('rule with executionTarget does NOT match when no target in context', () => {
+        seedRules([{
+          id: 'et-no-ctx',
+          tool: 'bash',
+          pattern: 'run *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          executionTarget: '/usr/local/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {});
+        expect(match === null || match.id !== 'et-no-ctx').toBe(true);
+      });
+
+      test('rule WITHOUT executionTarget matches any target (wildcard)', () => {
+        addRule('bash', 'run *', '/tmp', 'allow', 200);
+        const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+          executionTarget: '/any/path/to/runtime',
+        });
+        expect(match).not.toBeNull();
+        expect(match!.pattern).toBe('run *');
+      });
+    });
+
+    // ── combined principal + executionTarget ───────────────────────
+
+    describe('combined principal + executionTarget matching', () => {
+      test('rule with both principal and executionTarget matches when all fields match', () => {
+        seedRules([{
+          id: 'combo-match',
+          tool: 'bash',
+          pattern: 'deploy *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'deployer',
+          principalVersion: 'sha256-abc',
+          executionTarget: '/usr/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
+          principal: { kind: 'skill', id: 'deployer', version: 'sha256-abc' },
+          executionTarget: '/usr/bin/node',
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('combo-match');
+      });
+
+      test('rule with both principal and executionTarget fails if principal mismatches', () => {
+        seedRules([{
+          id: 'combo-bad-principal',
+          tool: 'bash',
+          pattern: 'deploy *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'deployer',
+          executionTarget: '/usr/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
+          principal: { kind: 'skill', id: 'other-skill' },
+          executionTarget: '/usr/bin/node',
+        });
+        expect(match === null || match.id !== 'combo-bad-principal').toBe(true);
+      });
+
+      test('rule with both principal and executionTarget fails if target mismatches', () => {
+        seedRules([{
+          id: 'combo-bad-target',
+          tool: 'bash',
+          pattern: 'deploy *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 200,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'deployer',
+          executionTarget: '/usr/bin/node',
+        }]);
+        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
+          principal: { kind: 'skill', id: 'deployer' },
+          executionTarget: '/usr/bin/bun',
+        });
+        expect(match === null || match.id !== 'combo-bad-target').toBe(true);
+      });
+    });
+
+    // ── priority interaction with principal filtering ──────────────
+
+    describe('priority interaction with principal filtering', () => {
+      test('higher-priority principal-specific rule wins over lower-priority wildcard', () => {
+        seedRules([
+          {
+            id: 'wildcard-low',
+            tool: 'bash',
+            pattern: 'test *',
+            scope: 'everywhere',
+            decision: 'deny',
+            priority: 50,
+            createdAt: Date.now(),
+          },
+          {
+            id: 'specific-high',
+            tool: 'bash',
+            pattern: 'test *',
+            scope: 'everywhere',
+            decision: 'allow',
+            priority: 200,
+            createdAt: Date.now(),
+            principalKind: 'skill',
+            principalId: 'tester',
+          },
+        ]);
+        const match = findHighestPriorityRule('bash', ['test unit'], '/tmp', {
+          principal: { kind: 'skill', id: 'tester' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('specific-high');
+        expect(match!.decision).toBe('allow');
+      });
+
+      test('non-matching principal rule is skipped, falling through to wildcard rule', () => {
+        seedRules([
+          {
+            id: 'specific-high',
+            tool: 'bash',
+            pattern: 'test *',
+            scope: 'everywhere',
+            decision: 'allow',
+            priority: 200,
+            createdAt: Date.now(),
+            principalKind: 'skill',
+            principalId: 'deployer',
+          },
+          {
+            id: 'wildcard-low',
+            tool: 'bash',
+            pattern: 'test *',
+            scope: 'everywhere',
+            decision: 'deny',
+            priority: 50,
+            createdAt: Date.now(),
+          },
+        ]);
+        // Context has kind=skill, id=tester — doesn't match 'deployer'
+        const match = findHighestPriorityRule('bash', ['test unit'], '/tmp', {
+          principal: { kind: 'skill', id: 'tester' },
+        });
+        expect(match).not.toBeNull();
+        expect(match!.id).toBe('wildcard-low');
+        expect(match!.decision).toBe('deny');
+      });
+    });
+
+    // ── backward compatibility ────────────────────────────────────
+
+    describe('backward compatibility', () => {
+      test('existing callers without ctx parameter still work', () => {
+        addRule('bash', 'git *', '/tmp', 'allow', 200);
+        // Calling without the 4th argument — must still match
+        const match = findHighestPriorityRule('bash', ['git status'], '/tmp');
+        expect(match).not.toBeNull();
+        expect(match!.pattern).toBe('git *');
+      });
+
+      test('existing default rules (no principal fields) match with any context', () => {
+        // Default rules have no principal fields and should match regardless of context
+        const protectedPath = join(testDir, 'protected', 'trust.json');
+        const match = findHighestPriorityRule(
+          'file_read',
+          [`file_read:${protectedPath}`],
+          '/tmp',
+          { principal: { kind: 'skill', id: 'random-skill', version: 'v99' } },
+        );
+        expect(match).not.toBeNull();
+        expect(match!.decision).toBe('ask');
+      });
+
+      test('empty PolicyContext object behaves the same as no context', () => {
+        addRule('bash', 'ls *', '/tmp', 'allow', 200);
+        const matchNoCtx = findHighestPriorityRule('bash', ['ls -la'], '/tmp');
+        const matchEmptyCtx = findHighestPriorityRule('bash', ['ls -la'], '/tmp', {});
+        expect(matchNoCtx).not.toBeNull();
+        expect(matchEmptyCtx).not.toBeNull();
+        expect(matchNoCtx!.id).toBe(matchEmptyCtx!.id);
+      });
+    });
+  });
 });
