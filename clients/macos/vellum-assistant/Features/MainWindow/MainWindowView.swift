@@ -17,6 +17,7 @@ struct MainWindowView: View {
     @State private var publishError: String?
     @State private var isHoveredThread: UUID?
     @State private var requestedHomeBaseAtLaunch = false
+    @State private var threadPendingDeletion: UUID?
 
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
@@ -227,7 +228,7 @@ struct MainWindowView: View {
                             threads: threadManager.visibleThreads,
                             activeThreadId: threadManager.activeThreadId,
                             onSelect: { threadManager.selectThread(id: $0) },
-                            onClose: { threadManager.archiveThread(id: $0) },
+                            onClose: { threadPendingDeletion = $0 },
                             onCreate: { threadManager.createThread() },
                             activePanel: $windowState.activePanel
                         )
@@ -343,6 +344,22 @@ struct MainWindowView: View {
                 windowState.activeDynamicParsedSurface = nil
             }
         }
+        .alert("Delete Conversation?", isPresented: Binding(
+            get: { threadPendingDeletion != nil },
+            set: { if !$0 { threadPendingDeletion = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                threadPendingDeletion = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let threadId = threadPendingDeletion {
+                    threadManager.archiveThread(id: threadId)
+                    threadPendingDeletion = nil
+                }
+            }
+        } message: {
+            Text("This conversation will be archived. You can restore it from Settings.")
+        }
     }
 
     @ViewBuilder
@@ -366,7 +383,7 @@ struct MainWindowView: View {
             .buttonStyle(.plain)
 
             Button {
-                threadManager.archiveThread(id: thread.id)
+                threadPendingDeletion = thread.id
             } label: {
                 Image(systemName: "archivebox")
                     .font(.system(size: 11, weight: .medium))

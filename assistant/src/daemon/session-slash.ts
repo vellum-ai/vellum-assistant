@@ -29,6 +29,27 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
   'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
 };
 
+const PROVIDER_MODEL_SHORTCUTS: Record<string, { provider: string; model: string; displayName: string }> = {
+  // Anthropic
+  'opus': { provider: 'anthropic', model: 'claude-opus-4-6', displayName: 'Claude Opus 4.6' },
+  'sonnet': { provider: 'anthropic', model: 'claude-sonnet-4-5-20250929', displayName: 'Claude Sonnet 4.5' },
+  'haiku': { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
+
+  // OpenAI
+  'gpt4': { provider: 'openai', model: 'gpt-4', displayName: 'GPT-4' },
+  'gpt4o': { provider: 'openai', model: 'gpt-4o', displayName: 'GPT-4o' },
+  'gpt5': { provider: 'openai', model: 'gpt-5.2', displayName: 'GPT-5.2' },
+
+  // Gemini
+  'gemini': { provider: 'gemini', model: 'gemini-3-flash', displayName: 'Gemini 3 Flash' },
+
+  // Ollama
+  'ollama': { provider: 'ollama', model: 'llama3.2', displayName: 'Llama 3.2' },
+
+  // Fireworks
+  'fireworks': { provider: 'fireworks', model: 'accounts/fireworks/models/kimi-k2p5', displayName: 'Kimi K2.5' },
+};
+
 /** Read the assistant's name from IDENTITY.md for personalized responses. */
 function getAssistantName(): string | null {
   try {
@@ -52,6 +73,61 @@ function matchModel(input: string): string | undefined {
   return AVAILABLE_MODELS.find((m) => m.includes(lower));
 }
 
+function resolveProviderModelCommand(content: string): SlashResolution | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith('/')) return null;
+
+  // Extract the command (e.g., "/gpt4" → "gpt4")
+  const match = trimmed.match(/^\/([a-z0-9]+)(\s|$)/i);
+  if (!match) return null;
+
+  const command = match[1].toLowerCase();
+  const shortcut = PROVIDER_MODEL_SHORTCUTS[command];
+  if (!shortcut) return null;
+
+  const { provider, model, displayName } = shortcut;
+  const config = getConfig();
+  const name = getAssistantName();
+
+  // Check if API key exists for this provider
+  if (!config.apiKeys[provider]) {
+    return {
+      kind: 'unknown',
+      message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`config set apiKeys.${provider} <your-key>\``,
+    };
+  }
+
+  // Check if already using this provider+model
+  if (config.provider === provider && config.model === model) {
+    const alreadyMsg = name
+      ? `${name} is already running on **${displayName}**.`
+      : `Already using **${displayName}**.`;
+    return {
+      kind: 'unknown',
+      message: alreadyMsg,
+    };
+  }
+
+  // Update config with both provider and model
+  const raw = loadRawConfig();
+  raw.provider = provider;
+  raw.model = model;
+  saveRawConfig(raw);
+
+  // Re-initialize providers with new config
+  const newConfig = getConfig();
+  initializeProviders(newConfig);
+
+  const switchedMsg = name
+    ? `Switched ${name} to **${displayName}**. New conversations will use this model.`
+    : `Switched to **${displayName}**. New conversations will use this model.`;
+
+  return {
+    kind: 'unknown',
+    message: switchedMsg,
+  };
+}
+
 function resolveModelCommand(content: string): SlashResolution | null {
   const trimmed = content.trim();
   if (!trimmed.startsWith('/model')) return null;
@@ -69,6 +145,29 @@ function resolveModelCommand(content: string): SlashResolution | null {
     return {
       kind: 'unknown',
       message: `${prefix} **${displayName}** (\`${config.model}\`).`,
+    };
+  }
+
+  // Handle /model list
+  if (args === 'list') {
+    const config = getConfig();
+    const lines = ['Available models:\n'];
+
+    // Group by provider
+    for (const [cmd, { provider, model, displayName }] of Object.entries(PROVIDER_MODEL_SHORTCUTS)) {
+      const hasKey = !!config.apiKeys[provider];
+      const isCurrent = config.provider === provider && config.model === model;
+      const status = hasKey ? '✓' : '✗';
+      const current = isCurrent ? ' **[current]**' : '';
+      lines.push(`- **${displayName}** (/${cmd}) ${status}${current}`);
+    }
+
+    lines.push('\n✓ = API key configured, ✗ = not configured');
+    lines.push('\nTip: Configure a provider with `config set apiKeys.<provider> <key>`');
+
+    return {
+      kind: 'unknown',
+      message: lines.join('\n'),
     };
   }
 
@@ -97,16 +196,9 @@ function resolveModelCommand(content: string): SlashResolution | null {
     };
   }
 
-  // Guard: /model only works with the Anthropic provider
-  if (currentConfig.provider && currentConfig.provider !== 'anthropic') {
-    return {
-      kind: 'unknown',
-      message: `Cannot switch models while using the ${currentConfig.provider} provider. Model switching is only available with the Anthropic provider.`,
-    };
-  }
-
   // Change model: save config and re-initialize providers
   const raw = loadRawConfig();
+  raw.provider = 'anthropic'; // Ensure provider is set for Anthropic models
   raw.model = matched;
   saveRawConfig(raw);
   const config = getConfig();
@@ -127,9 +219,14 @@ function resolveModelCommand(content: string): SlashResolution | null {
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
 export function resolveSlash(content: string): SlashResolution {
-  // Handle /model before skill resolution
+  // Check provider shortcuts first (/gpt4, /opus, etc.)
+  const providerResult = resolveProviderModelCommand(content);
+  if (providerResult) return providerResult;
+
+  // Handle /model command
   const modelResult = resolveModelCommand(content);
   if (modelResult) return modelResult;
+
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
