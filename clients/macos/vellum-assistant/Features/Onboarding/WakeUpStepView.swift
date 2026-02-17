@@ -28,8 +28,6 @@ struct WakeUpStepView: View {
     @State private var showTitle = false
     @State private var showSubtext = false
     @State private var showButtons = false
-    @State private var isAdvancing = false
-
     // MARK: - Body
 
     var body: some View {
@@ -89,7 +87,7 @@ struct WakeUpStepView: View {
         .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
-        .disabled(isAdvancing || authManager?.isSubmitting == true)
+        .disabled(authManager?.isSubmitting == true)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true

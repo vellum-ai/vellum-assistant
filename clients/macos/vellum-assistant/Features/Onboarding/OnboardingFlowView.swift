@@ -9,6 +9,8 @@ struct OnboardingFlowView: View {
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
+    @State private var isAdvancingFromWakeUp = false
+
     var body: some View {
         GeometryReader { geometry in
         ZStack {
@@ -47,6 +49,8 @@ struct OnboardingFlowView: View {
                                 state: state,
                                 authManager: authManager,
                                 onStartWithAPIKey: {
+                                    guard !isAdvancingFromWakeUp else { return }
+                                    isAdvancingFromWakeUp = true
                                     state.hasHatched = true
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         state.advance()
