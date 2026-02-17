@@ -306,6 +306,13 @@ export class ToolExecutor {
       let execResult: ToolExecutionResult;
       const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
       const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
+
+      // Enrich context with principal so tools (e.g. claude_code) can
+      // forward it through sub-tool confirmation requests.
+      const execContext = policyContext?.principal
+        ? { ...context, principal: policyContext.principal }
+        : context;
+
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
           const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
@@ -334,7 +341,7 @@ export class ToolExecutor {
         );
       } else {
         execResult = await executeWithTimeout(
-          tool.execute(input, context),
+          tool.execute(input, execContext),
           toolTimeoutMs,
           name,
         );

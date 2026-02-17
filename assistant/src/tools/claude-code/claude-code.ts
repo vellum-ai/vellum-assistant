@@ -139,6 +139,7 @@ export const claudeCodeTool: Tool = {
           toolName,
           input: toolInput,
           riskLevel: APPROVAL_REQUIRED_TOOLS.has(toolName) ? 'Medium' : 'Low',
+          principal: context.principal,
         });
         if (result.decision === 'allow') {
           return { behavior: 'allow' as const };

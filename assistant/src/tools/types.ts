@@ -102,12 +102,16 @@ export interface ToolContext {
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
+  /** Principal that owns this tool invocation (set by executor from tool metadata). */
+  principal?: { kind?: string; id?: string; version?: string };
   /** Request user confirmation for a sub-tool operation (used by claude_code tool). */
   requestConfirmation?: (req: {
     toolName: string;
     input: Record<string, unknown>;
     riskLevel: string;
     executionTarget?: ExecutionTarget;
+    /** Principal that owns the parent tool invocation. */
+    principal?: { kind?: string; id?: string; version?: string };
   }) => Promise<{ decision: 'allow' | 'deny' }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {

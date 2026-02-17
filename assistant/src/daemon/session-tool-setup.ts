@@ -120,6 +120,8 @@ export function createToolExecutor(
           scopeOptions,
           undefined, undefined,
           ctx.conversationId,
+          req.executionTarget,
+          req.principal,
         );
         if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope);
