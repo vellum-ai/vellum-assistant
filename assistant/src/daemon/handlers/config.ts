@@ -440,7 +440,10 @@ export async function handleIntegrationConnect(
       type: 'integration_connect_result',
       integrationId: msg.integrationId,
       success: false,
-      error: `No clientId configured for "${msg.integrationId}". Set integrations.${msg.integrationId}.clientId in config.`,
+      error: `No clientId configured for "${msg.integrationId}".`,
+      setupRequired: true,
+      setupSkillId: def.setupSkillId,
+      setupHint: def.setupHint,
     });
     return;
   }

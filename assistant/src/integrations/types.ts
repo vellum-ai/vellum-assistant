@@ -30,6 +30,10 @@ export interface IntegrationDefinition {
    *  allowedTools after OAuth are the union of tools for granted scopes only.
    *  For non-OAuth integrations this is omitted and allowedTools is used as-is. */
   scopeToolMapping?: Record<string, string[]>;
+  /** Skill ID for automated setup (e.g. browser-automated credential creation). */
+  setupSkillId?: string;
+  /** Human-readable hint shown when the integration is not configured. */
+  setupHint?: string;
 }
 
 export interface IntegrationStatus {

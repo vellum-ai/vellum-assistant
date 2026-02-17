@@ -4,6 +4,7 @@ import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { getConfig } from './loader.js';
+import { listIntegrations, listStatuses, isConfigured } from '../integrations/registry.js';
 
 const log = getLogger('system-prompt');
 
@@ -112,6 +113,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildSwarmGuidanceSection());
+  parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildPostToolResponseSection());
 
@@ -312,6 +314,38 @@ export function buildSwarmGuidanceSection(): string {
     '',
     'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
   ].join('\n');
+}
+
+function buildIntegrationSection(): string {
+  const defs = listIntegrations();
+  if (defs.length === 0) return '';
+
+  const statuses = listStatuses();
+  const statusMap = new Map(statuses.map((s) => [s.id, s]));
+
+  const lines = ['## Integration Status', ''];
+  for (const def of defs) {
+    const status = statusMap.get(def.id);
+    const connected = status?.connected ?? false;
+    const configured = isConfigured(def.id);
+
+    let state: string;
+    if (connected) {
+      state = `Connected${status?.accountInfo ? ` (${status.accountInfo})` : ''}`;
+    } else if (configured) {
+      state = 'Configured (not connected)';
+    } else {
+      state = 'Not configured';
+    }
+
+    let line = `- **${def.name}**: ${state}`;
+    if (!configured && def.setupSkillId) {
+      line += `. Use \`integration_manage\` to check status and \`skill_load\` with id "${def.setupSkillId}" to help set it up.`;
+    }
+    lines.push(line);
+  }
+
+  return lines.join('\n');
 }
 
 function buildWorkspaceReflectionSection(): string {

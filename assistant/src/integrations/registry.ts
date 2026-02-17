@@ -11,6 +11,7 @@ import {
   getCredentialMetadata,
   deleteCredentialMetadata,
 } from '../tools/credentials/metadata-store.js';
+import { getConfig } from '../config/loader.js';
 
 const integrations = new Map<string, IntegrationDefinition>();
 
@@ -47,6 +48,17 @@ export function getStatus(id: string): IntegrationStatus {
     connectedAt: metadata?.createdAt,
     lastUsed: metadata?.updatedAt,
   };
+}
+
+/** Check if the integration has a clientId configured (either in runtime config or the definition). */
+export function isConfigured(id: string): boolean {
+  const def = integrations.get(id);
+  if (!def) return false;
+  if (def.authType !== 'oauth2') return true;
+  const config = getConfig();
+  const integrationConfig = config.integrations[id];
+  const clientId = integrationConfig?.clientId || def.oauth2Config?.clientId;
+  return Boolean(clientId);
 }
 
 /** Get status for all registered integrations. */

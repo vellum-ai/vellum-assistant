@@ -34,6 +34,8 @@ export const gmailIntegration: IntegrationDefinition = {
     'gmail_send',
     'gmail_unsubscribe',
   ],
+  setupSkillId: 'google-oauth-setup',
+  setupHint: 'A Google Cloud OAuth client ID is required. I can help create one using browser automation.',
   scopeToolMapping: {
     'https://www.googleapis.com/auth/gmail.readonly': [
       'gmail_search',

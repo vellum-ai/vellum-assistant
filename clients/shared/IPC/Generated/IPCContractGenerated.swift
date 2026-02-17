@@ -546,6 +546,12 @@ public struct IPCIntegrationConnectResult: Codable, Sendable {
     public let success: Bool
     public let accountInfo: String?
     public let error: String?
+    /// When true, the integration requires setup before connecting (e.g. missing clientId).
+    public let setupRequired: Bool?
+    /// Skill ID that can automate the setup process.
+    public let setupSkillId: String?
+    /// Human-readable hint for resolving the setup requirement.
+    public let setupHint: String?
 }
 
 public struct IPCIntegrationDisconnectRequest: Codable, Sendable {
