@@ -18,7 +18,7 @@ echo
 # Check if certificate already exists
 if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
     echo "✓ Certificate '$CERT_NAME' already exists"
-    security find-identity -v -p codesigning | grep "$CERT_NAME"
+    security find-identity -v -p codesigning | grep "$CERT_NAME" || true
     exit 0
 fi
 
@@ -67,7 +67,7 @@ security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-
 echo
 echo "✓ Certificate created and installed successfully!"
 echo
-security find-identity -v -p codesigning | grep "$CERT_NAME"
+security find-identity -v -p codesigning | grep "$CERT_NAME" || true
 echo
 
 # Reset TCC permissions so they can be re-granted to the newly-signed app
