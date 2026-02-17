@@ -140,6 +140,8 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
       attributes: { reason: 'persist_failure' },
     });
     next.onEvent({ type: 'error', message });
+    // runAgentLoop never ran, so its finally block won't clear this
+    session.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
     drainQueue(session);
     return;
@@ -222,6 +224,8 @@ export async function processMessage(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     onEvent({ type: 'error', message });
+    // runAgentLoop never ran, so its finally block won't clear this
+    session.preactivatedSkillIds = undefined;
     return '';
   }
 
