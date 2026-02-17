@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import type { ToolExecutionResult, Tool } from '../tools/types.js';
 import type { PolicyContext } from '../permissions/types.js';
 
@@ -21,6 +21,12 @@ let lastCheckArgs: { toolName: string; input: Record<string, unknown>; workingDi
 
 /** Optional override for getTool — lets tests supply skill-origin tools. */
 let getToolOverride: ((name: string) => Tool | undefined) | undefined;
+
+/** Override the check() result for tests that need to trigger prompting. */
+let checkResultOverride: { decision: string; reason: string } | undefined;
+
+/** Spy on addRule to capture calls without replacing the real implementation. */
+let addRuleSpy: ReturnType<typeof spyOn> | undefined;
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
@@ -45,6 +51,7 @@ mock.module('../permissions/checker.js', () => ({
   classifyRisk: async () => 'low',
   check: async (toolName: string, input: Record<string, unknown>, workingDir: string, policyContext?: PolicyContext) => {
     lastCheckArgs = { toolName, input, workingDir, policyContext };
+    if (checkResultOverride) return checkResultOverride;
     return { decision: 'allow', reason: 'allowed' };
   },
   generateAllowlistOptions: () => [{ label: 'exact', description: 'exact', pattern: 'exact' }],
@@ -83,6 +90,7 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 import { ToolExecutor } from '../tools/executor.js';
 import type { ToolContext } from '../tools/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import * as trustStore from '../permissions/trust-store.js';
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -109,6 +117,8 @@ describe('ToolExecutor allowedToolNames gating', () => {
     fakeToolResult = { content: 'ok', isError: false };
     lastCheckArgs = undefined;
     getToolOverride = undefined;
+    checkResultOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
   test('executes normally when allowedToolNames is not set (backward compat)', async () => {
@@ -157,6 +167,8 @@ describe('ToolExecutor principal context plumbing', () => {
     fakeToolResult = { content: 'ok', isError: false };
     lastCheckArgs = undefined;
     getToolOverride = undefined;
+    checkResultOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
   test('passes PolicyContext with skill principal for skill-origin tools', async () => {
@@ -286,5 +298,218 @@ describe('ToolExecutor principal context plumbing', () => {
       },
       executionTarget: undefined,
     });
+  });
+});
+
+/**
+ * Helper: create a prompter that returns a specific decision with pattern/scope.
+ */
+function makePrompterWithDecision(
+  decision: string,
+  selectedPattern?: string,
+  selectedScope?: string,
+): PermissionPrompter {
+  return {
+    prompt: async () => ({ decision, selectedPattern, selectedScope }),
+    resolveConfirmation: () => {},
+    updateSender: () => {},
+    dispose: () => {},
+  } as unknown as PermissionPrompter;
+}
+
+describe('ToolExecutor contextual rule creation', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  function setupAddRuleSpy() {
+    addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      },
+    );
+    return addRuleSpy;
+  }
+
+  test('always_allow for a skill tool captures principal context in the rule', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'my-skill-42',
+        ownerSkillVersionHash: 'sha256-deadbeef',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow', 'skill_tool:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('skill_tool', { action: 'run' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    expect(tool).toBe('skill_tool');
+    expect(pattern).toBe('skill_tool:*');
+    expect(scope).toBe('/tmp/project');
+    expect(decision).toBe('allow');
+    expect(options).toBeDefined();
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('my-skill-42');
+    expect(options.principalVersion).toBe('sha256-deadbeef');
+    expect(options.executionTarget).toBe('sandbox');
+  });
+
+  test('always_allow_high_risk sets allowHighRisk and captures principal context', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'high-risk skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'dangerous-skill',
+        ownerSkillVersionHash: 'sha256-abc',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({ name, description: 'high-risk skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'risky_tool:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('risky_tool', {}, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    expect(tool).toBe('risky_tool');
+    expect(pattern).toBe('risky_tool:*');
+    expect(scope).toBe('everywhere');
+    expect(decision).toBe('allow');
+    expect(options).toBeDefined();
+    expect(options.allowHighRisk).toBe(true);
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('dangerous-skill');
+    expect(options.principalVersion).toBe('sha256-abc');
+    expect(options.executionTarget).toBe('host');
+  });
+
+  test('always_allow for a core tool creates rule without principal context', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    // Default getTool returns core tools with no origin field
+    getToolOverride = undefined;
+
+    const prompter = makePrompterWithDecision('always_allow', 'git *', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('bash', { command: 'git status' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    expect(tool).toBe('bash');
+    expect(pattern).toBe('git *');
+    expect(scope).toBe('/tmp/project');
+    expect(decision).toBe('allow');
+    // No options since there's no principal context for core tools
+    expect(options).toBeUndefined();
+  });
+
+  test('always_allow without selectedPattern does not create a rule', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', undefined, '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('always_allow without selectedScope does not create a rule', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'file_read:*', undefined);
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('always_allow_high_risk for core tool sets allowHighRisk without principal fields', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+    getToolOverride = undefined;
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'sudo *', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('bash', { command: 'sudo apt update' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [,,,, , options] = spy.mock.calls[0];
+    expect(options).toBeDefined();
+    expect(options.allowHighRisk).toBe(true);
+    // No principal fields for core tools
+    expect(options.principalKind).toBeUndefined();
+    expect(options.principalId).toBeUndefined();
+    expect(options.principalVersion).toBeUndefined();
+    expect(options.executionTarget).toBeUndefined();
+  });
+
+  test('skill tool with host execution target records executionTarget in rule', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'host skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'host-skill',
+        ownerSkillVersionHash: 'host-hash-v1',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({ name, description: 'host skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow', 'host_action:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('host_action', { action: 'click' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [,,,, , options] = spy.mock.calls[0];
+    expect(options).toBeDefined();
+    expect(options.executionTarget).toBe('host');
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('host-skill');
+    expect(options.principalVersion).toBe('host-hash-v1');
   });
 });
