@@ -2,12 +2,16 @@ import SwiftUI
 
 public struct VSidePanel<PinnedContent: View, Content: View>: View {
     public let title: String
+    public let titleFont: Font
+    public let uppercased: Bool
     public var onClose: (() -> Void)? = nil
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
-    public init(title: String, onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
+    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = true, onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
+        self.titleFont = titleFont
+        self.uppercased = uppercased
         self.onClose = onClose
         self.pinnedContent = pinnedContent
         self.content = content
@@ -17,8 +21,8 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Text(title.uppercased())
-                    .font(VFont.panelTitle)
+                Text(uppercased ? title.uppercased() : title)
+                    .font(titleFont)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 if let onClose = onClose {
@@ -57,9 +61,9 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
 
 // Backward-compatible init (no pinnedContent)
 public extension VSidePanel where PinnedContent == EmptyView {
-    init(title: String, onClose: (() -> Void)? = nil,
+    init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = true, onClose: (() -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
-        self.init(title: title, onClose: onClose,
+        self.init(title: title, titleFont: titleFont, uppercased: uppercased, onClose: onClose,
                   pinnedContent: { EmptyView() }, content: content)
     }
 }

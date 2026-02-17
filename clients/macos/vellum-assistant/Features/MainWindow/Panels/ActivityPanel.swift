@@ -11,16 +11,22 @@ struct ActivityPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Activity", onClose: onClose) {
+        VSidePanel(title: "Activity", titleFont: .system(size: 18, weight: .medium), uppercased: false, onClose: onClose) {
             ScrollViewReader { proxy in
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(toolCalls, id: \.id) { toolCall in
+                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
                         ActivityStepView(toolCall: toolCall)
                             .id(toolCall.id)
                             .transition(.asymmetric(
                                 insertion: .move(edge: .top).combined(with: .opacity),
                                 removal: .opacity
                             ))
+
+                        if index < toolCalls.count - 1 {
+                            Divider()
+                                .background(VColor.surfaceBorder)
+                                .padding(.horizontal, VSpacing.md)
+                        }
                     }
                 }
                 .animation(VAnimation.standard, value: toolCalls.count)
@@ -39,6 +45,7 @@ struct ActivityPanel: View {
 struct ActivityStepView: View {
     let toolCall: ToolCallData
     @State private var isExpanded = false
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -118,6 +125,11 @@ struct ActivityStepView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered ? VColor.ghostHover : .clear)
+            )
+            .onHover { hovering in isHovered = hovering }
 
             // Expanded details
             if isExpanded {
@@ -133,14 +145,42 @@ struct ActivityStepView: View {
 
                     // Result
                     if let result = toolCall.result, !result.isEmpty {
-                        Text(result)
-                            .font(VFont.monoSmall)
-                            .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ZStack(alignment: .topTrailing) {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                                        Text(line)
+                                            .font(VFont.monoSmall)
+                                            .foregroundColor(diffLineColor(line))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .textSelection(.enabled)
+                            }
+                            .frame(maxHeight: 200)
                             .padding(VSpacing.sm)
-                            .background(VColor.backgroundSubtle.opacity(0.5))
+                            .background(VColor.background.opacity(0.6))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                            )
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(result, forType: .string)
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(VColor.textMuted)
+                                    .frame(width: 24, height: 24)
+                                    .background(VColor.backgroundSubtle)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(VSpacing.xs)
+                            .accessibilityLabel("Copy result")
+                        }
                     }
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -164,6 +204,14 @@ struct ActivityStepView: View {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return "\(mins)m \(secs)s"
+    }
+
+    private func diffLineColor(_ line: String) -> Color {
+        if toolCall.isError { return VColor.error }
+        if line.hasPrefix("+") { return Emerald._400 }
+        if line.hasPrefix("-") { return Rose._400 }
+        if line.hasPrefix("@@") { return VColor.textMuted }
+        return VColor.textSecondary
     }
 
     private var statusColor: Color {
