@@ -296,6 +296,14 @@ struct MainWindowView: View {
             }
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
         }
+        .onChange(of: windowState.activePanel) { _, newPanel in
+            // Close the left sidebar when the activity panel opens to avoid crowding
+            if newPanel == .activity && sidebarOpen {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    sidebarOpen = false
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
                 windowState.activeDynamicSurface = msg
@@ -652,28 +660,29 @@ struct MainWindowView: View {
             fullWindowPanel(panel)
         } else {
             let config = windowState.layoutConfig
+            let showActivity = windowState.activePanel == .activity
+                && threadManager.activeViewModel != nil
+                && windowState.activityMessageId != nil
+            let showConfigPanel = config.right.visible && config.right.content != .empty
 
-            ZStack {
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: config.right.visible && config.right.content != .empty,
-                    main: { slotView(for: config.center.content) },
-                    panel: { slotView(for: config.right.content) }
-                )
-
-                if windowState.activePanel == .activity,
-                   let viewModel = threadManager.activeViewModel,
-                   let messageId = windowState.activityMessageId {
-                    ActivityPanel(
-                        viewModel: viewModel,
-                        messageId: messageId,
-                        onClose: { windowState.activePanel = nil }
-                    )
-                    .background(VColor.background)
-                    .transition(.move(edge: .trailing))
-                    .animation(VAnimation.panel, value: windowState.activePanel)
+            VSplitView(
+                panelWidth: $sidePanelWidth,
+                showPanel: showActivity || showConfigPanel,
+                main: { slotView(for: config.center.content) },
+                panel: {
+                    if showActivity,
+                       let viewModel = threadManager.activeViewModel,
+                       let messageId = windowState.activityMessageId {
+                        ActivityPanel(
+                            viewModel: viewModel,
+                            messageId: messageId,
+                            onClose: { windowState.activePanel = nil }
+                        )
+                    } else {
+                        slotView(for: config.right.content)
+                    }
                 }
-            }
+            )
         }
     }
 
