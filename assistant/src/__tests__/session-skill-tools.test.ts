@@ -416,7 +416,7 @@ describe('projectSkillTools', () => {
     const sessionA = new Set<string>();
     const sessionB = new Set<string>();
 
-    const history: Message[] = [toolResultMsg('<loaded_skill id="deploy" />')];
+    const history: Message[] = [...skillLoadMessages('<loaded_skill id="deploy" />')];
 
     // Both sessions activate deploy
     projectSkillTools(history, { previouslyActiveSkillIds: sessionA });
@@ -444,7 +444,7 @@ describe('projectSkillTools', () => {
     const sessionA = new Set<string>();
     const sessionB = new Set<string>();
 
-    const history: Message[] = [toolResultMsg('<loaded_skill id="deploy" />')];
+    const history: Message[] = [...skillLoadMessages('<loaded_skill id="deploy" />')];
 
     // Both sessions activate deploy
     projectSkillTools(history, { previouslyActiveSkillIds: sessionA });
