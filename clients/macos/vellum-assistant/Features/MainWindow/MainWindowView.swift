@@ -356,9 +356,15 @@ struct MainWindowView: View {
                     windowState.closeDynamicPanel()
                 }
             } else {
-                // Bulk dismiss (dismissAll)
-                showSharePicker = false
-                windowState.closeDynamicPanel()
+                // Bulk dismiss (dismissAll) — only clear if currently showing an app workspace.
+                // Avoid kicking the user out of unrelated panels (Settings, Agent, etc.).
+                if case .app = windowState.selection {
+                    showSharePicker = false
+                    windowState.closeDynamicPanel()
+                } else if case .appEditing = windowState.selection {
+                    showSharePicker = false
+                    windowState.closeDynamicPanel()
+                }
             }
         }
         .onChange(of: isHoveredThread) { _, newValue in
@@ -891,7 +897,10 @@ struct MainWindowView: View {
                 data: dpData,
                 onAction: { actionId, actionData in
                     if !windowState.isChatDockOpen {
-                        windowState.isChatDockOpen = true
+                        let appId = dpData.appId ?? surfaceId
+                        if let threadId = threadManager.activeThreadId {
+                            windowState.setAppEditing(appId: appId, threadId: threadId)
+                        }
                     }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },

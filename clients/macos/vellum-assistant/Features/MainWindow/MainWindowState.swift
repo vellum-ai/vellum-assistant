@@ -86,14 +86,8 @@ final class MainWindowState: ObservableObject {
         }
         set {
             if newValue {
-                // Opening chat dock: transition from .app to .appEditing
-                if case .app(let appId) = selection {
-                    // We need a thread ID; use nil-coalesced placeholder
-                    // The caller should also wire up the thread
-                    // For now, keep as .app — .appEditing requires a threadId
-                    // which will be set by the caller
-                    _ = appId // keep .app for now, caller sets .appEditing
-                }
+                // No-op: callers should use setAppEditing(appId:threadId:) directly
+                // since transitioning to .appEditing requires a thread ID.
             } else {
                 // Closing chat dock: transition from .appEditing to .app
                 if case .appEditing(let appId, _) = selection {
