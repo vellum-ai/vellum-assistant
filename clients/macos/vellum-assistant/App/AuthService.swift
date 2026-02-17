@@ -45,7 +45,6 @@ struct AllauthFlow: Codable {
 
 struct SessionData: Codable {
     let user: AllauthUser?
-    let methods: [[String: AnyCodableValue]]?
     let flows: [AllauthFlow]?
 }
 
@@ -346,7 +345,8 @@ final class AuthService {
         do {
             decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: data)
         } catch {
-            log.error("Failed to decode auth response: \(error)")
+            let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            log.error("Failed to decode auth response for \(method) \(path): \(error)\nRaw body: \(rawBody)")
             throw AuthServiceError.decodingError(error)
         }
 
