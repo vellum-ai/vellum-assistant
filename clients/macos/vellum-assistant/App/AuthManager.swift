@@ -33,6 +33,7 @@ final class AuthManager {
 
     private let authService = AuthService.shared
     private static let callbackScheme = "vellum-assistant"
+    private var webAuthSession: ASWebAuthenticationSession?
 
     var isAuthenticated: Bool {
         if case .authenticated = state { return true }
@@ -137,7 +138,56 @@ final class AuthManager {
         }
     }
 
-    func startOIDCLogin(provider: ProviderConfig) async {
+    func startProviderLogin(provider: ProviderConfig) async {
+        if provider.openid_configuration_url != nil {
+            await startOIDCLogin(provider: provider)
+        } else {
+            await startProviderRedirectLogin(provider: provider)
+        }
+    }
+
+    private func startProviderRedirectLogin(provider: ProviderConfig) async {
+        isSubmitting = true
+        errorMessage = nil
+
+        do {
+            let callbackURI = "\(Self.callbackScheme)://auth/callback"
+            let urlString = "\(authService.baseURL)/_allauth/browser/v1/auth/provider/redirect"
+
+            guard var components = URLComponents(string: urlString) else {
+                throw AuthServiceError.invalidURL
+            }
+            components.queryItems = [
+                URLQueryItem(name: "provider", value: provider.id),
+                URLQueryItem(name: "callback_url", value: callbackURI),
+                URLQueryItem(name: "process", value: "login"),
+            ]
+
+            guard let authURL = components.url else {
+                throw AuthServiceError.invalidURL
+            }
+
+            let resultURL = try await performWebAuth(url: authURL, callbackScheme: Self.callbackScheme)
+
+            if let urlComponents = URLComponents(url: resultURL, resolvingAgainstBaseURL: false),
+               let sessionToken = urlComponents.queryItems?.first(where: { $0.name == "session_token" })?.value {
+                SessionTokenManager.setToken(sessionToken)
+            }
+
+            await checkSession()
+
+            if !isAuthenticated {
+                errorMessage = "Authentication was not completed. Please try again."
+            }
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            log.info("User cancelled provider login")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSubmitting = false
+    }
+
+    private func startOIDCLogin(provider: ProviderConfig) async {
         guard let clientId = provider.client_id,
               let discoveryURL = provider.openid_configuration_url else {
             errorMessage = "Provider \(provider.id) is not configured for OIDC login."
@@ -207,11 +257,10 @@ final class AuthManager {
             handleAuthResponse(response)
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             log.info("User cancelled OIDC login")
-            isSubmitting = false
         } catch {
             errorMessage = error.localizedDescription
-            isSubmitting = false
         }
+        isSubmitting = false
     }
 
     func logout() async {
@@ -229,10 +278,9 @@ final class AuthManager {
     func loadConfig() async {
         do {
             let config = try await authService.getConfig()
-            let oidcProviders = (config.data?.socialaccount?.providers ?? []).filter {
-                $0.client_id != nil && $0.openid_configuration_url != nil
+            providers = (config.data?.socialaccount?.providers ?? []).filter {
+                $0.client_id != nil
             }
-            providers = oidcProviders
         } catch {
             log.error("Failed to load auth config: \(error.localizedDescription)")
         }
@@ -271,7 +319,8 @@ final class AuthManager {
 
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { callbackURL, error in
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] callbackURL, error in
+                self?.webAuthSession = nil
                 if let error {
                     continuation.resume(throwing: error)
                 } else if let callbackURL {
@@ -282,6 +331,7 @@ final class AuthManager {
             }
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = WebAuthPresentationContext.shared
+            self.webAuthSession = session
             session.start()
         }
     }

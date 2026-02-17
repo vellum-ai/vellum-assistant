@@ -62,7 +62,7 @@ struct SignupView: View {
                             isFullWidth: true,
                             isDisabled: authManager.isSubmitting
                         ) {
-                            Task { await authManager.startOIDCLogin(provider: provider) }
+                            Task { await authManager.startProviderLogin(provider: provider) }
                         }
                     }
                 }
