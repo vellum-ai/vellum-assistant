@@ -162,17 +162,45 @@ struct MainWindowView: View {
 
     var body: some View {
         coreLayoutView
-            .onChange(of: windowState.isDynamicExpanded) { _, expanded in
+            .onChange(of: windowState.selection) { oldSelection, newSelection in
+                // Sync surface and chat dock state when selection changes
+                let expanded = windowState.isDynamicExpanded
+                let docked = windowState.isChatDockOpen
                 threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
-                threadManager.activeViewModel?.isChatDockedToSide = expanded && windowState.isChatDockOpen
+                threadManager.activeViewModel?.isChatDockedToSide = expanded && docked
+
+                // Reset expanded state and active surface when navigating away from app/generated
+                let oldIsApp: Bool = {
+                    switch oldSelection {
+                    case .app, .appEditing: return true
+                    case .panel(.generated): return true
+                    default: return false
+                    }
+                }()
+                let newIsApp: Bool = {
+                    switch newSelection {
+                    case .app, .appEditing: return true
+                    case .panel(.generated): return true
+                    default: return false
+                    }
+                }()
+                if oldIsApp && !newIsApp {
+                    showSharePicker = false
+                    windowState.activeDynamicSurface = nil
+                    windowState.activeDynamicParsedSurface = nil
+                }
+
+                // Close the left sidebar when the activity panel opens to avoid crowding
+                if case .panel(.activity) = newSelection, sidebarOpen {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        sidebarOpen = false
+                    }
+                }
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
                 if windowState.isDynamicExpanded {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
-            }
-            .onChange(of: windowState.isChatDockOpen) { _, docked in
-                threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && docked
             }
             .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Close activity panel if the referenced message no longer exists
@@ -182,7 +210,7 @@ struct MainWindowView: View {
                    let viewModel = threadManager.activeViewModel {
                     let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
                     if !messageExists {
-                        windowState.activePanel = nil
+                        windowState.selection = nil
                         windowState.activityMessageId = nil
                     }
                 }
@@ -277,16 +305,6 @@ struct MainWindowView: View {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             requestHomeBaseDashboardIfNeeded()
         }
-        .onChange(of: windowState.activePanel) { _, newPanel in
-            // Reset expanded state and active surface when navigating away from the
-            // Dynamic panel via sidebar or Control Center buttons, which only modify activePanel.
-            if newPanel != .generated {
-                showSharePicker = false
-                windowState.isDynamicExpanded = false
-                windowState.activeDynamicSurface = nil
-                windowState.activeDynamicParsedSurface = nil
-            }
-        }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
                 threadManager.selectThread(id: newId)
@@ -297,11 +315,11 @@ struct MainWindowView: View {
             selectedThreadId = newId
             // Close the activity panel when switching threads — the stored messageId
             // belongs to the previous thread and won't exist in the new one.
-            if windowState.activePanel == .activity {
-                windowState.activePanel = nil
+            if case .panel(.activity) = windowState.selection {
+                windowState.selection = nil
                 windowState.activityMessageId = nil
-            } else if windowState.activePanel == .identity {
-                windowState.activePanel = nil
+            } else if case .panel(.identity) = windowState.selection {
+                windowState.selection = nil
             }
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
@@ -310,20 +328,18 @@ struct MainWindowView: View {
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
             threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
         }
-        .onChange(of: windowState.activePanel) { _, newPanel in
-            // Close the left sidebar when the activity panel opens to avoid crowding
-            if newPanel == .activity && sidebarOpen {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    sidebarOpen = false
-                }
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
-                windowState.activePanel = .generated
-                windowState.isDynamicExpanded = true
+                // Determine the app ID from the surface if available
+                if let surface = windowState.activeDynamicParsedSurface,
+                   case .dynamicPage(let dpData) = surface.data,
+                   let appId = dpData.appId {
+                    windowState.selection = .app(appId)
+                } else {
+                    windowState.selection = .app(msg.surfaceId)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
@@ -337,22 +353,12 @@ struct MainWindowView: View {
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
                 if windowState.activeDynamicSurface?.surfaceId == surfaceId {
                     showSharePicker = false
-                    if windowState.activePanel == .generated {
-                        windowState.activePanel = nil
-                    }
-                    windowState.isDynamicExpanded = false
-                    windowState.activeDynamicSurface = nil
-                    windowState.activeDynamicParsedSurface = nil
+                    windowState.closeDynamicPanel()
                 }
             } else {
                 // Bulk dismiss (dismissAll)
                 showSharePicker = false
-                if windowState.activePanel == .generated {
-                    windowState.activePanel = nil
-                }
-                windowState.isDynamicExpanded = false
-                windowState.activeDynamicSurface = nil
-                windowState.activeDynamicParsedSurface = nil
+                windowState.closeDynamicPanel()
             }
         }
         .onChange(of: isHoveredThread) { _, newValue in
@@ -367,13 +373,8 @@ struct MainWindowView: View {
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
         Button(action: {
+            windowState.selection = .thread(thread.id)
             threadManager.selectThread(id: thread.id)
-            switch windowState.activePanel {
-            case .settings, .agent, .directory, .debug, .doctor, .identity:
-                windowState.activePanel = nil
-            default:
-                break
-            }
         }) {
             HStack(spacing: VSpacing.sm) {
                 if thread.isPinned {
@@ -493,7 +494,7 @@ struct MainWindowView: View {
             .padding(.trailing, VSpacing.sm)
             .frame(height: 36)
 
-            NewConversationButton(action: { windowState.activePanel = nil; threadManager.createThread() })
+            NewConversationButton(action: { windowState.selection = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)
@@ -588,10 +589,13 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected = windowState.isDynamicExpanded
+        let isSelected = windowState.activeAppId == app.id || (
+            windowState.isDynamicExpanded
             && windowState.activeDynamicSurface?.surfaceId != nil
             && isAppSurfaceActive(appId: app.id)
+        )
         Button(action: {
+            windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
@@ -787,13 +791,13 @@ struct MainWindowView: View {
                 ActivityPanel(
                     viewModel: viewModel,
                     messageId: messageId,
-                    onClose: { windowState.activePanel = nil }
+                    onClose: { windowState.selection = nil }
                 )
             }
         case .settings:
-            SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
         case .agent:
-            AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
+            AgentPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
                     threadManager.createThread()
                 }
@@ -807,26 +811,31 @@ struct MainWindowView: View {
                     viewModel.sendMessage()
                     viewModel.pendingSkillInvocation = nil
                 }
-                windowState.activePanel = nil
+                windowState.selection = nil
             }, daemonClient: daemonClient)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
                 activeSessionId: threadManager.activeViewModel?.sessionId,
-                onClose: { windowState.activePanel = nil }
+                onClose: { windowState.selection = nil }
             )
         case .doctor:
-            DoctorPanel(onClose: { windowState.activePanel = nil })
+            DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
             AppDirectoryView(
                 daemonClient: daemonClient,
-                onBack: { windowState.activePanel = nil },
+                onBack: { windowState.selection = nil },
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                    windowState.activePanel = .generated
-                    windowState.isDynamicExpanded = true
+                    if let surface = windowState.activeDynamicParsedSurface,
+                       case .dynamicPage(let dpData) = surface.data,
+                       let appId = dpData.appId {
+                        windowState.selection = .app(appId)
+                    } else {
+                        windowState.selection = .app(surfaceMsg.surfaceId)
+                    }
                 },
                 onRecordAppOpen: { id, name, icon, appType in
                     appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
@@ -835,7 +844,10 @@ struct MainWindowView: View {
         case .generated:
             GeneratedPanel(
                 onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
-                isExpanded: $windowState.isDynamicExpanded,
+                isExpanded: Binding(
+                    get: { windowState.isDynamicExpanded },
+                    set: { windowState.isDynamicExpanded = $0 }
+                ),
                 daemonClient: daemonClient,
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
@@ -848,7 +860,7 @@ struct MainWindowView: View {
         case .threadList:
             sidebarView
         case .identity:
-            IdentityPanel(onClose: { windowState.activePanel = nil }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         }
     }
 
@@ -883,38 +895,23 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func chatContentView(geometry: GeometryProxy) -> some View {
-        if windowState.activePanel == .directory {
-            AppDirectoryView(
-                daemonClient: daemonClient,
-                onBack: { windowState.activePanel = nil },
-                onOpenApp: { surfaceMsg in
-                    windowState.activeDynamicSurface = surfaceMsg
-                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                    windowState.activePanel = .generated
-                    windowState.isDynamicExpanded = true
-                },
-                onRecordAppOpen: { id, name, icon, appType in
-                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                }
-            )
-        } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
+        switch windowState.selection {
+        case .thread:
+            // Show chat for this thread (threadManager.activeViewModel is synced)
+            defaultChatLayout
+        case .app:
+            // App workspace: full width (no chat dock)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: windowState.isChatDockOpen,
-                    main: {
-                        dynamicWorkspaceView(surface: surface, data: dpData)
-                    },
-                    panel: {
-                        chatView
-                    }
-                )
+                dynamicWorkspaceView(surface: surface, data: dpData)
             } else {
-                // Gallery mode: existing behavior, with workspace routing
+                // Gallery mode fallback
                 GeneratedPanel(
                     onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
-                    isExpanded: $windowState.isDynamicExpanded,
+                    isExpanded: Binding(
+                        get: { windowState.isDynamicExpanded },
+                        set: { windowState.isDynamicExpanded = $0 }
+                    ),
                     daemonClient: daemonClient,
                     onOpenApp: { surfaceMsg in
                         windowState.activeDynamicSurface = surfaceMsg
@@ -925,35 +922,92 @@ struct MainWindowView: View {
                     }
                 )
             }
-        } else if let panel = windowState.activePanel, panel != .activity {
-            // Full-window panels: settings, skills, debug, doctor
-            fullWindowPanel(panel)
-        } else {
-            let config = windowState.layoutConfig
-            let showActivity = windowState.activePanel == .activity
-                && threadManager.activeViewModel != nil
-                && windowState.activityMessageId != nil
-            let showConfigPanel = config.right.visible && config.right.content != .empty
-
-            VSplitView(
-                panelWidth: $sidePanelWidth,
-                showPanel: showActivity || showConfigPanel,
-                main: { slotView(for: config.center.content) },
-                panel: {
-                    if showActivity,
-                       let viewModel = threadManager.activeViewModel,
-                       let messageId = windowState.activityMessageId {
-                        ActivityPanel(
-                            viewModel: viewModel,
-                            messageId: messageId,
-                            onClose: { windowState.activePanel = nil }
-                        )
-                    } else {
-                        slotView(for: config.right.content)
+        case .appEditing:
+            // VSplitView: workspace + ChatView
+            if let surface = windowState.activeDynamicParsedSurface,
+               case .dynamicPage(let dpData) = surface.data {
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: true,
+                    main: {
+                        dynamicWorkspaceView(surface: surface, data: dpData)
+                    },
+                    panel: {
+                        chatView
                     }
-                }
-            )
+                )
+            } else {
+                defaultChatLayout
+            }
+        case .panel(let panelType):
+            if panelType == .directory {
+                AppDirectoryView(
+                    daemonClient: daemonClient,
+                    onBack: { windowState.selection = nil },
+                    onOpenApp: { surfaceMsg in
+                        windowState.activeDynamicSurface = surfaceMsg
+                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                        if let surface = windowState.activeDynamicParsedSurface,
+                           case .dynamicPage(let dpData) = surface.data,
+                           let appId = dpData.appId {
+                            windowState.selection = .app(appId)
+                        } else {
+                            windowState.selection = .app(surfaceMsg.surfaceId)
+                        }
+                    },
+                    onRecordAppOpen: { id, name, icon, appType in
+                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                    }
+                )
+            } else if panelType == .activity {
+                // Activity panel shown as side panel alongside chat
+                let config = windowState.layoutConfig
+                let showActivity = threadManager.activeViewModel != nil
+                    && windowState.activityMessageId != nil
+                let showConfigPanel = config.right.visible && config.right.content != .empty
+
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: showActivity || showConfigPanel,
+                    main: { slotView(for: config.center.content) },
+                    panel: {
+                        if showActivity,
+                           let viewModel = threadManager.activeViewModel,
+                           let messageId = windowState.activityMessageId {
+                            ActivityPanel(
+                                viewModel: viewModel,
+                                messageId: messageId,
+                                onClose: { windowState.selection = nil }
+                            )
+                        } else {
+                            slotView(for: config.right.content)
+                        }
+                    }
+                )
+            } else {
+                // Full-window panels: settings, skills, debug, doctor, identity
+                fullWindowPanel(panelType)
+            }
+        case nil:
+            // Default: show chat for active thread
+            defaultChatLayout
         }
+    }
+
+    /// The default chat layout used when showing a thread or no specific selection.
+    @ViewBuilder
+    private var defaultChatLayout: some View {
+        let config = windowState.layoutConfig
+        let showConfigPanel = config.right.visible && config.right.content != .empty
+
+        VSplitView(
+            panelWidth: $sidePanelWidth,
+            showPanel: showConfigPanel,
+            main: { slotView(for: config.center.content) },
+            panel: {
+                slotView(for: config.right.content)
+            }
+        )
     }
 
     @ViewBuilder
@@ -976,9 +1030,9 @@ struct MainWindowView: View {
     private func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.activePanel = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
         case .agent:
-            AgentPanel(onClose: { windowState.activePanel = nil }, onInvokeSkill: { skill in
+            AgentPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
                     threadManager.createThread()
                 }
@@ -992,25 +1046,25 @@ struct MainWindowView: View {
                     viewModel.sendMessage()
                     viewModel.pendingSkillInvocation = nil
                 }
-                windowState.activePanel = nil
+                windowState.selection = nil
             }, daemonClient: daemonClient)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
                 activeSessionId: threadManager.activeViewModel?.sessionId,
-                onClose: { windowState.activePanel = nil }
+                onClose: { windowState.selection = nil }
             )
         case .doctor:
-            DoctorPanel(onClose: { windowState.activePanel = nil })
+            DoctorPanel(onClose: { windowState.selection = nil })
         case .identity:
-            IdentityPanel(onClose: { windowState.activePanel = nil }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
-            // if we reach here, isDynamicExpanded is false — clear activePanel so
+            // if we reach here, isDynamicExpanded is false — clear selection so
             // the user falls back to the chat view instead of seeing a blank screen.
             Color.clear.frame(width: 0, height: 0)
-                .onAppear { windowState.activePanel = nil }
+                .onAppear { windowState.selection = nil }
         default:
             EmptyView()
         }
@@ -1039,9 +1093,19 @@ struct MainWindowView: View {
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
-                onToggleChatDock: { windowState.toggleChatDock() },
-                onMicrophoneToggle: onMicrophoneToggle,
-                onClose: { windowState.closeDynamicPanel() }
+                onToggleChatDock: {
+                    if let appId = windowState.activeAppId,
+                       let threadId = threadManager.activeThreadId {
+                        if windowState.isChatDockOpen {
+                            // Close: transition from appEditing to app
+                            windowState.selection = .app(appId)
+                        } else {
+                            // Open: transition from app to appEditing
+                            windowState.setAppEditing(appId: appId, threadId: threadId)
+                        }
+                    }
+                },
+                onMicrophoneToggle: onMicrophoneToggle
             )
         }
     }
@@ -1297,7 +1361,7 @@ private struct ActiveChatViewWrapper: View {
             pendingAttachments: viewModel.pendingAttachments,
             isRecording: viewModel.isRecording,
             onOpenSettings: {
-                windowState.activePanel = .settings
+                windowState.selection = .panel(.settings)
             },
             onSend: viewModel.sendMessage,
             onStop: viewModel.stopGenerating,
@@ -1335,7 +1399,7 @@ private struct ActiveChatViewWrapper: View {
             onOpenActivity: { messageId in
                 windowState.toggleActivityPanel(with: messageId)
             },
-            isActivityPanelOpen: windowState.activePanel == .activity,
+            isActivityPanelOpen: { if case .panel(.activity) = windowState.selection { return true } else { return false } }(),
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
                 do {
@@ -1375,7 +1439,6 @@ private struct DynamicWorkspaceWrapper: View {
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
-    var onClose: (() -> Void)?
 
     private var composerReservedHeight: CGFloat {
         guard !isChatDockOpen else { return 0 }
@@ -1585,22 +1648,6 @@ private struct DynamicWorkspaceWrapper: View {
                             )
                             .frame(width: 1, height: 1)
                         )
-                    }
-
-                    if onClose != nil {
-                        Button(action: { onClose?() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textPrimary)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Circle()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Close dashboard")
                     }
                 }
                 .padding(.leading, trafficLightPadding)
