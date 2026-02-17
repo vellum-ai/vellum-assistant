@@ -1330,15 +1330,17 @@ private struct ChatBubble: View {
         }
     }
 
-    /// Render a single text segment as a styled bubble, with table support.
+    /// Render a single text segment as a styled bubble, with table and image support.
     @ViewBuilder
     private func textBubble(for segmentText: String) -> some View {
         let segments = parseMarkdownSegments(segmentText)
-        let hasTable = segments.contains(where: {
-            if case .table = $0 { return true }; return false
+        let hasRichContent = segments.contains(where: {
+            if case .table = $0 { return true }
+            if case .image = $0 { return true }
+            return false
         })
 
-        if hasTable {
+        if hasRichContent {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                     switch segment {
@@ -1357,6 +1359,11 @@ private struct ChatBubble: View {
                             .frame(maxWidth: 520, alignment: .leading)
                     case .table(let headers, let rows):
                         MarkdownTableView(headers: headers, rows: rows)
+                    case .image(let alt, let url):
+                        AnimatedImageView(urlString: url)
+                            .frame(maxWidth: 280, maxHeight: 280)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .accessibilityLabel(alt.isEmpty ? "Image" : alt)
                     }
                 }
             }
@@ -1416,12 +1423,14 @@ private struct ChatBubble: View {
 
             if hasText {
                 let segments = parseMarkdownSegments(message.text)
-                let hasTable = segments.contains(where: {
-                    if case .table = $0 { return true }; return false
+                let hasRichContent = segments.contains(where: {
+                    if case .table = $0 { return true }
+                    if case .image = $0 { return true }
+                    return false
                 })
-                VStack(alignment: .leading, spacing: hasTable ? VSpacing.lg : VSpacing.xs) {
+                VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
 
-                    if hasTable {
+                    if hasRichContent {
                         ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                             switch segment {
                             case .text(let text):
@@ -1438,6 +1447,11 @@ private struct ChatBubble: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             case .table(let headers, let rows):
                                 MarkdownTableView(headers: headers, rows: rows)
+                            case .image(let alt, let url):
+                                AnimatedImageView(urlString: url)
+                                    .frame(maxWidth: 280, maxHeight: 280)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                    .accessibilityLabel(alt.isEmpty ? "Image" : alt)
                             }
                         }
                     } else {
@@ -1630,6 +1644,7 @@ private struct ChatBubble: View {
 private enum MarkdownSegment {
     case text(String)
     case table(headers: [String], rows: [[String]])
+    case image(alt: String, url: String)
 }
 
 /// Parses message text into segments, extracting pipe-delimited markdown tables.
@@ -1703,6 +1718,58 @@ private func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
         .trimmingCharacters(in: .whitespacesAndNewlines)
     if !remaining.isEmpty {
         segments.append(.text(remaining))
+    }
+
+    // Post-process .text segments to extract inline images.
+    // Code-fenced segments are already opaque from the table pass, so images inside
+    // code blocks remain as literal text.
+    return segments.flatMap { segment -> [MarkdownSegment] in
+        if case .text(let content) = segment {
+            return extractImageSegments(from: content)
+        }
+        return [segment]
+    }
+}
+
+/// Splits text around `![alt](url)` matches, returning mixed `.text` / `.image` segments.
+private func extractImageSegments(from text: String) -> [MarkdownSegment] {
+    let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return [.text(text)]
+    }
+
+    let nsText = text as NSString
+    let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+
+    if matches.isEmpty { return [.text(text)] }
+
+    var segments: [MarkdownSegment] = []
+    var lastEnd = 0
+
+    for match in matches {
+        // Text before the image
+        if match.range.location > lastEnd {
+            let before = nsText.substring(with: NSRange(location: lastEnd, length: match.range.location - lastEnd))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !before.isEmpty {
+                segments.append(.text(before))
+            }
+        }
+
+        let alt = nsText.substring(with: match.range(at: 1))
+        let url = nsText.substring(with: match.range(at: 2))
+        segments.append(.image(alt: alt, url: url))
+
+        lastEnd = match.range.location + match.range.length
+    }
+
+    // Text after the last image
+    if lastEnd < nsText.length {
+        let after = nsText.substring(from: lastEnd)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !after.isEmpty {
+            segments.append(.text(after))
+        }
     }
 
     return segments

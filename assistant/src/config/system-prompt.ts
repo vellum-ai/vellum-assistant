@@ -130,6 +130,14 @@ function buildAttachmentSection(): string {
     '- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).',
     '',
     'Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.',
+    '',
+    '### Inline Images and GIFs',
+    '',
+    'The chat natively renders images and animated GIFs inline in message bubbles. When you have an image or GIF URL (e.g. from Giphy, web search, or any tool), embed it directly in your response text using markdown image syntax:',
+    '',
+    '`![description](https://media.giphy.com/media/example/giphy.gif)`',
+    '',
+    'This renders the image/GIF visually inside the chat bubble with full animation. You can also use `ui_show`, `app_create`, or `vellum-attachment` for images when appropriate. Do NOT wrap image markdown in code fences or it will render as literal text.',
   ].join('\n');
 }
 
