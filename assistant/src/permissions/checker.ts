@@ -386,9 +386,20 @@ export async function check(
 
   // In strict mode, every tool without an explicit matching rule must be
   // prompted — there is no implicit auto-allow for any risk level.
+  // This explicitly covers skill_load: activating a skill can grant the
+  // agent new capabilities, so in strict mode users must approve each
+  // skill load via an exact-version or wildcard trust rule.
   const permissionsMode = getConfig().permissions.mode;
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
+  }
+
+  // In strict mode skill_load must always have an explicit rule — never
+  // fall through to the low-risk auto-allow below. The check above
+  // already handles !matchedRule, so this guard covers defensive edge
+  // cases (e.g., a matched rule that was consumed but didn't return).
+  if (permissionsMode === 'strict' && toolName === 'skill_load' && !matchedRule) {
+    return { decision: 'prompt', reason: 'Strict mode: skill_load requires explicit approval' };
   }
 
   if (risk === RiskLevel.High) {
