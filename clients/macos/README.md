@@ -95,64 +95,37 @@ The build script uses incremental compilation and caching:
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 
-### First-Time Setup: Development Certificate (Automatic)
+### First-Time Setup: Code Signing (Optional but Recommended)
 
-On first run, `./build.sh` will detect if you have a code signing certificate and offer to create one:
+Code signing helps macOS TCC (permission system) recognize your app consistently across rebuilds. **Without it, you'll need to re-grant Accessibility and Screen Recording permissions every time you rebuild.**
 
-```
-⚠️  No code signing certificate found
-Would you like to create a self-signed development certificate?
-(No Apple Developer account required - takes ~5 seconds)
-Create certificate? [Y/n]:
-```
+The build script automatically detects and uses any valid code signing certificate in your keychain. If none is found, it falls back to adhoc signing (unsigned).
 
-Press `Enter` or type `y` to create the certificate automatically. This ensures permissions (Accessibility, Screen Recording) persist across rebuilds.
+**Recommended: Create an Apple Development certificate via Xcode** (takes ~2 minutes, works with free Apple ID):
 
-**For professional development:** If you have an [Apple Developer account](https://developer.apple.com/programs/) ($99/year), using official Apple Developer certificates is more secure than self-signed certificates. The build script will automatically detect and use them.
+1. Open any Swift file in Xcode:
+   ```bash
+   # From clients/macos/ directory:
+   open vellum-assistant/App/AppDelegate.swift
+   ```
 
-**Manual setup:** You can also run `./create-dev-cert.sh` directly at any time.
+2. In Xcode menu bar: **Xcode → Settings → Accounts**
 
-**Skip prompt:** To always use adhoc signing, create a `.no-auto-cert` file in this directory.
+3. Click **+** to add your Apple ID (free account works - no $99/year Developer Program needed)
 
-### Certificate Security & Management
+4. Select your Apple ID → click **Manage Certificates** → click **+** → select **Apple Development**
 
-The self-signed "Vellum Development" certificate is trusted system-wide (admin trust domain) for code signing. This is for **development only** and has security implications:
+5. Xcode creates and installs the certificate in your keychain automatically
 
-**What this means:**
-- The certificate can sign any code on your Mac (not just Vellum)
-- Private key is deleted immediately after installation (cannot be extracted)
-- Only impacts your local machine (not shared or distributed)
+6. Close Xcode and rebuild: `./build.sh`
 
-**To view installed certificate:**
+The build script will detect and use your new certificate. Permissions will now persist across rebuilds!
+
+**Alternative: Use adhoc signing** (no setup, but permissions reset on every rebuild):
 ```bash
-security find-identity -v -p codesigning | grep "Vellum Development"
+# Create this file to skip certificate detection:
+touch .no-auto-cert
 ```
-
-**To remove certificate (if needed):**
-```bash
-# Remove from keychain
-security delete-identity -c "Vellum Development"
-
-# Remove from trust store
-sudo security remove-trusted-cert -d \
-  $(security find-certificate -c "Vellum Development" -a -p | \
-    openssl x509 -text | grep "Serial Number:" | sed 's/.*: //')
-```
-
-**To recreate certificate (if compromised or expired):**
-```bash
-# Remove old certificate first
-security delete-identity -c "Vellum Development"
-
-# Create new one
-./create-dev-cert.sh
-```
-
-**Best practices:**
-- Only use on your personal development machine
-- Remove certificate when done with development (project archived)
-- Recreate if you suspect your machine was compromised
-- Don't use production certificates for development (keep them separate)
 
 ## Auto-Rebuild on Save (Watch Mode)
 
