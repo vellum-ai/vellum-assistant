@@ -1261,8 +1261,8 @@ private struct ChatBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(isApproved ? "Permission granted" :
-                 confirmation.state == .denied ? "Permission denied" : "Timed out")
+            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
+                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
                 .font(VFont.caption)
                 .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
         }

@@ -11,6 +11,7 @@ public struct ToolConfirmationBubble: View {
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
+    @State private var isPreviewExpanded = false
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
@@ -194,17 +195,35 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private func inlinePreview(_ preview: String) -> some View {
-        Text(preview)
-            .font(VFont.monoSmall)
-            .foregroundColor(VColor.textSecondary)
-            .lineLimit(3)
-            .padding(VSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.backgroundSubtle)
-            )
-            .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(preview)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.textSecondary)
+                .lineLimit(isPreviewExpanded ? nil : 3)
+                .textSelection(.enabled)
+
+            if !isPreviewExpanded {
+                HStack(spacing: 2) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text("Show more")
+                        .font(.system(size: 10))
+                }
+                .foregroundColor(VColor.textMuted)
+            }
+        }
+        .padding(VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.backgroundSubtle)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.fast) {
+                isPreviewExpanded.toggle()
+            }
+        }
     }
 
     // MARK: - Description Text
