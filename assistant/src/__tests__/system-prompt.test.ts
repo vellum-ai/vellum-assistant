@@ -381,4 +381,36 @@ describe('ensurePromptFiles', () => {
     // mocking the filesystem, but the important contract is: no throw.
     expect(() => ensurePromptFiles()).not.toThrow();
   });
+
+  test('creates BOOTSTRAP.md on first run when no prompt files exist', () => {
+    ensurePromptFiles();
+
+    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    expect(existsSync(bootstrapPath)).toBe(true);
+    const content = readFileSync(bootstrapPath, 'utf-8');
+    expect(content.length).toBeGreaterThan(0);
+  });
+
+  test('does not recreate BOOTSTRAP.md when other prompt files already exist', () => {
+    // Simulate a workspace where onboarding completed: core files exist,
+    // BOOTSTRAP.md was deleted by the user.
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'My identity');
+    writeFileSync(join(TEST_DIR, 'SOUL.md'), 'My soul');
+    writeFileSync(join(TEST_DIR, 'USER.md'), 'My user');
+
+    ensurePromptFiles();
+
+    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    expect(existsSync(bootstrapPath)).toBe(false);
+  });
+
+  test('does not recreate BOOTSTRAP.md when at least one prompt file exists', () => {
+    // Even if only one core file exists, it's not a fresh install.
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'My identity');
+
+    ensurePromptFiles();
+
+    const bootstrapPath = join(TEST_DIR, 'BOOTSTRAP.md');
+    expect(existsSync(bootstrapPath)).toBe(false);
+  });
 });
