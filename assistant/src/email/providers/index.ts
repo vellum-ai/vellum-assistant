@@ -11,8 +11,8 @@ import { loadRawConfig, getNestedValue } from '../../config/loader.js';
 export const SUPPORTED_PROVIDERS = ['agentmail'] as const;
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
-const PROVIDER_KEY_MAP: Record<SupportedProvider, string> = {
-  agentmail: 'agentmail',
+const PROVIDER_KEY_MAP: Record<SupportedProvider, string[]> = {
+  agentmail: ['agentmail', 'credential:agentmail:api_key'],
 };
 
 /**
@@ -37,7 +37,12 @@ export async function createProvider(name?: SupportedProvider): Promise<EmailPro
 
   switch (providerName) {
     case 'agentmail': {
-      const apiKey = getSecureKey(PROVIDER_KEY_MAP.agentmail);
+      const candidates = PROVIDER_KEY_MAP.agentmail;
+      let apiKey: string | undefined;
+      for (const account of candidates) {
+        apiKey = getSecureKey(account);
+        if (apiKey) break;
+      }
       if (!apiKey) {
         throw new Error(
           'No AgentMail API key configured. Run: vellum keys set agentmail <key>',
