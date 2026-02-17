@@ -82,6 +82,7 @@ import {
   handleUnpublishPage,
 } from './publish.js';
 import { handleHomeBaseGet } from './home-base.js';
+import { handleDiagnosticsExport } from './diagnostics.js';
 
 import {
   handleTaskSubmit,
@@ -235,10 +236,7 @@ const handlers: DispatchMap = {
   integration_disconnect: (msg, socket, ctx) => {
     handleIntegrationDisconnect(msg as IntegrationDisconnectRequest, socket, ctx);
   },
-  diagnostics_export_request: (_msg, socket, ctx) => {
-    // TODO: implement diagnostics export handler
-    ctx.send(socket, { type: 'diagnostics_export_response', success: false, error: 'Not implemented' });
-  },
+  diagnostics_export_request: handleDiagnosticsExport,
 };
 
 export function handleMessage(
