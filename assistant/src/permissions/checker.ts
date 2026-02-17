@@ -1,4 +1,4 @@
-import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption } from './types.js';
+import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption, type PolicyContext } from './types.js';
 import { findHighestPriorityRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
@@ -274,6 +274,7 @@ export async function check(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
+  policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
   const risk = await classifyRisk(toolName, input);
 
@@ -281,7 +282,7 @@ export async function check(
   const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
 
   // Find the highest-priority matching rule across all candidates
-  const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir);
+  const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
 
   if (matchedRule) {
     if (matchedRule.decision === 'deny') {

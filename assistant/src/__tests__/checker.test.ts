@@ -27,7 +27,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
-import { RiskLevel } from '../permissions/types.js';
+import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { registerTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
@@ -1146,6 +1146,146 @@ describe('Permission Checker', () => {
       // the module loaded (and its new types compiled) correctly.
       const types = await import('../permissions/types.js');
       expect(types.RiskLevel).toBeDefined();
+    });
+  });
+
+  // ── checker accepts principal context (PR 17) ─────────────
+
+  describe('checker principal context (PR 17)', () => {
+    test('check() passes policyContext through to findHighestPriorityRule', async () => {
+      // Create a rule with principal constraints so we can verify the
+      // context is actually forwarded to the matching logic.
+      const rules = (await import('../permissions/trust-store.js')).getAllRules();
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { readFileSync, writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      // Add a rule with principalKind constraint via direct file manipulation
+      // since addRule() doesn't expose principal fields yet.
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      // Load existing rules, add a principal-scoped rule, save back
+      let currentRules: any[] = [];
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        currentRules = JSON.parse(raw).rules ?? [];
+      } catch { /* first run */ }
+
+      currentRules.push({
+        id: 'test-principal-rule',
+        tool: 'bash',
+        pattern: 'echo *',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        createdAt: Date.now(),
+        principalKind: 'skill',
+        principalId: 'my-skill',
+      });
+
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules: currentRules }, null, 2));
+      clearCache();
+
+      // With matching context, the principal-scoped rule should match
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill' },
+      };
+      const result = await check('bash', { command: 'echo hello' }, '/tmp', ctx);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('test-principal-rule');
+    });
+
+    test('rule with matching principal still allows', async () => {
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { readFileSync, writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      let currentRules: any[] = [];
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        currentRules = JSON.parse(raw).rules ?? [];
+      } catch { /* first run */ }
+
+      // Remove any previous test rule to avoid conflicts
+      currentRules = currentRules.filter((r: any) => r.id !== 'test-principal-allow');
+      currentRules.push({
+        id: 'test-principal-allow',
+        tool: 'file_write',
+        pattern: 'file_write:/tmp/test-principal.txt',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        createdAt: Date.now(),
+        principalKind: 'skill',
+        principalId: 'trusted-skill',
+      });
+
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules: currentRules }, null, 2));
+      clearCache();
+
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'trusted-skill' },
+      };
+      const result = await check('file_write', { path: '/tmp/test-principal.txt' }, '/tmp', ctx);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('test-principal-allow');
+    });
+
+    test('rule with non-matching principal does NOT match (falls through to default behavior)', async () => {
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { readFileSync, writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      let currentRules: any[] = [];
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        currentRules = JSON.parse(raw).rules ?? [];
+      } catch { /* first run */ }
+
+      // Remove any previous test rules to start clean
+      currentRules = currentRules.filter((r: any) => !r.id.startsWith('test-principal'));
+      currentRules.push({
+        id: 'test-principal-mismatch',
+        tool: 'file_write',
+        pattern: 'file_write:/tmp/test-mismatch.txt',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        createdAt: Date.now(),
+        principalKind: 'skill',
+        principalId: 'trusted-skill',
+      });
+
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules: currentRules }, null, 2));
+      clearCache();
+
+      // Pass a context with a DIFFERENT principal id — the rule should not match,
+      // and file_write (Medium risk) should fall through to prompt.
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'untrusted-skill' },
+      };
+      const result = await check('file_write', { path: '/tmp/test-mismatch.txt' }, '/tmp', ctx);
+      expect(result.decision).toBe('prompt');
+      expect(result.matchedRule?.id).not.toBe('test-principal-mismatch');
+    });
+
+    test('check() without policyContext still works (backward compatible)', async () => {
+      // Verify that calling check() without policyContext continues to
+      // work the same as before — wildcard rules still match.
+      addRule('bash', 'echo backward-compat', '/tmp', 'allow', 2000);
+      const result = await check('bash', { command: 'echo backward-compat' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
     });
   });
 });
