@@ -289,6 +289,8 @@ struct MainWindowView: View {
             if windowState.activePanel == .activity {
                 windowState.activePanel = nil
                 windowState.activityMessageId = nil
+            } else if windowState.activePanel == .identity {
+                windowState.activePanel = nil
             }
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
@@ -349,7 +351,7 @@ struct MainWindowView: View {
         HStack(spacing: 0) {
             Button(action: {
                 threadManager.selectThread(id: thread.id)
-                if windowState.activePanel == .directory {
+                if windowState.activePanel == .directory || windowState.activePanel == .identity {
                     windowState.activePanel = nil
                 }
             }) {
