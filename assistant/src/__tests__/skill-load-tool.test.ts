@@ -160,4 +160,23 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('No skill matched');
     expect(result.content).not.toContain('<loaded_skill');
   });
+
+  test('successful skill_load output has no child metadata section', async () => {
+    writeSkill('standalone', 'Standalone Skill', 'A skill with no children', 'Do the thing');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- standalone\n');
+
+    const result = await executeSkillLoad({ skill: 'standalone' });
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain('Included Skills');
+  });
+
+  test('successful skill_load emits exactly one loaded_skill marker', async () => {
+    writeSkill('single-marker', 'Single Marker Skill', 'Should have one marker', 'Step 1');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- single-marker\n');
+
+    const result = await executeSkillLoad({ skill: 'single-marker' });
+    expect(result.isError).toBe(false);
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+  });
 });
