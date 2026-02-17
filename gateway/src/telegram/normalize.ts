@@ -36,6 +36,7 @@ interface TelegramMessage {
 interface TelegramUpdate {
   update_id?: number;
   message?: TelegramMessage;
+  edited_message?: TelegramMessage;
 }
 
 /**
@@ -46,7 +47,8 @@ export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
 ): Omit<GatewayInboundEventV1, "routing"> | null {
   const update = payload as TelegramUpdate;
-  const message = update.message;
+  const isEdit = !update.message && !!update.edited_message;
+  const message = update.message ?? update.edited_message;
   const updateId = update.update_id;
 
   const hasContent = !!(message?.text || message?.photo || message?.document);
@@ -95,6 +97,7 @@ export function normalizeTelegramUpdate(
       externalChatId: String(message.chat.id),
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(isEdit ? { isEdit: true } : {}),
     },
     sender: {
       externalUserId,

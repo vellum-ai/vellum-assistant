@@ -8,6 +8,7 @@ export type RuntimeInboundPayload = {
   externalChatId: string;
   externalMessageId: string;
   content: string;
+  isEdit?: boolean;
   senderName?: string;
   senderExternalUserId?: string;
   senderUsername?: string;

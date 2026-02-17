@@ -68,7 +68,7 @@ v1 uses deterministic settings-based routing (no database):
 After deploying the gateway, register the webhook with Telegram using the `setWebhook` API method. Pass:
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
 - The verify value matching your `TELEGRAM_WEBHOOK_SECRET` env var
-- `allowed_updates` — `["message"]`
+- `allowed_updates` — `["message", "edited_message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
 

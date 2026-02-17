@@ -182,6 +182,7 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   sourceChannel: text('source_channel').notNull(),
   externalChatId: text('external_chat_id').notNull(),
   externalMessageId: text('external_message_id').notNull(),
+  sourceMessageId: text('source_message_id'),
   conversationId: text('conversation_id')
     .notNull()
     .references(() => conversations.id, { onDelete: 'cascade' }),

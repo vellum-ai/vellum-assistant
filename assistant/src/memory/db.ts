@@ -466,6 +466,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_summaries ADD COLUMN scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_segments ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE channel_inbound_events ADD COLUMN source_message_id TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
@@ -514,6 +515,7 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(assistant_id, source_channel, external_chat_id, external_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_conversation ON channel_inbound_events(conversation_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(assistant_id, source_channel, external_chat_id, source_message_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_assistant_status ON message_runs(assistant_id, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_conversation ON message_runs(conversation_id)`);
