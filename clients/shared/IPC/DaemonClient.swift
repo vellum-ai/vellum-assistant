@@ -217,6 +217,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `integration_connect_result` message.
     public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
 
+    /// Called when the daemon sends a `browser_frame` message with a new screenshot frame.
+    public var onBrowserFrame: ((BrowserFrameMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -1170,6 +1173,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onIntegrationListResponse?(msg)
         case .integrationConnectResult(let msg):
             onIntegrationConnectResult?(msg)
+        case .browserFrame(let msg):
+            onBrowserFrame?(msg)
         default:
             break
         }
