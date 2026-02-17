@@ -1,10 +1,6 @@
 import VellumAssistantShared
 import SwiftUI
 
-/// Onboarding footer combining progress dots with copyright text.
-///
-/// Renders a row of filled dots indicating progress through onboarding
-/// steps, followed by a "2026 Vellum Inc." copyright label.
 struct OnboardingFooter: View {
     let currentStep: Int
     let totalSteps: Int
@@ -26,7 +22,6 @@ struct OnboardingFooter: View {
 
     var body: some View {
         VStack(spacing: VSpacing.sm) {
-            // Progress dots
             HStack(spacing: VSpacing.sm) {
                 ForEach(0..<totalDots, id: \.self) { index in
                     Circle()
@@ -36,7 +31,6 @@ struct OnboardingFooter: View {
                 }
             }
 
-            // Copyright text
             Text("\u{00A9} 2026 Vellum Inc.")
                 .font(VFont.monoSmall)
                 .foregroundStyle(VColor.textMuted.opacity(0.5))
