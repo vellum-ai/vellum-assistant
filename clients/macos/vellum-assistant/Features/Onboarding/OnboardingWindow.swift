@@ -32,7 +32,7 @@ final class OnboardingWindow {
                 self.onComplete?(self.state)
                 // Settings will be opened by AppDelegate after onComplete
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NSApp.sendAction(NSSelectorFromString("showSettingsWindow:"), to: nil, from: nil)
                 }
             }
         )

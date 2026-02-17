@@ -16,7 +16,7 @@ struct TaskInputView: View {
     @FocusState private var isTextFieldFocused: Bool
     // Use NSApp action instead of @Environment(\.openSettings) for Xcode 16.2 compatibility
     private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.sendAction(NSSelectorFromString("showSettingsWindow:"), to: nil, from: nil)
     }
 
     private var canSubmit: Bool {
