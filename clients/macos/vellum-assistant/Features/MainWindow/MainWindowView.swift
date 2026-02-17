@@ -394,8 +394,8 @@ struct MainWindowView: View {
                 threadPendingDeletion = thread.id
             } label: {
                 Image(systemName: "archivebox")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
