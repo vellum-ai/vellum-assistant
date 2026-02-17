@@ -349,21 +349,11 @@ struct MainWindowView: View {
                 windowState.activeDynamicParsedSurface = nil
             }
         }
-        .alert("Delete Conversation?", isPresented: Binding(
-            get: { threadPendingDeletion != nil },
-            set: { if !$0 { threadPendingDeletion = nil } }
-        )) {
-            Button("Cancel", role: .cancel) {
+        .onChange(of: isHoveredThread) { _, newValue in
+            // Cancel pending archive when hover leaves the row
+            if let pending = threadPendingDeletion, newValue != pending {
                 threadPendingDeletion = nil
             }
-            Button("Delete", role: .destructive) {
-                if let threadId = threadPendingDeletion {
-                    threadManager.archiveThread(id: threadId)
-                    threadPendingDeletion = nil
-                }
-            }
-        } message: {
-            Text("This conversation will be archived. You can restore it from Settings.")
         }
     }
 
@@ -390,20 +380,37 @@ struct MainWindowView: View {
             }
             .buttonStyle(.plain)
 
-            Button {
-                threadPendingDeletion = thread.id
-            } label: {
-                Image(systemName: "archivebox")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
+            if threadPendingDeletion == thread.id {
+                Button {
+                    threadManager.archiveThread(id: thread.id)
+                    threadPendingDeletion = nil
+                } label: {
+                    Text("Confirm")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(VColor.surface)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Confirm archive \(thread.title)")
+            } else {
+                Button {
+                    threadPendingDeletion = thread.id
+                } label: {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(width: 24)
+                .opacity(isHoveredThread == thread.id ? 1 : 0)
+                .allowsHitTesting(isHoveredThread == thread.id)
+                .accessibilityLabel("Archive \(thread.title)")
             }
-            .buttonStyle(.plain)
-            .frame(width: 24)
-            .opacity(isHoveredThread == thread.id ? 1 : 0)
-            .allowsHitTesting(isHoveredThread == thread.id)
-            .accessibilityLabel("Archive \(thread.title)")
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
