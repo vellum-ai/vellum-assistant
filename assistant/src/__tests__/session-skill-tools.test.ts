@@ -2110,3 +2110,97 @@ describe('version hash plumbing to projected tools', () => {
     expect(tools![0].ownerSkillVersionHash).toBe('v1:default-hash-deploy');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Child skill includes: no auto-activation
+// ---------------------------------------------------------------------------
+
+describe('includes metadata does not auto-activate child skill tools', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    sessionState = new Map<string, string>();
+  });
+
+  test('parent with includes — only parent tools projected when only parent marker present', () => {
+    // Parent skill declares child in its includes metadata
+    const parentSkill = makeSkill('parent-skill');
+    (parentSkill as any).includes = ['child-skill'];
+
+    mockCatalog = [parentSkill, makeSkill('child-skill')];
+    mockManifests = {
+      'parent-skill': makeManifest(['parent_action']),
+      'child-skill': makeManifest(['child_action']),
+    };
+
+    // Only parent marker in history — child is NOT loaded
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="parent-skill" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Only parent tools should be projected
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('parent_action');
+    expect(result.allowedToolNames).toEqual(new Set(['parent_action']));
+
+    // Child tools must NOT be present
+    expect(result.allowedToolNames.has('child_action')).toBe(false);
+  });
+
+  test('child tools appear only after explicit child loaded_skill marker', () => {
+    const parentSkill = makeSkill('parent-skill');
+    (parentSkill as any).includes = ['child-skill'];
+
+    mockCatalog = [parentSkill, makeSkill('child-skill')];
+    mockManifests = {
+      'parent-skill': makeManifest(['parent_action']),
+      'child-skill': makeManifest(['child_action']),
+    };
+
+    // Both parent AND child markers present — both should be active
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="parent-skill" />'),
+      ...skillLoadMessages('<loaded_skill id="child-skill" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.allowedToolNames).toEqual(new Set(['parent_action', 'child_action']));
+  });
+
+  test('child tools are absent even with deep include chain — only markers matter', () => {
+    const grandparent = makeSkill('grandparent');
+    (grandparent as any).includes = ['parent'];
+    const parent = makeSkill('parent');
+    (parent as any).includes = ['child'];
+
+    mockCatalog = [grandparent, parent, makeSkill('child')];
+    mockManifests = {
+      grandparent: makeManifest(['gp_action']),
+      parent: makeManifest(['parent_action']),
+      child: makeManifest(['child_action']),
+    };
+
+    // Only grandparent marker — despite transitive includes, only grandparent tools active
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="grandparent" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('gp_action');
+    expect(result.allowedToolNames.has('parent_action')).toBe(false);
+    expect(result.allowedToolNames.has('child_action')).toBe(false);
+  });
+});
