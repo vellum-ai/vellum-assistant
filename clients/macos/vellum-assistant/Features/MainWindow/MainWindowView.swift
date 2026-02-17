@@ -486,6 +486,14 @@ struct MainWindowView: View {
         .background(VColor.backgroundSubtle)
     }
 
+    // MARK: - Drawer Drag Helpers
+
+    private func resetDrawerDragState() {
+        isDrawerDragging = false
+        drawerDragStartWidth = nil
+        drawerDragStartAvailableWidth = nil
+    }
+
     private func drawerDragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
@@ -501,8 +509,9 @@ struct MainWindowView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
                     .onChanged { value in
-                        // Capture initial state on first drag event
-                        if drawerDragStartWidth == nil {
+                        // Capture initial state on first drag event. Check both nil state AND
+                        // isDrawerDragging flag to handle race condition where async reset hasn't completed.
+                        if drawerDragStartWidth == nil || !isDrawerDragging {
                             drawerDragStartWidth = threadDrawerWidth
                             drawerDragStartAvailableWidth = availableWidth
                             isDrawerDragging = true
@@ -517,6 +526,7 @@ struct MainWindowView: View {
                         // does not feed back into gesture translation while dragging.
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
+                        let minDrawerWidth: CGFloat = 200
                         let minMainContent: CGFloat = 300
                         let sidePanelVisible =
                             (windowState.activePanel != nil &&
@@ -530,19 +540,15 @@ struct MainWindowView: View {
                         var transaction = Transaction()
                         transaction.disablesAnimations = true
                         withTransaction(transaction) {
-                            threadDrawerWidth = min(max(newWidth, 180), maxAllowed)
+                            threadDrawerWidth = min(max(newWidth, minDrawerWidth), maxAllowed)
                         }
                     }
                     .onEnded { _ in
-                        isDrawerDragging = false
-                        drawerDragStartWidth = nil
-                        drawerDragStartAvailableWidth = nil
+                        resetDrawerDragState()
                     }
             )
             .onDisappear {
-                isDrawerDragging = false
-                drawerDragStartWidth = nil
-                drawerDragStartAvailableWidth = nil
+                resetDrawerDragState()
             }
     }
 
