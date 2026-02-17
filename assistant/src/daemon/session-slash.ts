@@ -89,8 +89,8 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   const config = getConfig();
   const name = getAssistantName();
 
-  // Check if API key exists for this provider
-  if (!config.apiKeys[provider]) {
+  // Check if API key exists for this provider (Ollama doesn't require an API key)
+  if (provider !== 'ollama' && !config.apiKeys[provider]) {
     return {
       kind: 'unknown',
       message: `Cannot switch to ${displayName}. No API key configured for ${provider}.\n\nSet it with: \`config set apiKeys.${provider} <your-key>\``,
@@ -155,7 +155,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
 
     // Group by provider
     for (const [cmd, { provider, model, displayName }] of Object.entries(PROVIDER_MODEL_SHORTCUTS)) {
-      const hasKey = !!config.apiKeys[provider];
+      const hasKey = provider === 'ollama' || !!config.apiKeys[provider];
       const isCurrent = config.provider === provider && config.model === model;
       const status = hasKey ? '✓' : '✗';
       const current = isCurrent ? ' **[current]**' : '';
@@ -193,6 +193,15 @@ function resolveModelCommand(content: string): SlashResolution | null {
     return {
       kind: 'unknown',
       message: alreadyMsg,
+    };
+  }
+
+  // Validate that Anthropic provider is available
+  if (!currentConfig.apiKeys.anthropic) {
+    const displayName = MODEL_DISPLAY_NAMES[matched] ?? matched;
+    return {
+      kind: 'unknown',
+      message: `Cannot switch to ${displayName}. No API key configured for Anthropic.\n\nSet it with: \`config set apiKeys.anthropic <your-key>\``,
     };
   }
 
