@@ -311,9 +311,10 @@ export async function runDaemon(): Promise<void> {
   if (httpPortEnv) {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
-      // Generate a bearer token and write it to disk so HTTP clients
-      // can authenticate. Written before the server starts listening.
-      const bearerToken = randomBytes(32).toString('hex');
+      // Use an explicit env var if provided; otherwise generate a fresh
+      // random token. Either way, write it to disk so HTTP clients and
+      // the gateway can authenticate.
+      const bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || randomBytes(32).toString('hex');
       const httpTokenPath = getHttpTokenPath();
       writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
