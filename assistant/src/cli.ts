@@ -49,9 +49,9 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
 export function formatPrincipalTag(req: Pick<ConfirmationRequest, 'principalKind' | 'principalId' | 'principalVersion' | 'executionTarget'>): string {
   if (!req.principalKind || req.principalKind === 'core') return '';
   const name = req.principalId ?? req.principalKind;
-  // Show a shortened version hash when available (first 8 hex chars after prefix)
+  // Show a shortened version hash when available (first 8 hex chars after any scheme prefix)
   const versionSuffix = req.principalVersion
-    ? `@${req.principalVersion.replace(/^sha256:/, '').slice(0, 8)}`
+    ? `@${req.principalVersion.replace(/^[^:]+:/, '').slice(0, 8)}`
     : '';
   const target = req.executionTarget ? ` \u2192 ${req.executionTarget}` : '';
   return `[${req.principalKind}: ${name}${versionSuffix}${target}]`;
