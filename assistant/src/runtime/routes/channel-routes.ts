@@ -103,6 +103,10 @@ export async function handleChannelInbound(
     ? sourceMetadata.messageId
     : undefined;
 
+  if (isEdit && !sourceMessageId) {
+    return Response.json({ error: 'sourceMetadata.messageId is required for edits' }, { status: 400 });
+  }
+
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
     // Dedup the edit event itself (retried edited_message webhooks)
