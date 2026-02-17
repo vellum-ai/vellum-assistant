@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import type { ToolExecutionResult } from '../tools/types.js';
+import type { ToolExecutionResult, Tool } from '../tools/types.js';
+import type { PolicyContext } from '../permissions/types.js';
 
 const mockConfig = {
   provider: 'anthropic',
@@ -14,6 +15,12 @@ const mockConfig = {
 };
 
 let fakeToolResult: ToolExecutionResult = { content: 'ok', isError: false };
+
+/** Captured arguments from the last check() call, for assertion in tests. */
+let lastCheckArgs: { toolName: string; input: Record<string, unknown>; workingDir: string; policyContext?: PolicyContext } | undefined;
+
+/** Optional override for getTool — lets tests supply skill-origin tools. */
+let getToolOverride: ((name: string) => Tool | undefined) | undefined;
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
@@ -36,7 +43,10 @@ mock.module('../util/logger.js', () => ({
 
 mock.module('../permissions/checker.js', () => ({
   classifyRisk: async () => 'low',
-  check: async () => ({ decision: 'allow', reason: 'allowed' }),
+  check: async (toolName: string, input: Record<string, unknown>, workingDir: string, policyContext?: PolicyContext) => {
+    lastCheckArgs = { toolName, input, workingDir, policyContext };
+    return { decision: 'allow', reason: 'allowed' };
+  },
   generateAllowlistOptions: () => [{ label: 'exact', description: 'exact', pattern: 'exact' }],
   generateScopeOptions: () => [{ label: '/tmp', scope: '/tmp' }],
 }));
@@ -47,6 +57,7 @@ mock.module('../memory/tool-usage-store.js', () => ({
 
 mock.module('../tools/registry.js', () => ({
   getTool: (name: string) => {
+    if (getToolOverride) return getToolOverride(name);
     if (name === 'unknown_tool') return undefined;
     return {
       name,
@@ -96,6 +107,8 @@ afterAll(() => { mock.restore(); });
 describe('ToolExecutor allowedToolNames gating', () => {
   beforeEach(() => {
     fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
   });
 
   test('executes normally when allowedToolNames is not set (backward compat)', async () => {
@@ -136,5 +149,142 @@ describe('ToolExecutor allowedToolNames gating', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('file_read');
     expect(result.content).toContain('not currently active');
+  });
+});
+
+describe('ToolExecutor principal context plumbing', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+  });
+
+  test('passes PolicyContext with skill principal for skill-origin tools', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'my-skill-123',
+        ownerSkillVersionHash: 'abc123hash',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute('skill_tool', { action: 'run' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      principal: {
+        kind: 'skill',
+        id: 'my-skill-123',
+        version: 'abc123hash',
+      },
+      executionTarget: 'sandbox',
+    });
+  });
+
+  test('passes undefined policyContext for core tools (no origin)', async () => {
+    // Default getTool returns core tools with no origin field
+    getToolOverride = undefined;
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toBeUndefined();
+  });
+
+  test('passes undefined policyContext for tools with origin "core"', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'core tool',
+        category: 'core',
+        defaultRiskLevel: 'low' as const,
+        origin: 'core' as const,
+        getDefinition: () => ({ name, description: 'core tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toBeUndefined();
+  });
+
+  test('includes executionTarget "host" from skill tool metadata', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'host skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'host-skill',
+        ownerSkillVersionHash: 'host-hash',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({ name, description: 'host skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute('host_skill_tool', { action: 'run' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      principal: {
+        kind: 'skill',
+        id: 'host-skill',
+        version: 'host-hash',
+      },
+      executionTarget: 'host',
+    });
+  });
+
+  test('skill tool without version hash passes undefined version in principal', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill without hash',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'no-hash-skill',
+        // ownerSkillVersionHash intentionally omitted
+        getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute('no_hash_tool', {}, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      principal: {
+        kind: 'skill',
+        id: 'no-hash-skill',
+        version: undefined,
+      },
+      executionTarget: undefined,
+    });
   });
 });

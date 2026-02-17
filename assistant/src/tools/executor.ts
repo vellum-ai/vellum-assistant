@@ -1,7 +1,8 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool, getAllTools } from './registry.js';
-import type { ExecutionTarget, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
+import type { PolicyContext } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
@@ -96,7 +97,11 @@ export class ToolExecutor {
       // Check permissions
       const risk = await classifyRisk(name, input);
       riskLevel = risk;
-      const result = await check(name, input, context.workingDir);
+
+      // Build principal context from tool metadata so policy rules can
+      // distinguish skill-provided tools from core built-ins.
+      const policyContext = buildPolicyContext(tool);
+      const result = await check(name, input, context.workingDir, policyContext);
 
       if (result.decision === 'deny') {
         decision = 'denied';
@@ -499,6 +504,25 @@ async function executeWithTimeout(
   } finally {
     clearTimeout(timeoutHandle!);
   }
+}
+
+/**
+ * Build a PolicyContext from tool metadata. Skill-origin tools carry a
+ * principal identifying the owning skill; core tools yield an undefined
+ * context so the checker applies default (user) policy.
+ */
+function buildPolicyContext(tool: Tool): PolicyContext | undefined {
+  if (tool.origin === 'skill') {
+    return {
+      principal: {
+        kind: 'skill',
+        id: tool.ownerSkillId,
+        version: tool.ownerSkillVersionHash,
+      },
+      executionTarget: tool.executionTarget,
+    };
+  }
+  return undefined;
 }
 
 function resolveExecutionTarget(toolName: string): ExecutionTarget {
