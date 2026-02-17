@@ -190,6 +190,10 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
+  // Remember which tools already exist before we register core tools,
+  // so the snapshot below captures only the core set.
+  const preExisting = new Set(tools.keys());
+
   const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
   // Import tool modules to trigger registration side effects.
@@ -221,13 +225,17 @@ export async function initializeTools(): Promise<void> {
     registerLazyTool(descriptor);
   }
 
-  // Snapshot the core tool set on first initialization so
-  // __resetRegistryForTesting() can restore it. ESM import caching
-  // means eager side-effect modules won't re-register on subsequent
-  // initializeTools() calls, so we need this snapshot to avoid
-  // silently losing tools.
+  // Snapshot only the tools registered during this call so
+  // __resetRegistryForTesting() can restore them. We filter out
+  // any tools that existed before initializeTools() ran (e.g. test
+  // helpers), preventing test contamination on reset.
   if (!coreToolsSnapshot) {
-    coreToolsSnapshot = new Map(tools);
+    coreToolsSnapshot = new Map<string, Tool>();
+    for (const [name, tool] of tools) {
+      if (!preExisting.has(name)) {
+        coreToolsSnapshot.set(name, tool);
+      }
+    }
   }
 
   log.info({ count: tools.size }, 'Tools initialized');
