@@ -55,6 +55,11 @@ public final class ToolConfirmationNotificationService {
         }
     }
 
+    /// Sentinel value returned by `showConfirmation` when the inline chat path
+    /// already forwarded the response to the daemon. Callers should skip their
+    /// own `sendConfirmationResponse` when they receive this value.
+    public static let inlineHandledSentinel = "__inline_handled__"
+
     /// Called when the user responds to a notification (Allow/Deny/Dismiss).
     public func handleResponse(requestId: String, decision: String) {
         guard let continuation = pendingRequests.removeValue(forKey: requestId) else {
@@ -63,6 +68,18 @@ public final class ToolConfirmationNotificationService {
         }
         log.info("Confirmation response: requestId=\(requestId, privacy: .public), decision=\(decision, privacy: .public)")
         continuation.resume(returning: decision)
+    }
+
+    /// Called when the inline chat path already sent the confirmation response
+    /// to the daemon. Resumes the continuation with a sentinel so that
+    /// `setupToolConfirmationNotifications` skips the duplicate IPC send.
+    public func handleInlineResponse(requestId: String) {
+        guard let continuation = pendingRequests.removeValue(forKey: requestId) else {
+            log.warning("No pending request for inline response: requestId=\(requestId, privacy: .public)")
+            return
+        }
+        log.info("Inline confirmation handled: requestId=\(requestId, privacy: .public)")
+        continuation.resume(returning: Self.inlineHandledSentinel)
     }
 
     /// Called when a notification is dismissed without action — defaults to deny.

@@ -381,6 +381,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor in
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+                // If the inline chat path already forwarded the response, skip
+                // the duplicate IPC send and state update.
+                guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
+                    return
+                }
                 do {
                     try self.daemonClient.sendConfirmationResponse(
                         requestId: msg.requestId,
@@ -968,9 +973,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
             guard let self else { return }
-            // Resume the notification service continuation so it doesn't hang
-            // (no-op if no pending request for this requestId).
-            self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
+            // Resume the notification service continuation with a sentinel so
+            // setupToolConfirmationNotifications skips the duplicate IPC send
+            // (the inline chat path already forwarded the response).
+            self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
             // Remove the delivered notification from Notification Center
             UNUserNotificationCenter.current().removeDeliveredNotifications(
                 withIdentifiers: ["tool-confirm-\(requestId)"]
