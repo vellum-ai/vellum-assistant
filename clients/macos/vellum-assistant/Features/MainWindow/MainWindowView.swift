@@ -373,8 +373,11 @@ struct MainWindowView: View {
         HStack(spacing: 0) {
             Button(action: {
                 threadManager.selectThread(id: thread.id)
-                if windowState.activePanel == .directory || windowState.activePanel == .identity {
+                switch windowState.activePanel {
+                case .settings, .agent, .directory, .debug, .doctor, .identity:
                     windowState.activePanel = nil
+                default:
+                    break
                 }
             }) {
                 Text(thread.title)
