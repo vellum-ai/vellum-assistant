@@ -3,6 +3,7 @@ import { findHighestPriorityRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
 import { getTool } from '../tools/registry.js';
+import { getConfig } from '../config/loader.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
@@ -312,6 +313,13 @@ export async function check(
     if (tool?.origin === 'skill') {
       return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
     }
+  }
+
+  // In strict mode, every tool without an explicit matching rule must be
+  // prompted — there is no implicit auto-allow for any risk level.
+  const permissionsMode = getConfig().permissions.mode;
+  if (permissionsMode === 'strict' && !matchedRule) {
+    return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
   }
 
   if (risk === RiskLevel.High) {

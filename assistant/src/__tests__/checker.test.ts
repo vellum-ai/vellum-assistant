@@ -26,6 +26,23 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+// Mutable config object so tests can switch permissions.mode between
+// 'legacy' and 'strict' without re-registering the mock.
+const testConfig = {
+  permissions: { mode: 'legacy' as 'legacy' | 'strict' },
+};
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => testConfig,
+  loadConfig: () => testConfig,
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+}));
+
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
@@ -73,6 +90,8 @@ describe('Permission Checker', () => {
   beforeEach(() => {
     // Reset trust-store state between tests
     clearCache();
+    // Reset permissions mode to legacy so existing tests are not affected
+    testConfig.permissions.mode = 'legacy';
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
@@ -1411,6 +1430,85 @@ describe('Permission Checker', () => {
       const resultNoVersion = await check('skill_test_tool', {}, '/tmp', ctxNoVersion);
       expect(resultNoVersion.decision).toBe('allow');
       expect(resultNoVersion.matchedRule?.id).toBe('test-version-wildcard');
+    });
+  });
+
+  // ── strict mode: no implicit allow (PR 21) ───────────────────
+
+  describe('strict mode — no implicit allow (PR 21)', () => {
+    test('low-risk tool with no matching rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('medium-risk tool with no matching rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('high-risk tool with no matching rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      // High risk prompts via the existing high-risk path, not strict mode
+      expect(result.reason).toContain('requires approval');
+    });
+
+    test('low-risk tool still auto-allows in legacy mode (backward compat)', async () => {
+      testConfig.permissions.mode = 'legacy';
+      const result = await check('bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Low risk');
+    });
+
+    test('explicit allow rule still returns allow in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'ls', '/tmp', 'allow');
+      const result = await check('bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Matched trust rule');
+    });
+
+    test('deny rules still take precedence in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'ls', '/tmp', 'deny');
+      const result = await check('bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('file_read (low risk) prompts in strict mode with no rule', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('file_read', { path: '/tmp/test.txt' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('web_search (low risk) prompts in strict mode with no rule', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('web_search', { query: 'test' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('ask rules still prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'echo *', '/tmp', 'ask');
+      const result = await check('bash', { command: 'echo hello' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+    });
+
+    test('high-risk with allow rule still prompts in strict mode (allow cannot override high risk)', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'sudo *', 'everywhere', 'allow');
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
   });
 });
