@@ -672,6 +672,9 @@ exports[`IPC message snapshots ServerMessage types confirmation_request serializ
   "input": {
     "command": "rm -rf /tmp/test",
   },
+  "principalId": "my-skill",
+  "principalKind": "skill",
+  "principalVersion": "sha256:abcdef1234567890",
   "requestId": "req-002",
   "riskLevel": "high",
   "sandboxed": false,

@@ -37,6 +37,7 @@ export class PermissionPrompter {
     sandboxed?: boolean,
     sessionId?: string,
     executionTarget?: ExecutionTarget,
+    principal?: { kind?: string; id?: string; version?: string },
   ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
     const requestId = uuid();
 
@@ -62,6 +63,9 @@ export class PermissionPrompter {
         sandboxed,
         sessionId,
         executionTarget,
+        principalKind: principal?.kind,
+        principalId: principal?.id,
+        principalVersion: principal?.version,
       });
     });
   }

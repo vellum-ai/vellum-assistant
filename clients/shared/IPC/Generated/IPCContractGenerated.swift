@@ -160,6 +160,12 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let diff: IPCConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let sessionId: String?
+    /// Principal kind that initiated this tool use (e.g. 'core' or 'skill').
+    public let principalKind: String?
+    /// Skill ID when principalKind is 'skill'.
+    public let principalId: String?
+    /// Content-hash of the skill source for version tracking.
+    public let principalVersion: String?
 }
 
 public struct IPCConfirmationRequestAllowlistOption: Codable, Sendable {

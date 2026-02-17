@@ -441,6 +441,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     },
     sandboxed: false,
     sessionId: 'sess-001',
+    principalKind: 'skill',
+    principalId: 'my-skill',
+    principalVersion: 'sha256:abcdef1234567890',
   },
   message_complete: {
     type: 'message_complete',

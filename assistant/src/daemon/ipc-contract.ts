@@ -774,6 +774,12 @@ export interface ConfirmationRequest {
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
   sessionId?: string;
+  /** Principal kind that initiated this tool use (e.g. 'core' or 'skill'). */
+  principalKind?: string;
+  /** Skill ID when principalKind is 'skill'. */
+  principalId?: string;
+  /** Content-hash of the skill source for version tracking. */
+  principalVersion?: string;
 }
 
 export interface SecretRequest {

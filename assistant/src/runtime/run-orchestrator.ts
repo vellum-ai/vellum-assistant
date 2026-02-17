@@ -100,6 +100,9 @@ export class RunOrchestrator {
           executionTarget: msg.executionTarget,
           allowlistOptions: msg.allowlistOptions,
           scopeOptions: msg.scopeOptions,
+          principalKind: msg.principalKind,
+          principalId: msg.principalId,
+          principalVersion: msg.principalVersion,
         });
         this.pending.set(run.id, {
           prompterRequestId: msg.requestId,
