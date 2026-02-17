@@ -21,6 +21,7 @@ struct SettingsPanel: View {
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var showModelDropdown = false
+    @State private var mouseDownMonitor: Any?
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -437,6 +438,24 @@ struct SettingsPanel: View {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
+            if let monitor = mouseDownMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseDownMonitor = nil
+            }
+        }
+        .onChange(of: showModelDropdown) { _, isOpen in
+            if let monitor = mouseDownMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseDownMonitor = nil
+            }
+            if isOpen {
+                mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+                    DispatchQueue.main.async {
+                        withAnimation(VAnimation.fast) { showModelDropdown = false }
+                    }
+                    return event
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Primary mechanism: Check permissions when app becomes active.
