@@ -129,3 +129,80 @@ describe('deriveActiveSkillIds', () => {
     expect(deriveActiveSkillIds(messages)).toEqual(['visible']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Context-derived deactivation regression tests
+// ---------------------------------------------------------------------------
+
+describe('deriveActiveSkillIds — deactivation when marker leaves history', () => {
+  test('marker present → skill ID returned; marker removed → empty', () => {
+    const withMarker: Message[] = [
+      toolResultMsg('t1', '<loaded_skill id="deploy" />'),
+    ];
+    expect(deriveActiveSkillIds(withMarker)).toEqual(['deploy']);
+
+    // Simulate history truncation: the message containing the marker is gone
+    const withoutMarker: Message[] = [];
+    expect(deriveActiveSkillIds(withoutMarker)).toEqual([]);
+  });
+
+  test('one of two markers removed → only surviving skill returned', () => {
+    const bothPresent: Message[] = [
+      toolResultMsg('t1', '<loaded_skill id="deploy" />'),
+      toolResultMsg('t2', '<loaded_skill id="oncall" />'),
+    ];
+    expect(deriveActiveSkillIds(bothPresent)).toEqual(['deploy', 'oncall']);
+
+    // History truncated to remove the deploy marker
+    const onlyOncall: Message[] = [
+      toolResultMsg('t2', '<loaded_skill id="oncall" />'),
+    ];
+    expect(deriveActiveSkillIds(onlyOncall)).toEqual(['oncall']);
+  });
+
+  test('all markers removed from multi-message history → empty', () => {
+    const withMarkers: Message[] = [
+      textMsg('user', 'Hello'),
+      toolResultMsg('t1', '<loaded_skill id="alpha" />'),
+      textMsg('assistant', 'Done'),
+      toolResultMsg('t2', '<loaded_skill id="beta" />'),
+    ];
+    expect(deriveActiveSkillIds(withMarkers)).toEqual(['alpha', 'beta']);
+
+    // History truncated to only keep non-marker messages
+    const noMarkers: Message[] = [
+      textMsg('user', 'Hello'),
+      textMsg('assistant', 'Done'),
+    ];
+    expect(deriveActiveSkillIds(noMarkers)).toEqual([]);
+  });
+
+  test('marker replaced by different content in same position → skill gone', () => {
+    const original: Message[] = [
+      toolResultMsg('t1', '<loaded_skill id="deploy" />'),
+    ];
+    expect(deriveActiveSkillIds(original)).toEqual(['deploy']);
+
+    // Same structure but marker text replaced (e.g. message edited/summarized)
+    const replaced: Message[] = [
+      toolResultMsg('t1', 'Deployment complete.'),
+    ];
+    expect(deriveActiveSkillIds(replaced)).toEqual([]);
+  });
+
+  test('derive is stateless — consecutive calls with different histories are independent', () => {
+    const history1: Message[] = [
+      toolResultMsg('t1', '<loaded_skill id="deploy" />'),
+    ];
+    expect(deriveActiveSkillIds(history1)).toEqual(['deploy']);
+
+    // Calling with a completely different history does not carry over state
+    const history2: Message[] = [
+      toolResultMsg('t2', '<loaded_skill id="oncall" />'),
+    ];
+    expect(deriveActiveSkillIds(history2)).toEqual(['oncall']);
+
+    // Empty history returns empty, confirming no leaked state
+    expect(deriveActiveSkillIds([])).toEqual([]);
+  });
+});
