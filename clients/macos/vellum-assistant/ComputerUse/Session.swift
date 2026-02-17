@@ -556,18 +556,18 @@ final class ComputerUseSession: ObservableObject {
 
     private func mapToAgentAction(_ msg: CuActionMessage) -> AgentAction {
         let type: ActionType = switch msg.toolName {
-        case "cu_click": .click
-        case "cu_double_click": .doubleClick
-        case "cu_right_click": .rightClick
-        case "cu_type_text": .type
-        case "cu_key": .key
-        case "cu_scroll": .scroll
-        case "cu_wait": .wait
-        case "cu_drag": .drag
-        case "cu_open_app": .openApp
-        case "cu_run_applescript": .runAppleScript
-        case "cu_done": .done
-        case "cu_respond": .respond
+        case "computer_use_click", "cu_click": .click
+        case "computer_use_double_click", "cu_double_click": .doubleClick
+        case "computer_use_right_click", "cu_right_click": .rightClick
+        case "computer_use_type_text", "cu_type_text": .type
+        case "computer_use_key", "cu_key": .key
+        case "computer_use_scroll", "cu_scroll": .scroll
+        case "computer_use_wait", "cu_wait": .wait
+        case "computer_use_drag", "cu_drag": .drag
+        case "computer_use_open_app", "cu_open_app": .openApp
+        case "computer_use_run_applescript", "cu_run_applescript": .runAppleScript
+        case "computer_use_done", "cu_done": .done
+        case "computer_use_respond", "cu_respond": .respond
         default: .done
         }
 
