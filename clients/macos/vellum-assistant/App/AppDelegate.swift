@@ -156,6 +156,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var hasSetupApp = false
+    private var hasSetupDaemon = false
 
     private func proceedToApp() {
         authWindow?.close()
@@ -237,7 +238,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             voiceInput = nil
             ambientAgent.teardown()
 
+            if let observer = windowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                windowObserver = nil
+            }
+            statusIconCancellable?.cancel()
+            statusIconCancellable = nil
+
+            if let item = statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+                statusItem = nil
+            }
+
+            if let mainMenu = NSApp.mainMenu {
+                if let viewIndex = mainMenu.indexOfItem(withTitle: "View") as Int?,
+                   viewIndex >= 0 {
+                    mainMenu.removeItem(at: viewIndex)
+                }
+            }
+
             hasSetupApp = false
+            hasSetupDaemon = false
             showAuthWindow()
         }
     }
@@ -265,6 +286,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupDaemonClient() {
+        guard !hasSetupDaemon else { return }
+        hasSetupDaemon = true
+
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
             let content = UNMutableNotificationContent()
@@ -532,14 +556,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Don't show the main window while onboarding is active — the app
-        // isn't fully initialized yet and showing it would let users bypass
-        // the onboarding flow with partially initialized state.
-        guard onboardingWindow == nil, authWindow == nil else { return true }
+        if onboardingWindow != nil { return true }
 
-        // Always show the main window on reopen (e.g. Spotlight, Dock click).
-        // Even when hasVisibleWindows is true, the window may be behind other apps
-        // and the user expects it to come to the front.
+        if authWindow != nil {
+            authWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return true
+        }
+
         showMainWindow()
         return true
     }

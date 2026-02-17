@@ -41,6 +41,15 @@ enum SessionTokenManager {
         }
     }
 
+    static func getTokenAsync() async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = cliGetKey(service: service, account: account)
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     private static func cliSetKey(service: String, account: String, value: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -51,6 +60,18 @@ enum SessionTokenManager {
         process.waitUntilExit()
     }
 
+    static func setTokenAsync(_ token: String) async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cliSetKey(service: service, account: account, value: token)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     private static func cliDeleteKey(service: String, account: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
@@ -59,5 +80,17 @@ enum SessionTokenManager {
         process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
+    }
+
+    static func deleteTokenAsync() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                cliDeleteKey(service: service, account: account)
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
+                }
+                continuation.resume()
+            }
+        }
     }
 }

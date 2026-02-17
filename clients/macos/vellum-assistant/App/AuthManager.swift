@@ -50,7 +50,7 @@ final class AuthManager {
         state = .loading
         errorMessage = nil
 
-        guard SessionTokenManager.getToken() != nil else {
+        guard await SessionTokenManager.getTokenAsync() != nil else {
             state = .unauthenticated
             return
         }
@@ -173,7 +173,7 @@ final class AuthManager {
 
             if let urlComponents = URLComponents(url: resultURL, resolvingAgainstBaseURL: false),
                let sessionToken = urlComponents.queryItems?.first(where: { $0.name == "session_token" })?.value {
-                SessionTokenManager.setToken(sessionToken)
+                await SessionTokenManager.setTokenAsync(sessionToken)
             }
 
             await checkSession()
@@ -274,7 +274,7 @@ final class AuthManager {
         } catch {
             log.error("Logout request failed: \(error.localizedDescription)")
         }
-        SessionTokenManager.deleteToken()
+        await SessionTokenManager.deleteTokenAsync()
         state = .unauthenticated
         currentFlow = .login
         errorMessage = nil

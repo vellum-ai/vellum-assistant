@@ -322,7 +322,7 @@ final class AuthService {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if let token = SessionTokenManager.getToken() {
+        if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
         }
 
@@ -357,7 +357,7 @@ final class AuthService {
         }
 
         if let sessionToken = decoded.meta?.session_token {
-            SessionTokenManager.setToken(sessionToken)
+            await SessionTokenManager.setTokenAsync(sessionToken)
         }
 
         return decoded
