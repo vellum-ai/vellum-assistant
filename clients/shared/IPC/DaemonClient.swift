@@ -5,6 +5,16 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
 #if os(macOS)
+private func expandHomePath(_ path: String) -> String {
+    if path == "~" {
+        return NSHomeDirectory()
+    }
+    if path.hasPrefix("~/") {
+        return NSHomeDirectory() + "/" + String(path.dropFirst(2))
+    }
+    return path
+}
+
 /// Resolve the Unix domain socket path for the daemon connection.
 /// Returns the path in priority order:
 /// 1. `VELLUM_DAEMON_SOCKET` environment variable (trimmed, with ~/ expansion)
@@ -15,12 +25,31 @@ func resolveSocketPath(environment: [String: String]? = nil) -> String {
     let env = environment ?? ProcessInfo.processInfo.environment
     if let envPath = env["VELLUM_DAEMON_SOCKET"], !envPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("~/") {
-            return NSHomeDirectory() + "/" + String(trimmed.dropFirst(2))
-        }
-        return trimmed
+        return expandHomePath(trimmed)
     }
     return NSHomeDirectory() + "/.vellum/vellum.sock"
+}
+
+/// Resolve the daemon session token path.
+/// Uses BASE_DATA_DIR when set to match daemon root resolution.
+func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
+    let env = environment ?? ProcessInfo.processInfo.environment
+    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+        return expandHomePath(baseDir) + "/.vellum/session-token"
+    }
+    return NSHomeDirectory() + "/.vellum/session-token"
+}
+
+/// Read the daemon session token from disk.
+func readSessionToken(environment: [String: String]? = nil) -> String? {
+    let tokenPath = resolveSessionTokenPath(environment: environment)
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
+          let token = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+          !token.isEmpty else {
+        return nil
+    }
+    return token
 }
 #endif
 
@@ -209,6 +238,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     private var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
+    private var isAuthenticated = false
+    private var authContinuation: CheckedContinuation<Void, Error>?
+    private var authTimeoutTask: Task<Void, Never>?
+
     /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
     private var receiveBuffer = Data()
 
@@ -292,6 +325,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// How long to wait for a connection before giving up.
     private static let connectTimeout: TimeInterval = 5.0
+    private static let authTimeout: TimeInterval = 5.0
 
     /// Connect to the daemon. If already connected, disconnects first.
     /// - macOS: Connects to Unix domain socket at `~/.vellum/vellum.sock`
@@ -368,19 +402,37 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                             resumed = true
                             timeoutTask.cancel()
                             log.info("Connected to daemon socket")
-                            self.isConnected = true
-                            self.reconnectDelay = 1.0
                             self.startReceiveLoop()
-                            self.startPingTimer()
-                            #if os(macOS)
-                            self.runBlobProbe()
-                            #endif
-                            checkedContinuation.resume()
+                            Task { @MainActor in
+                                do {
+                                    #if os(macOS)
+                                    try await self.authenticate()
+                                    #else
+                                    self.isAuthenticated = true
+                                    #endif
+                                    self.isConnected = true
+                                    self.reconnectDelay = 1.0
+                                    self.startPingTimer()
+                                    #if os(macOS)
+                                    self.runBlobProbe()
+                                    #endif
+                                    checkedContinuation.resume()
+                                } catch {
+                                    log.error("Daemon authentication failed: \(error.localizedDescription)")
+                                    self.isConnected = false
+                                    self.isAuthenticated = false
+                                    self.stopPingTimer()
+                                    conn.stateUpdateHandler = nil
+                                    conn.cancel()
+                                    checkedContinuation.resume(throwing: error)
+                                }
+                            }
                         }
 
                     case .failed(let error):
                         log.error("Connection failed: \(error.localizedDescription)")
                         self.isConnected = false
+                        self.isAuthenticated = false
                         self.stopPingTimer()
                         if !resumed {
                             resumed = true
@@ -393,6 +445,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     case .cancelled:
                         log.info("Connection cancelled")
                         self.isConnected = false
+                        self.isAuthenticated = false
                         self.stopPingTimer()
                         if !resumed {
                             resumed = true
@@ -415,15 +468,73 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    // MARK: - Authentication
+
+    #if os(macOS)
+    private func authenticate() async throws {
+        guard let token = readSessionToken() else {
+            throw AuthError.missingToken
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            authContinuation?.resume(throwing: AuthError.rejected("Authentication superseded"))
+            authContinuation = continuation
+
+            authTimeoutTask?.cancel()
+            authTimeoutTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(Self.authTimeout * 1_000_000_000))
+                } catch {
+                    return
+                }
+                guard let self, let pending = self.authContinuation else { return }
+                self.authContinuation = nil
+                self.authTimeoutTask = nil
+                self.isAuthenticated = false
+                pending.resume(throwing: AuthError.timeout)
+            }
+
+            do {
+                try self.send(AuthMessage(token: token))
+            } catch {
+                authContinuation = nil
+                authTimeoutTask?.cancel()
+                authTimeoutTask = nil
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+    #endif
+
     // MARK: - Send
 
     public enum SendError: Error, LocalizedError {
         case notConnected
+        case notAuthenticated
 
         public var errorDescription: String? {
             switch self {
             case .notConnected:
                 return "Cannot send: not connected to daemon"
+            case .notAuthenticated:
+                return "Cannot send: daemon authentication not complete"
+            }
+        }
+    }
+
+    public enum AuthError: Error, LocalizedError {
+        case missingToken
+        case timeout
+        case rejected(String?)
+
+        public var errorDescription: String? {
+            switch self {
+            case .missingToken:
+                return "Missing daemon session token"
+            case .timeout:
+                return "Daemon authentication timed out"
+            case .rejected(let message):
+                return message ?? "Daemon authentication rejected"
             }
         }
     }
@@ -446,6 +557,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             log.warning("Cannot send: not connected")
             throw SendError.notConnected
         }
+
+        #if os(macOS)
+        if !isAuthenticated, !(message is AuthMessage) {
+            log.warning("Cannot send: authentication not complete")
+            throw SendError.notAuthenticated
+        }
+        #endif
 
         var data = try encoder.encode(message)
         data.append(contentsOf: [0x0A]) // newline byte
@@ -804,10 +922,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         reconnectTask = nil
         stopPingTimer()
+        #if os(macOS)
+        if let pending = authContinuation {
+            authContinuation = nil
+            authTimeoutTask?.cancel()
+            authTimeoutTask = nil
+            pending.resume(throwing: AuthError.rejected("Disconnected"))
+        }
+        authTimeoutTask?.cancel()
+        authTimeoutTask = nil
+        #endif
         blobProbeTask?.cancel()
         blobProbeTask = nil
         pendingProbeId = nil
         isBlobTransportAvailable = false
+        isAuthenticated = false
 
         if let conn = connection {
             conn.stateUpdateHandler = nil
@@ -915,6 +1044,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         // Forward surface messages to registered callbacks.
         switch message {
+        case .authResult(let msg):
+            handleAuthResult(msg)
         case .uiSurfaceShow(let msg):
             // Inline surfaces are rendered in-chat by ChatViewModel; skip the floating panel.
             if msg.display != "inline" {
@@ -1024,6 +1155,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         for continuation in subscribers.values {
             continuation.yield(message)
         }
+    }
+
+    private func handleAuthResult(_ result: AuthResultMessage) {
+        #if os(macOS)
+        isAuthenticated = result.success
+        if let pending = authContinuation {
+            authContinuation = nil
+            authTimeoutTask?.cancel()
+            authTimeoutTask = nil
+            if result.success {
+                pending.resume(returning: ())
+            } else {
+                pending.resume(throwing: AuthError.rejected(result.message))
+            }
+        }
+        #endif
     }
 
     // MARK: - Blob Probe (macOS only)
