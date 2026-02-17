@@ -638,6 +638,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onConfirmationRequest = { [weak self] msg in
             guard let self else { return }
             Task { @MainActor in
+                // Auto-approve low/medium risk tool confirmations during CU sessions
+                if self.currentSession?.autoApproveTools == true,
+                   msg.riskLevel == "low" || msg.riskLevel == "medium" {
+                    do {
+                        try self.daemonClient.sendConfirmationResponse(
+                            requestId: msg.requestId,
+                            decision: "allow"
+                        )
+                        self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                            requestId: msg.requestId,
+                            decision: "allow"
+                        )
+                    } catch {
+                        log.error("Failed to auto-approve confirmation: \(error.localizedDescription)")
+                    }
+                    return
+                }
+
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
                 // If the inline chat path already forwarded the response, skip
                 // the duplicate IPC send and state update.

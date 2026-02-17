@@ -22,6 +22,7 @@ enum SessionState: Equatable {
 final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
     @Published var undoCount = 0
+    @Published var autoApproveTools = false
 
     let task: String
     let id: String
