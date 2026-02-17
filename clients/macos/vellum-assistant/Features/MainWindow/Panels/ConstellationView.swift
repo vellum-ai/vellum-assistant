@@ -329,80 +329,9 @@ struct ConstellationView: View {
                 endRadius: min(size.width, size.height) * 0.5
             )
 
-            // Center → hub branches
-            ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
-                let hubKey = "hub-\(group.category.rawValue)"
-                let hubPos = effectivePos(hubBasePositions[groupIdx], key: hubKey)
-                BranchShape(from: center, to: hubPos)
-                    .stroke(group.category.color.opacity(0.25), lineWidth: 1.5)
-                    .opacity(phase.hubBranchesVisible ? 1 : 0)
-                    .animation(
-                        .easeIn(duration: 0.3).delay(0.20 + Double(groupIdx) * 0.04),
-                        value: phase
-                    )
-            }
-
-            // Hub → leaf branches
-            ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
-                let hubKey = "hub-\(group.category.rawValue)"
-                let hubPos = effectivePos(hubBasePositions[groupIdx], key: hubKey)
-                let leafBasePositions = computeLeafPositions(
-                    hub: hubBasePositions[groupIdx], center: center, radius: leafRadius,
-                    count: group.items.count
-                )
-
-                ForEach(Array(group.items.enumerated()), id: \.element.id) { leafIdx, item in
-                    let leafPos = effectivePos(leafBasePositions[leafIdx], key: item.id)
-                    BranchShape(from: hubPos, to: leafPos)
-                        .stroke(group.category.color.opacity(0.18), lineWidth: 1)
-                        .opacity(phase.leafBranchesVisible ? 1 : 0)
-                        .animation(
-                            .easeIn(duration: 0.25).delay(0.35 + Double(groupIdx) * 0.04 + Double(leafIdx) * 0.03),
-                            value: phase
-                        )
-                }
-            }
-
-            // Hub labels (draggable)
-            ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
-                let hubKey = "hub-\(group.category.rawValue)"
-                DraggableNode(nodeKey: hubKey, offsets: $nodeOffsets) {
-                    CategoryHubLabel(category: group.category, itemCount: group.items.count)
-                }
-                .position(hubBasePositions[groupIdx])
-                .scaleEffect(phase.hubsVisible ? 1 : 0.3)
-                .opacity(phase.hubsVisible ? 1 : 0)
-                .animation(
-                    .spring(response: 0.45, dampingFraction: 0.7)
-                        .delay(0.12 + Double(groupIdx) * 0.05),
-                    value: phase
-                )
-            }
-
-            // Leaf pills (draggable)
-            ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
-                let leafBasePositions = computeLeafPositions(
-                    hub: hubBasePositions[groupIdx], center: center, radius: leafRadius,
-                    count: group.items.count
-                )
-
-                ForEach(Array(group.items.enumerated()), id: \.element.id) { leafIdx, item in
-                    DraggableNode(nodeKey: item.id, offsets: $nodeOffsets) {
-                        ConstellationPill(
-                            label: item.label, icon: item.icon,
-                            emoji: item.emoji, color: item.color
-                        )
-                    }
-                    .position(leafBasePositions[leafIdx])
-                    .scaleEffect(phase.leavesVisible ? 1 : 0.4)
-                    .opacity(phase.leavesVisible ? 1 : 0)
-                    .animation(
-                        .spring(response: 0.5, dampingFraction: 0.7)
-                            .delay(0.25 + Double(groupIdx) * 0.06 + Double(leafIdx) * 0.04),
-                        value: phase
-                    )
-                }
-            }
+            canvasBranches(center: center, hubBasePositions: hubBasePositions, leafRadius: leafRadius, layoutGroups: layoutGroups)
+            canvasHubs(hubBasePositions: hubBasePositions, layoutGroups: layoutGroups)
+            canvasLeaves(center: center, hubBasePositions: hubBasePositions, leafRadius: leafRadius, layoutGroups: layoutGroups)
 
             // Center dino face — non-interactive so drags pass to canvas pan
             DinoFaceView(seed: identity?.name ?? "default")
@@ -415,6 +344,96 @@ struct ConstellationView: View {
                     .spring(response: 0.5, dampingFraction: 0.7).delay(0.05),
                     value: phase
                 )
+        }
+    }
+
+    @ViewBuilder
+    private func canvasBranches(center: CGPoint, hubBasePositions: [CGPoint], leafRadius: CGFloat, layoutGroups: [CategoryGroup]) -> some View {
+        // Center → hub branches
+        ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
+            let hubKey = "hub-\(group.category.rawValue)"
+            let hubPos = effectivePos(hubBasePositions[groupIdx], key: hubKey)
+            BranchShape(from: center, to: hubPos)
+                .stroke(group.category.color.opacity(0.25), lineWidth: 1.5)
+                .opacity(phase.hubBranchesVisible ? 1 : 0)
+                .animation(
+                    .easeIn(duration: 0.3).delay(0.20 + Double(groupIdx) * 0.04),
+                    value: phase
+                )
+        }
+
+        // Hub → leaf branches
+        ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
+            let hubKey = "hub-\(group.category.rawValue)"
+            let hubPos = effectivePos(hubBasePositions[groupIdx], key: hubKey)
+            let leafBasePositions = computeLeafPositions(
+                hub: hubBasePositions[groupIdx], center: center, radius: leafRadius,
+                count: group.items.count
+            )
+
+            ForEach(Array(group.items.enumerated()), id: \.element.id) { leafIdx, item in
+                let leafPos = effectivePos(leafBasePositions[leafIdx], key: item.id)
+                BranchShape(from: hubPos, to: leafPos)
+                    .stroke(group.category.color.opacity(0.18), lineWidth: 1)
+                    .opacity(phase.leafBranchesVisible ? 1 : 0)
+                    .animation(
+                        .easeIn(duration: 0.25).delay(0.35 + Double(groupIdx) * 0.04 + Double(leafIdx) * 0.03),
+                        value: phase
+                    )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func canvasHubs(hubBasePositions: [CGPoint], layoutGroups: [CategoryGroup]) -> some View {
+        ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
+            let hubKey = "hub-\(group.category.rawValue)"
+            DraggableNode(nodeKey: hubKey, offsets: $nodeOffsets) {
+                CategoryHubLabel(category: group.category, itemCount: group.items.count)
+            }
+            .position(hubBasePositions[groupIdx])
+            .scaleEffect(phase.hubsVisible ? 1 : 0.3)
+            .opacity(phase.hubsVisible ? 1 : 0)
+            .animation(
+                .spring(response: 0.45, dampingFraction: 0.7)
+                    .delay(0.12 + Double(groupIdx) * 0.05),
+                value: phase
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func canvasLeaves(center: CGPoint, hubBasePositions: [CGPoint], leafRadius: CGFloat, layoutGroups: [CategoryGroup]) -> some View {
+        ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
+            canvasLeafGroup(
+                groupIdx: groupIdx, group: group, center: center,
+                hubPosition: hubBasePositions[groupIdx], leafRadius: leafRadius
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func canvasLeafGroup(groupIdx: Int, group: CategoryGroup, center: CGPoint, hubPosition: CGPoint, leafRadius: CGFloat) -> some View {
+        let leafBasePositions = computeLeafPositions(
+            hub: hubPosition, center: center, radius: leafRadius,
+            count: group.items.count
+        )
+
+        ForEach(Array(group.items.enumerated()), id: \.element.id) { leafIdx, item in
+            DraggableNode(nodeKey: item.id, offsets: $nodeOffsets) {
+                ConstellationPill(
+                    label: item.label, icon: item.icon,
+                    emoji: item.emoji, color: item.color
+                )
+            }
+            .position(leafBasePositions[leafIdx])
+            .scaleEffect(phase.leavesVisible ? 1 : 0.4)
+            .opacity(phase.leavesVisible ? 1 : 0)
+            .animation(
+                .spring(response: 0.5, dampingFraction: 0.7)
+                    .delay(0.25 + Double(groupIdx) * 0.06 + Double(leafIdx) * 0.04),
+                value: phase
+            )
         }
     }
 
