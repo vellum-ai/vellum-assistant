@@ -131,6 +131,41 @@ export async function stopBrowserScreencast(
   activeScreencasts.delete(sessionId);
 }
 
+export async function getElementBounds(
+  sessionId: string,
+  selector: string,
+): Promise<{ x: number; y: number; w: number; h: number } | null> {
+  try {
+    const page = await browserManager.getOrCreateSessionPage(sessionId);
+    const bounds = await page.evaluate(`
+      (() => {
+        const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+      })()
+    `) as { x: number; y: number; w: number; h: number } | null;
+    return bounds;
+  } catch {
+    return null;
+  }
+}
+
+export function updateHighlights(
+  sessionId: string,
+  sendToClient: (msg: any) => void,
+  highlights: Array<{ x: number; y: number; w: number; h: number; label: string }>,
+): void {
+  const state = activeScreencasts.get(sessionId);
+  if (!state) return;
+  sendToClient({
+    type: 'ui_surface_update',
+    sessionId,
+    surfaceId: state.surfaceId,
+    data: { highlights },
+  });
+}
+
 export function isScreencastActive(sessionId: string): boolean {
   return activeScreencasts.has(sessionId);
 }

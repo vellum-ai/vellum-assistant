@@ -13,8 +13,11 @@ final class BrowserPiPManager: ObservableObject {
     @Published var actionText: String?
     @Published var currentFrame: NSImage?
     @Published var pages: [BrowserPage] = []
+    @Published var highlights: [BrowserHighlight] = []
+    var frameSize: CGSize = CGSize(width: 800, height: 600)
 
     private var panel: NSPanel?
+    private var actionTextClearTask: Task<Void, Never>?
     private var surfaceId: String?
     private var sessionId: String?
 
@@ -65,9 +68,24 @@ final class BrowserPiPManager: ObservableObject {
         }
         if dict.keys.contains("actionText") {
             actionText = dict["actionText"] as? String
+            scheduleActionTextClear()
         }
         if let frameStr = dict["frame"] as? String {
             decodeFrame(frameStr)
+        }
+        if dict.keys.contains("highlights") {
+            if let highlightsArray = dict["highlights"] as? [[String: Any?]] {
+                highlights = highlightsArray.compactMap { item in
+                    guard let x = item["x"] as? Double,
+                          let y = item["y"] as? Double,
+                          let w = item["w"] as? Double,
+                          let h = item["h"] as? Double,
+                          let label = item["label"] as? String else { return nil }
+                    return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
+                }
+            } else {
+                highlights = []
+            }
         }
         if let pagesArray = dict["pages"] as? [[String: Any?]] {
             pages = pagesArray.compactMap { pageDict in
@@ -109,7 +127,20 @@ final class BrowserPiPManager: ObservableObject {
                   let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
                 self?.currentFrame = image
+                if image.size.width > 0 && image.size.height > 0 {
+                    self?.frameSize = image.size
+                }
             }
+        }
+    }
+
+    private func scheduleActionTextClear() {
+        actionTextClearTask?.cancel()
+        guard actionText != nil else { return }
+        actionTextClearTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            self.actionText = nil
         }
     }
 

@@ -20,6 +20,8 @@ import {
   updatePagesList,
   stopBrowserScreencast,
   getSender,
+  getElementBounds,
+  updateHighlights,
 } from './browser-screencast.js';
 
 const log = getLogger('headless-browser');
@@ -529,12 +531,17 @@ async function executeBrowserClick(
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
     updateBrowserStatus(context.sessionId, sender, 'interacting', 'Clicking element');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Clicking element' }]);
+    }
   }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     await page.click(selector!);
     if (sender) {
+      updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
     }
     return { content: `Clicked element: ${selector}`, isError: false };
@@ -542,6 +549,7 @@ async function executeBrowserClick(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, 'Click failed');
     if (sender) {
+      updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
     }
     return { content: `Error: Click failed: ${msg}`, isError: true };
@@ -602,6 +610,10 @@ async function executeBrowserType(
   if (sender) {
     await ensureScreencast(context.sessionId, sender);
     updateBrowserStatus(context.sessionId, sender, 'interacting', 'Typing text');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Typing' }]);
+    }
   }
 
   try {
@@ -624,6 +636,7 @@ async function executeBrowserType(
     }
 
     if (sender) {
+      updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
     }
 
@@ -635,6 +648,7 @@ async function executeBrowserType(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, 'Type failed');
     if (sender) {
+      updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
     }
     return { content: `Error: Type failed: ${msg}`, isError: true };
@@ -714,8 +728,15 @@ async function executeBrowserPressKey(
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
       if (error) return { content: error, isError: true };
+      if (sender) {
+        const bounds = await getElementBounds(context.sessionId, selector!);
+        if (bounds) {
+          updateHighlights(context.sessionId, sender, [{ ...bounds, label: `Pressing ${key}` }]);
+        }
+      }
       await page.press(selector!, key);
       if (sender) {
+        updateHighlights(context.sessionId, sender, []);
         updateBrowserStatus(context.sessionId, sender, 'idle');
       }
       return { content: `Pressed "${key}" on element: ${selector}`, isError: false };
@@ -731,6 +752,7 @@ async function executeBrowserPressKey(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, key }, 'Press key failed');
     if (sender) {
+      updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
     }
     return { content: `Error: Press key failed: ${msg}`, isError: true };

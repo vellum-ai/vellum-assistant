@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 struct BrowserPiPView: View {
     @ObservedObject var manager: BrowserPiPManager
@@ -36,6 +37,20 @@ struct BrowserPiPView: View {
                         .foregroundColor(.secondary)
                 }
 
+                // Highlight overlays
+                if !manager.highlights.isEmpty, let _ = manager.currentFrame {
+                    GeometryReader { geometry in
+                        ForEach(manager.highlights) { highlight in
+                            let scaled = scaleHighlight(highlight, viewSize: geometry.size, frameSize: manager.frameSize)
+                            RoundedRectangle(cornerRadius: 2)
+                                .stroke(Color.blue, lineWidth: 2)
+                                .background(RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.1)))
+                                .frame(width: scaled.width, height: scaled.height)
+                                .position(x: scaled.midX, y: scaled.midY)
+                        }
+                    }
+                }
+
                 // Action text overlay
                 if let action = manager.actionText {
                     VStack {
@@ -52,9 +67,26 @@ struct BrowserPiPView: View {
                         }
                         .padding(8)
                     }
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: manager.actionText)
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: manager.actionText)
         }
+    }
+
+    private func scaleHighlight(_ highlight: BrowserHighlight, viewSize: CGSize, frameSize: CGSize) -> CGRect {
+        let scaleX = viewSize.width / frameSize.width
+        let scaleY = viewSize.height / frameSize.height
+        let scale = min(scaleX, scaleY)
+        let offsetX = (viewSize.width - frameSize.width * scale) / 2
+        let offsetY = (viewSize.height - frameSize.height * scale) / 2
+        return CGRect(
+            x: offsetX + highlight.x * scale,
+            y: offsetY + highlight.y * scale,
+            width: highlight.w * scale,
+            height: highlight.h * scale
+        )
     }
 
     private var statusColor: Color {
