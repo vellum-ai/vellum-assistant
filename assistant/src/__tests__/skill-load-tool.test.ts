@@ -58,6 +58,15 @@ function writeSkill(skillId: string, name: string, description: string, body: st
   );
 }
 
+function writeSkillWithIncludes(skillId: string, name: string, description: string, body: string, includes: string[]): void {
+  const skillDir = join(TEST_DIR, 'skills', skillId);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    `---\nname: "${name}"\ndescription: "${description}"\nincludes: ${JSON.stringify(includes)}\n---\n\n${body}\n`,
+  );
+}
+
 async function executeSkillLoad(input: Record<string, unknown>): Promise<{ content: string; isError: boolean }> {
   const tool = getTool('skill_load');
   if (!tool) throw new Error('skill_load tool was not registered');
@@ -178,5 +187,47 @@ describe('skill_load tool', () => {
     expect(result.isError).toBe(false);
     const markers = result.content.match(/<loaded_skill/g) || [];
     expect(markers.length).toBe(1);
+  });
+
+  test('returns error when skill has missing include', async () => {
+    writeSkillWithIncludes('parent', 'Parent', 'Has missing child', 'Body', ['missing-child']);
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+
+    const result = await executeSkillLoad({ skill: 'parent' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('missing-child');
+    expect(result.content).toContain('not found');
+    expect(result.content).not.toContain('<loaded_skill');
+  });
+
+  test('returns error when skill has circular include', async () => {
+    writeSkillWithIncludes('skill-a', 'Skill A', 'Cycles', 'Body A', ['skill-b']);
+    writeSkillWithIncludes('skill-b', 'Skill B', 'Cycles', 'Body B', ['skill-a']);
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- skill-a\n- skill-b\n');
+
+    const result = await executeSkillLoad({ skill: 'skill-a' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('circular');
+    expect(result.content).not.toContain('<loaded_skill');
+  });
+
+  test('succeeds when skill has valid includes', async () => {
+    writeSkillWithIncludes('valid-parent', 'Valid Parent', 'Has valid child', 'Body', ['valid-child']);
+    writeSkill('valid-child', 'Valid Child', 'A child', 'Child body');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- valid-parent\n- valid-child\n');
+
+    const result = await executeSkillLoad({ skill: 'valid-parent' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Skill: Valid Parent');
+    expect(result.content).toContain('<loaded_skill');
+  });
+
+  test('succeeds when skill has no includes', async () => {
+    writeSkill('no-includes', 'No Includes', 'Plain skill', 'Body');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- no-includes\n');
+
+    const result = await executeSkillLoad({ skill: 'no-includes' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Skill: No Includes');
   });
 });
