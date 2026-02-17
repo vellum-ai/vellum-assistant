@@ -9,7 +9,7 @@ import type { TrustRule } from './types.js';
 
 const log = getLogger('trust-store');
 
-const TRUST_FILE_VERSION = 2;
+const TRUST_FILE_VERSION = 3;
 
 interface TrustFile {
   version: number;
@@ -127,9 +127,20 @@ function loadFromDisk(): TrustRule[] {
         }));
         needsSave = true;
         log.info({ ruleCount: rules.length }, 'Migrated v1 trust rules to v2 (priority=100)');
+        // Fall through to v2 → v3 migration below
+      }
+
+      if (data.version === 2 || (data.version === 1 && needsSave)) {
+        // Migration: v2 → v3. Existing rules have no principal fields,
+        // which is correct — missing principal fields act as wildcards.
+        if (data.version === 2) {
+          rules = data.rules ?? [];
+        }
+        needsSave = true;
+        log.info({ ruleCount: rules.length }, 'Migrated v2 trust rules to v3 (principal fields)');
       } else if (data.version === TRUST_FILE_VERSION) {
         rules = data.rules ?? [];
-      } else {
+      } else if (data.version !== 1) {
         log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
         // Apply default deny rules in-memory so the assistant is still
         // protected, but do NOT persist — we must not overwrite a newer

@@ -81,7 +81,7 @@ describe('Trust Store', () => {
       addRule('bash', 'git push', '/home/user');
       const raw = readFileSync(trustPath, 'utf-8');
       const data = JSON.parse(raw);
-      expect(data.version).toBe(2);
+      expect(data.version).toBe(3);
       expect(data.rules).toHaveLength(1 + NUM_DEFAULTS);
       const userRule = data.rules.find((r: { pattern: string }) => r.pattern === 'git push');
       expect(userRule).toBeDefined();
@@ -412,7 +412,7 @@ describe('Trust Store', () => {
     test('trust file has correct structure', () => {
       addRule('bash', 'git *', '/tmp');
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      expect(data).toHaveProperty('version', 2);
+      expect(data).toHaveProperty('version', 3);
       expect(data).toHaveProperty('rules');
       expect(Array.isArray(data.rules)).toBe(true);
       const userRule = data.rules.find((r: { pattern: string }) => r.pattern === 'git *');
@@ -508,7 +508,7 @@ describe('Trust Store', () => {
       expect(migratedRule!.priority).toBe(100);
     });
 
-    test('v1 file is upgraded to v2 on disk', () => {
+    test('v1 file is upgraded to v3 on disk', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, JSON.stringify({
         version: 1,
@@ -524,7 +524,7 @@ describe('Trust Store', () => {
       clearCache();
       getAllRules(); // triggers load + migration
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      expect(data.version).toBe(2);
+      expect(data.version).toBe(3);
       const migratedRule = data.rules.find((r: { id: string }) => r.id === 'migrate-me');
       expect(migratedRule.priority).toBe(100);
     });
@@ -799,6 +799,103 @@ describe('Trust Store', () => {
     });
   });
 
+  // ── trust rule schema v3 (PR 14) ──────────────────────────────
+
+  describe('trust rule schema v3 (PR 14)', () => {
+    test('new rules can include principal fields', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      // Manually set v3 principal fields on the rule and persist
+      rule.principalKind = 'skill';
+      rule.principalId = 'my-skill';
+      rule.principalVersion = 'abc123';
+      rule.executionTarget = '/usr/local/bin/node';
+      rule.allowHighRisk = true;
+      // Re-persist the updated rules
+      const rules = getAllRules().map((r) =>
+        r.id === rule.id ? rule : r,
+      );
+      // Write directly to verify round-trip
+      const trustData = { version: 3, rules };
+      writeFileSync(trustPath, JSON.stringify(trustData, null, 2));
+      clearCache();
+      const reloaded = getAllRules();
+      const found = reloaded.find((r) => r.id === rule.id);
+      expect(found).toBeDefined();
+      expect(found!.principalKind).toBe('skill');
+      expect(found!.principalId).toBe('my-skill');
+      expect(found!.principalVersion).toBe('abc123');
+      expect(found!.executionTarget).toBe('/usr/local/bin/node');
+      expect(found!.allowHighRisk).toBe(true);
+    });
+
+    test('v2 file is upgraded to v3 on disk', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 2,
+        rules: [{
+          id: 'v2-rule',
+          tool: 'bash',
+          pattern: 'npm *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 100,
+          createdAt: 3000,
+        }],
+      }));
+      clearCache();
+      getAllRules(); // triggers load + migration
+      const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      expect(data.version).toBe(3);
+    });
+
+    test('v2 rules survive v3 migration with no principal fields', () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(trustPath, JSON.stringify({
+        version: 2,
+        rules: [
+          {
+            id: 'user-v2-a',
+            tool: 'bash',
+            pattern: 'git *',
+            scope: '/tmp',
+            decision: 'allow',
+            priority: 100,
+            createdAt: 4000,
+          },
+          {
+            id: 'user-v2-b',
+            tool: 'file_write',
+            pattern: '/tmp/*',
+            scope: '/tmp',
+            decision: 'deny',
+            priority: 50,
+            createdAt: 4001,
+          },
+        ],
+      }));
+      clearCache();
+      const rules = getAllRules();
+      const ruleA = rules.find((r) => r.id === 'user-v2-a');
+      const ruleB = rules.find((r) => r.id === 'user-v2-b');
+      expect(ruleA).toBeDefined();
+      expect(ruleB).toBeDefined();
+      expect(ruleA!.pattern).toBe('git *');
+      expect(ruleB!.decision).toBe('deny');
+      // No principal fields should be present
+      expect(ruleA).not.toHaveProperty('principalKind');
+      expect(ruleA).not.toHaveProperty('principalId');
+      expect(ruleA).not.toHaveProperty('principalVersion');
+      expect(ruleA).not.toHaveProperty('executionTarget');
+      expect(ruleA).not.toHaveProperty('allowHighRisk');
+    });
+
+    test('trust file persists with version 3', () => {
+      addRule('bash', 'echo *', '/tmp');
+      const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      expect(data.version).toBe(3);
+    });
+  });
+
   // ── baseline: approvals are not version-bound (PR 2) ──────────
   // These tests lock the current behavior where trust rules match by
   // tool/pattern/scope only. The TrustRule schema has no principal or
@@ -823,13 +920,13 @@ describe('Trust Store', () => {
       expect(match!.decision).toBe('allow');
     });
 
-    test('trust file schema is v2 with no version fields', () => {
+    test('trust file schema is v3 (rules created without principal fields)', () => {
       addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
       const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      expect(raw.version).toBe(2);
+      expect(raw.version).toBe(3);
       const userRule = raw.rules.find((r: { pattern: string }) => r.pattern === 'skill_test_tool:*');
       expect(userRule).toBeDefined();
-      // v2 schema: id, tool, pattern, scope, decision, priority, createdAt
+      // addRule doesn't set principal fields — they remain absent
       expect(userRule).not.toHaveProperty('principalVersion');
       expect(userRule).not.toHaveProperty('principalKind');
     });

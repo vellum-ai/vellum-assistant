@@ -12,6 +12,12 @@ export interface TrustRule {
   decision: 'allow' | 'deny' | 'ask';
   priority: number;
   createdAt: number;
+  // v3 fields — optional for backward compatibility with v2 rules
+  principalKind?: string;
+  principalId?: string;
+  principalVersion?: string;
+  executionTarget?: string;
+  allowHighRisk?: boolean;
 }
 
 export type UserDecision = 'allow' | 'always_allow' | 'deny' | 'always_deny';
