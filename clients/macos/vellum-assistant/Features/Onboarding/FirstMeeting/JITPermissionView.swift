@@ -120,32 +120,36 @@ struct JITPermissionView: View {
                     .foregroundColor(VColor.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Technical details disclosure
-                Button(action: {
-                    withAnimation(VAnimation.standard) {
-                        showTechnicalDetails.toggle()
-                    }
-                }) {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: showTechnicalDetails ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(VColor.accent)
-                        Text("Technical details")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.accent)
-                    }
-                    .padding(.top, VSpacing.xs)
-                }
-                .buttonStyle(.plain)
-
-                if showTechnicalDetails {
-                    Text(request.technicalDetails)
-                        .font(VFont.small)
-                        .foregroundColor(VColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
+                // Technical details accordion
+                VStack(alignment: .leading, spacing: 0) {
+                    Button(action: {
+                        withAnimation(VAnimation.standard) {
+                            showTechnicalDetails.toggle()
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(VColor.accent)
+                                .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
+                            Text("Technical details")
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.accent)
+                        }
                         .padding(.top, VSpacing.xs)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    .buttonStyle(.plain)
+
+                    if showTechnicalDetails {
+                        Text(request.technicalDetails)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, VSpacing.xs)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
+                .clipped()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)
@@ -159,18 +163,17 @@ struct JITPermissionView: View {
             )
             .opacity(showContent ? 1 : 0)
 
-            // Buttons
-            VStack(spacing: VSpacing.md) {
-                OnboardingButton(title: "Allow", style: .primary) {
-                    manager.grantActivePermission()
-                }
-
-                Button("Not now") {
+            // Three action buttons
+            HStack(spacing: VSpacing.sm) {
+                permissionButton("Not Allow", isPrimary: false) {
                     dismiss()
                 }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                permissionButton("Allow", isPrimary: false) {
+                    manager.grantActivePermission()
+                }
+                permissionButton("Always Allow", isPrimary: true) {
+                    manager.grantActivePermission(always: true)
+                }
             }
             .opacity(showContent ? 1 : 0)
         }
@@ -193,6 +196,26 @@ struct JITPermissionView: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private func permissionButton(_ title: String, isPrimary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(isPrimary ? .white : VColor.textPrimary.opacity(0.85))
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.sm + VSpacing.xxs)
+                .background(isPrimary ? AnyShapeStyle(VColor.accent) : AnyShapeStyle(Color.clear))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(isPrimary ? Color.clear : VColor.textPrimary.opacity(0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
 
     private func dismiss() {
         manager.dismissActivePermission()

@@ -74,6 +74,7 @@ final class JITPermissionManager {
     // Check if permission is needed and show JIT request if so
     func requestIfNeeded(_ type: JITPermissionType) -> Bool {
         guard isActive else { return true } // Not in JIT mode, skip
+        if isAlwaysAllowed(type) { return true } // User chose Always Allow previously
 
         switch type {
         case .microphone:
@@ -91,9 +92,10 @@ final class JITPermissionManager {
         }
     }
 
-    // Grant the currently active permission
-    func grantActivePermission() {
+    // Grant the currently active permission; pass always: true to skip this dialog in future sessions
+    func grantActivePermission(always: Bool = false) {
         guard let type = activePermissionRequest else { return }
+        if always { setAlwaysAllowed(type) }
         switch type {
         case .microphone:
             SFSpeechRecognizer.requestAuthorization { _ in }
@@ -110,6 +112,24 @@ final class JITPermissionManager {
 
     func dismissActivePermission() {
         activePermissionRequest = nil
+    }
+
+    // MARK: - Always Allow persistence
+
+    private func alwaysAllowKey(for type: JITPermissionType) -> String {
+        switch type {
+        case .microphone:   return "com.vellum.jit.alwaysAllow.microphone"
+        case .accessibility: return "com.vellum.jit.alwaysAllow.accessibility"
+        case .screenCapture: return "com.vellum.jit.alwaysAllow.screenCapture"
+        }
+    }
+
+    private func isAlwaysAllowed(_ type: JITPermissionType) -> Bool {
+        UserDefaults.standard.bool(forKey: alwaysAllowKey(for: type))
+    }
+
+    private func setAlwaysAllowed(_ type: JITPermissionType) {
+        UserDefaults.standard.set(true, forKey: alwaysAllowKey(for: type))
     }
 }
 

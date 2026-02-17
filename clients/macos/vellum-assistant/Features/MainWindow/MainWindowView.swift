@@ -23,6 +23,7 @@ struct MainWindowView: View {
     @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
+    @State private var jitPermissionManager = JITPermissionManager()
 
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -293,6 +294,9 @@ struct MainWindowView: View {
             }
         }
         .animation(VAnimation.standard, value: windowState.toastInfo != nil)
+        .overlay {
+            JITPermissionView(manager: jitPermissionManager)
+        }
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
