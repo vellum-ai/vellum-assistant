@@ -104,6 +104,12 @@ function sendOneMessage(
         if (m.type === 'daemon_status') {
           continue;
         }
+        // On auto-auth sockets the server may send a second auth_result
+        // in response to the client's auth message after we're already
+        // authenticated — ignore it so it doesn't resolve as the response.
+        if (m.type === 'auth_result') {
+          continue;
+        }
         if (m.type === 'session_info' && msg.type !== 'session_create') {
           continue;
         }
