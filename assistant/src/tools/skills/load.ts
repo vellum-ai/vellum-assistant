@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import type { SkillSummary } from '../../config/skills.js';
 import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
@@ -45,10 +46,13 @@ export class SkillLoadTool implements Tool {
 
     const skill = loaded.skill;
 
-    // Validate recursive includes (fail-closed)
+    // Load catalog for include validation and child metadata output
+    let catalogIndex: Map<string, SkillSummary> | undefined;
     if (skill.includes && skill.includes.length > 0) {
       const catalog = loadSkillCatalog();
-      const catalogIndex = indexCatalogById(catalog);
+      catalogIndex = indexCatalogById(catalog);
+
+      // Validate recursive includes (fail-closed)
       const validation = validateIncludes(skill.id, catalogIndex);
       if (!validation.ok) {
         if (validation.error === 'missing') {
@@ -68,6 +72,21 @@ export class SkillLoadTool implements Tool {
 
     const body = skill.body.length > 0 ? skill.body : '(No body content)';
 
+    // Build immediate children metadata section
+    let immediateChildrenSection: string;
+    if (skill.includes && skill.includes.length > 0 && catalogIndex) {
+      const childLines: string[] = [];
+      for (const childId of skill.includes) {
+        const child = catalogIndex.get(childId);
+        if (child) {
+          childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+        }
+      }
+      immediateChildrenSection = `Included Skills (immediate):\n${childLines.join('\n')}`;
+    } else {
+      immediateChildrenSection = 'Included Skills (immediate): none';
+    }
+
     let versionHash: string | undefined;
     try {
       versionHash = computeSkillVersionHash(skill.directoryPath);
@@ -84,6 +103,8 @@ export class SkillLoadTool implements Tool {
         `Path: ${skill.skillFilePath}`,
         '',
         body,
+        '',
+        immediateChildrenSection,
         '',
         `<loaded_skill id="${skill.id}"${versionAttr} />`,
       ].join('\n'),
