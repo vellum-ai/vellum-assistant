@@ -5,8 +5,11 @@ import VellumAssistantShared
 struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
+    @Bindable var authManager: AuthManager
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
+
+    @State private var showVellumAuth = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -42,7 +45,14 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            WakeUpStepView(state: state, onContinueWithVellum: onComplete)
+                            WakeUpStepView(state: state, onContinueWithVellum: {
+                                Task {
+                                    await authManager.loadConfig()
+                                }
+                                withAnimation(VAnimation.standard) {
+                                    showVellumAuth = true
+                                }
+                            })
                         case 2:
                             APIKeyStepView(state: state)
                         case 3:
@@ -161,6 +171,15 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated && showVellumAuth {
+                onComplete()
+            }
+        }
+        .sheet(isPresented: $showVellumAuth) {
+            AuthContainerView(authManager: authManager)
+                .frame(minWidth: 420, minHeight: 500)
+        }
     }
 
     // MARK: - Mock Chrome
@@ -211,6 +230,7 @@ struct OnboardingFlowView: View {
     OnboardingFlowView(
         state: OnboardingState(),
         daemonClient: DaemonClient(),
+        authManager: AuthManager(),
         onComplete: {},
         onOpenSettings: {}
     )

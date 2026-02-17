@@ -676,7 +676,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             setupDaemonClient()
         }
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient)
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
@@ -698,7 +698,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboarding() {
         setupDaemonClient()
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient)
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
@@ -711,7 +711,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            self?.startAuthenticatedFlow()
+            if self?.authManager.isAuthenticated == true {
+                self?.proceedToApp()
+            } else {
+                self?.startAuthenticatedFlow()
+            }
         }
         onboarding.show()
         onboardingWindow = onboarding
