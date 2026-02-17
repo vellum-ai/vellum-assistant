@@ -147,6 +147,71 @@ describe('Trust Store', () => {
       expect(userRules[0].decision).toBe('deny');
       expect(userRules[1].decision).toBe('allow');
     });
+
+    test('accepts principal and executionTarget options and persists them', () => {
+      const rule = addRule('skill_tool', 'skill_tool:*', '/tmp', 'allow', 100, {
+        principalKind: 'skill',
+        principalId: 'my-skill-42',
+        principalVersion: 'sha256-abc123',
+        executionTarget: 'sandbox',
+      });
+      expect(rule.principalKind).toBe('skill');
+      expect(rule.principalId).toBe('my-skill-42');
+      expect(rule.principalVersion).toBe('sha256-abc123');
+      expect(rule.executionTarget).toBe('sandbox');
+
+      // Verify persistence to disk
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === rule.id);
+      expect(found).toBeDefined();
+      expect(found!.principalKind).toBe('skill');
+      expect(found!.principalId).toBe('my-skill-42');
+      expect(found!.principalVersion).toBe('sha256-abc123');
+      expect(found!.executionTarget).toBe('sandbox');
+    });
+
+    test('accepts all contextual options together (principal, target, allowHighRisk)', () => {
+      const rule = addRule('risky_tool', 'risky_tool:*', 'everywhere', 'allow', 100, {
+        allowHighRisk: true,
+        principalKind: 'skill',
+        principalId: 'dangerous-skill',
+        principalVersion: 'sha256-deadbeef',
+        executionTarget: 'host',
+      });
+      expect(rule.allowHighRisk).toBe(true);
+      expect(rule.principalKind).toBe('skill');
+      expect(rule.principalId).toBe('dangerous-skill');
+      expect(rule.principalVersion).toBe('sha256-deadbeef');
+      expect(rule.executionTarget).toBe('host');
+
+      // Verify on disk
+      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
+      expect(diskRule).toBeDefined();
+      expect(diskRule.allowHighRisk).toBe(true);
+      expect(diskRule.principalKind).toBe('skill');
+      expect(diskRule.principalId).toBe('dangerous-skill');
+      expect(diskRule.principalVersion).toBe('sha256-deadbeef');
+      expect(diskRule.executionTarget).toBe('host');
+    });
+
+    test('addRule without principal options does not set principal fields', () => {
+      const rule = addRule('bash', 'echo *', '/tmp');
+      expect(rule.principalKind).toBeUndefined();
+      expect(rule.principalId).toBeUndefined();
+      expect(rule.principalVersion).toBeUndefined();
+      expect(rule.executionTarget).toBeUndefined();
+
+      // Verify on disk
+      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
+      expect(diskRule).toBeDefined();
+      expect(diskRule).not.toHaveProperty('principalKind');
+      expect(diskRule).not.toHaveProperty('principalId');
+      expect(diskRule).not.toHaveProperty('principalVersion');
+      expect(diskRule).not.toHaveProperty('executionTarget');
+    });
   });
 
   // ── removeRule ──────────────────────────────────────────────────

@@ -228,8 +228,42 @@ export class ToolExecutor {
           return { content: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user', isError: true };
         }
 
-        if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
-          addRule(name, response.selectedPattern, response.selectedScope);
+        if (
+          (response.decision === 'always_allow' || response.decision === 'always_allow_high_risk')
+          && response.selectedPattern
+          && response.selectedScope
+        ) {
+          const ruleOptions: {
+            allowHighRisk?: boolean;
+            principalKind?: string;
+            principalId?: string;
+            principalVersion?: string;
+            executionTarget?: string;
+          } = {};
+
+          if (response.decision === 'always_allow_high_risk') {
+            ruleOptions.allowHighRisk = true;
+          }
+
+          // Capture the principal context from the tool so the saved rule
+          // is scoped to the specific skill/version that was approved.
+          if (policyContext?.principal) {
+            if (policyContext.principal.kind != null) {
+              ruleOptions.principalKind = policyContext.principal.kind;
+            }
+            if (policyContext.principal.id != null) {
+              ruleOptions.principalId = policyContext.principal.id;
+            }
+            if (policyContext.principal.version != null) {
+              ruleOptions.principalVersion = policyContext.principal.version;
+            }
+          }
+          if (policyContext?.executionTarget != null) {
+            ruleOptions.executionTarget = policyContext.executionTarget;
+          }
+
+          const hasOptions = Object.keys(ruleOptions).length > 0;
+          addRule(name, response.selectedPattern, response.selectedScope, 'allow', 100, hasOptions ? ruleOptions : undefined);
         }
       }
 

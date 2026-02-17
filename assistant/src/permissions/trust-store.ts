@@ -202,7 +202,13 @@ export function addRule(
   scope: string,
   decision: 'allow' | 'deny' | 'ask' = 'allow',
   priority: number = 100,
-  options?: { allowHighRisk?: boolean },
+  options?: {
+    allowHighRisk?: boolean;
+    principalKind?: string;
+    principalId?: string;
+    principalVersion?: string;
+    executionTarget?: string;
+  },
 ): TrustRule {
   // Re-read from disk to avoid lost updates if another call modified rules
   // between our last read and now (e.g. two rapid trust rule additions).
@@ -219,6 +225,18 @@ export function addRule(
   };
   if (options?.allowHighRisk != null) {
     rule.allowHighRisk = options.allowHighRisk;
+  }
+  if (options?.principalKind != null) {
+    rule.principalKind = options.principalKind;
+  }
+  if (options?.principalId != null) {
+    rule.principalId = options.principalId;
+  }
+  if (options?.principalVersion != null) {
+    rule.principalVersion = options.principalVersion;
+  }
+  if (options?.executionTarget != null) {
+    rule.executionTarget = options.executionTarget;
   }
   rules.push(rule);
   rules.sort(ruleOrder);
