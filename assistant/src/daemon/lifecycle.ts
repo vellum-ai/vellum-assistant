@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import * as Sentry from '@sentry/node';
@@ -115,16 +115,21 @@ export async function startDaemon(): Promise<{
     'main.ts',
   );
 
+  // Redirect the child's stderr to a file instead of piping it back to the
+  // parent. A pipe's read end is destroyed when the parent exits, leaving
+  // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
+  // so any later stderr write would silently kill the daemon.
+  const stderrPath = join(rootDir, 'daemon-stderr.log');
+  const stderrFd = openSync(stderrPath, 'w');
+
   const child = spawn('bun', ['run', mainPath], {
     detached: true,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'ignore', stderrFd],
     env: { ...process.env },
   });
 
-  const stderrChunks: Buffer[] = [];
-  child.stderr!.on('data', (chunk: Buffer) => {
-    stderrChunks.push(chunk);
-  });
+  // The child inherited the fd; close the parent's copy.
+  closeSync(stderrFd);
 
   let childExited = false;
   let childExitCode: number | null = null;
@@ -148,12 +153,11 @@ export async function startDaemon(): Promise<{
   let waited = 0;
   while (waited < maxWait) {
     if (existsSync(socketPath)) {
-      child.stderr!.destroy();
       return { pid, alreadyRunning: false };
     }
     if (childExited) {
       cleanupPidFile();
-      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      const stderr = readFileSync(stderrPath, 'utf-8').trim();
       const detail = stderr
         ? `\n${stderr}`
         : `\nCheck logs at ~/.vellum/workspace/data/logs/ for details.`;
@@ -165,7 +169,6 @@ export async function startDaemon(): Promise<{
     waited += interval;
   }
 
-  child.stderr!.destroy();
   throw new DaemonError(
     'Daemon started but socket not available after 5 seconds',
   );
