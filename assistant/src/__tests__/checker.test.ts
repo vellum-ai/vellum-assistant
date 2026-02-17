@@ -2162,21 +2162,29 @@ describe('Permission Checker', () => {
   // because getDefaultRuleTemplates builds the managed-skill ask rule from
   // getRootDir(), so using a different prefix would avoid contention with
   // the default rule and silently pass even if the priority regressed.
-  // The workspace/skills dir is registered as an extraDir so that
-  // isSkillSourcePath correctly classifies the paths as High risk.
+  //
+  // extraDirs is set to the parent "workspace" directory (not "workspace/skills")
+  // so that isSkillSourcePath classifies the paths as High risk without creating
+  // a duplicate extra-0 ask rule for the exact same path as the managed rule.
+  // The third test explicitly asserts the matched rule ID is the managed-skill
+  // rule to guard against regressions in default rule generation.
 
   describe('user override of skill mutation default ask rules', () => {
     // Must match the path getDefaultRuleTemplates computes for managedSkillsDir
     const wsSkillsDir = join(checkerTestDir, 'workspace', 'skills');
+    // Use parent directory for extraDirs — broad enough for isSkillSourcePath
+    // to recognize skill paths, but distinct from the managed-skill rule path.
+    const wsDir = join(checkerTestDir, 'workspace');
 
     function ensureSkillsDir(): void {
       mkdirSync(wsSkillsDir, { recursive: true });
     }
 
     beforeEach(() => {
-      // Register workspace/skills as an extra skill dir so isSkillSourcePath
-      // detects it (the mock for getWorkspaceSkillsDir points elsewhere).
-      testConfig.skills.load.extraDirs = [wsSkillsDir];
+      // Register the workspace parent dir so isSkillSourcePath detects skill
+      // paths under workspace/skills/ without duplicating the managed-skill
+      // default ask rule (the mock for getWorkspaceSkillsDir points elsewhere).
+      testConfig.skills.load.extraDirs = [wsDir];
     });
 
     test('user allowHighRisk rule at priority 100 overrides default ask for skill source writes', async () => {
@@ -2207,8 +2215,10 @@ describe('Permission Checker', () => {
       const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
       const result = await check('file_write', { path: skillPath }, '/tmp');
       expect(result.decision).toBe('prompt');
-      // Verify the default ask rule is what matched, not just a generic high-risk fallback
+      // Verify the managed-skill default ask rule is what matched (not the
+      // extra-dir fallback or a generic high-risk prompt).
       expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:ask-file_write-managed-skills');
       expect(result.matchedRule!.decision).toBe('ask');
       expect(result.reason).toContain('ask rule');
     });
