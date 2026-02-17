@@ -28,7 +28,7 @@ mock.module('../util/logger.js', () => ({
 
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { RiskLevel } from '../permissions/types.js';
-import { addRule, clearCache } from '../permissions/trust-store.js';
+import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { registerTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
 
@@ -1073,6 +1073,60 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('prompt');
       // Should match the generic host_file_write ask rule, not a skill-specific one
       expect(result.matchedRule?.id).toBe('default:ask-host_file_write-global');
+    });
+  });
+
+  // ── baseline: approvals are not version-bound today (PR 2) ───
+  // These tests lock the current behavior where skill tool approvals
+  // match by tool/pattern/scope only — no skill hash or version is
+  // considered. This means a skill edit does not invalidate prior
+  // allow rules.
+
+  describe('baseline: approvals are not version-bound (PR 2)', () => {
+    test('skill tool allow rule matches by tool/pattern/scope only (no version binding)', async () => {
+      // Create an allow rule for a skill tool
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 2000);
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('allow');
+      // The matched rule has no principal or version fields — matching is
+      // purely by tool name, pattern glob, and scope prefix.
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.tool).toBe('skill_test_tool');
+      expect((result.matchedRule as any).principalVersion).toBeUndefined();
+      expect((result.matchedRule as any).principalKind).toBeUndefined();
+    });
+
+    test('TrustRule schema has no version/principal fields today', () => {
+      const rule = addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow');
+      // Verify the rule shape only contains the known v2 fields
+      const keys = Object.keys(rule).sort();
+      expect(keys).toEqual(['createdAt', 'decision', 'id', 'pattern', 'priority', 'scope', 'tool']);
+    });
+
+    test('same allow rule matches regardless of which skill "version" is running', async () => {
+      // Simulates the approval drift scenario: an allow rule created for
+      // skill_test_tool v1 still matches after the skill code changes to v2
+      // because no version binding exists.
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 2000);
+
+      // "v1" call
+      const v1Result = await check('skill_test_tool', { version: 'v1' }, '/tmp');
+      expect(v1Result.decision).toBe('allow');
+
+      // "v2" call — same rule still matches since input content is irrelevant
+      const v2Result = await check('skill_test_tool', { version: 'v2' }, '/tmp');
+      expect(v2Result.decision).toBe('allow');
+      expect(v2Result.matchedRule?.id).toBe(v1Result.matchedRule?.id);
+    });
+
+    test('findHighestPriorityRule does not accept principal context today', () => {
+      // The current findHighestPriorityRule signature is (tool, commands, scope)
+      // with no principal/version parameters. This baseline verifies the
+      // function signature doesn't yet support version-aware matching.
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 2000);
+      const match = findHighestPriorityRule('skill_test_tool', ['skill_test_tool:test'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('allow');
     });
   });
 });

@@ -798,4 +798,40 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
   });
+
+  // ── baseline: approvals are not version-bound (PR 2) ──────────
+  // These tests lock the current behavior where trust rules match by
+  // tool/pattern/scope only. The TrustRule schema has no principal or
+  // version fields, so a rule created for skill v1 still matches
+  // after skill code changes.
+
+  describe('baseline: rules have no version binding (PR 2)', () => {
+    test('addRule creates rules without principal or version fields', () => {
+      const rule = addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
+      expect(rule).not.toHaveProperty('principalKind');
+      expect(rule).not.toHaveProperty('principalId');
+      expect(rule).not.toHaveProperty('principalVersion');
+      expect(rule).not.toHaveProperty('executionTarget');
+      expect(rule).not.toHaveProperty('allowHighRisk');
+    });
+
+    test('findHighestPriorityRule matches without version context', () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 200);
+      // The function signature is (tool, commands, scope) — no version parameter
+      const match = findHighestPriorityRule('skill_test_tool', ['skill_test_tool:do-thing'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.decision).toBe('allow');
+    });
+
+    test('trust file schema is v2 with no version fields', () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
+      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      expect(raw.version).toBe(2);
+      const userRule = raw.rules.find((r: { pattern: string }) => r.pattern === 'skill_test_tool:*');
+      expect(userRule).toBeDefined();
+      // v2 schema: id, tool, pattern, scope, decision, priority, createdAt
+      expect(userRule).not.toHaveProperty('principalVersion');
+      expect(userRule).not.toHaveProperty('principalKind');
+    });
+  });
 });
