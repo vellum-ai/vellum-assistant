@@ -194,15 +194,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             authManager: authManager,
             onStartWithAPIKey: { [weak self] in
                 self?.proceedToApp()
+            },
+            onAuthenticated: { [weak self] in
+                self?.proceedToApp()
             }
         )
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated {
-                Task { @MainActor [weak self] in
-                    self?.proceedToApp()
-                }
-            }
-        }
 
         let hostingController = NSHostingController(rootView: authView)
         let window = NSWindow(
@@ -285,6 +281,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     struct AuthWindowView: View {
         @Bindable var authManager: AuthManager
         var onStartWithAPIKey: () -> Void = {}
+        var onAuthenticated: () -> Void = {}
 
         var body: some View {
             ZStack {
@@ -344,7 +341,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         }
 
                         Button(action: {
-                            Task { await authManager.startWorkOSLogin() }
+                            Task {
+                                await authManager.startWorkOSLogin()
+                                if authManager.isAuthenticated {
+                                    onAuthenticated()
+                                }
+                            }
                         }) {
                             HStack(spacing: VSpacing.sm) {
                                 if authManager.isSubmitting {
