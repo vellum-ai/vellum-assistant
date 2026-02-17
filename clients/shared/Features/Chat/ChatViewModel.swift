@@ -312,7 +312,11 @@ public final class ChatViewModel: ObservableObject {
         }
 
         isSending = true
-        isThinking = true
+        // Only show "Thinking" for the primary send. Queued messages will
+        // set isThinking = true when they are dequeued for processing.
+        if queuedMessageId == nil {
+            isThinking = true
+        }
 
         // Make sure we're listening
         if messageLoopTask == nil {
