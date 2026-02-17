@@ -437,7 +437,7 @@ struct MainWindowView: View {
                 onDoctor: { windowState.togglePanel(.doctor) }
             )
         }
-        .frame(width: windowState.layoutConfig.left.width ?? threadDrawerWidth)
+        .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
     }
 
