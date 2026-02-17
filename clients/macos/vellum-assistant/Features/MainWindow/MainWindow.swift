@@ -14,6 +14,8 @@ import SwiftUI
 /// back to the previous size.
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
+    /// Guards against invalidating `preZoomFrame` during our own restore animation.
+    private var isRestoringFrame = false
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
@@ -34,13 +36,34 @@ class TitleBarZoomableWindow: NSWindow {
             if let savedFrame = preZoomFrame {
                 // Restore to pre-zoom frame
                 preZoomFrame = nil
+                isRestoringFrame = true
                 setFrame(savedFrame, display: true, animate: true)
+                isRestoringFrame = false
             } else {
                 // Save current frame and zoom
                 preZoomFrame = frame
                 zoom(nil)
             }
         }
+    }
+
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(frameRect, display: displayFlag, animate: animateFlag)
+        invalidatePreZoomFrameIfNeeded()
+    }
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(frameRect, display: flag)
+        invalidatePreZoomFrameIfNeeded()
+    }
+
+    /// Invalidate the saved pre-zoom frame when the window is resized through
+    /// paths other than our own restore (e.g. user drag-resize, green button,
+    /// programmatic resize). This prevents restoring an outdated frame on the
+    /// next title-bar double-click.
+    private func invalidatePreZoomFrameIfNeeded() {
+        guard !isRestoringFrame else { return }
+        preZoomFrame = nil
     }
 }
 
