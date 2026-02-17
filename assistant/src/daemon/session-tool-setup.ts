@@ -121,14 +121,15 @@ export function createToolExecutor(
           undefined, undefined,
           ctx.conversationId,
         );
-        if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
-          addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope);
+        if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+          addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
+            response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
         }
         if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
         }
         return {
-          decision: (response.decision === 'allow' || response.decision === 'always_allow') ? 'allow' as const : 'deny' as const,
+          decision: (response.decision === 'allow' || response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') ? 'allow' as const : 'deny' as const,
         };
       },
     });
