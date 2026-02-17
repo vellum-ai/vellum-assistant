@@ -247,6 +247,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
+            voiceInput?.stop()
             voiceInput = nil
             ambientAgent.teardown()
 
@@ -671,7 +672,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard let self else { return }
-            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== self.statusItem.button?.window }
+            guard let statusItem = self.statusItem else { return }
+            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== statusItem.button?.window }
             if !hasVisibleWindows {
                 NSApp.setActivationPolicy(.accessory)
             }
