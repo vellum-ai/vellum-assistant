@@ -69,4 +69,13 @@ describe('formatPrincipalTag', () => {
     });
     expect(tag).toBe('[skill: skill@aabbccdd]');
   });
+
+  test('strips non-sha256 version prefix (e.g. v1:)', () => {
+    const tag = formatPrincipalTag({
+      principalKind: 'skill',
+      principalId: 'runtime-skill',
+      principalVersion: 'v1:abcdef1234567890',
+    });
+    expect(tag).toBe('[skill: runtime-skill@abcdef12]');
+  });
 });
