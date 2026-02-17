@@ -412,6 +412,10 @@ public struct ChatAttachment: Identifiable {
     #endif
 }
 
+public struct ModelPickerData: Equatable {
+    public init() {}
+}
+
 public struct SkillInvocationData: Equatable {
     public let name: String
     public let emoji: String?
@@ -442,6 +446,7 @@ public struct ChatMessage: Identifiable {
     /// Non-nil when this message is an inline tool confirmation request.
     public var confirmation: ToolConfirmationData?
     public var skillInvocation: SkillInvocationData?
+    public var modelPicker: ModelPickerData?
     public var attachments: [ChatAttachment]
     public var toolCalls: [ToolCallData]
     public var inlineSurfaces: [InlineSurfaceData]

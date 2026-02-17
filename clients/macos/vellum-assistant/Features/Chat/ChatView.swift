@@ -73,7 +73,7 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
-    var onSelectModel: ((String) -> Void)?
+    var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
@@ -234,9 +234,7 @@ struct ChatView: View {
                 onMicrophoneToggle: onMicrophoneToggle,
                 placeholderText: emptyStatePlaceholder,
                 editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded,
-                onSelectModel: onSelectModel,
-                selectedModel: selectedModel
+                isComposerExpanded: $isComposerExpanded
             )
             .opacity(emptyStateVisible ? 1 : 0)
             .offset(y: emptyStateVisible ? 0 : 10)
@@ -285,6 +283,18 @@ struct ChatView: View {
         return base + attachments + error + queue
     }
 
+    private func modelPickerView(for message: ChatMessage) -> some View {
+        ModelPickerBubble(
+            models: SettingsStore.availableModels.map { id in
+                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
+            },
+            selectedModelId: selectedModel,
+            onSelect: { modelId in
+                onModelPickerSelect?(message.id, modelId)
+            }
+        )
+    }
+
     @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
@@ -316,9 +326,7 @@ struct ChatView: View {
                 onMicrophoneToggle: onMicrophoneToggle,
                 placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded,
-                onSelectModel: onSelectModel,
-                selectedModel: selectedModel
+                isComposerExpanded: $isComposerExpanded
             )
         }
         .background(
@@ -487,6 +495,10 @@ struct ChatView: View {
                                 // When there IS a preceding assistant message, the decided
                                 // confirmation is rendered as a chip on that bubble — skip here.
                             }
+                        } else if message.modelPicker != nil {
+                            modelPickerView(for: message)
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.

@@ -1387,9 +1387,11 @@ private struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
-            onSelectModel: { modelId in
-                settingsStore.selectedModel = modelId
-                settingsStore.setModel(modelId)
+            onModelPickerSelect: { messageId, modelId in
+                // Send "/model <id>" through the daemon so the switch is persisted
+                // and the daemon responds with its standard confirmation message.
+                viewModel.inputText = "/model \(modelId)"
+                viewModel.sendMessage()
             },
             selectedModel: settingsStore.selectedModel,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },

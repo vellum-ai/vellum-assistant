@@ -180,6 +180,16 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
+        // Intercept bare "/model" command — show inline picker instead of sending to daemon
+        if text == "/model" && !hasAttachments && !hasSkillInvocation {
+            messages.append(ChatMessage(role: .user, text: "/model"))
+            var pickerMessage = ChatMessage(role: .assistant, text: "")
+            pickerMessage.modelPicker = ModelPickerData()
+            messages.append(pickerMessage)
+            inputText = ""
+            return
+        }
+
         // Fire auto-title callback on the first user message
         if !text.isEmpty, let callback = onFirstUserMessage {
             onFirstUserMessage = nil

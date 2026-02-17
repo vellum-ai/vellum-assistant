@@ -52,9 +52,6 @@ struct ComposerView: View {
     /// Exposed to ChatView so composerReservedHeight stays in sync with the
     /// sticky expansion state (set true when text wraps, reset when text clears).
     @Binding var isComposerExpanded: Bool
-    var onSelectModel: ((String) -> Void)?
-    var selectedModel: String = ""
-
     @State private var composerFocusRequestID: Int = 0
     @State private var isStopHovered = false
     @State private var isSendHovered = false
@@ -67,8 +64,6 @@ struct ComposerView: View {
     @State private var showSlashMenu = false
     @State private var slashFilter = ""
     @State private var slashSelectedIndex = 0
-    @State private var showModelSubmenu = false
-    @State private var modelSelectedIndex = 0
     @State private var avatarSeed: String = "default"
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -89,17 +84,7 @@ struct ComposerView: View {
     var body: some View {
         VStack(spacing: VSpacing.sm) {
             // Slash command popup (above the composer)
-            if showModelSubmenu {
-                ModelSubmenuPopup(
-                    models: SettingsStore.availableModels.map { id in
-                        (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-                    },
-                    selectedModelId: selectedModel,
-                    highlightedIndex: modelSelectedIndex,
-                    onSelect: { modelId in selectModel(modelId) }
-                )
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if showSlashMenu {
+            if showSlashMenu {
                 SlashCommandPopup(
                     commands: filteredSlashCommands(slashFilter),
                     selectedIndex: slashSelectedIndex,
@@ -167,7 +152,6 @@ struct ComposerView: View {
             .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
         }
         .animation(VAnimation.fast, value: showSlashMenu)
-        .animation(VAnimation.fast, value: showModelSubmenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .padding(.bottom, VSpacing.md)
@@ -227,7 +211,7 @@ struct ComposerView: View {
             },
             onAcceptSuggestion: onAcceptSuggestion,
             onPaste: onPaste,
-            isSlashMenuOpen: showSlashMenu || showModelSubmenu,
+            isSlashMenuOpen: showSlashMenu,
             onSlashNavigate: handleSlashNavigation
         )
         .accessibilityLabel("Message")
@@ -251,7 +235,6 @@ struct ComposerView: View {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }
                 withAnimation(VAnimation.fast) {
                     showSlashMenu = false
-                    showModelSubmenu = false
                 }
             } else {
                 updateSlashState()
@@ -500,17 +483,6 @@ struct ComposerView: View {
     private func updateSlashState() {
         let text = inputText
 
-        if showModelSubmenu {
-            if text != "/model" {
-                withAnimation(VAnimation.fast) {
-                    showModelSubmenu = false
-                    modelSelectedIndex = 0
-                }
-            } else {
-                return
-            }
-        }
-
         if text.hasPrefix("/") && !text.contains(" ") {
             let filter = String(text.dropFirst())
             let filtered = filteredSlashCommands(filter)
@@ -530,41 +502,13 @@ struct ComposerView: View {
         withAnimation(VAnimation.fast) { showSlashMenu = false }
         slashSelectedIndex = 0
         if command.name == "model" {
-            inputText = "/\(command.name)"
-            withAnimation(VAnimation.fast) {
-                showModelSubmenu = true
-                modelSelectedIndex = 0
-            }
+            inputText = "/model"
+            onSend()
         }
-    }
-
-    private func selectModel(_ modelId: String) {
-        onSelectModel?(modelId)
-        withAnimation(VAnimation.fast) {
-            showModelSubmenu = false
-            modelSelectedIndex = 0
-        }
-        inputText = ""
     }
 
     private func handleSlashNavigation(_ action: SlashNavigation) {
-        if showModelSubmenu {
-            let count = SettingsStore.availableModels.count
-            switch action {
-            case .up:
-                modelSelectedIndex = (modelSelectedIndex - 1 + count) % count
-            case .down:
-                modelSelectedIndex = (modelSelectedIndex + 1) % count
-            case .select:
-                selectModel(SettingsStore.availableModels[modelSelectedIndex])
-            case .dismiss:
-                withAnimation(VAnimation.fast) {
-                    showModelSubmenu = false
-                    showSlashMenu = false
-                }
-                inputText = ""
-            }
-        } else if showSlashMenu {
+        if showSlashMenu {
             let filtered = filteredSlashCommands(slashFilter)
             guard !filtered.isEmpty else { return }
             switch action {
@@ -1060,64 +1004,3 @@ private struct SlashCommandRow: View {
     }
 }
 
-// MARK: - Model Submenu Popup
-
-private struct ModelSubmenuPopup: View {
-    let models: [(id: String, name: String)]
-    let selectedModelId: String
-    let highlightedIndex: Int
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
-                ModelSubmenuRow(
-                    name: model.name,
-                    isCurrentModel: model.id == selectedModelId,
-                    isHighlighted: index == highlightedIndex,
-                    onSelect: { onSelect(model.id) }
-                )
-            }
-        }
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
-    }
-}
-
-private struct ModelSubmenuRow: View {
-    let name: String
-    let isCurrentModel: Bool
-    let isHighlighted: Bool
-    let onSelect: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: isCurrentModel ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isCurrentModel ? VColor.accent : (isHighlighted || isHovered ? VColor.textPrimary : VColor.textSecondary))
-                    .frame(width: 18)
-                Text(name)
-                    .font(isCurrentModel ? VFont.bodyBold : VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(isHighlighted || isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-}
