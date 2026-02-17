@@ -563,12 +563,29 @@ extension ChatViewModel {
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
                 break
             }
-            let toolCall = ToolCallData(
+            // Extract building status for app tools
+            let buildingStatus: String? = {
+                let appTools: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
+                guard appTools.contains(msg.toolName) else { return nil }
+                if let status = msg.input["status"]?.value as? String, !status.isEmpty {
+                    return status
+                }
+                // Fallback status based on tool name
+                switch msg.toolName {
+                case "app_create": return "Building your app"
+                case "app_update": return "Updating your app"
+                case "app_file_edit": return "Editing app files"
+                case "app_file_write": return "Writing app files"
+                default: return nil
+                }
+            }()
+            var toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
                 inputSummary: summarizeToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
                 startedAt: Date()
             )
+            toolCall.buildingStatus = buildingStatus
             // Add to existing assistant message or create one
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -618,6 +635,9 @@ extension ChatViewModel {
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
                 messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
                 messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
+                if let status = msg.status, !status.isEmpty {
+                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
+                }
             }
 
         case .uiSurfaceShow(let msg):

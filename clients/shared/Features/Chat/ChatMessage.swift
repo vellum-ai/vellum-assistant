@@ -271,6 +271,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var completedAt: Date?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public var imageData: String?
+    /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
+    public var buildingStatus: String?
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
     public var cachedImage: NSImage?
@@ -289,6 +291,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
             && lhs.imageData == rhs.imageData
+            && lhs.buildingStatus == rhs.buildingStatus
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
