@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+# Ensure cleanup of sensitive files on exit (success or failure)
+trap 'rm -f /tmp/dev-cert.* /tmp/cert-config.txt' EXIT
+
 CERT_NAME="Vellum Development"
 
 echo "Creating self-signed development certificate: $CERT_NAME"
@@ -58,9 +61,6 @@ security import /tmp/dev-cert.p12 -k ~/Library/Keychains/login.keychain-db -T /u
 
 # Trust the certificate for code signing
 security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db /tmp/dev-cert.crt
-
-# Clean up
-rm -f /tmp/dev-cert.* /tmp/cert-config.txt
 
 echo
 echo "✓ Certificate created and installed successfully!"

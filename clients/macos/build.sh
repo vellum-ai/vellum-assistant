@@ -45,7 +45,10 @@ RESOURCES_DIR="$CONTENTS/Resources"
 DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
+CMD="${1:-build}"
+
 # Signing identity (overridable via env for CI)
+# Only prompt for certificate on commands that need signing (build/run/release)
 if [ -z "${SIGN_IDENTITY:-}" ]; then
     # Try Developer ID Application first (for distribution)
     SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
@@ -69,8 +72,9 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
             | sed 's/.*"\(.*\)"/\1/' || true)
     fi
 
-    # If still no certificate and not explicitly opted out, offer to create one
-    if [ -z "$SIGN_IDENTITY" ] && [ ! -f "$SCRIPT_DIR/.no-auto-cert" ]; then
+    # Only prompt for certificate on commands that actually sign the app
+    if [ -z "$SIGN_IDENTITY" ] && [ ! -f "$SCRIPT_DIR/.no-auto-cert" ] && \
+       [[ "$CMD" =~ ^(build|run|release)$ ]]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "⚠️  No code signing certificate found"
         echo ""
@@ -97,14 +101,15 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
                 *)
                     echo ""
                     if [ -f "$SCRIPT_DIR/create-dev-cert.sh" ]; then
-                        "$SCRIPT_DIR/create-dev-cert.sh"
+                        # Run with || true so failures fall through to adhoc signing
+                        "$SCRIPT_DIR/create-dev-cert.sh" || true
                         # Re-check for the certificate we just created
                         SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
                             | grep "Vellum Development" \
                             | head -1 \
                             | sed 's/.*"\(.*\)"/\1/' || true)
                         if [ -z "$SIGN_IDENTITY" ]; then
-                            echo "⚠️  Certificate creation may have failed. Using adhoc signature."
+                            echo "⚠️  Certificate creation failed. Using adhoc signature."
                             SIGN_IDENTITY="-"
                         fi
                     else
@@ -120,12 +125,10 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
     elif [ -z "$SIGN_IDENTITY" ]; then
-        # User has opted out (.no-auto-cert exists)
+        # User has opted out (.no-auto-cert exists) or command doesn't need signing
         SIGN_IDENTITY="-"
     fi
 fi
-
-CMD="${1:-build}"
 
 case "$CMD" in
     test)
