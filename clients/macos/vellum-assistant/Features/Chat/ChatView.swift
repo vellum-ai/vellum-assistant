@@ -64,6 +64,8 @@ struct ChatView: View {
     let onSend: () -> Void
     let onStop: () -> Void
     let onDismissError: () -> Void
+    let isRetryableError: Bool
+    let onRetryError: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -458,6 +460,19 @@ struct ChatView: View {
                 .lineLimit(2)
 
             Spacer()
+
+            if isRetryableError {
+                Button(action: onRetryError) {
+                    Text("Retry")
+                        .font(VFont.captionMedium)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(Color.white.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Retry sending message")
+            }
 
             Button {
                 onDismissError()
@@ -1758,6 +1773,8 @@ private struct ChatViewPreviewWrapper: View {
                 onSend: {},
                 onStop: {},
                 onDismissError: {},
+                isRetryableError: false,
+                onRetryError: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },

@@ -57,6 +57,9 @@ public final class ChatViewModel: ObservableObject {
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     var pendingUserAttachments: [IPCAttachment]?
+    /// Stores the last user message that failed to send, enabling retry.
+    private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageAttachments: [IPCAttachment]?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
@@ -197,6 +200,8 @@ public final class ChatViewModel: ObservableObject {
         pendingSuggestionRequestId = nil
         errorText = nil
         sessionError = nil
+        lastFailedMessageText = nil
+        lastFailedMessageAttachments = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -232,6 +237,10 @@ public final class ChatViewModel: ObservableObject {
                     self.isThinking = false
                     self.isSending = false
                     self.bootstrapCorrelationId = nil
+                    self.lastFailedMessageText = self.pendingUserMessage
+                    self.lastFailedMessageAttachments = self.pendingUserAttachments
+                    self.pendingUserMessage = nil
+                    self.pendingUserAttachments = nil
                     self.errorText = "Cannot connect to daemon. Please ensure it's running."
                     return
                 }
@@ -248,6 +257,10 @@ public final class ChatViewModel: ObservableObject {
                 self.isThinking = false
                 self.isSending = false
                 self.bootstrapCorrelationId = nil
+                self.lastFailedMessageText = self.pendingUserMessage
+                self.lastFailedMessageAttachments = self.pendingUserAttachments
+                self.pendingUserMessage = nil
+                self.pendingUserAttachments = nil
                 self.errorText = "Failed to create session."
             }
         }
@@ -261,6 +274,8 @@ public final class ChatViewModel: ObservableObject {
         // daemon has disconnected between turns.
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
+            lastFailedMessageText = text
+            lastFailedMessageAttachments = attachments
             errorText = "Cannot connect to daemon. Please ensure it's running."
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
@@ -289,6 +304,8 @@ public final class ChatViewModel: ObservableObject {
             log.error("Failed to send user_message: \(error.localizedDescription)")
             isSending = false
             isThinking = false
+            lastFailedMessageText = text
+            lastFailedMessageAttachments = attachments
             errorText = "Failed to send message."
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
@@ -547,6 +564,8 @@ public final class ChatViewModel: ObservableObject {
     public func dismissError() {
         sessionError = nil
         errorText = nil
+        lastFailedMessageText = nil
+        lastFailedMessageAttachments = nil
     }
 
     /// Dismiss the typed session error state. Clears both the typed error
@@ -595,6 +614,28 @@ public final class ChatViewModel: ObservableObject {
         }
         dismissSessionError()
         regenerateLastMessage()
+    }
+
+    /// Whether the current error has a failed user message that can be retried.
+    public var isRetryableError: Bool {
+        lastFailedMessageText != nil && errorText != nil
+    }
+
+    /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
+    public func retryLastMessage() {
+        guard let text = lastFailedMessageText else { return }
+        let attachments = lastFailedMessageAttachments
+
+        // Clear failed message state and error
+        lastFailedMessageText = nil
+        lastFailedMessageAttachments = nil
+        errorText = nil
+
+        if sessionId == nil {
+            bootstrapSession(userMessage: text, attachments: attachments)
+        } else {
+            sendUserMessage(text, attachments: attachments)
+        }
     }
 
     /// Respond to a tool confirmation request displayed inline in the chat.
