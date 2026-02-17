@@ -30,7 +30,7 @@ struct SettingsPanel: View {
 
                     if store.hasKey {
                         HStack {
-                            Text("sk-ant-...configured")
+                            Text(store.maskedKey)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Spacer()
@@ -82,7 +82,7 @@ struct SettingsPanel: View {
 
                     if store.hasBraveKey {
                         HStack {
-                            Text("BSA...configured")
+                            Text(store.maskedBraveKey)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Spacer()

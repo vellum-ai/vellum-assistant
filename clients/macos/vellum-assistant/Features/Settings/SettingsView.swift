@@ -33,7 +33,7 @@ public struct SettingsView: View {
             Section("Anthropic API Key") {
                 if store.hasKey {
                     HStack {
-                        Text("sk-ant-...configured")
+                        Text(store.maskedKey)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Clear") {
@@ -62,7 +62,7 @@ public struct SettingsView: View {
             Section("Brave Search API Key") {
                 if store.hasBraveKey {
                     HStack {
-                        Text("BSA...configured")
+                        Text(store.maskedBraveKey)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Clear") {
