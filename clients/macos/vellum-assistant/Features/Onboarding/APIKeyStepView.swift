@@ -138,7 +138,7 @@ struct APIKeyStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: 2)
+        OnboardingFooter(currentStep: state.currentStep)
             .padding(.bottom, VSpacing.lg)
     }
 

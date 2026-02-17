@@ -84,7 +84,7 @@ struct InterviewStepView: View {
                 .padding(.vertical, VSpacing.md)
             }
 
-            OnboardingFooter(currentStep: 8)
+            OnboardingFooter(currentStep: state.currentStep)
                 .padding(.bottom, VSpacing.lg)
         }
         .onAppear {
