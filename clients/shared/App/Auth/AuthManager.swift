@@ -25,6 +25,8 @@ public final class AuthManager {
 
     private let authService = AuthService.shared
     private static let callbackScheme = "vellum-assistant"
+    private static let httpsCallbackHost = "platform.vellum.ai"
+    private static let httpsCallbackPath = "/desktop/auth/callback"
     private var webAuthSession: ASWebAuthenticationSession?
 
     public init() {}
@@ -87,7 +89,12 @@ public final class AuthManager {
             let codeVerifier = generateCodeVerifier()
             let codeChallenge = generateCodeChallenge(from: codeVerifier)
             let stateParam = generateRandomString(length: 32)
-            let redirectURI = "\(Self.callbackScheme)://auth/callback"
+            let redirectURI: String
+            if #available(macOS 14.4, *) {
+                redirectURI = "https://\(Self.httpsCallbackHost)\(Self.httpsCallbackPath)"
+            } else {
+                redirectURI = "\(Self.callbackScheme)://auth/callback"
+            }
 
             guard var components = URLComponents(string: authEndpoint) else {
                 throw AuthServiceError.invalidURL
@@ -178,7 +185,7 @@ public final class AuthManager {
 
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] callbackURL, error in
+            let completionHandler: ASWebAuthenticationSession.CompletionHandler = { [weak self] callbackURL, error in
                 self?.webAuthSession = nil
                 if let error {
                     continuation.resume(throwing: error)
@@ -187,6 +194,21 @@ public final class AuthManager {
                 } else {
                     continuation.resume(throwing: AuthServiceError.oidcTokenExchangeFailed("No callback URL received."))
                 }
+            }
+
+            let session: ASWebAuthenticationSession
+            if #available(macOS 14.4, *) {
+                session = ASWebAuthenticationSession(
+                    url: url,
+                    callback: .https(host: Self.httpsCallbackHost, path: Self.httpsCallbackPath),
+                    completionHandler: completionHandler
+                )
+            } else {
+                session = ASWebAuthenticationSession(
+                    url: url,
+                    callbackURLScheme: callbackScheme,
+                    completionHandler: completionHandler
+                )
             }
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = WebAuthPresentationContext.shared
