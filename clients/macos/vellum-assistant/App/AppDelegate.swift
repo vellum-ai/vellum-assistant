@@ -556,7 +556,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     func setupAmbientAgent() {
         ambientAgent.appDelegate = self
         ambientAgent.daemonClient = daemonClient
-        ambientAgent.setupRideShotgun()
+        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
+        // ambientAgent.setupRideShotgun()
     }
 
     func updateMenuBarIcon() {
