@@ -7,6 +7,7 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import { renderHistoryContent } from '../../daemon/handlers.js';
+import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import type {
@@ -191,6 +192,13 @@ export async function handleChannelInbound(
   // For new (non-duplicate) messages, run the agent loop to generate a reply.
   let processingSucceeded = false;
   if (!result.duplicate && processMessage) {
+    // Block secret-bearing content before persisting the payload to the DB
+    const contentToCheck = content ?? '';
+    const ingressCheck = checkIngressForSecrets(contentToCheck);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     // Persist the raw payload so the event can be replayed on failure
     channelDeliveryStore.storePayload(result.eventId, {
       sourceChannel, externalChatId, externalMessageId, content,
