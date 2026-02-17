@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
