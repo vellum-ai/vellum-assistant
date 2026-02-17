@@ -795,9 +795,15 @@ private struct ChatBubble: View {
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
 
+    @State private var isHovered = false
     @State private var isRegenerateHovered = false
 
     private var isUser: Bool { message.role == .user }
+    private var canReportMessage: Bool {
+        !isUser
+            && onReportMessage != nil
+            && FeatureFlagManager.shared.isEnabled(.monitoringExport)
+    }
 
     private var statusLabel: String? {
         switch message.status {
@@ -864,7 +870,7 @@ private struct ChatBubble: View {
 
 
     var body: some View {
-        HStack {
+        HStack(spacing: VSpacing.sm) {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
@@ -900,15 +906,51 @@ private struct ChatBubble: View {
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
             .contextMenu {
-                if !isUser, let onReportMessage,
-                   FeatureFlagManager.shared.isEnabled(.monitoringExport) {
+                if canReportMessage, let onReportMessage {
                     Button("Report this response") {
                         onReportMessage(message.daemonMessageId)
                     }
                 }
             }
 
+            if canReportMessage {
+                VStack {
+                    Menu {
+                        if let onReportMessage {
+                            Button("Report this response") {
+                                onReportMessage(message.daemonMessageId)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .rotationEffect(.degrees(90))
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 24, height: 24)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .accessibilityLabel("Message actions")
+                    .animation(VAnimation.fast, value: isHovered)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 24)
+            }
+
             if !isUser { Spacer(minLength: 0) }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if canReportMessage {
+                isHovered = hovering
+            } else if isHovered {
+                isHovered = false
+            }
         }
     }
 
