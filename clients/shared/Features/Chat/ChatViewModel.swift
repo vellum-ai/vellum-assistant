@@ -60,6 +60,11 @@ public final class ChatViewModel: ObservableObject {
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
     private(set) var lastFailedMessageAttachments: [IPCAttachment]?
+    /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
+    /// Used by `isRetryableError` to ensure the retry button only appears for
+    /// actual send failures, not for unrelated errors (attachment validation,
+    /// confirmation response failures, regenerate errors, etc.).
+    private(set) var lastFailedSendError: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
@@ -202,6 +207,7 @@ public final class ChatViewModel: ObservableObject {
         sessionError = nil
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
+        lastFailedSendError = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -239,9 +245,10 @@ public final class ChatViewModel: ObservableObject {
                     self.bootstrapCorrelationId = nil
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
+                    self.lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
                     self.pendingUserMessage = nil
                     self.pendingUserAttachments = nil
-                    self.errorText = "Cannot connect to daemon. Please ensure it's running."
+                    self.errorText = self.lastFailedSendError
                     return
                 }
             }
@@ -259,9 +266,10 @@ public final class ChatViewModel: ObservableObject {
                 self.bootstrapCorrelationId = nil
                 self.lastFailedMessageText = self.pendingUserMessage
                 self.lastFailedMessageAttachments = self.pendingUserAttachments
+                self.lastFailedSendError = "Failed to create session."
                 self.pendingUserMessage = nil
                 self.pendingUserAttachments = nil
-                self.errorText = "Failed to create session."
+                self.errorText = self.lastFailedSendError
             }
         }
     }
@@ -276,7 +284,8 @@ public final class ChatViewModel: ObservableObject {
             log.error("Cannot send user_message: daemon not connected")
             lastFailedMessageText = text
             lastFailedMessageAttachments = attachments
-            errorText = "Cannot connect to daemon. Please ensure it's running."
+            lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+            errorText = lastFailedSendError
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
                 pendingMessageIds.removeAll { $0 == queuedMessageId }
@@ -306,7 +315,8 @@ public final class ChatViewModel: ObservableObject {
             isThinking = false
             lastFailedMessageText = text
             lastFailedMessageAttachments = attachments
-            errorText = "Failed to send message."
+            lastFailedSendError = "Failed to send message."
+            errorText = lastFailedSendError
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
                 pendingMessageIds.removeAll { $0 == queuedMessageId }
@@ -572,6 +582,7 @@ public final class ChatViewModel: ObservableObject {
         errorText = nil
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
+        lastFailedSendError = nil
     }
 
     /// Dismiss the typed session error state. Clears both the typed error
@@ -623,8 +634,12 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Whether the current error has a failed user message that can be retried.
+    /// Only true when `lastFailedSendError` is set, which restricts the retry
+    /// button to actual send failures and prevents unrelated errors (attachment
+    /// validation, confirmation response failures, regenerate errors) from
+    /// offering to resend a stale cached message.
     public var isRetryableError: Bool {
-        lastFailedMessageText != nil && errorText != nil
+        lastFailedMessageText != nil && lastFailedSendError != nil
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
@@ -635,12 +650,29 @@ public final class ChatViewModel: ObservableObject {
         // Clear failed message state and error
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
+        lastFailedSendError = nil
         errorText = nil
 
         if sessionId == nil {
             bootstrapSession(userMessage: text, attachments: attachments)
         } else {
-            sendUserMessage(text, attachments: attachments)
+            // When retrying while another turn is in progress, the retried
+            // message will be queued by the daemon. Track it in
+            // pendingMessageIds so subsequent messageQueued/messageDequeued
+            // events can update the user message's status correctly.
+            var queuedMessageId: UUID?
+            if isSending {
+                // Find the user message that corresponds to the failed text
+                // (it was already appended to messages[] during the original
+                // sendMessage() call). Use the last user message with matching
+                // text as the queue entry.
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == text }) {
+                    pendingMessageIds.append(messages[idx].id)
+                    queuedMessageId = messages[idx].id
+                    messages[idx].status = .queued(position: 0)
+                }
+            }
+            sendUserMessage(text, attachments: attachments, queuedMessageId: queuedMessageId)
         }
     }
 

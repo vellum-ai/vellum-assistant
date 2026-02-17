@@ -1750,4 +1750,121 @@ final class ChatViewModelTests: XCTestCase {
         // Legacy fallback: tools before text
         XCTAssertEqual(msg.contentOrder, [.toolCall(0), .text(0)])
     }
+
+    // MARK: - Retry Button Visibility (Send-Only Errors)
+
+    func testIsRetryableErrorRequiresSendFailure() {
+        // A non-send error (e.g. confirmation failure) should NOT make the
+        // retry button visible even if lastFailedMessageText is cached from
+        // a prior send failure.
+        viewModel.sessionId = "sess-1"
+
+        // Simulate a prior send failure that cached the message
+        viewModel.inputText = "Hello"
+        daemonClient.isConnected = false
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isRetryableError,
+                       "Send failure should make error retryable")
+
+        // User dismisses the error
+        viewModel.dismissError()
+        XCTAssertFalse(viewModel.isRetryableError)
+
+        // Now a non-send error occurs (e.g. confirmation response failure)
+        daemonClient.isConnected = true
+        viewModel.errorText = "Failed to send confirmation response."
+        XCTAssertFalse(viewModel.isRetryableError,
+                        "Non-send error should not show retry button")
+    }
+
+    func testRetryButtonAppearsOnlySendFailures() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = false
+
+        viewModel.inputText = "Test message"
+        viewModel.sendMessage()
+
+        // Send failure should set both lastFailedSendError and lastFailedMessageText
+        XCTAssertTrue(viewModel.isRetryableError,
+                       "Send failure should show retry button")
+        XCTAssertNotNil(viewModel.errorText)
+    }
+
+    func testRetryButtonNotShownForRegenerateFailure() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = false
+
+        // First, simulate a send failure to cache a message
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isRetryableError)
+
+        // Now dismiss and reconnect
+        viewModel.dismissError()
+        daemonClient.isConnected = true
+
+        // Regenerate failure sets errorText but should not trigger retry
+        // for the old cached message
+        viewModel.regenerateLastMessage()
+        // regenerateLastMessage() will fail in the catch block setting errorText
+        // but lastFailedSendError is already nil from dismissError()
+        XCTAssertFalse(viewModel.isRetryableError,
+                        "Regenerate failure should not offer to retry a stale send")
+    }
+
+    // MARK: - Retry Queue Bookkeeping
+
+    func testRetryWhileSendingTracksMessageInQueue() {
+        viewModel.sessionId = "sess-1"
+
+        // Send message A successfully
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isSending)
+
+        // Simulate a send failure for message B (disconnect, then reconnect)
+        daemonClient.isConnected = false
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        // Message B is in messages[1] but failed to send
+        XCTAssertNotNil(viewModel.lastFailedMessageText)
+        XCTAssertEqual(viewModel.messages.count, 2)
+
+        // Reconnect and retry while A is still in progress
+        daemonClient.isConnected = true
+        viewModel.isSending = true  // A is still in progress
+        viewModel.retryLastMessage()
+
+        // The retried message should be tracked in pendingMessageIds
+        XCTAssertEqual(viewModel.pendingMessageIds.count, 1,
+                        "Retried message should be tracked in pendingMessageIds")
+        XCTAssertEqual(viewModel.pendingMessageIds.first, viewModel.messages[1].id,
+                        "Pending message ID should match the retried message")
+
+        // The message should have queued status
+        if case .queued = viewModel.messages[1].status {
+            // expected
+        } else {
+            XCTFail("Retried message should have queued status when another send is in progress")
+        }
+    }
+
+    func testRetryWhenNotSendingDoesNotTrackInQueue() {
+        viewModel.sessionId = "sess-1"
+
+        // Send a message that fails
+        daemonClient.isConnected = false
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertNotNil(viewModel.lastFailedMessageText)
+
+        // Reconnect and retry when NOT sending (no active turn)
+        daemonClient.isConnected = true
+        viewModel.isSending = false
+        viewModel.retryLastMessage()
+
+        // Should not be tracked in pendingMessageIds since it's sent directly
+        XCTAssertEqual(viewModel.pendingMessageIds.count, 0,
+                        "Retried message should not be tracked when no other send is in progress")
+    }
 }
