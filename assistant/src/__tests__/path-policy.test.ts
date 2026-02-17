@@ -149,3 +149,36 @@ describe('hostPolicy', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Baseline: Skill directory paths have no special treatment (PR 1)
+// ---------------------------------------------------------------------------
+
+describe('baseline: skill directory paths (PR 1)', () => {
+  test('sandbox policy accepts skill directory paths within boundary', () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, 'skills', 'my-skill'), { recursive: true });
+
+    const result = sandboxPolicy('skills/my-skill/executor.ts', boundary, { mustExist: false });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, 'skills', 'my-skill', 'executor.ts'));
+    }
+  });
+
+  test('sandbox policy treats skill TOOLS.json same as any other file', () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, 'skills', 'my-skill'), { recursive: true });
+
+    const result = sandboxPolicy('skills/my-skill/TOOLS.json', boundary, { mustExist: false });
+    expect(result.ok).toBe(true);
+  });
+
+  test('host policy accepts absolute skill directory path', () => {
+    const result = hostPolicy('/Users/test/.vellum/workspace/skills/my-skill/executor.ts');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe('/Users/test/.vellum/workspace/skills/my-skill/executor.ts');
+    }
+  });
+});
