@@ -292,4 +292,33 @@ describe('skill_load tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Included Skills (immediate): none');
   });
+
+  test('parent skill lists only immediate children, not transitive grandchildren', async () => {
+    // 3-level hierarchy: grandparent -> child -> grandchild
+    writeSkill('grandchild', 'Grandchild Skill', 'Leaf skill', 'Grandchild body');
+    writeSkillWithIncludes('child', 'Child Skill', 'Mid-level', 'Child body', ['grandchild']);
+    writeSkillWithIncludes('grandparent', 'Grandparent Skill', 'Top-level', 'Grandparent body', ['child']);
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '- grandparent\n- child\n- grandchild\n',
+    );
+
+    const result = await executeSkillLoad({ skill: 'grandparent' });
+    expect(result.isError).toBe(false);
+
+    // The immediate children section must list the direct child
+    expect(result.content).toContain('Included Skills (immediate):');
+    expect(result.content).toContain('child');
+
+    // Extract only the "Included Skills (immediate)" section to verify
+    // grandchild is NOT listed there (it's a transitive dependency)
+    const immediateSection = result.content.match(
+      /Included Skills \(immediate\):[\s\S]*?(?=\n\n|<loaded_skill)/,
+    );
+    expect(immediateSection).not.toBeNull();
+    expect(immediateSection![0]).not.toContain('grandchild');
+
+    // Loaded-skill marker must be present (validation passed)
+    expect(result.content).toMatch(/<loaded_skill id="grandparent" version="v1:[a-f0-9]{64}" \/>/);
+  });
 });
