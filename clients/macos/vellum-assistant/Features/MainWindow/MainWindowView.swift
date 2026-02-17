@@ -352,34 +352,37 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Button(action: {
-                threadManager.selectThread(id: thread.id)
-                switch windowState.activePanel {
-                case .settings, .agent, .directory, .debug, .doctor, .identity:
-                    windowState.activePanel = nil
-                default:
-                    break
-                }
-            }) {
-                HStack(spacing: VSpacing.xs) {
-                    if thread.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(-45))
-                    }
-                    Text(thread.title)
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        Button(action: {
+            threadManager.selectThread(id: thread.id)
+            switch windowState.activePanel {
+            case .settings, .agent, .directory, .debug, .doctor, .identity:
+                windowState.activePanel = nil
+            default:
+                break
             }
-            .buttonStyle(.plain)
-
+        }) {
+            HStack(spacing: VSpacing.xs) {
+                if thread.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                }
+                Text(thread.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.sm)
+        .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(alignment: .trailing) {
             if threadPendingDeletion == thread.id {
                 Button {
                     threadManager.archiveThread(id: thread.id)
@@ -394,28 +397,41 @@ struct MainWindowView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else {
-                Button {
-                    threadPendingDeletion = thread.id
-                } label: {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+            } else if isHoveredThread == thread.id {
+                HStack(spacing: VSpacing.xxs) {
+                    Button {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
+                    } label: {
+                        Image(systemName: thread.isPinned ? "pin.slash" : "pin")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+
+                    Button {
+                        threadPendingDeletion = thread.id
+                    } label: {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Archive \(thread.title)")
                 }
-                .buttonStyle(.plain)
-                .frame(width: 24)
-                .opacity(isHoveredThread == thread.id ? 1 : 0)
-                .allowsHitTesting(isHoveredThread == thread.id)
-                .accessibilityLabel("Archive \(thread.title)")
+                .padding(.trailing, VSpacing.xs)
             }
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
