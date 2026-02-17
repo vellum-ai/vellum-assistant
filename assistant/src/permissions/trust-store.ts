@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { v4 as uuid } from 'uuid';
 import { minimatch } from 'minimatch';
@@ -237,8 +237,11 @@ function saveToDisk(rules: TrustRule[]): void {
     data.starterBundleAccepted = true;
   }
   const tmpPath = path + '.tmp.' + process.pid;
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tmpPath, path);
+  // Enforce owner-only permissions even if the file already existed with
+  // wider permissions. Matches the pattern used in encrypted-store.ts.
+  chmodSync(path, 0o600);
 }
 
 function getRules(): TrustRule[] {
