@@ -115,7 +115,7 @@ struct LoginView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .padding(VSpacing.xxl)
