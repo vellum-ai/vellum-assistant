@@ -47,41 +47,10 @@ final class InterviewViewModel {
 
     // MARK: - Start Interview
 
-    /// Kicks off the interview by creating a new daemon text session and sending the
-    /// hidden system prompt. Subscribes to the daemon stream to capture the session ID
-    /// and accumulates the assistant's streamed reply in `streamingText`, finalizing it
-    /// into the `messages` array once complete.
+    /// Kicks off the interview by creating a new daemon text session in onboarding mode.
+    /// The assistant-side playbook/prompt system owns the conversation intelligence.
+    /// Captures the session ID and streams the assistant's opening reply into state.
     func startInterview() {
-        let name = assistantName.isEmpty ? "Velly" : assistantName
-        let interviewPrompt = """
-        You are \(name). You're a person meeting someone for the first time — warm, confident, \
-        and genuinely curious. NOT an AI being activated. NOT a customer service agent. Think of the \
-        best executive assistant you've ever met in their first interview.
-
-        STRICT RULES:
-        - NEVER exceed 2-3 sentences per response. Brevity is warmth.
-        - ALWAYS end with a follow-up question that shows you were actually listening (except during the closing phase — see below).
-        - Mirror their specific words back. Ask about the feeling behind what they said. Notice what they emphasize.
-
-        NEVER do any of these:
-        - Bullet points or lists
-        - Em-dashes
-        - Feature descriptions or capability promises ("I can help you with...")
-        - Summarizing everything at once
-        - Phrases like "I'm genuinely excited", "let's build superpowers", "that's a great goal"
-        - Starting with "That's a great..." or "I love that..."
-        - Offering advice or solutions (this is an interview, not a consultation)
-
-        EDGE CASES:
-        - Very short answers ("fine", "idk"): ask a more specific, concrete question.
-        - User asking what you can do: deflect warmly — "We'll get to all that! But first, tell me about you."
-        - Emotional disclosures: acknowledge briefly and warmly, don't gloss over.
-        - Off-topic: gently steer back.
-
-        OPENING: Introduce yourself by name in one sentence and ask ONE open-ended question about \
-        what the person's day-to-day looks like. No feature descriptions. No filler.
-        """
-
         startTime = Date()
         isThinking = true
         streamingText = ""
@@ -94,13 +63,22 @@ final class InterviewViewModel {
 
             let stream = self.daemonClient.subscribe()
 
-            // Create the session with the interview persona as a system prompt override
-            // so it replaces the daemon's default system prompt instead of conflicting.
             do {
+                let trimmedName = self.assistantName.trimmingCharacters(in: .whitespacesAndNewlines)
+                var hints = [
+                    "onboarding-active",
+                    "onboarding-phase:post_hatch",
+                    "desktop-first-conversation"
+                ]
+                if !trimmedName.isEmpty {
+                    hints.append("assistant-name:\(trimmedName)")
+                }
                 try self.daemonClient.send(SessionCreateMessage(
                     title: "Getting to know you",
-                    systemPromptOverride: interviewPrompt,
-                    maxResponseTokens: 100
+                    maxResponseTokens: 220,
+                    transportChannelId: "desktop",
+                    transportHints: hints,
+                    transportUxBrief: "Onboarding conversation after hatch. Follow the channel playbook and update USER.md directly."
                 ))
             } catch {
                 log.error("Failed to send session create: \(error.localizedDescription)")
@@ -128,7 +106,7 @@ final class InterviewViewModel {
                         do {
                             try self.daemonClient.send(UserMessageMessage(
                                 sessionId: info.sessionId,
-                                content: "Hey! I just set you up on my Mac — excited to meet you.",
+                                content: "Hi! I just hatched you and I want to get set up together.",
                                 attachments: nil
                             ))
                         } catch {
@@ -231,17 +209,8 @@ final class InterviewViewModel {
         isThinking = true
         streamingText = ""
 
-        // Inject phase-aware guidance based on the upcoming assistant turn.
         let nextTurn = turnCount + 1 // the response about to be generated
-        var contentToSend = text
-        switch nextTurn {
-        case 1...2:
-            contentToSend += "\n\n[Discovery phase: Ask about their world. What do they do, what do their days look like? Stay curious and brief.]"
-        case 3...4:
-            contentToSend += "\n\n[Deep-dive phase: Follow up on what they've shared. Ask about the WHY behind what they told you. Show you were listening by referencing specific things they said.]"
-        default:
-            contentToSend += "\n\n[Closing phase: This is your final response. In 2-3 sentences, reflect back ONE specific thing you learned about them that stood out. Express genuine forward-looking excitement about that ONE thing, not everything. End warmly. Do NOT ask a follow-up question — the conversation is wrapping up.]"
-        }
+        let contentToSend = text
 
         let isLastTurn = nextTurn >= maxTurns
 

@@ -134,6 +134,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `apps_list_response` message.
     public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `home_base_get_response` message.
+    public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
@@ -673,6 +676,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(AppsListRequestMessage())
     }
 
+    /// Request Home Base metadata from the daemon.
+    public func sendHomeBaseGet(ensureLinked: Bool = true) throws {
+        try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
+    }
+
     /// Request bundling an app for sharing.
     public func sendBundleApp(appId: String) throws {
         try send(BundleAppRequestMessage(appId: appId))
@@ -954,6 +962,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSkillsInspectResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
+        case .homeBaseGetResponse(let msg):
+            onHomeBaseGetResponse?(msg)
         case .appUpdatePreviewResponse:
             break // Fire-and-forget; no callback needed
         case .sharedAppsListResponse(let msg):

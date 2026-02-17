@@ -30,11 +30,20 @@ const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
 
+export interface RuntimeMessageSessionOptions {
+  transport?: {
+    channelId: string;
+    hints?: string[];
+    uxBrief?: string;
+  };
+}
+
 export type MessageProcessor = (
   assistantId: string,
   conversationId: string,
   content: string,
   attachmentIds?: string[],
+  options?: RuntimeMessageSessionOptions,
 ) => Promise<{ messageId: string }>;
 
 /**
@@ -47,6 +56,7 @@ export type NonBlockingMessageProcessor = (
   conversationId: string,
   content: string,
   attachmentIds?: string[],
+  options?: RuntimeMessageSessionOptions,
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
@@ -843,7 +853,14 @@ export class RuntimeHttpServer {
       sourceMetadata?: Record<string, unknown>;
     };
 
-    const { sourceChannel, externalChatId, externalMessageId, content, attachmentIds } = body;
+    const {
+      sourceChannel,
+      externalChatId,
+      externalMessageId,
+      content,
+      attachmentIds,
+      sourceMetadata,
+    } = body;
 
     if (!sourceChannel || typeof sourceChannel !== 'string') {
       return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
@@ -886,11 +903,31 @@ export class RuntimeHttpServer {
       externalMessageId,
     );
 
+    const metadataHintsRaw = sourceMetadata?.hints;
+    const metadataHints = Array.isArray(metadataHintsRaw)
+      ? metadataHintsRaw.filter((hint): hint is string => typeof hint === 'string' && hint.trim().length > 0)
+      : [];
+    const metadataUxBrief = typeof sourceMetadata?.uxBrief === 'string' && sourceMetadata.uxBrief.trim().length > 0
+      ? sourceMetadata.uxBrief.trim()
+      : undefined;
+
     // For new (non-duplicate) messages, run the agent loop to generate a reply.
     let processingSucceeded = false;
     if (!result.duplicate && this.processMessage) {
       try {
-        await this.processMessage(assistantId, result.conversationId, content ?? '', hasAttachments ? attachmentIds : undefined);
+        await this.processMessage(
+          assistantId,
+          result.conversationId,
+          content ?? '',
+          hasAttachments ? attachmentIds : undefined,
+          {
+            transport: {
+              channelId: sourceChannel,
+              hints: metadataHints.length > 0 ? metadataHints : undefined,
+              uxBrief: metadataUxBrief,
+            },
+          },
+        );
         processingSucceeded = true;
       } catch (err) {
         console.error(`[runtime-http] Processing failed`, err);

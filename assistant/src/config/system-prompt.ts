@@ -7,7 +7,7 @@ import { getConfig } from './loader.js';
 
 const log = getLogger('system-prompt');
 
-const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'BOOTSTRAP.md'] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -35,27 +35,46 @@ export function ensurePromptFiles(): void {
 }
 
 /**
+ * Returns true when BOOTSTRAP.md has been deleted from the workspace,
+ * signalling the first-run ritual is complete.
+ */
+export function isOnboardingComplete(): boolean {
+  const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
+  return !existsSync(bootstrapPath);
+}
+
+/**
  * Build the system prompt from ~/.vellum prompt files,
  * then append a generated skills catalog (if any skills are available).
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
- *   3. Append skills catalog from ~/.vellum/workspace/skills
+ *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
+ *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
 export function buildSystemPrompt(): string {
   const soulPath = getWorkspacePromptPath('SOUL.md');
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   const userPath = getWorkspacePromptPath('USER.md');
+  const bootstrapPath = getWorkspacePromptPath('BOOTSTRAP.md');
 
   const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const user = readPromptFile(userPath);
+  const bootstrap = readPromptFile(bootstrapPath);
 
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
+  if (bootstrap) {
+    parts.push(
+      '# First-Run Ritual\n\n'
+      + 'BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n'
+      + bootstrap,
+    );
+  }
   parts.push(buildConfigSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
@@ -94,7 +113,7 @@ function buildDynamicUiSection(): string {
     '### When to use',
     'Use dynamic UI when the response involves structured data, visual metrics, comparisons, multi-item results, charts, weather, flights, financial data, dashboards, or anything better presented visually than as plain text. Do NOT use for simple text answers, short factual replies, or casual conversation.',
     '',
-    '**Important:** Dynamic UI only works in interactive UI sessions (e.g. the macOS desktop app). Non-UI channels such as HTTP API, Telegram, and gateway integrations cannot render dynamic pages or cards. When responding through a non-UI channel, present data as well-formatted text instead.',
+    '**Important:** Dynamic UI availability is channel-dependent. Use the active channel onboarding playbook + transport guidance to decide whether to render UI directly or provide channel-safe text output with a clean dashboard handoff.',
     '',
     '### Routing rules',
     '- **Tool auto-emissions** (e.g. `get_weather`): handled automatically — do nothing extra',
@@ -113,6 +132,7 @@ function buildDynamicUiSection(): string {
     '- `auto_open` defaults to true — the app opens immediately after creation',
     '- Always include `preview`: `{ title, icon (emoji), metrics: [{ label, value }] }` for an inline chat card',
     '- For iteration on an existing app: use `app_update` to change the HTML, then `app_open` to reopen it',
+    '- Home Base starts from a prebuilt scaffold. When updating Home Base, preserve required task-lane anchors and apply updates through normal `app_update` flows',
     '- For complex apps: call `skill_load` with `id: "app-builder"` for the full design reference',
     '',
     '### Quality standards',
@@ -146,6 +166,13 @@ function buildDynamicUiSection(): string {
     'vellum.openLink(url, metadata?)    — open URL in user\'s browser (works everywhere incl. shared apps)',
     'vellum.sendAction(actionId, data)  — send interaction back to assistant',
     '```',
+    '',
+    '### Home Base interaction prompts',
+    'Home Base buttons send prefilled natural-language prompts through `vellum.sendAction`.',
+    'Treat these as normal user messages, not as direct execution commands.',
+    '- For appearance changes: keep customization color-first, ask for explicit confirmation before applying a full-dashboard update.',
+    '- For optional capability setup tasks (voice/computer control/ambient): keep them user-initiated and request permissions only when required for the chosen path.',
+    '- If a prompt is underspecified, ask one brief follow-up and continue.',
     '',
     '### External Links',
     'When building apps with linkable items (search results, product cards, bookings), use `vellum.openLink(url, metadata)` to make them clickable.',
@@ -292,9 +319,10 @@ function buildConfigSection(): string {
     '## Configuration',
     `Your configuration directory is \`${localWorkspaceDir}/\` (host path: \`${hostWorkspaceDir}/\`). Prefer the local path for all operations. Key files you may read or edit include but are not limited to:`,
     '',
-    '- `IDENTITY.md` — Your name and role. Slim metadata — rarely changes.',
+    '- `IDENTITY.md` — Your name, nature, vibe, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of your user. Update as you learn about them over time.',
+    '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
     '',
     '### Proactive Workspace Editing',

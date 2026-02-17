@@ -56,12 +56,23 @@ export interface SessionListRequest {
   type: 'session_list';
 }
 
+/** Lightweight session transport metadata for channel identity and natural-language guidance. */
+export interface SessionTransportMetadata {
+  /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
+  channelId: string;
+  /** Optional natural-language hints for channel-specific UX behavior. */
+  hints?: string[];
+  /** Optional concise UX brief for this channel. */
+  uxBrief?: string;
+}
+
 export interface SessionCreateRequest {
   type: 'session_create';
   title?: string;
   systemPromptOverride?: string;
   maxResponseTokens?: number;
   correlationId?: string;
+  transport?: SessionTransportMetadata;
 }
 
 export interface SessionSwitchRequest {
@@ -310,6 +321,12 @@ export interface ScheduleRemove {
 
 export interface AppsListRequest {
   type: 'apps_list';
+}
+
+export interface HomeBaseGetRequest {
+  type: 'home_base_get';
+  /** If true, daemon ensures a durable Home Base link exists before responding. */
+  ensureLinked?: boolean;
 }
 
 export interface AppOpenRequest {
@@ -663,6 +680,7 @@ export type ClientMessage =
   | ReminderCancel
   | BundleAppRequest
   | AppsListRequest
+  | HomeBaseGetRequest
   | AppOpenRequest
   | SharedAppsListRequest
   | SharedAppDeleteRequest
@@ -687,6 +705,12 @@ export type ClientMessage =
   | UnpublishPageRequest;
 
 // === Server → Client messages ===
+
+export interface UserMessageEcho {
+  type: 'user_message_echo';
+  text: string;
+  sessionId?: string;
+}
 
 export interface AssistantTextDelta {
   type: 'assistant_text_delta';
@@ -1154,6 +1178,23 @@ export interface AppsListResponse {
   }>;
 }
 
+export interface HomeBaseGetResponse {
+  type: 'home_base_get_response';
+  homeBase: {
+    appId: string;
+    source: string;
+    starterTasks: string[];
+    onboardingTasks: string[];
+    preview: {
+      title: string;
+      subtitle: string;
+      description: string;
+      icon: string;
+      metrics: Array<{ label: string; value: string }>;
+    };
+  } | null;
+}
+
 export interface SharedAppsListResponse {
   type: 'shared_apps_list_response';
   apps: Array<{
@@ -1431,6 +1472,7 @@ export interface UiSurfaceUndoResult {
 }
 
 export type ServerMessage =
+  | UserMessageEcho
   | AssistantTextDelta
   | AssistantThinkingDelta
   | ToolUseStart
@@ -1486,6 +1528,7 @@ export type ServerMessage =
   | RemindersListResponse
   | BundleAppResponse
   | AppsListResponse
+  | HomeBaseGetResponse
   | SharedAppsListResponse
   | SharedAppDeleteResponse
   | ForkSharedAppResponse

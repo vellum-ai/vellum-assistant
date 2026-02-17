@@ -36,6 +36,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'session_create',
     title: 'New session',
     correlationId: 'corr-001',
+    transport: {
+      channelId: 'desktop',
+      hints: ['dashboard-capable'],
+      uxBrief: 'Prefer dashboard-first onboarding.',
+    },
   },
   session_switch: {
     type: 'session_switch',
@@ -241,6 +246,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   apps_list: {
     type: 'apps_list',
   },
+  home_base_get: {
+    type: 'home_base_get',
+    ensureLinked: true,
+  },
   shared_apps_list: {
     type: 'shared_apps_list',
   },
@@ -345,6 +354,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
 
 type ServerMessageType = ServerMessage['type'];
 const serverMessages: Record<ServerMessageType, ServerMessage> = {
+  user_message_echo: {
+    type: 'user_message_echo',
+    text: 'Check the weather for me',
+    sessionId: 'sess-001',
+  },
   assistant_text_delta: {
     type: 'assistant_text_delta',
     text: 'Here is some output',
@@ -787,6 +801,34 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         contentId: 'a1b2c3d4e5f6a7b8',
       },
     ],
+  },
+  home_base_get_response: {
+    type: 'home_base_get_response',
+    homeBase: {
+      appId: 'home-base-001',
+      source: 'prebuilt_seed',
+      starterTasks: [
+        'Change the look and feel',
+        'Research something for me about X',
+        'Turn it into a webpage or interactive UI',
+      ],
+      onboardingTasks: [
+        'Make it mine',
+        'Enable voice mode',
+        'Enable computer control',
+        'Try ambient mode',
+      ],
+      preview: {
+        title: 'Home Base',
+        subtitle: 'Dashboard',
+        description: 'Prebuilt onboarding + starter task canvas',
+        icon: '\u{1F3E0}',
+        metrics: [
+          { label: 'Starter tasks', value: '3' },
+          { label: 'Onboarding tasks', value: '4' },
+        ],
+      },
+    },
   },
   shared_apps_list_response: {
     type: 'shared_apps_list_response',

@@ -24,7 +24,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 3
+    private static let currentFlowVersion = 4
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -103,7 +103,10 @@ final class OnboardingState {
         // Clamp restored step to the variant's maximum to prevent out-of-range
         // rendering (e.g. a step saved from the 8-step default flow would be
         // invalid for the 5-step first-meeting flow).
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 7
+        // Default onboarding now exits immediately after the first post-hatch
+        // conversation entry point (step 2). Prevent stale persisted indices
+        // from reopening legacy permission-request steps.
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 2
         if currentStep > maxStep {
             currentStep = maxStep
         }

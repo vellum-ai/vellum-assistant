@@ -54,7 +54,7 @@ graph TB
         end
 
         subgraph "Dynamic Workspace"
-            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer"]
+            WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer + optional docked chat"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
         end
 
@@ -67,6 +67,15 @@ graph TB
         IPC_SERVER["DaemonServer<br/>Unix socket IPC<br/>~/.vellum/vellum.sock"]
         HANDLERS["Message Handlers<br/>session routing"]
         SESSION_MGR["Session Manager<br/>in-memory pool<br/>stale eviction"]
+
+        subgraph "Onboarding Control Plane"
+            PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
+            PLAYBOOK_REG["onboarding/playbooks/registry.json<br/>started-channel index"]
+            ONBOARD_ORCH["OnboardingOrchestrator<br/>post-hatch sequence + Home Base handoff<br/>runtime onboarding-mode prompt"]
+            HOME_BASE_SEED["HomeBaseSeed<br/>prebuilt scaffold seeding<br/>idempotent bootstrap"]
+            HOME_BASE_BOOT["HomeBaseBootstrap<br/>durable app-link resolution + repair"]
+            HOME_BASE_LINK["HomeBaseAppLinkStore<br/>home_base_app_links table"]
+        end
 
         subgraph "Inference"
             ANTHROPIC["Anthropic Claude<br/>primary provider"]
@@ -104,6 +113,7 @@ graph TB
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
             DB_REMINDERS["reminders"]
+            DB_HOME["home_base_app_links"]
         end
 
         subgraph "Tracing"
@@ -164,6 +174,7 @@ graph TB
         KEYCHAIN["Keychain<br/>API key storage"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
+        APPS_DATA["~/.vellum/workspace/data/apps/<br/>app JSON + pages"]
         SESSION_LOGS["logs/session-*.json"]
     end
 
@@ -195,6 +206,7 @@ graph TB
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
     IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
+    MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| IPC_SERVER
 
     %% Ride Shotgun flow
     RS_TRIGGER -->|"shouldShowInvitation"| AMBIENT
@@ -222,6 +234,16 @@ graph TB
     SESSION_MGR --> OLLAMA
     SESSION_MGR --> CONV_STORE
     SESSION_MGR --> PROFILE_COMPILER
+    HANDLERS -->|"session_create.transport"| PLAYBOOK_MGR
+    PLAYBOOK_MGR --> PLAYBOOK_REG
+    PLAYBOOK_MGR -->|"inject <channel_onboarding_playbook><br/>runtime context"| SESSION_MGR
+    PLAYBOOK_MGR --> ONBOARD_ORCH
+    ONBOARD_ORCH -->|"inject <onboarding_mode><br/>runtime context"| SESSION_MGR
+    IPC_SERVER -.->|"daemon startup bootstrap + home_base_get"| HOME_BASE_BOOT
+    HOME_BASE_BOOT --> HOME_BASE_SEED
+    HOME_BASE_BOOT --> HOME_BASE_LINK
+    HOME_BASE_LINK --> DB_HOME
+    HOME_BASE_SEED --> APPS_DATA
     CONV_STORE --> DB_CONV
     CONV_STORE --> DB_MSG
     CONV_STORE --> DB_TOOL
@@ -247,6 +269,7 @@ graph TB
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP"| HTTP_SERVER
+    HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
@@ -295,6 +318,16 @@ graph TB
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+### Channel Onboarding Playbook Bootstrap
+
+- Transport metadata arrives via `session_create.transport` (IPC) or `/channels/inbound` (`channelId`, optional `hints`, optional `uxBrief`).
+- Telegram webhook ingress now injects deterministic channel-safe transport metadata (`hints` + `uxBrief`) so non-dashboard channels defer Home Base-only UI tasks cleanly.
+- `OnboardingPlaybookManager` resolves `<channel>_onboarding.md`, checks `onboarding/playbooks/registry.json`, and applies first-time fast-path vs cross-channel reconciliation.
+- `OnboardingOrchestrator` derives onboarding-mode guidance (post-hatch sequence, USER.md capture, Home Base handoff) from playbook + transport context.
+- Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
+- Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
+- Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
 ---
 
@@ -395,6 +428,9 @@ graph LR
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
+        ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
+        ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
+        APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
     end
 
     subgraph "PostgreSQL (Web Server Only)"
@@ -823,8 +859,9 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 |------|------|
 | `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
 | `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | `injectWorkspaceTopLevelContext()` and `stripWorkspaceTopLevelContext()` |
-| `assistant/src/daemon/session.ts` | Cache state, dirty marking, refresh logic, runtime wiring |
+| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata |
+| `assistant/src/daemon/session.ts` | Cache state, dirty marking, runtime injection wiring |
 
 ---
 

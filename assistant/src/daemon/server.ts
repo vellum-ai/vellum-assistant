@@ -24,6 +24,7 @@ import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
+import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 
 const log = getLogger('server');
 
@@ -57,6 +58,15 @@ export class DaemonServer {
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
   private static readonly MAX_CONNECTIONS = 50;
 
+  private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
+    const transport = options?.transport;
+    if (!transport) return;
+
+    // Transport metadata is available for future use but onboarding context
+    // is now handled via BOOTSTRAP.md in the system prompt.
+    log.debug({ channelId: transport.channelId }, 'Transport metadata received');
+  }
+
   constructor() {
     this.socketPath = getSocketPath();
   }
@@ -71,6 +81,12 @@ export class DaemonServer {
     const config = getConfig();
     initializeProviders(config);
     this.lastConfigFingerprint = this.configFingerprint(config);
+
+    try {
+      bootstrapHomeBaseAppLink();
+    } catch (err) {
+      log.warn({ err }, 'Failed to bootstrap Home Base app link at daemon startup');
+    }
 
     ensureBlobDir();
     this.blobSweepTimer = setInterval(() => {
@@ -558,7 +574,7 @@ export class DaemonServer {
     };
 
     // Persist session options so they survive eviction/recreation.
-    if (options && (options.systemPromptOverride || options.maxResponseTokens)) {
+    if (options && (options.systemPromptOverride || options.maxResponseTokens || options.transport)) {
       this.sessionOptions.set(conversationId, {
         ...this.sessionOptions.get(conversationId),
         ...options,
@@ -613,6 +629,7 @@ export class DaemonServer {
           newSession.updateClient(sendToClient, true);
         }
         await newSession.loadFromDb();
+        this.applyTransportMetadata(newSession, storedOptions);
         if (rebindClient && socket) {
           newSession.setSandboxOverride(this.socketSandboxOverride.get(socket));
         }
@@ -629,6 +646,7 @@ export class DaemonServer {
     } else {
       // Rebind to the new socket so IPC goes to the current client.
       maybeBindClient(session);
+      this.applyTransportMetadata(session, options);
     }
     return session;
   }
@@ -683,8 +701,9 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
-    const session = await this.getOrCreateSession(conversationId);
+    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     // Reject concurrent requests upfront. The HTTP path should never use
     // the message queue — it returns 409 to the caller instead.
@@ -729,8 +748,9 @@ export class DaemonServer {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
-    const session = await this.getOrCreateSession(conversationId);
+    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');

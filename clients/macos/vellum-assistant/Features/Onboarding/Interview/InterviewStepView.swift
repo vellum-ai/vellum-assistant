@@ -10,10 +10,6 @@ struct InterviewStepView: View {
     @State private var viewModel: InterviewViewModel
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
-    @State private var isRecording = false
-
-    @State private var voiceInputManager = VoiceInputManager()
-    private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -23,7 +19,6 @@ struct InterviewStepView: View {
             daemonClient: daemonClient,
             assistantName: state.assistantName
         ))
-        self.profileExtractor = ProfileExtractor(daemonClient: daemonClient)
     }
 
     /// Combines finalized messages with any in-progress streaming text.
@@ -91,7 +86,6 @@ struct InterviewStepView: View {
         }
         .onAppear {
             viewModel.startInterview()
-            setupVoiceCallbacks()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
@@ -104,7 +98,6 @@ struct InterviewStepView: View {
             }
         }
         .onDisappear {
-            voiceInputManager.stop()
             viewModel.cancel()
         }
     }
@@ -121,14 +114,6 @@ struct InterviewStepView: View {
                         viewModel.sendMessage()
                     }
                 }
-            )
-
-            VIconButton(
-                label: "Voice",
-                icon: "mic.fill",
-                isActive: isRecording,
-                iconOnly: true,
-                action: { toggleVoice() }
             )
 
             Button(action: {
@@ -165,36 +150,10 @@ struct InterviewStepView: View {
     // MARK: - Interview Completion
 
     private func completeInterview() {
-        let messages = viewModel.messages
-        let assistantName = state.assistantName
-
         state.interviewCompleted = true
         viewModel.endInterview()
 
-        Task { @MainActor in
-            await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
-        }
-
         onComplete()
-    }
-
-    // MARK: - Voice Input
-
-    private func setupVoiceCallbacks() {
-        voiceInputManager.onTranscription = { text in
-            viewModel.inputText = text
-            viewModel.sendMessage()
-        }
-        voiceInputManager.onPartialTranscription = { text in
-            viewModel.inputText = text
-        }
-        voiceInputManager.onRecordingStateChanged = { recording in
-            isRecording = recording
-        }
-    }
-
-    private func toggleVoice() {
-        voiceInputManager.toggleRecording()
     }
 }
 

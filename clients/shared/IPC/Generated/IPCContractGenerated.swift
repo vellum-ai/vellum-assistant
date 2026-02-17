@@ -473,6 +473,38 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let imageData: String?
 }
 
+public struct IPCHomeBaseGetRequest: Codable, Sendable {
+    public let type: String
+    /// If true, daemon ensures a durable Home Base link exists before responding.
+    public let ensureLinked: Bool?
+}
+
+public struct IPCHomeBaseGetResponse: Codable, Sendable {
+    public let type: String
+    public let homeBase: IPCHomeBaseGetResponseHomeBase?
+}
+
+public struct IPCHomeBaseGetResponseHomeBase: Codable, Sendable {
+    public let appId: String
+    public let source: String
+    public let starterTasks: [String]
+    public let onboardingTasks: [String]
+    public let preview: IPCHomeBaseGetResponseHomeBasePreview
+}
+
+public struct IPCHomeBaseGetResponseHomeBasePreview: Codable, Sendable {
+    public let title: String
+    public let subtitle: String
+    public let description: String
+    public let icon: String
+    public let metrics: [IPCHomeBaseGetResponseHomeBasePreviewMetric]
+}
+
+public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
+    public let label: String
+    public let value: String
+}
+
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
@@ -686,6 +718,7 @@ public struct IPCPublishPageRequest: Codable, Sendable {
     public let type: String
     public let html: String
     public let title: String?
+    public let appId: String?
 }
 
 public struct IPCPublishPageResponse: Codable, Sendable {
@@ -841,6 +874,8 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     public let systemPromptOverride: String?
     public let maxResponseTokens: Int?
     public let correlationId: String?
+    /// Lightweight session transport metadata for channel identity and natural-language guidance.
+    public let transport: IPCSessionTransportMetadata?
 }
 
 public struct IPCSessionInfo: Codable, Sendable {
@@ -877,6 +912,16 @@ public struct IPCSessionsClearResponse: Codable, Sendable {
 public struct IPCSessionSwitchRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+}
+
+/// Lightweight session transport metadata for channel identity and natural-language guidance.
+public struct IPCSessionTransportMetadata: Codable, Sendable {
+    /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
+    public let channelId: String
+    /// Optional natural-language hints for channel-specific UX behavior.
+    public let hints: [String]?
+    /// Optional concise UX brief for this channel.
+    public let uxBrief: String?
 }
 
 public struct IPCShareAppCloudRequest: Codable, Sendable {
@@ -1453,6 +1498,12 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let mimeType: String
     public let data: String
     public let extractedText: String?
+}
+
+public struct IPCUserMessageEcho: Codable, Sendable {
+    public let type: String
+    public let text: String
+    public let sessionId: String?
 }
 
 public struct IPCVercelApiConfigRequest: Codable, Sendable {

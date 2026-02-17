@@ -653,8 +653,6 @@ public final class ChatViewModel: ObservableObject {
 
         let isWorkspaceRefinement = activeSurfaceId != nil
 
-        // Append user message immediately for responsive UX —
-        // skip for workspace refinements to avoid leaking into the chat view.
         let willBeQueued = isSending && sessionId != nil
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
@@ -929,6 +927,13 @@ public final class ChatViewModel: ObservableObject {
                     }
                 }
             }
+
+        case .userMessageEcho(let echo):
+            guard belongsToSession(echo.sessionId) else { return }
+            let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+            messages.append(userMsg)
+            isSending = true
+            isThinking = true
 
         case .assistantThinkingDelta:
             // Stay in thinking state

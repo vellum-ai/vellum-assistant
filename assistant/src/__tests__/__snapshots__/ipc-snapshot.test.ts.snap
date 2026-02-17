@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+// Bun Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -28,6 +28,13 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
 {
   "correlationId": "corr-001",
   "title": "New session",
+  "transport": {
+    "channelId": "desktop",
+    "hints": [
+      "dashboard-capable",
+    ],
+    "uxBrief": "Prefer dashboard-first onboarding.",
+  },
   "type": "session_create",
 }
 `;
@@ -566,6 +573,15 @@ file2.ts
 "
 ,
   "type": "tool_output_chunk",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_input_delta serializes to expected JSON 1`] = `
+{
+  "content": "{"html": "<div>Hello</div>"}",
+  "sessionId": "sess-001",
+  "toolName": "app_create",
+  "type": "tool_input_delta",
 }
 `;
 
@@ -1486,11 +1502,61 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types tool_input_delta serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ClientMessage types home_base_get serializes to expected JSON 1`] = `
 {
-  "content": "{"html": "<div>Hello</div>"}",
+  "ensureLinked": true,
+  "type": "home_base_get",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types home_base_get_response serializes to expected JSON 1`] = `
+{
+  "homeBase": {
+    "appId": "home-base-001",
+    "onboardingTasks": [
+      "Make it mine",
+      "Enable voice mode",
+      "Enable computer control",
+      "Try ambient mode",
+    ],
+    "preview": {
+      "description": "Prebuilt onboarding + starter task canvas",
+      "icon": "🏠",
+      "metrics": [
+        {
+          "label": "Starter tasks",
+          "value": "3",
+        },
+        {
+          "label": "Onboarding tasks",
+          "value": "4",
+        },
+      ],
+      "subtitle": "Dashboard",
+      "title": "Home Base",
+    },
+    "source": "prebuilt_seed",
+    "starterTasks": [
+      "Change the look and feel",
+      "Research something for me about X",
+      "Turn it into a webpage or interactive UI",
+    ],
+  },
+  "type": "home_base_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types user_message_echo serializes to expected JSON 1`] = `
+{
   "sessionId": "sess-001",
-  "toolName": "app_create",
-  "type": "tool_input_delta",
+  "text": "Check the weather for me",
+  "type": "user_message_echo",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_files_changed serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_files_changed",
 }
 `;

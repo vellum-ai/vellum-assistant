@@ -10,11 +10,7 @@ struct FirstMeetingIntroductionView: View {
     @State private var viewModel: FirstMeetingIntroductionViewModel
     @State private var showControls = false
     @State private var streamingMessageId = UUID()
-    @State private var isRecording = false
     @State private var hasCompleted = false
-
-    @State private var voiceInputManager = VoiceInputManager()
-    private let profileExtractor: ProfileExtractor
 
     init(state: OnboardingState, daemonClient: DaemonClientProtocol, onComplete: @escaping () -> Void) {
         self.state = state
@@ -23,7 +19,6 @@ struct FirstMeetingIntroductionView: View {
         self._viewModel = State(initialValue: FirstMeetingIntroductionViewModel(
             daemonClient: daemonClient
         ))
-        self.profileExtractor = ProfileExtractor(daemonClient: daemonClient)
     }
 
     /// Combines finalized messages with any in-progress streaming text.
@@ -91,7 +86,6 @@ struct FirstMeetingIntroductionView: View {
         }
         .onAppear {
             viewModel.startConversation()
-            setupVoiceCallbacks()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
@@ -104,7 +98,6 @@ struct FirstMeetingIntroductionView: View {
             }
         }
         .onDisappear {
-            voiceInputManager.stop()
             viewModel.cancel()
         }
     }
@@ -121,14 +114,6 @@ struct FirstMeetingIntroductionView: View {
                         viewModel.sendMessage()
                     }
                 }
-            )
-
-            VIconButton(
-                label: "Voice",
-                icon: "mic.fill",
-                isActive: isRecording,
-                iconOnly: true,
-                action: { toggleVoice() }
             )
 
             Button(action: {
@@ -168,8 +153,6 @@ struct FirstMeetingIntroductionView: View {
         guard !hasCompleted else { return }
         hasCompleted = true
 
-        let messages = viewModel.messages
-
         // Extract conversation data (name, first task candidate).
         viewModel.extractConversationData()
 
@@ -184,34 +167,7 @@ struct FirstMeetingIntroductionView: View {
         state.conversationCompleted = true
         viewModel.endConversation()
 
-        // Capture the assistant name AFTER extraction so profile uses the updated name.
-        let assistantName = state.assistantName
-
-        // Run profile extraction in the background.
-        Task { @MainActor in
-            await profileExtractor.extractProfile(from: messages, assistantName: assistantName)
-        }
-
         onComplete()
-    }
-
-    // MARK: - Voice Input
-
-    private func setupVoiceCallbacks() {
-        voiceInputManager.onTranscription = { text in
-            viewModel.inputText = text
-            viewModel.sendMessage()
-        }
-        voiceInputManager.onPartialTranscription = { text in
-            viewModel.inputText = text
-        }
-        voiceInputManager.onRecordingStateChanged = { recording in
-            isRecording = recording
-        }
-    }
-
-    private func toggleVoice() {
-        voiceInputManager.toggleRecording()
     }
 }
 

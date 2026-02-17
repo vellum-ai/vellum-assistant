@@ -80,6 +80,7 @@ import {
   handlePublishPage,
   handleUnpublishPage,
 } from './publish.js';
+import { handleHomeBaseGet } from './home-base.js';
 
 import {
   handleTaskSubmit,
@@ -164,6 +165,7 @@ const handlers: DispatchMap = {
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
   app_update_preview: handleAppUpdatePreview,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  home_base_get: handleHomeBaseGet,
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
   fork_shared_app: handleForkSharedApp,

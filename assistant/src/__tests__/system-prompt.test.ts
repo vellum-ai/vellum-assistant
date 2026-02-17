@@ -162,7 +162,7 @@ describe('buildSystemPrompt', () => {
 
   test('config section uses workspace directory from platform util', () => {
     const result = buildSystemPrompt();
-    expect(result).toContain(`Your configuration directory is \`${TEST_DIR}/\``);
+    expect(result).toContain(`Your configuration directory is \`/workspace/\` (host path: \`${TEST_DIR}/\`)`);
   });
 
   test('omits user skills from catalog when none are configured', () => {

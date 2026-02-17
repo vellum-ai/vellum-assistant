@@ -12,6 +12,10 @@ import type { ToolExecutionResult } from '../tools/types.js';
 import { getApp, updateApp } from '../memory/app-store.js';
 import { getLogger } from '../util/logger.js';
 import { buildSessionErrorMessage } from './session-error.js';
+import {
+  getPrebuiltHomeBasePreview,
+  findSeededHomeBaseApp,
+} from '../home-base/prebuilt/seed.js';
 
 const log = getLogger('session-surfaces');
 
@@ -169,6 +173,7 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     log.warn({ surfaceId, actionId }, 'No pending surface action found');
     return;
   }
+  const retainPending = pending.surfaceType === 'dynamic_page';
   // selection_changed is a non-terminal state update — don't consume the
   // pending entry or send a message.
   if (actionId === 'selection_changed') {
@@ -176,7 +181,12 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     return;
   }
   ctx.lastSurfaceAction.set(surfaceId, { actionId, data });
-  const content = JSON.stringify({
+  const shouldRelayPrompt = actionId === 'relay_prompt' || actionId === 'agent_prompt';
+  const prompt =
+    shouldRelayPrompt && typeof data?.prompt === 'string'
+      ? data.prompt.trim()
+      : '';
+  const content = prompt || JSON.stringify({
     surfaceAction: true,
     surfaceId,
     surfaceType: pending.surfaceType,
@@ -187,6 +197,15 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   const requestId = uuid();
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
+  // Echo the user's prompt to the client so it appears in the chat UI
+  if (shouldRelayPrompt && prompt) {
+    ctx.sendToClient({
+      type: 'user_message_echo',
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+  }
+
   ctx.traceEmitter.emit('request_received', 'Surface action received', {
     requestId,
     status: 'info',
@@ -196,7 +215,9 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   const result = ctx.enqueueMessage(content, [], onEvent, requestId);
   if (result.queued) {
     const position = ctx.getQueueDepth();
-    ctx.pendingSurfaceActions.delete(surfaceId);
+    if (!retainPending) {
+      ctx.pendingSurfaceActions.delete(surfaceId);
+    }
     log.info({ surfaceId, actionId, requestId }, 'Surface action queued (session busy)');
     ctx.traceEmitter.emit('request_queued', `Surface action queued at position ${position}`, {
       requestId,
@@ -228,7 +249,9 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     return;
   }
 
-  ctx.pendingSurfaceActions.delete(surfaceId);
+  if (!retainPending) {
+    ctx.pendingSurfaceActions.delete(surfaceId);
+  }
   log.info({ surfaceId, actionId, requestId }, 'Processing surface action as follow-up');
   ctx.processMessage(content, [], onEvent, requestId).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
@@ -483,8 +506,17 @@ export async function surfaceProxyResolver(
     const preview = input.preview as DynamicPageSurfaceData['preview'];
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
+    const seededHomeBase = findSeededHomeBaseApp();
+    const defaultPreview = seededHomeBase && seededHomeBase.id === app.id
+      ? getPrebuiltHomeBasePreview()
+      : undefined;
 
-    const surfaceData: DynamicPageSurfaceData = { html: app.htmlDefinition, appId: app.id, appType: app.appType, preview };
+    const surfaceData: DynamicPageSurfaceData = {
+      html: app.htmlDefinition,
+      appId: app.id,
+      appType: app.appType,
+      preview: preview ?? defaultPreview,
+    };
     const surfaceId = uuid();
     ctx.surfaceState.set(surfaceId, {
       surfaceType: 'dynamic_page',
@@ -507,6 +539,8 @@ export async function surfaceProxyResolver(
       title: app.name,
       data: surfaceData,
     });
+
+    ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: 'dynamic_page' });
 
     return { content: JSON.stringify({ surfaceId, appId }), isError: false };
   }

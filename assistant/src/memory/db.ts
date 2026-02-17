@@ -341,6 +341,16 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS home_base_app_links (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
@@ -523,6 +533,7 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_shared_app_links_share_token ON shared_app_links(share_token)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_home_base_app_links_app_id ON home_base_app_links(app_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_html_hash ON published_pages(html_hash)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_status ON published_pages(status)`);

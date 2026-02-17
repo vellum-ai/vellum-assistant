@@ -215,9 +215,56 @@ extension IPCWatchObservation {
 /// Backed by generated `IPCSessionCreateRequest`.
 public typealias SessionCreateMessage = IPCSessionCreateRequest
 
+private func buildSessionTransportMetadata(
+    channelId: String?,
+    hints: [String]?,
+    uxBrief: String?
+) -> IPCSessionTransportMetadata? {
+    guard let channelId, !channelId.isEmpty else { return nil }
+
+    var payload: [String: Any] = ["channelId": channelId]
+    if let hints {
+        payload["hints"] = hints
+    }
+    if let uxBrief {
+        payload["uxBrief"] = uxBrief
+    }
+
+    guard JSONSerialization.isValidJSONObject(payload) else { return nil }
+    do {
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try JSONDecoder().decode(IPCSessionTransportMetadata.self, from: data)
+    } catch {
+        return nil
+    }
+}
+
 extension IPCSessionCreateRequest {
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil) {
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport)
+    }
+
+    public init(
+        title: String?,
+        systemPromptOverride: String? = nil,
+        maxResponseTokens: Int? = nil,
+        correlationId: String? = nil,
+        transportChannelId: String?,
+        transportHints: [String]? = nil,
+        transportUxBrief: String? = nil
+    ) {
+        self.init(
+            type: "session_create",
+            title: title,
+            systemPromptOverride: systemPromptOverride,
+            maxResponseTokens: maxResponseTokens,
+            correlationId: correlationId,
+            transport: buildSessionTransportMetadata(
+                channelId: transportChannelId,
+                hints: transportHints,
+                uxBrief: transportUxBrief
+            )
+        )
     }
 }
 
@@ -346,6 +393,16 @@ public typealias AppsListRequestMessage = IPCAppsListRequest
 extension IPCAppsListRequest {
     public init() {
         self.init(type: "apps_list")
+    }
+}
+
+/// Sent to resolve Home Base app metadata from the daemon.
+/// Backed by generated `IPCHomeBaseGetRequest`.
+public typealias HomeBaseGetRequestMessage = IPCHomeBaseGetRequest
+
+extension IPCHomeBaseGetRequest {
+    public init(ensureLinked: Bool = true) {
+        self.init(type: "home_base_get", ensureLinked: ensureLinked)
     }
 }
 
@@ -596,6 +653,10 @@ extension IPCCuError {
         self.init(type: "cu_error", sessionId: sessionId, message: message)
     }
 }
+
+/// Echoes a user message back to the client (e.g. relay_prompt from a surface action).
+/// Backed by generated `IPCUserMessageEcho`.
+public typealias UserMessageEchoMessage = IPCUserMessageEcho
 
 /// Streamed text delta from the assistant's response.
 /// Backed by generated `IPCAssistantTextDelta`.
@@ -1063,6 +1124,10 @@ extension IPCAppsListResponseApp: Identifiable {}
 /// Backed by generated `IPCAppsListResponse`.
 public typealias AppsListResponseMessage = IPCAppsListResponse
 
+/// Home Base metadata returned by the daemon.
+/// Backed by generated `IPCHomeBaseGetResponse`.
+public typealias HomeBaseGetResponseMessage = IPCHomeBaseGetResponse
+
 /// A single shared app item returned from the daemon.
 /// Backed by generated `IPCSharedAppsListResponseApp`.
 public typealias SharedAppItem = IPCSharedAppsListResponseApp
@@ -1323,8 +1388,8 @@ extension IPCOpenBundleResponseManifest {
 public typealias PublishPageRequestMessage = IPCPublishPageRequest
 
 extension IPCPublishPageRequest {
-    public init(html: String, title: String? = nil) {
-        self.init(type: "publish_page", html: html, title: title)
+    public init(html: String, title: String? = nil, appId: String? = nil) {
+        self.init(type: "publish_page", html: html, title: title, appId: appId)
     }
 }
 
@@ -1404,6 +1469,7 @@ public enum ServerMessage: Decodable, Sendable {
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
     case sessionError(SessionErrorMessage)
+    case userMessageEcho(UserMessageEchoMessage)
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
@@ -1446,6 +1512,7 @@ public enum ServerMessage: Decodable, Sendable {
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
+    case homeBaseGetResponse(HomeBaseGetResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
@@ -1490,6 +1557,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_error":
             let message = try SessionErrorMessage(from: decoder)
             self = .sessionError(message)
+        case "user_message_echo":
+            let message = try UserMessageEchoMessage(from: decoder)
+            self = .userMessageEcho(message)
         case "assistant_text_delta":
             let message = try AssistantTextDeltaMessage(from: decoder)
             self = .assistantTextDelta(message)
@@ -1613,6 +1683,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "apps_list_response":
             let message = try AppsListResponseMessage(from: decoder)
             self = .appsListResponse(message)
+        case "home_base_get_response":
+            let message = try HomeBaseGetResponseMessage(from: decoder)
+            self = .homeBaseGetResponse(message)
         case "app_update_preview_response":
             let message = try AppUpdatePreviewResponseMessage(from: decoder)
             self = .appUpdatePreviewResponse(message)

@@ -16,6 +16,7 @@ struct MainWindowView: View {
     @State private var publishedUrl: String?
     @State private var publishError: String?
     @State private var isHoveredThread: UUID?
+    @State private var requestedHomeBaseAtLaunch = false
 
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
@@ -23,6 +24,7 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
+    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = true
     @State private var drawerDragStartWidth: Double?
     @State private var drawerDragStartAvailableWidth: CGFloat?
     @State private var isDrawerDragging: Bool = false
@@ -114,6 +116,39 @@ struct MainWindowView: View {
         }
     }
 
+    /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
+    /// When true, the client shows a chat-only interface — no Home Base dashboard.
+    private var isBootstrapOnboardingActive: Bool {
+        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+    }
+
+    private func requestHomeBaseDashboardIfNeeded() {
+        guard !isBootstrapOnboardingActive else { return }
+        guard homeBaseDashboardDefaultEnabled else { return }
+        guard daemonClient.isConnected else { return }
+        guard !requestedHomeBaseAtLaunch else { return }
+        guard !windowState.isDynamicExpanded else {
+            requestedHomeBaseAtLaunch = true
+            return
+        }
+
+        daemonClient.onHomeBaseGetResponse = { response in
+            guard let homeBase = response.homeBase else { return }
+            if self.windowState.isDynamicExpanded { return }
+            if let activePanel = self.windowState.activePanel, activePanel != .generated {
+                return
+            }
+            try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
+        }
+
+        do {
+            try daemonClient.sendHomeBaseGet(ensureLinked: true)
+            requestedHomeBaseAtLaunch = true
+        } catch {
+            // Leave false so reconnect can retry.
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Group {
@@ -192,12 +227,14 @@ struct MainWindowView: View {
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
+            requestHomeBaseDashboardIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
         }
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+            requestHomeBaseDashboardIfNeeded()
         }
         .onChange(of: windowState.activePanel) { _, newPanel in
             // Reset expanded state and active surface when navigating away from the
@@ -431,7 +468,11 @@ struct MainWindowView: View {
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minMainContent: CGFloat = 300
-                        let sidePanelVisible = windowState.activePanel != nil && !(windowState.isDynamicExpanded && windowState.activePanel == .generated) && windowState.activePanel != .directory
+                        let sidePanelVisible =
+                            (windowState.activePanel != nil &&
+                             !(windowState.isDynamicExpanded && windowState.activePanel == .generated) &&
+                             windowState.activePanel != .directory) ||
+                            (windowState.isDynamicExpanded && windowState.activePanel == .generated && windowState.isChatDockOpen)
                         let activePanelWidth: CGFloat = sidePanelVisible ? sidePanelWidth : 0
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
@@ -541,6 +582,9 @@ struct MainWindowView: View {
             DynamicPageSurfaceView(
                 data: dpData,
                 onAction: { actionId, actionData in
+                    if !windowState.isChatDockOpen {
+                        windowState.isChatDockOpen = true
+                    }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
                 onLinkOpen: { url, metadata in
@@ -576,8 +620,16 @@ struct MainWindowView: View {
         } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                // Workspace mode: full-window dynamic page
-                dynamicWorkspaceView(surface: surface, data: dpData)
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: windowState.isChatDockOpen,
+                    main: {
+                        dynamicWorkspaceView(surface: surface, data: dpData)
+                    },
+                    panel: {
+                        chatView
+                    }
+                )
             } else {
                 // Gallery mode: existing behavior, with workspace routing
                 GeneratedPanel(
@@ -696,7 +748,10 @@ struct MainWindowView: View {
                 workspaceEditorContentHeight: $workspaceEditorContentHeight,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
-                onMicrophoneToggle: onMicrophoneToggle
+                isChatDockOpen: windowState.isChatDockOpen,
+                onToggleChatDock: { windowState.toggleChatDock() },
+                onMicrophoneToggle: onMicrophoneToggle,
+                onClose: { windowState.closeDynamicPanel() }
             )
         }
     }
@@ -985,9 +1040,13 @@ private struct DynamicWorkspaceWrapper: View {
     @Binding var workspaceEditorContentHeight: CGFloat
     let onPublishPage: (String, String?) -> Void
     let onBundleAndShare: (String) -> Void
+    let isChatDockOpen: Bool
+    let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
+    var onClose: (() -> Void)?
 
     private var composerReservedHeight: CGFloat {
+        guard !isChatDockOpen else { return 0 }
         let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
         let contentHeight = max(editorClamped, 28)
         let expanded = windowState.workspaceComposerExpanded
@@ -1003,6 +1062,9 @@ private struct DynamicWorkspaceWrapper: View {
             DynamicPageSurfaceView(
                 data: data,
                 onAction: { actionId, actionData in
+                    if !isChatDockOpen {
+                        onToggleChatDock()
+                    }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
                 appId: data.appId,
@@ -1030,13 +1092,15 @@ private struct DynamicWorkspaceWrapper: View {
             VStack(spacing: 0) {
                 HStack {
                     Button(action: {
-                        showSharePicker = false
-                        windowState.closeDynamicPanel()
+                        if !isChatDockOpen {
+                            windowState.workspaceComposerExpanded = false
+                        }
+                        onToggleChatDock()
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "chevron.left")
+                            Image(systemName: isChatDockOpen ? "arrow.down.left.and.arrow.up.right" : "arrow.up.right.and.arrow.down.left")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Chat")
+                            Text(isChatDockOpen ? "Move Chat To Bottom" : "Move Chat To Side")
                                 .font(VFont.bodyMedium)
                         }
                         .foregroundColor(VColor.textPrimary)
@@ -1049,7 +1113,7 @@ private struct DynamicWorkspaceWrapper: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Back to chat")
+                    .accessibilityLabel(isChatDockOpen ? "Move chat to bottom composer" : "Move chat to docked side panel")
 
                     Spacer()
 
@@ -1190,6 +1254,22 @@ private struct DynamicWorkspaceWrapper: View {
                             .frame(width: 1, height: 1)
                         )
                     }
+
+                    if onClose != nil {
+                        Button(action: { onClose?() }) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(
+                                    Circle()
+                                        .fill(VColor.surface.opacity(0.85))
+                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close dashboard")
+                    }
                 }
                 .padding(.leading, trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
@@ -1199,30 +1279,29 @@ private struct DynamicWorkspaceWrapper: View {
 
                 WorkspaceActivityFeed(viewModel: viewModel)
 
-                let placeholder = data.appId != nil
-                    ? "Describe changes to \(surface.title ?? "this app")..."
-                    : "Describe changes to this page..."
-                ComposerView(
-                    inputText: Binding(
-                        get: { viewModel.inputText },
-                        set: { viewModel.inputText = $0 }
-                    ),
-                    hasAPIKey: windowState.hasAPIKey,
-                    isSending: viewModel.isSending,
-                    isRecording: viewModel.isRecording,
-                    suggestion: viewModel.suggestion,
-                    pendingAttachments: viewModel.pendingAttachments,
-                    onSend: viewModel.sendMessage,
-                    onStop: viewModel.stopGenerating,
-                    onAcceptSuggestion: viewModel.acceptSuggestion,
-                    onAttach: { openFilePicker(viewModel: viewModel) },
-                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                    onPaste: { viewModel.addAttachmentFromPasteboard() },
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder,
-                    editorContentHeight: $workspaceEditorContentHeight,
-                    isComposerExpanded: $windowState.workspaceComposerExpanded
-                )
+                if !isChatDockOpen {
+                    ComposerView(
+                        inputText: Binding(
+                            get: { viewModel.inputText },
+                            set: { viewModel.inputText = $0 }
+                        ),
+                        hasAPIKey: windowState.hasAPIKey,
+                        isSending: viewModel.isSending,
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        onSend: viewModel.sendMessage,
+                        onStop: viewModel.stopGenerating,
+                        onAcceptSuggestion: viewModel.acceptSuggestion,
+                        onAttach: { openFilePicker(viewModel: viewModel) },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        placeholderText: "Message your assistant...",
+                        editorContentHeight: $workspaceEditorContentHeight,
+                        isComposerExpanded: $windowState.workspaceComposerExpanded
+                    )
+                }
             }
         }
     }

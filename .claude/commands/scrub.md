@@ -6,11 +6,12 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 ## Steps
 
-1. Kill any running Vellum and daemon processes (including the legacy process name):
+1. Kill any running Vellum, daemon, and Qdrant processes (including the legacy process name):
    ```bash
    pkill -x "Vellum" || true
    pkill -x "vellum-assistant" || true
    vellum daemon stop || true
+   pkill -f qdrant || true
    ```
 
 2. Remove session logs and knowledge store:
@@ -27,27 +28,40 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
    rm -f ~/.vellum/data/assistant.db ~/.vellum/data/assistant.db-shm ~/.vellum/data/assistant.db-wal
    ```
 
-4. Remove caches:
+4. Wipe the Qdrant vector memory store (long-term memories from previous sessions):
+   ```bash
+   rm -rf ~/.vellum/workspace/data/qdrant/collections/memory/
+   ```
+
+5. Remove caches:
    ```bash
    rm -rf ~/Library/Caches/vellum-assistant/
    ```
 
-5. Reset UserDefaults:
+6. Reset UserDefaults:
    ```bash
    defaults delete com.vellum.vellum-assistant
    ```
 
-6. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
+7. Reset workspace prompt files to templates so the BOOTSTRAP.md onboarding ritual runs again:
+   ```bash
+   cp assistant/src/config/templates/IDENTITY.md ~/.vellum/workspace/IDENTITY.md
+   cp assistant/src/config/templates/USER.md ~/.vellum/workspace/USER.md
+   cp assistant/src/config/templates/SOUL.md ~/.vellum/workspace/SOUL.md
+   cp assistant/src/config/templates/BOOTSTRAP.md ~/.vellum/workspace/BOOTSTRAP.md
+   ```
 
-7. Start the daemon fresh from the repo root:
+8. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
+
+9. Start the daemon fresh from the repo root:
    ```bash
    cd assistant && bun run src/index.ts daemon start && cd ..
    ```
 
-8. Build and launch the macOS app (from the repo root):
-   ```bash
-   cd clients/macos && ./build.sh run
-   ```
-   Run this in the background so it doesn't block.
+10. Build and launch the macOS app (from the repo root):
+    ```bash
+    cd clients/macos && ./build.sh run
+    ```
+    Run this in the background so it doesn't block.
 
 Report what was cleaned up and confirm both the daemon and app are running.

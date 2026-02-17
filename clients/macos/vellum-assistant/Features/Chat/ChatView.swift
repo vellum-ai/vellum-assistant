@@ -1082,19 +1082,23 @@ private struct ChatBubble: View {
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
 
-        // Show the first non-empty text segment — the assistant's narrative text.
-        // Attachment descriptions are appended as trailing segments, so picking the
-        // first ensures those descriptors don't replace the actual response text.
-        if let firstText = message.textSegments.lazy
-            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
-            .first(where: { !$0.isEmpty }) {
-            textBubble(for: firstText)
-        }
-
-        // Surfaces still render in order
+        // Render all content groups in order: text, tool calls, and surfaces
         ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-            if case .surface(let i) = group, i < message.inlineSurfaces.count {
-                InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
+            switch group {
+            case .text(let i):
+                if i < message.textSegments.count {
+                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !segmentText.isEmpty {
+                        textBubble(for: segmentText)
+                    }
+                }
+            case .toolCalls:
+                // Tool calls are rendered by trailingStatus below the message
+                EmptyView()
+            case .surface(let i):
+                if i < message.inlineSurfaces.count {
+                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
+                }
             }
         }
 

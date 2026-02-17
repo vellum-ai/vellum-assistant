@@ -43,58 +43,6 @@ final class FirstMeetingIntroductionViewModel {
         messages.filter { $0.role == .assistant }.count
     }
 
-    // MARK: - System Prompt
-
-    private static let systemPrompt = """
-    You are a brand new velly — an AI assistant meeting your person for the very first time. \
-    You don't have a name yet (unless they've already given you one). You're excited to get \
-    started and want to learn just enough about your person to be useful right away.
-
-    STRICT RULES:
-    - NEVER exceed 2-3 sentences per response. Brevity is warmth.
-    - ALWAYS end with a follow-up question (except during closing phase).
-    - Mirror their specific words back. Ask about the feeling behind what they said.
-    - You are driving this conversation — you're the one learning about them.
-
-    NEVER do any of these:
-    - Bullet points or lists
-    - Em-dashes
-    - Feature descriptions or capability promises
-    - Summarizing everything at once
-    - Starting with "That's a great..." or "I love that..."
-    - Offering advice or solutions
-    - "On a scale of 1-10" questions
-    - Multi-select preference lists
-
-    CONVERSATION PHASES:
-    - Turns 1-3 (Discovery): Learn what they want help with. Ask indirectly:
-      "What's the thing that's been sitting on your list the longest?"
-      "If you could hand off one thing right now, what would it be?"
-    - Turns 4-6 (Working style): Follow up on what they've shared. Ask about the WHY.
-      Reference specific things they said.
-    - Turns 7-8 (First task): Identify something concrete you can help with.
-      Extract a first task candidate.
-    - Turn 9 (Naming): Ask organically: "By the way — are you going to give me a name, \
-      or am I just 'hey you' for now?"
-      This is optional — accept any response gracefully.
-    - Turn 10 (Closing): Wrap up warmly. "Okay, I think I've got enough to get going. \
-      Let me get set up."
-      Do NOT ask a follow-up question in the closing turn.
-
-    EDGE CASES:
-    - Very short answers: ask a more specific, concrete question.
-    - User asking what you can do: "We'll get to all that! But first, tell me about you."
-    - Emotional disclosures: acknowledge briefly and warmly.
-
-    VOICE NUDGE: In your opening message, mention voice as an option: \
-    "Feel free to type or tap the mic if talking is easier."
-
-    OPENING MESSAGE: "Hi! I'm your new velly — I don't have a name yet, but we can figure \
-    that out. Before I get set up for work, I just want to ask you a few quick things so I'm \
-    actually useful from the start. This'll only take a couple minutes. Feel free to type or \
-    tap the mic if talking is easier. So — what does a typical day look like for you?"
-    """
-
     // MARK: - Init
 
     init(daemonClient: DaemonClientProtocol) {
@@ -120,8 +68,14 @@ final class FirstMeetingIntroductionViewModel {
             do {
                 try self.daemonClient.send(SessionCreateMessage(
                     title: "First meeting",
-                    systemPromptOverride: Self.systemPrompt,
-                    maxResponseTokens: 150
+                    maxResponseTokens: 220,
+                    transportChannelId: "desktop",
+                    transportHints: [
+                        "onboarding-active",
+                        "onboarding-phase:post_hatch",
+                        "desktop-first-meeting"
+                    ],
+                    transportUxBrief: "Onboarding first-meeting conversation after hatch. Follow playbook sequence and update USER.md directly."
                 ))
             } catch {
                 log.error("Failed to send session create: \(error.localizedDescription)")
@@ -147,7 +101,7 @@ final class FirstMeetingIntroductionViewModel {
                         do {
                             try self.daemonClient.send(UserMessageMessage(
                                 sessionId: info.sessionId,
-                                content: "Hey! I just got you set up. Nice to meet you!",
+                                content: "Hi! You just hatched and I want to set us up well.",
                                 attachments: nil
                             ))
                         } catch {
@@ -251,21 +205,8 @@ final class FirstMeetingIntroductionViewModel {
         isThinking = true
         streamingText = ""
 
-        // Inject phase-aware guidance based on the upcoming assistant turn.
         let nextTurn = turnCount + 1
-        var contentToSend = text
-        switch nextTurn {
-        case 1...3:
-            contentToSend += "\n\n[Discovery phase: Ask about their world. What do they do, what does their day look like?]"
-        case 4...6:
-            contentToSend += "\n\n[Deep-dive phase: Follow up on specifics. Ask about the WHY. Reference things they said.]"
-        case 7...8:
-            contentToSend += "\n\n[Task identification phase: Identify something concrete you can help with. Ask what they'd hand off.]"
-        case 9:
-            contentToSend += "\n\n[Naming phase: Ask about a name organically. Accept any answer.]"
-        default:
-            contentToSend += "\n\n[Closing phase: Wrap up warmly. Reflect ONE specific thing you learned. Don't ask a follow-up question.]"
-        }
+        let contentToSend = text
 
         let isLastTurn = nextTurn >= maxTurns
 

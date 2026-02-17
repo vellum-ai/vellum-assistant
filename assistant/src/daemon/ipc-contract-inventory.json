@@ -16,6 +16,7 @@
     "GalleryListRequest",
     "GetSigningIdentityResponse",
     "HistoryRequest",
+    "HomeBaseGetRequest",
     "IntegrationConnectRequest",
     "IntegrationDisconnectRequest",
     "IntegrationListRequest",
@@ -72,6 +73,7 @@
   ],
   "serverMessageTypes": [
     "AppDataResponse",
+    "AppFilesChanged",
     "AppUpdatePreviewResponse",
     "AppsListResponse",
     "AssistantTextDelta",
@@ -91,6 +93,7 @@
     "GenerationHandoff",
     "GetSigningIdentityRequest",
     "HistoryResponse",
+    "HomeBaseGetResponse",
     "IntegrationConnectResult",
     "IntegrationListResponse",
     "IpcBlobProbeResult",
@@ -143,6 +146,7 @@
     "UnpublishPageResponse",
     "UsageResponse",
     "UsageUpdate",
+    "UserMessageEcho",
     "VercelApiConfigResponse",
     "WatchCompleteRequest",
     "WatchStarted"
@@ -164,6 +168,7 @@
     "gallery_list",
     "get_signing_identity_response",
     "history_request",
+    "home_base_get",
     "integration_connect",
     "integration_disconnect",
     "integration_list",
@@ -220,6 +225,7 @@
   ],
   "serverWireTypes": [
     "app_data_response",
+    "app_files_changed",
     "app_update_preview_response",
     "apps_list_response",
     "assistant_text_delta",
@@ -239,6 +245,7 @@
     "generation_handoff",
     "get_signing_identity",
     "history_response",
+    "home_base_get_response",
     "integration_connect_result",
     "integration_list_response",
     "ipc_blob_probe_result",
@@ -290,6 +297,7 @@
     "unpublish_page_response",
     "usage_response",
     "usage_update",
+    "user_message_echo",
     "vercel_api_config_response",
     "watch_complete_request",
     "watch_started"
