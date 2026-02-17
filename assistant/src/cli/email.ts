@@ -212,13 +212,14 @@ export function registerEmailCommand(program: Command): void {
     .command('approve-send')
     .description('Check guardrails and send a draft')
     .requiredOption('--draft-id <id>', 'Draft ID to send')
+    .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
     .requiredOption('--confirm', 'Explicit confirmation flag (required)')
-    .action(async (opts: { draftId: string; confirm: boolean }, cmd: Command) => {
+    .action(async (opts: { draftId: string; inbox?: string; confirm: boolean }, cmd: Command) => {
       if (!opts.confirm) {
         exitError('The --confirm flag is required for approve-send');
       }
       await run(cmd, async () => {
-        const result = await svc.approveSend(opts.draftId);
+        const result = await svc.approveSend(opts.draftId, opts.inbox);
         return { messageId: result.messageId, threadId: result.threadId, dailyCount: result.dailyCount };
       });
     });
@@ -227,10 +228,11 @@ export function registerEmailCommand(program: Command): void {
     .command('reject')
     .description('Reject a draft')
     .requiredOption('--draft-id <id>', 'Draft ID to reject')
+    .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
     .option('--reason <text>', 'Reason for rejection')
-    .action(async (opts: { draftId: string; reason?: string }, cmd: Command) => {
+    .action(async (opts: { draftId: string; inbox?: string; reason?: string }, cmd: Command) => {
       await run(cmd, async () => {
-        await svc.rejectDraft(opts.draftId, opts.reason);
+        await svc.rejectDraft(opts.draftId, opts.reason, opts.inbox);
         return { draftId: opts.draftId, action: 'rejected' };
       });
     });
@@ -238,9 +240,10 @@ export function registerEmailCommand(program: Command): void {
   draft
     .command('delete <draftId>')
     .description('Delete a draft')
-    .action(async (draftId: string, _opts: unknown, cmd: Command) => {
+    .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
+    .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
-        await svc.deleteDraft(draftId);
+        await svc.deleteDraft(draftId, opts.inbox);
         return { draftId, action: 'deleted' };
       });
     });

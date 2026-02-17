@@ -150,7 +150,12 @@ export class AgentMailProvider implements EmailProvider {
   async listMessages(opts?: ListMessagesOpts): Promise<EmailMessage[]> {
     const inboxId = opts?.inboxId ?? await this.resolveDefaultInbox();
     const result = await this.client.inboxes.messages.list(inboxId);
-    return result.messages.map(mapMessageItem);
+    let messages = result.messages.map(mapMessageItem);
+    // The SDK doesn't support thread filtering natively — filter client-side
+    if (opts?.threadId) {
+      messages = messages.filter(m => m.threadId === opts.threadId);
+    }
+    return messages;
   }
 
   async getMessage(messageId: string, inboxId?: string): Promise<EmailMessage> {

@@ -143,13 +143,17 @@ export class EmailService {
 
   async createDraft(input: CreateDraftInput): Promise<EmailDraft> {
     const p = await this.provider();
-    // Resolve inbox from the "from" address or default
+    // Resolve inbox from the "from" address — fail fast if not found
     const health = await p.health();
-    const inbox = health.inboxes.find(i => i.address === input.from || i.id === input.from);
-    const inboxId = inbox?.id ?? health.inboxes[0]?.id;
-    if (!inboxId) {
+    if (health.inboxes.length === 0) {
       throw new Error('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
     }
+    const inbox = health.inboxes.find(i => i.address === input.from || i.id === input.from);
+    if (!inbox) {
+      const available = health.inboxes.map(i => i.address || i.id).join(', ');
+      throw new Error(`No inbox matches --from "${input.from}". Available: ${available}`);
+    }
+    const inboxId = inbox.id;
     return p.createDraft({
       inboxId,
       to: [input.to],
@@ -169,25 +173,26 @@ export class EmailService {
     return drafts;
   }
 
-  async getDraft(draftId: string): Promise<EmailDraft> {
+  async getDraft(draftId: string, inboxId?: string): Promise<EmailDraft> {
     const p = await this.provider();
-    return p.getDraft(draftId);
+    return p.getDraft(draftId, inboxId);
   }
 
-  async deleteDraft(draftId: string): Promise<void> {
+  async deleteDraft(draftId: string, inboxId?: string): Promise<void> {
     const p = await this.provider();
-    return p.deleteDraft(draftId);
+    return p.deleteDraft(draftId, inboxId);
   }
 
   /**
    * Approve and send a draft. Enforces all guardrails.
    * Throws GuardrailError if blocked.
+   * Pass inboxId to avoid incorrect inbox resolution in multi-inbox setups.
    */
-  async approveSend(draftId: string): Promise<SendResult & { dailyCount: number }> {
+  async approveSend(draftId: string, inboxId?: string): Promise<SendResult & { dailyCount: number }> {
     const p = await this.provider();
 
-    // Fetch draft to get recipients
-    const draft = await p.getDraft(draftId);
+    // Fetch draft to get recipients — pass inboxId for correct scoping
+    const draft = await p.getDraft(draftId, inboxId);
     const recipients = [
       ...draft.to,
       ...(draft.cc ?? []),
@@ -209,9 +214,9 @@ export class EmailService {
   /**
    * Reject a draft (delete it with a reason marker).
    */
-  async rejectDraft(draftId: string, _reason?: string): Promise<void> {
+  async rejectDraft(draftId: string, _reason?: string, inboxId?: string): Promise<void> {
     const p = await this.provider();
-    await p.deleteDraft(draftId);
+    await p.deleteDraft(draftId, inboxId);
   }
 
   // =========================================================================
