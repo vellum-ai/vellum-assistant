@@ -6,6 +6,7 @@ enum SidePanelType: Hashable, CaseIterable {
     case debug
     case doctor
     case activity
+    case identity
 
     init?(rawValue: String) {
         switch rawValue {
@@ -16,6 +17,7 @@ enum SidePanelType: Hashable, CaseIterable {
         case "debug": self = .debug
         case "doctor": self = .doctor
         case "activity": self = .activity
+        case "identity": self = .identity
         default: return nil
         }
     }

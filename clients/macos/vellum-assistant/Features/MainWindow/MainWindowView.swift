@@ -414,7 +414,15 @@ struct MainWindowView: View {
             NewConversationButton(action: { windowState.activePanel = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.xl)
+                .padding(.bottom, VSpacing.sm)
+
+            IdentityDrawerButton(
+                isActive: windowState.activePanel == .identity,
+                isDisabled: isBootstrapOnboardingActive,
+                action: { windowState.togglePanel(.identity) }
+            )
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.bottom, VSpacing.xl)
 
             Text("Recents")
                 .font(.system(size: 11))
@@ -585,6 +593,8 @@ struct MainWindowView: View {
             )
         case .threadList:
             threadDrawerView
+        case .identity:
+            IdentityPanel(onClose: { windowState.activePanel = nil }, daemonClient: daemonClient)
         }
     }
 
@@ -729,6 +739,8 @@ struct MainWindowView: View {
             )
         case .doctor:
             DoctorPanel(onClose: { windowState.activePanel = nil })
+        case .identity:
+            IdentityPanel(onClose: { windowState.activePanel = nil }, daemonClient: daemonClient)
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
             // if we reach here, isDynamicExpanded is false — clear activePanel so
@@ -817,6 +829,47 @@ private struct NewConversationButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
+            withAnimation(VAnimation.fast) {
+                isHovered = hovering
+            }
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+private struct IdentityDrawerButton: View {
+    let isActive: Bool
+    var isDisabled: Bool = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isActive ? Violet._400 : (isHovered ? VColor.textPrimary : VColor.textMuted))
+                    .frame(width: 22, height: 22)
+                    .overlay(
+                        Circle()
+                            .stroke(isActive ? Violet._400 : (isHovered ? VColor.textMuted : VColor.textMuted.opacity(0.5)), lineWidth: 1)
+                    )
+                Text("Identity")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(isActive ? Violet._400 : VColor.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(isActive ? Violet._400.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.4 : 1.0)
+        .onHover { hovering in
+            guard !isDisabled else { return }
             withAnimation(VAnimation.fast) {
                 isHovered = hovering
             }

@@ -1,0 +1,97 @@
+import SwiftUI
+import VellumAssistantShared
+
+// MARK: - Identity Info (parsed from IDENTITY.md)
+
+struct IdentityInfo {
+    let name: String
+    let role: String
+    let vibe: String
+    let emoji: String
+
+    static func load() -> IdentityInfo? {
+        let path = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+
+        var name = ""
+        var role = ""
+        var vibe = ""
+        var emoji = ""
+
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix("- **name:**") {
+                name = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            } else if trimmed.lowercased().hasPrefix("- **role:**") {
+                role = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            } else if trimmed.lowercased().hasPrefix("- **vibe:**") {
+                vibe = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            } else if trimmed.lowercased().hasPrefix("- **emoji:**") {
+                emoji = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            }
+        }
+
+        guard !name.isEmpty else { return nil }
+        return IdentityInfo(name: name, role: role, vibe: vibe, emoji: emoji)
+    }
+
+    /// Deterministic 8-character hex agent ID derived from the identity name.
+    var agentID: String {
+        var hash: UInt64 = 0xcbf29ce484222325 // FNV-1a offset basis
+        for byte in name.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3 // FNV prime
+        }
+        return String(format: "%08X", UInt32(truncatingIfNeeded: hash))
+    }
+}
+
+// MARK: - Assistant Metadata
+
+struct AssistantMetadata {
+    let version: String
+    let createdAt: Date?
+    let originSystem: String
+
+    static func load() -> AssistantMetadata {
+        let identityPath = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
+        let fm = FileManager.default
+
+        // Version from IDENTITY.md modified date count (simple lineage)
+        let version = "v1.0"
+
+        // Created at = IDENTITY.md creation date
+        let createdAt: Date?
+        if let attrs = try? fm.attributesOfItem(atPath: identityPath),
+           let date = attrs[.creationDate] as? Date {
+            createdAt = date
+        } else {
+            createdAt = nil
+        }
+
+        // Origin system
+        let originSystem = Host.current().localizedName ?? "local"
+
+        return AssistantMetadata(version: version, createdAt: createdAt, originSystem: originSystem)
+    }
+}
+
+// MARK: - Workspace File Node (checks file existence)
+
+struct WorkspaceFileNode: Identifiable {
+    let id = UUID()
+    let label: String
+    let path: String
+    let exists: Bool
+
+    static func scan() -> [WorkspaceFileNode] {
+        let base = NSHomeDirectory() + "/.vellum/workspace"
+        let fm = FileManager.default
+        return [
+            WorkspaceFileNode(label: "IDENTITY.md", path: base + "/IDENTITY.md", exists: fm.fileExists(atPath: base + "/IDENTITY.md")),
+            WorkspaceFileNode(label: "SOUL.md", path: base + "/SOUL.md", exists: fm.fileExists(atPath: base + "/SOUL.md")),
+            WorkspaceFileNode(label: "USER.md", path: base + "/USER.md", exists: fm.fileExists(atPath: base + "/USER.md")),
+            WorkspaceFileNode(label: "skills/", path: base + "/skills", exists: fm.fileExists(atPath: base + "/skills")),
+        ]
+    }
+}

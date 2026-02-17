@@ -1,13 +1,19 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 
 const log = getLogger('clawhub');
 
-// Managed skills directory
+// Managed skills directory — where installed skill folders live
 function getManagedSkillsDir(): string {
   return getWorkspaceSkillsDir();
+}
+
+// ClaWHub project root — clawhub creates a `skills/` subdir inside its cwd,
+// so we use the parent of the managed skills dir as the project root.
+function getClawhubProjectRoot(): string {
+  return dirname(getWorkspaceSkillsDir());
 }
 
 // Validate slug format (alphanumeric, hyphens, dots, underscores; optional namespace with single slash)
@@ -177,7 +183,7 @@ export interface ClawhubUpdateCheckItem {
 
 // Helper to run clawhub commands
 async function runClawhub(args: string[], opts?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const cwd = opts?.cwd ?? getManagedSkillsDir();
+  const cwd = opts?.cwd ?? getClawhubProjectRoot();
   const timeout = opts?.timeout ?? 60000;
 
   // Ensure managed skills dir exists
