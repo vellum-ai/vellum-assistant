@@ -222,6 +222,21 @@ describe('runSkillToolScript — host hash guard', () => {
     expect(receivedDir!.endsWith('/')).toBe(true);
   });
 
+  test('returns structured error when hash resolver throws', async () => {
+    const resolver = (_dir: string): string => {
+      throw new Error('disk read failed');
+    };
+
+    const result = await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: 'v1:some-hash',
+      skillDirHashResolver: resolver,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Failed to compute skill version hash');
+    expect(result.content).toContain('disk read failed');
+  });
+
   test('RunSkillToolScriptOptions type accepts all fields', () => {
     const options: RunSkillToolScriptOptions = {
       target: 'host',

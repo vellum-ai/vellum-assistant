@@ -47,7 +47,16 @@ export async function runSkillToolScript(
   // Block execution if the skill has been modified since approval.
   if (options?.expectedSkillVersionHash) {
     const resolver = options.skillDirHashResolver ?? computeSkillVersionHash;
-    const currentHash = resolver(resolvedSkillDir);
+    let currentHash: string;
+    try {
+      currentHash = resolver(resolvedSkillDir);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: `Failed to compute skill version hash for "${resolvedSkillDir}": ${message}`,
+        isError: true,
+      };
+    }
     if (currentHash !== options.expectedSkillVersionHash) {
       return {
         content: `Skill version mismatch: expected ${options.expectedSkillVersionHash} but current is ${currentHash}. The skill has been modified since it was approved. Please reload the skill to re-approve.`,
