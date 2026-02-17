@@ -439,6 +439,12 @@ export interface LinkOpenRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface DiagnosticsExportRequest {
+  type: 'diagnostics_export_request';
+  conversationId: string;
+  anchorMessageId?: string;  // if omitted, use latest assistant message
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -654,6 +660,13 @@ export interface UnpublishPageResponse {
   error?: string;
 }
 
+export interface DiagnosticsExportResponse {
+  type: 'diagnostics_export_response';
+  success: boolean;
+  filePath?: string;   // path to the zip file on success
+  error?: string;      // error message on failure
+}
+
 export interface AppFilesChanged {
   type: 'app_files_changed';
   appId: string;
@@ -739,7 +752,8 @@ export type ClientMessage =
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
   | PublishPageRequest
-  | UnpublishPageRequest;
+  | UnpublishPageRequest
+  | DiagnosticsExportRequest;
 
 // === Server → Client messages ===
 
@@ -1616,6 +1630,7 @@ export type ServerMessage =
   | AppUpdatePreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse
+  | DiagnosticsExportResponse
   | AppFilesChanged
   | BrowserFrame;
 
