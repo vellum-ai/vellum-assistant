@@ -35,11 +35,9 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
             .padding(.top, VSpacing.xxl)
 
-        Spacer()
-
         // Option cards
         VStack(spacing: VSpacing.lg) {
-            HStack(spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.md) {
                 // Card 1: Own API Key
                 optionCard(
                     title: "Own API Key",
@@ -54,6 +52,7 @@ struct WakeUpStepView: View {
                     action: {}
                 )
             }
+            .padding(.top, VSpacing.xl)
 
             // Progress dots (4 dots)
             HStack(spacing: VSpacing.sm) {
@@ -125,15 +124,16 @@ struct WakeUpStepView: View {
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
         }
-        .padding(VSpacing.xl)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xl)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(Slate._900)
+                .fill(Color.white.opacity(0.02))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(Slate._700.opacity(0.6), lineWidth: 1)
+                .strokeBorder(Slate._800, lineWidth: 1)
         )
     }
 
