@@ -389,7 +389,7 @@ struct MainWindowView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.error)
                         .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
+                        .frame(height: 24)
                         .background(VColor.surface)
                         .clipShape(Capsule())
                 }
