@@ -396,6 +396,8 @@ export function getAllRules(): TrustRule[] {
 }
 
 export function clearAllRules(): void {
+  // Reset the starter bundle flag so the bundle can be re-accepted after clear.
+  cachedStarterBundleAccepted = false;
   // Re-backfill default rules so protected directory stays guarded.
   const rules: TrustRule[] = [];
   backfillDefaults(rules);
@@ -433,12 +435,16 @@ export interface StarterBundleRule {
  */
 export function getStarterBundleRules(): StarterBundleRule[] {
   return [
-    { id: 'starter:allow-file_read', tool: 'file_read', pattern: 'file_read:**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-glob', tool: 'glob', pattern: 'glob:**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-grep', tool: 'grep', pattern: 'grep:**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-list_directory', tool: 'list_directory', pattern: 'list_directory:**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-web_search', tool: 'web_search', pattern: 'web_search:**', scope: 'everywhere', decision: 'allow', priority: 90 },
-    { id: 'starter:allow-web_fetch', tool: 'web_fetch', pattern: 'web_fetch:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    // Use standalone "**" globstar — minimatch only treats ** as globstar when
+    // it is its own path segment, so a "tool:**" prefix would collapse to
+    // single-star behavior and fail to match candidates containing "/".
+    // The tool field is already filtered by findHighestPriorityRule.
+    { id: 'starter:allow-file_read', tool: 'file_read', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-glob', tool: 'glob', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-grep', tool: 'grep', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-list_directory', tool: 'list_directory', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-web_search', tool: 'web_search', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-web_fetch', tool: 'web_fetch', pattern: '**', scope: 'everywhere', decision: 'allow', priority: 90 },
   ];
 }
 
