@@ -16,6 +16,8 @@ let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 /** Per-skill version hash overrides. When set, computeSkillVersionHash returns this value. */
 let mockVersionHashes: Record<string, string> = {};
+/** Skill IDs for which computeSkillVersionHash should throw (simulates unreadable directories). */
+let mockVersionHashErrors: Set<string> = new Set();
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -159,13 +161,14 @@ mock.module('node:fs', () => ({
 
 mock.module('../skills/version-hash.js', () => ({
   computeSkillVersionHash: (skillDir: string) => {
-    // Extract skill ID from path: /skills/<id> → <id>
     const parts = skillDir.split('/');
     const skillId = parts[parts.length - 1];
+    if (mockVersionHashErrors.has(skillId)) {
+      throw new Error(`EACCES: permission denied, scandir '${skillDir}'`);
+    }
     if (skillId in mockVersionHashes) {
       return mockVersionHashes[skillId];
     }
-    // Default: stable hash based on skill ID so repeated calls return the same value
     return `v1:default-hash-${skillId}`;
   },
 }));
@@ -256,6 +259,7 @@ describe('projectSkillTools', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -652,6 +656,7 @@ describe('resolveTools callback (session wiring)', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -741,6 +746,7 @@ describe('allowed tool set merging', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -861,6 +867,7 @@ describe('skill activation requires loaded_skill marker (security invariant)', (
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -929,6 +936,7 @@ describe('mid-run skill tool activation (end-to-end)', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1125,6 +1133,7 @@ describe('context-derived deactivation regression', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1310,6 +1319,7 @@ describe('slash preactivation through session processing', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1411,6 +1421,7 @@ describe('bundled skill: gmail', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1459,6 +1470,7 @@ describe('bundled skill: claude-code', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1503,6 +1515,7 @@ describe('bundled skill: weather', () => {
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1550,6 +1563,7 @@ describe('tamper detection', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1688,22 +1702,21 @@ describe('tamper detection', () => {
       ...skillLoadMessages('<loaded_skill id="deploy" />'),
     ];
 
-    // Turn 1: normal registration
     projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
     expect(sessionState.get('deploy')).toBe('v1:initial-hash');
 
-    // Turn 2: remove hash override so computeSkillVersionHash returns the
-    // default fallback which differs from the stored hash
-    delete mockVersionHashes['deploy'];
+    // Make computeSkillVersionHash throw to exercise the catch branch
+    // in session-skill-tools.ts that falls back to `unknown-${Date.now()}`
+    mockVersionHashErrors.add('deploy');
     mockUnregisteredSkillIds = [];
 
     const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
     expect(result.toolDefinitions).toHaveLength(1);
 
-    // Hash changed (from stored 'v1:initial-hash' to default 'v1:default-hash-deploy')
-    // so re-registration should have occurred
+    // The exception triggers re-registration since the fallback hash
+    // (`unknown-<timestamp>`) will never match the stored hash
     expect(mockUnregisteredSkillIds).toContain('deploy');
-    expect(sessionState.get('deploy')).toBe('v1:default-hash-deploy');
+    expect(sessionState.get('deploy')).toMatch(/^unknown-\d+$/);
   });
 });
 
@@ -1719,6 +1732,7 @@ describe('resetSkillToolProjection', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
   });
 
   test('unregisters all tracked skills and clears the map', () => {
@@ -1773,6 +1787,7 @@ describe('versioned markers through session projection', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1845,6 +1860,7 @@ describe('hash change re-prompt regressions (PR 35)', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -1998,6 +2014,7 @@ describe('version hash plumbing to projected tools', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
     sessionState = new Map<string, string>();
   });
 
