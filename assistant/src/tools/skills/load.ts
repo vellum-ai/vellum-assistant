@@ -3,6 +3,10 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { loadSkillBySelector } from '../../config/skills.js';
+import { computeSkillVersionHash } from '../../skills/version-hash.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('skill-load');
 
 export class SkillLoadTool implements Tool {
   name = 'skill_load';
@@ -40,6 +44,15 @@ export class SkillLoadTool implements Tool {
 
     const skill = loaded.skill;
     const body = skill.body.length > 0 ? skill.body : '(No body content)';
+
+    let versionHash: string | undefined;
+    try {
+      versionHash = computeSkillVersionHash(skill.directoryPath);
+    } catch (err) {
+      log.warn({ err, skillId: skill.id }, 'Failed to compute skill version hash for marker');
+    }
+
+    const versionAttr = versionHash ? ` version="${versionHash}"` : '';
     return {
       content: [
         `Skill: ${skill.name}`,
@@ -49,7 +62,7 @@ export class SkillLoadTool implements Tool {
         '',
         body,
         '',
-        `<loaded_skill id="${skill.id}" />`,
+        `<loaded_skill id="${skill.id}"${versionAttr} />`,
       ].join('\n'),
       isError: false,
     };

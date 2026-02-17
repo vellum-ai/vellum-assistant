@@ -91,7 +91,9 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('ID: release-checklist');
     expect(result.content).toContain('1. Run tests');
     expect(result.content).not.toContain('name: "Release Checklist"');
-    expect(result.content).toContain('<loaded_skill id="release-checklist" />');
+    // Marker must include a version attribute with the v1:<hex> format
+    const markerMatch = result.content.match(/<loaded_skill id="release-checklist" version="(v1:[a-f0-9]{64})" \/>/);
+    expect(markerMatch).not.toBeNull();
   });
 
   test('loads a skill by exact name (case-insensitive)', async () => {
@@ -102,7 +104,8 @@ describe('skill_load tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Skill: Oncall Runbook');
     expect(result.content).toContain('Page primary responder');
-    expect(result.content).toContain('<loaded_skill id="oncall" />');
+    const markerMatch = result.content.match(/<loaded_skill id="oncall" version="(v1:[a-f0-9]{64})" \/>/);
+    expect(markerMatch).not.toBeNull();
   });
 
   test('loads a skill by unique id prefix', async () => {
@@ -113,7 +116,8 @@ describe('skill_load tool', () => {
     const result = await executeSkillLoad({ skill: 'incident' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('ID: incident-response');
-    expect(result.content).toContain('<loaded_skill id="incident-response" />');
+    const markerMatch = result.content.match(/<loaded_skill id="incident-response" version="(v1:[a-f0-9]{64})" \/>/);
+    expect(markerMatch).not.toBeNull();
   });
 
   test('returns an error when name resolution is ambiguous', async () => {
@@ -125,6 +129,26 @@ describe('skill_load tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Ambiguous skill name');
     expect(result.content).not.toContain('<loaded_skill');
+  });
+
+  test('version hash changes when skill content changes', async () => {
+    writeSkill('versioned', 'Versioned Skill', 'Test versioning', 'Original body');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- versioned\n');
+
+    const result1 = await executeSkillLoad({ skill: 'versioned' });
+    const match1 = result1.content.match(/<loaded_skill id="versioned" version="(v1:[a-f0-9]{64})" \/>/);
+    expect(match1).not.toBeNull();
+    const hash1 = match1![1];
+
+    // Modify the skill body
+    writeSkill('versioned', 'Versioned Skill', 'Test versioning', 'Updated body');
+
+    const result2 = await executeSkillLoad({ skill: 'versioned' });
+    const match2 = result2.content.match(/<loaded_skill id="versioned" version="(v1:[a-f0-9]{64})" \/>/);
+    expect(match2).not.toBeNull();
+    const hash2 = match2![1];
+
+    expect(hash1).not.toBe(hash2);
   });
 
   test('returns an error when skill is missing', async () => {
