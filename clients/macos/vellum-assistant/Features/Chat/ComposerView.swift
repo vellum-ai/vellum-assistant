@@ -573,28 +573,6 @@ private struct ComposerTextView: NSViewRepresentable {
                 lastReportedHeight = clampedHeight
                 parent.onHeightChange(clampedHeight)
             }
-
-            // Auto-scroll the composer's NSScrollView to keep the cursor visible
-            // when content overflows the max height. Only scroll when the caret is
-            // at the end of the text so that in-place edits in the middle of a long
-            // draft don't jump the viewport to the bottom (addresses Codex P2 feedback).
-            // Checking inside syncHeight (rather than only on text change) also
-            // catches the first overflow after a paste or keystroke that pushes
-            // content past the threshold, since syncHeight fires whenever the
-            // layout updates (addresses Devin stale-height feedback).
-            if rawHeight > parent.maxHeight {
-                let insertionPoint = textView.selectedRange().location
-                let isAtEnd = insertionPoint >= (textView.string as NSString).length
-                if isAtEnd, let scrollView = textView.enclosingScrollView {
-                    let contentHeight = scrollView.documentView?.frame.height ?? 0
-                    let visibleHeight = scrollView.contentView.bounds.height
-                    if contentHeight > visibleHeight {
-                        let bottomPoint = NSPoint(x: 0, y: contentHeight - visibleHeight)
-                        scrollView.contentView.scroll(to: bottomPoint)
-                        scrollView.reflectScrolledClipView(scrollView.contentView)
-                    }
-                }
-            }
         }
     }
 }
