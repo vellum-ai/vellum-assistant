@@ -199,7 +199,10 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'web_fetch') {
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
   }
-  // All browser tools are low risk — the browser is sandboxed and user-visible.
+  if (toolName === 'browser_navigate') {
+    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+  }
+  // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
