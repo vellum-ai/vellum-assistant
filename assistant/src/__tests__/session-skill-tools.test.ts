@@ -1111,3 +1111,42 @@ describe('bundled skill: claude-code', () => {
     expect(result.allowedToolNames.has('claude_code')).toBe(false);
   });
 });
+
+describe('bundled skill: weather', () => {
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('weather skill activation produces get_weather tool definition', () => {
+    mockCatalog = [makeSkill('weather', '/path/to/bundled-skills/weather')];
+    mockManifests = { weather: makeManifest(['get_weather']) };
+
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="weather" />'),
+    ];
+
+    const result = projectSkillTools(history);
+
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('get_weather');
+    expect(result.allowedToolNames).toEqual(new Set(['get_weather']));
+  });
+
+  test('get_weather tool is absent when weather skill is not active', () => {
+    mockCatalog = [makeSkill('weather', '/path/to/bundled-skills/weather')];
+    mockManifests = { weather: makeManifest(['get_weather']) };
+
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+    ];
+
+    const result = projectSkillTools(history);
+
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.has('get_weather')).toBe(false);
+  });
+});
