@@ -441,19 +441,24 @@ struct MainWindowView: View {
                 }
             }
             .scrollClipDisabled()
+            .clipped()
 
-            Spacer()
+            Spacer(minLength: 0)
 
             // Control Center
-            VColor.surfaceBorder.frame(height: 1)
+            VStack(spacing: 0) {
+                VColor.surfaceBorder.frame(height: 1)
 
-            ControlCenterMenuButton(
-                onSettings: { windowState.togglePanel(.settings) },
-                onSkills: { windowState.togglePanel(.agent) },
-                onDirectory: { windowState.togglePanel(.directory) },
-                onDebug: { windowState.togglePanel(.debug) },
-                onDoctor: { windowState.togglePanel(.doctor) }
-            )
+                ControlCenterMenuButton(
+                    onSettings: { windowState.togglePanel(.settings) },
+                    onSkills: { windowState.togglePanel(.agent) },
+                    onDirectory: { windowState.togglePanel(.directory) },
+                    onDebug: { windowState.togglePanel(.debug) },
+                    onDoctor: { windowState.togglePanel(.doctor) }
+                )
+            }
+            .background(VColor.backgroundSubtle)
+            .zIndex(1)
         }
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
