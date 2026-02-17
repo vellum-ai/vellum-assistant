@@ -310,6 +310,14 @@ extension ChatViewModel {
             if !wasRefinement {
                 ingestAssistantAttachments(complete.attachments)
             }
+            if pendingVoiceMessage {
+                pendingVoiceMessage = false
+                if let existingId = currentAssistantMessageId,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let responseText = messages[index].textSegments.joined()
+                    onVoiceResponseComplete?(responseText)
+                }
+            }
             var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -366,6 +374,7 @@ extension ChatViewModel {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            pendingVoiceMessage = false
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
             refinementStreamingText = nil

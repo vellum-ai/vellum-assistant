@@ -1,6 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 import Foundation
+import UserNotifications
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
@@ -307,6 +308,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.onSessionCreated = { [weak self, weak viewModel] sessionId in
             guard let self, let viewModel else { return }
             self.backfillSessionId(sessionId, for: viewModel)
+        }
+        viewModel.onVoiceResponseComplete = { responseText in
+            guard !NSApp.isActive else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Response Ready"
+            content.body = String(responseText.prefix(200))
+            content.sound = .default
+            content.categoryIdentifier = "VOICE_RESPONSE_COMPLETE"
+
+            let request = UNNotificationRequest(
+                identifier: "voice-response-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post voice response notification: \(error.localizedDescription)")
+                }
+            }
         }
         return viewModel
     }

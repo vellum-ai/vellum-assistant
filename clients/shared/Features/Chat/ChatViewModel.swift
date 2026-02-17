@@ -56,6 +56,10 @@ public final class ChatViewModel: ObservableObject {
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
+    /// Whether the current assistant response was triggered by a voice message.
+    public var pendingVoiceMessage: Bool = false
+    /// Called when a voice-triggered assistant response completes, with the response text.
+    public var onVoiceResponseComplete: ((String) -> Void)?
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
@@ -384,6 +388,8 @@ public final class ChatViewModel: ObservableObject {
 
     public func stopGenerating() {
         guard isSending else { return }
+
+        pendingVoiceMessage = false
 
         // If we're still bootstrapping (no session yet), cancel locally:
         // discard the pending message so it won't be sent when session_info

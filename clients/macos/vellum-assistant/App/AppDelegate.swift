@@ -470,10 +470,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
 
-            // Priority 1: Route to main window ChatView if visible
-            if let mainWindow = self?.mainWindow, mainWindow.isVisible,
+            // Priority 1: Route to main window ChatView if in the foreground
+            if NSApp.isActive,
+               let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
                 viewModel.inputText = text
+                viewModel.pendingVoiceMessage = true
                 viewModel.sendMessage()
                 return
             }
@@ -489,8 +491,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
-            // Priority 1: Route partial text to main window ChatView input if visible
-            if let mainWindow = self?.mainWindow, mainWindow.isVisible,
+            // Priority 1: Route partial text to main window ChatView input if in the foreground
+            if NSApp.isActive,
+               let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
                 viewModel.inputText = text
                 return
@@ -504,8 +507,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
-            // Check if main window ChatView is the target
-            let mainWindowVisible = self?.mainWindow?.isVisible ?? false
+            // Check if main window is actively in the foreground (not just existing behind other apps)
+            let mainWindowActive = NSApp.isActive && (self?.mainWindow?.isVisible ?? false)
             // If there's an active conversation in ready state, route recording state there
             let hasActiveConvo = self?.currentTextSession?.state == .ready
 
@@ -526,7 +529,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "Vellum"
                 )
-                if !mainWindowVisible && !hasActiveConvo {
+                if !mainWindowActive && !hasActiveConvo {
                     let window = VoiceTranscriptionWindow()
                     window.show()
                     self?.voiceTranscriptionWindow = window
@@ -611,15 +614,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.setupNotifications()
             self?.setupAutoUpdate()
 
-            self?.showMainWindow()
-
-            // Send an automatic greeting after onboarding completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if let viewModel = self?.mainWindow?.activeViewModel {
-                    viewModel.inputText = "Wake up, my friend"
-                    viewModel.sendMessage()
-                }
-            }
+            self?.showMainWindow(initialMessage: "Wake up, my friend")
         }
         onboarding.show()
         onboardingWindow = onboarding
@@ -683,7 +678,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Window
 
-    func showMainWindow() {
+    func showMainWindow(initialMessage: String? = nil) {
         if let existing = mainWindow {
             existing.show()
             return
@@ -702,6 +697,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             UNUserNotificationCenter.current().removeDeliveredNotifications(
                 withIdentifiers: ["tool-confirm-\(requestId)"]
             )
+        }
+        // Send the initial message BEFORE showing the window so SwiftUI never
+        // renders the empty state.
+        if let message = initialMessage, let viewModel = main.activeViewModel {
+            viewModel.inputText = message
+            viewModel.sendMessage()
         }
         main.show()
         mainWindow = main

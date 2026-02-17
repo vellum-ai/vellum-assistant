@@ -21,10 +21,11 @@ final class VoiceInputManager {
     private var otherKeyPressedDuringHold = false  // True if any other key pressed while holding
     private static let holdDelay: UInt64 = 300_000_000 // 300ms in nanoseconds
 
-    private var activationFlag: NSEvent.ModifierFlags? {
+    private var activationFlags: NSEvent.ModifierFlags? {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         switch stored {
         case "ctrl": return .control
+        case "fn_shift": return [.function, .shift]
         case "none": return nil
         default: return .function // fn and globe are the same physical key
         }
@@ -99,14 +100,18 @@ final class VoiceInputManager {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        guard let flag = activationFlag else { return }
-        let keyPressed = event.modifierFlags.contains(flag)
+        guard let requiredFlags = activationFlags else { return }
+        let keyPressed = event.modifierFlags.contains(requiredFlags)
         var otherModifiers: NSEvent.ModifierFlags = [.command, .shift, .control, .option, .function]
-        otherModifiers.remove(flag)
+        for flag in [NSEvent.ModifierFlags.command, .shift, .control, .option, .function] {
+            if requiredFlags.contains(flag) {
+                otherModifiers.remove(flag)
+            }
+        }
         let hasOtherModifiers = !event.modifierFlags.intersection(otherModifiers).isEmpty
 
         if keyPressed && !hasOtherModifiers && !isRecording {
-            // Activation key pressed alone - start timer to begin recording while key is held
+            // Activation key(s) pressed alone - start timer to begin recording while held
             holdTask?.cancel()
             otherKeyPressedDuringHold = false
             holdTask = Task { [weak self] in

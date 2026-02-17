@@ -8,12 +8,14 @@ enum OnboardingVariant: String {
 enum ActivationKey: String, CaseIterable {
     case fn
     case ctrl
+    case fnShift = "fn_shift"
     case none
 
     var displayName: String {
         switch self {
         case .fn: return "fn"
         case .ctrl: return "ctrl"
+        case .fnShift: return "fn + shift"
         case .none: return "Off"
         }
     }
@@ -106,7 +108,7 @@ final class OnboardingState {
         // Default onboarding now exits immediately after the first post-hatch
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 2
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 3
         if currentStep > maxStep {
             currentStep = maxStep
         }

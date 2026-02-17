@@ -1,151 +1,356 @@
 import VellumAssistantShared
 import SwiftUI
+import AVFoundation
+import Speech
 
 @MainActor
 struct FnKeyStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var showButtons = false
-    @State private var highlightedKey: ActivationKey?
-    @State private var wrongKeyHint: String?
-    @State private var eventMonitor: Any?
+    @State private var showIcon = false
+    @State private var showTitle = false
+    @State private var showContent = false
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var micGranted = false
+    @State private var speechGranted = false
+    @State private var permissionsRequested = false
+    @State private var permissionPollTimer: Timer?
 
-    private let keyOptions: [(key: ActivationKey, label: String)] = [
-        (.fn, "fn"),
-        (.ctrl, "ctrl"),
-    ]
+    private var allPermissionsGranted: Bool {
+        micGranted && speechGranted
+    }
 
     var body: some View {
-        VStack(spacing: VSpacing.xxl) {
+        VStack(spacing: 0) {
+            Spacer()
+
+            // Icon
+            Group {
+                if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
+                   let nsImage = NSImage(contentsOf: url) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Image("VellyLogo")
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(contentMode: .fit)
+                }
+            }
+            .frame(width: 128, height: 128)
+            .opacity(showIcon ? 1 : 0)
+            .scaleEffect(showIcon ? 1 : 0.8)
+            .padding(.bottom, VSpacing.xxl)
+
+            // Title
+            Text("Need voice mode?")
+                .font(.system(size: 32, weight: .regular, design: .serif))
+                .foregroundColor(VColor.textPrimary)
+                .opacity(showTitle ? 1 : 0)
+                .offset(y: showTitle ? 0 : 8)
+                .padding(.bottom, VSpacing.md)
+
+            // Subtitle
+            Text(permissionsRequested
+                 ? "Grant the permissions to continue."
+                 : "Hold fn + shift anywhere to talk to \(state.assistantName).")
+                .font(.system(size: 16))
+                .foregroundColor(VColor.textSecondary)
+                .opacity(showTitle ? 1 : 0)
+                .offset(y: showTitle ? 0 : 8)
+                .animation(.easeInOut(duration: 0.3), value: permissionsRequested)
+
+            Spacer()
+
+            // Content area
             VStack(spacing: VSpacing.md) {
-                Text("Let\u{2019}s find your voice.")
-                    .font(VFont.onboardingTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text("To call \(state.assistantName), you\u{2019}ll hold down a key. Try pressing it now \u{2014} which of these lights up?")
-                    .font(VFont.onboardingSubtitle)
-                    .foregroundColor(VColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 400)
-            }
-            .opacity(showButtons ? 1 : 0)
-
-            HStack(spacing: VSpacing.lg) {
-                ForEach(keyOptions, id: \.key) { option in
-                    keyButton(option.key, label: option.label)
+                if permissionsRequested {
+                    // Permission status rows
+                    VStack(spacing: 0) {
+                        permissionRow(
+                            icon: "mic.fill",
+                            label: "Microphone",
+                            granted: micGranted
+                        )
+                        Divider()
+                            .background(VColor.surfaceBorder)
+                        permissionRow(
+                            icon: "waveform",
+                            label: "Speech Recognition",
+                            granted: speechGranted
+                        )
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                } else {
+                    // Key badge row
+                    HStack(spacing: VSpacing.sm) {
+                        keyBadge("fn")
+                        Text("+")
+                            .font(.system(size: 18, weight: .medium, design: .monospaced))
+                            .foregroundColor(VColor.textMuted)
+                        keyBadge("shift")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.lg)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .scaleEffect(pulseScale)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
-            }
-            .opacity(showButtons ? 1 : 0)
 
-            if let hint = wrongKeyHint {
-                Text(hint)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                // Primary button
+                if allPermissionsGranted {
+                    Button(action: {
+                        state.chosenKey = .fnShift
+                        state.advance()
+                    }) {
+                        Text("Continue")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.lg)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .fill(adaptiveColor(
+                                        light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                        dark: Violet._600
+                                    ))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                     .transition(.opacity)
-            }
-
-            if highlightedKey != nil || state.chosenKey != .fn {
-                OnboardingButton(title: "Continue", style: .primary) {
-                    state.advance()
+                } else {
+                    Button(action: { requestPermissions() }) {
+                        Text(permissionsRequested ? "Open System Settings" : "Enable Voice Mode")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.lg)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .fill(adaptiveColor(
+                                        light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                        dark: Violet._600
+                                    ))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                 }
-                .transition(.opacity)
-            }
 
-            OnboardingButton(title: "Skip", style: .ghost) {
-                state.chosenKey = .none
-                state.advance()
+                // Skip + Back
+                HStack(spacing: VSpacing.lg) {
+                    Button(action: {
+                        stopPolling()
+                        state.chosenKey = .none
+                        state.advance()
+                    }) {
+                        Text("Skip")
+                            .font(.system(size: 13))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+
+                    Button(action: {
+                        stopPolling()
+                        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+                            state.currentStep = 2
+                        }
+                    }) {
+                        Text("Back")
+                            .font(.system(size: 13))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
+                .padding(.top, VSpacing.xs)
             }
-            .transition(.opacity)
+            .padding(.horizontal, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xxl)
+            .opacity(showContent ? 1 : 0)
+            .offset(y: showContent ? 0 : 12)
+            .animation(.spring(duration: 0.4, bounce: 0.1), value: permissionsRequested)
+            .animation(.spring(duration: 0.4, bounce: 0.1), value: allPermissionsGranted)
         }
-        .animation(.easeOut(duration: 0.3), value: wrongKeyHint)
-        .animation(.easeOut(duration: 0.3), value: highlightedKey)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                withAnimation(.easeOut(duration: 0.5)) {
-                    showButtons = true
-                }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            ZStack {
+                VColor.background
+
+                RadialGradient(
+                    colors: [
+                        Violet._600.opacity(0.15),
+                        Violet._700.opacity(0.05),
+                        Color.clear
+                    ],
+                    center: .bottom,
+                    startRadius: 20,
+                    endRadius: 350
+                )
+
+                RadialGradient(
+                    colors: [
+                        Violet._400.opacity(0.08),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.7, y: 1.0),
+                    startRadius: 10,
+                    endRadius: 250
+                )
             }
-            startKeyMonitor()
+            .ignoresSafeArea()
+        )
+        .onAppear {
+            checkCurrentPermissions()
+            withAnimation(.easeOut(duration: 0.5).delay(0.2)) {
+                showIcon = true
+            }
+            withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
+                showTitle = true
+            }
+            withAnimation(.easeOut(duration: 0.5).delay(0.8)) {
+                showContent = true
+            }
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true).delay(1.0)) {
+                pulseScale = 1.03
+            }
         }
         .onDisappear {
-            stopKeyMonitor()
+            stopPolling()
         }
     }
 
-    private func keyButton(_ key: ActivationKey, label: String) -> some View {
-        Button {
-            selectKey(key)
-        } label: {
+    // MARK: - Subviews
+
+    private func permissionRow(icon: String, label: String, granted: Bool) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
+                .frame(width: 24)
             Text(label)
-                .font(VFont.mono)
-                .foregroundColor(highlightedKey == key ? .white : VColor.textPrimary.opacity(0.85))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(highlightedKey == key ? VColor.accent : VColor.surface.opacity(0.5))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(highlightedKey == key ? Color.clear : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
+                .font(.system(size: 15))
+                .foregroundColor(VColor.textPrimary)
+            Spacer()
+            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 16))
+                .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
     }
 
-    private func selectKey(_ key: ActivationKey) {
-        highlightedKey = key
-        state.chosenKey = key
-        wrongKeyHint = nil
+    private func keyBadge(_ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 16, weight: .medium, design: .monospaced))
+            .foregroundColor(VColor.textPrimary)
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.sm)
     }
 
-    private func startKeyMonitor() {
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if flags.contains(.function) {
-                selectKey(.fn)
-            } else if flags.contains(.control) {
-                selectKey(.ctrl)
-            } else if flags.contains(.command) {
-                withAnimation {
-                    wrongKeyHint = "That\u{2019}s Cmd \u{2014} try fn or ctrl"
-                }
-                clearHintAfterDelay()
-            } else if flags.contains(.option) {
-                withAnimation {
-                    wrongKeyHint = "Close! That\u{2019}s Option \u{2014} try fn or ctrl"
-                }
-                clearHintAfterDelay()
+    // MARK: - Permissions
+
+    private func checkCurrentPermissions() {
+        micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        speechGranted = SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+
+    private func requestPermissions() {
+        // If already requested and denied, open System Settings
+        if permissionsRequested {
+            if !micGranted {
+                openPrivacySettings(for: "Privacy_Microphone")
+            } else if !speechGranted {
+                openPrivacySettings(for: "Privacy_SpeechRecognition")
             }
-            return event
+            return
         }
-    }
 
-    private func stopKeyMonitor() {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
+        withAnimation {
+            permissionsRequested = true
         }
-    }
 
-    private func clearHintAfterDelay() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation {
-                wrongKeyHint = nil
+        // Request microphone first
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micStatus == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                Task { @MainActor in
+                    self.micGranted = granted
+                    // After mic, request speech
+                    self.requestSpeechPermission()
+                }
             }
+        } else {
+            micGranted = micStatus == .authorized
+            requestSpeechPermission()
+        }
+
+        // Start polling for permission changes (user may grant via System Settings)
+        startPolling()
+    }
+
+    private func requestSpeechPermission() {
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        if speechStatus == .notDetermined {
+            SFSpeechRecognizer.requestAuthorization { status in
+                Task { @MainActor in
+                    self.speechGranted = status == .authorized
+                }
+            }
+        } else {
+            speechGranted = speechStatus == .authorized
+        }
+    }
+
+    private func startPolling() {
+        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                checkCurrentPermissions()
+            }
+        }
+    }
+
+    private func stopPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
+    }
+
+    private func openPrivacySettings(for pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
         }
     }
 }
 
 #Preview {
     ZStack {
-        VColor.background
+        VColor.background.ignoresSafeArea()
         FnKeyStepView(state: {
             let s = OnboardingState()
-            s.assistantName = "Alex"
-            s.currentStep = 2
+            s.assistantName = "Velly"
+            s.currentStep = 3
             return s
         }())
     }
-    .frame(width: 520, height: 400)
+    .frame(width: 460, height: 620)
 }

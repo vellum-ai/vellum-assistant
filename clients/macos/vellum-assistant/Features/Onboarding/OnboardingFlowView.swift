@@ -33,6 +33,16 @@ struct OnboardingFlowView: View {
                         )
                     )
                     .id(state.currentStep)
+            } else if state.currentStep == 3 {
+                // Step 3: Full-window voice activation screen
+                FnKeyStepView(state: state)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 12)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
+                    )
+                    .id(state.currentStep)
             } else if state.currentStep <= 7 {
                 // Steps 1-7: Egg + content panel layout
                 VStack(spacing: 0) {
@@ -101,7 +111,7 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
-            if newStep > 2 {
+            if newStep > 3 {
                 onComplete()
             }
         }

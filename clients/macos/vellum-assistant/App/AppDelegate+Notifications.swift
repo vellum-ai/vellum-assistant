@@ -60,7 +60,19 @@ extension AppDelegate {
             options: [.customDismissAction]
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory])
+        let viewResponseAction = UNNotificationAction(
+            identifier: "VIEW_RESPONSE",
+            title: "View Response",
+            options: .foreground
+        )
+        let voiceResponseCategory = UNNotificationCategory(
+            identifier: "VOICE_RESPONSE_COMPLETE",
+            actions: [viewResponseAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory])
     }
 
     func registerBundledFonts() {
@@ -119,6 +131,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             }
             await MainActor.run {
                 self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
+            }
+            return
+        }
+
+        // Handle voice response complete notifications
+        if categoryId == "VOICE_RESPONSE_COMPLETE" {
+            await MainActor.run {
+                self.showMainWindow()
             }
             return
         }
