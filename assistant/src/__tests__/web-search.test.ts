@@ -182,7 +182,26 @@ describe('WebSearchTool', () => {
       expect(result.content).toContain('Invalid or expired');
     });
 
-    test('handles 429 rate limit', async () => {
+    test('retries on 429 and succeeds', async () => {
+      let callCount = 0;
+      globalThis.fetch = (async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response('Too Many Requests', { status: 429 });
+        }
+        return new Response(
+          JSON.stringify({ web: { results: [{ title: 'Result', url: 'https://example.com', description: 'Found it' }] } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Result');
+      expect(callCount).toBe(3);
+    });
+
+    test('returns error after exhausting 429 retries', async () => {
       globalThis.fetch = (async () =>
         new Response('Too Many Requests', { status: 429 })
       ) as any;
@@ -190,6 +209,30 @@ describe('WebSearchTool', () => {
       const result = await executeWebSearch({ query: 'test' }, 'test-key');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('rate limit');
+      expect(result.content).toContain('after retries');
+    });
+
+    test('respects Retry-After header on 429', async () => {
+      let callCount = 0;
+      const callTimestamps: number[] = [];
+      globalThis.fetch = (async () => {
+        callCount++;
+        callTimestamps.push(Date.now());
+        if (callCount === 1) {
+          return new Response('Too Many Requests', {
+            status: 429,
+            headers: { 'Retry-After': '0' },
+          });
+        }
+        return new Response(
+          JSON.stringify({ web: { results: [] } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      expect(result.isError).toBe(false);
+      expect(callCount).toBe(2);
     });
 
     test('handles network errors', async () => {
@@ -285,49 +328,67 @@ async function executeWebSearch(
 
   const url = `https://api.search.brave.com/res/v1/web/search?${params.toString()}`;
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'X-Subscription-Token': apiKey,
-      },
-    });
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1;  // Use 1ms in tests to avoid slow tests
 
-    if (!response.ok) {
+  try {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': apiKey,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        const results = data.web?.results ?? [];
+
+        if (results.length === 0) {
+          return { content: `No results found for "${query}".`, isError: false };
+        }
+
+        const lines: string[] = [`Web search results for "${query}":\n`];
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i];
+          lines.push(`${i + 1}. ${r.title}`);
+          lines.push(`   URL: ${r.url}`);
+          if (r.description) lines.push(`   ${r.description}`);
+          if (r.age) lines.push(`   Age: ${r.age}`);
+          if (r.extra_snippets && r.extra_snippets.length > 0) {
+            for (const snippet of r.extra_snippets) {
+              lines.push(`   > ${snippet}`);
+            }
+          }
+          lines.push('');
+        }
+
+        return { content: lines.join('\n'), isError: false };
+      }
+
       await response.text();
+
       if (response.status === 401 || response.status === 403) {
         return { content: 'Error: Invalid or expired Brave Search API key', isError: true };
       }
+
+      if (response.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = response.headers.get('retry-after');
+        const delayMs = retryAfter && !isNaN(Number(retryAfter))
+          ? Number(retryAfter) * 1000
+          : BASE_DELAY_MS * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
       if (response.status === 429) {
-        return { content: 'Error: Brave Search rate limit exceeded. Try again shortly.', isError: true };
+        return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
       }
       return { content: `Error: Brave Search API returned status ${response.status}`, isError: true };
     }
 
-    const data = await response.json() as any;
-    const results = data.web?.results ?? [];
-
-    if (results.length === 0) {
-      return { content: `No results found for "${query}".`, isError: false };
-    }
-
-    const lines: string[] = [`Web search results for "${query}":\n`];
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      lines.push(`${i + 1}. ${r.title}`);
-      lines.push(`   URL: ${r.url}`);
-      if (r.description) lines.push(`   ${r.description}`);
-      if (r.age) lines.push(`   Age: ${r.age}`);
-      if (r.extra_snippets && r.extra_snippets.length > 0) {
-        for (const snippet of r.extra_snippets) {
-          lines.push(`   > ${snippet}`);
-        }
-      }
-      lines.push('');
-    }
-
-    return { content: lines.join('\n'), isError: false };
+    return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: Web search failed: ${msg}`, isError: true };
