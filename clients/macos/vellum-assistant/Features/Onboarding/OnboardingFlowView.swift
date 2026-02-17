@@ -13,9 +13,46 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if state.currentStep == 0 {
-                // Step 0: Full-window welcome screen
-                WakeUpStepView(state: state)
+            if [0, 2, 3, 4].contains(state.currentStep) {
+                // Steps 0–4: Shared layout with persistent icon + background.
+                // Only the content below the icon transitions between steps.
+                VStack(spacing: 0) {
+                    Spacer()
+
+                    // Persistent icon — stays in place across step transitions
+                    Group {
+                        if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            Image("VellyLogo")
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        }
+                    }
+                    .frame(width: 128, height: 128)
+                    .padding(.bottom, VSpacing.xxl)
+
+                    // Step content — Group flattens into parent VStack so
+                    // the inner Spacer flexes with the top Spacer above.
+                    Group {
+                        switch state.currentStep {
+                        case 0:
+                            WakeUpStepView(state: state)
+                        case 2:
+                            APIKeyStepView(state: state)
+                        case 3:
+                            ModelSelectionStepView(state: state)
+                        case 4:
+                            FnKeyStepView(state: state)
+                        default:
+                            EmptyView()
+                        }
+                    }
                     .transition(
                         .asymmetric(
                             insertion: .opacity.combined(with: .offset(y: 12)),
@@ -23,36 +60,35 @@ struct OnboardingFlowView: View {
                         )
                     )
                     .id(state.currentStep)
-            } else if state.currentStep == 2 {
-                // Step 2: Full-window API key screen
-                APIKeyStepView(state: state)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 12)),
-                            removal: .opacity.combined(with: .offset(y: -8))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    ZStack {
+                        VColor.background
+
+                        RadialGradient(
+                            colors: [
+                                Violet._600.opacity(0.15),
+                                Violet._700.opacity(0.05),
+                                Color.clear
+                            ],
+                            center: .bottom,
+                            startRadius: 20,
+                            endRadius: 350
                         )
-                    )
-                    .id(state.currentStep)
-            } else if state.currentStep == 3 {
-                // Step 3: Full-window model selection screen
-                ModelSelectionStepView(state: state)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 12)),
-                            removal: .opacity.combined(with: .offset(y: -8))
+
+                        RadialGradient(
+                            colors: [
+                                Violet._400.opacity(0.08),
+                                Color.clear
+                            ],
+                            center: UnitPoint(x: 0.7, y: 1.0),
+                            startRadius: 10,
+                            endRadius: 250
                         )
-                    )
-                    .id(state.currentStep)
-            } else if state.currentStep == 4 {
-                // Step 4: Full-window voice activation screen
-                FnKeyStepView(state: state)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 12)),
-                            removal: .opacity.combined(with: .offset(y: -8))
-                        )
-                    )
-                    .id(state.currentStep)
+                    }
+                    .ignoresSafeArea()
+                )
             } else if state.currentStep <= 7 {
                 // Steps 1-7: Egg + content panel layout
                 VStack(spacing: 0) {
