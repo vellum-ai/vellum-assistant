@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
@@ -9,6 +12,7 @@ public struct ToolConfirmationBubble: View {
     public let onAddTrustRule: (String, String, String, String) -> Bool
 
     @State private var showDetails = false
+    @State private var showAlwaysAllowMenu = false
 
     public init(confirmation: ToolConfirmationData, showDescription: Bool = false, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
@@ -150,23 +154,7 @@ public struct ToolConfirmationBubble: View {
 
             if hasRuleOptions {
                 if confirmation.allowlistOptions.count > 2 {
-                    Menu {
-                        ForEach(confirmation.allowlistOptions, id: \.pattern) { option in
-                            Button(option.description) {
-                                let scope = confirmation.scopeOptions.first?.scope ?? ""
-                                if !option.pattern.isEmpty && !scope.isEmpty {
-                                    _ = onAddTrustRule(confirmation.toolName, option.pattern, scope, "allow")
-                                }
-                                onAllow()
-                            }
-                        }
-                    } label: {
-                        Text("Always Allow")
-                            .font(VFont.bodyMedium)
-                            .foregroundStyle(VColor.textSecondary)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    alwaysAllowDropdown
                 } else {
                     VButton(label: "Always Allow", style: .ghost) {
                         let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
@@ -223,6 +211,38 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
+    // MARK: - Always Allow Dropdown
+
+    @ViewBuilder
+    private var alwaysAllowDropdown: some View {
+        VButton(label: "Always Allow", style: .ghost) {
+            withAnimation(VAnimation.fast) {
+                showAlwaysAllowMenu.toggle()
+            }
+        }
+        .popover(isPresented: $showAlwaysAllowMenu, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
+                    AlwaysAllowRow(label: option.description) {
+                        showAlwaysAllowMenu = false
+                        let scope = confirmation.scopeOptions.first?.scope ?? ""
+                        if !option.pattern.isEmpty && !scope.isEmpty {
+                            _ = onAddTrustRule(confirmation.toolName, option.pattern, scope, "allow")
+                        }
+                        onAllow()
+                    }
+
+                    if index < confirmation.allowlistOptions.count - 1 {
+                        Divider()
+                            .foregroundColor(VColor.divider)
+                    }
+                }
+            }
+            .padding(VSpacing.xs)
+            .frame(minWidth: 200)
+        }
+    }
+
     // MARK: - Tool Permission (decided)
 
     @ViewBuilder
@@ -252,6 +272,41 @@ public struct ToolConfirmationBubble: View {
 
             Spacer()
         }
+    }
+}
+
+// MARK: - Always Allow Row
+
+private struct AlwaysAllowRow: View {
+    let label: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, VSpacing.sm)
+                .padding(.horizontal, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
     }
 }
 
@@ -296,6 +351,27 @@ public struct ToolConfirmationBubble: View {
                 toolName: "host_bash",
                 input: ["command": AnyCodable("ls -lt ~/Downloads/ | head -50")],
                 riskLevel: "low",
+                executionTarget: "host"
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+        // Tool confirmation with always-allow dropdown (pending)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-dropdown",
+                toolName: "host_bash",
+                input: ["command": AnyCodable("ls -la ~/Library/Application\\ Support/")],
+                riskLevel: "medium",
+                allowlistOptions: [
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
+                ],
+                scopeOptions: [
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                ],
                 executionTarget: "host"
             ),
             onAllow: {},
