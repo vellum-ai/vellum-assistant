@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ConfigError } from '../util/errors.js';
+import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
@@ -274,6 +274,10 @@ export class RuntimeHttpServer {
 
       return Response.json({ error: 'Not found' }, { status: 404 });
     } catch (err) {
+      if (err instanceof IngressBlockedError) {
+        log.warn({ endpoint, assistantId, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
+        return Response.json({ error: err.message, code: err.code }, { status: 422 });
+      }
       if (err instanceof ConfigError) {
         log.warn({ err, endpoint, assistantId }, 'Runtime HTTP config error');
         return Response.json({ error: err.message, code: err.code }, { status: 422 });

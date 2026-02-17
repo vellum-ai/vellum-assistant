@@ -26,6 +26,9 @@ export enum ErrorCode {
   // Rate limit exceeded
   RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR',
 
+  // Secret detected in inbound content
+  INGRESS_BLOCKED = 'INGRESS_BLOCKED',
+
   // Internal/unexpected errors
   INTERNAL_ERROR = 'INTERNAL_ERROR',
 }
@@ -112,5 +115,15 @@ export class RateLimitError extends AssistantError {
   constructor(message: string) {
     super(message, ErrorCode.RATE_LIMIT_ERROR);
     this.name = 'RateLimitError';
+  }
+}
+
+export class IngressBlockedError extends AssistantError {
+  constructor(
+    message: string,
+    public readonly detectedTypes: string[],
+  ) {
+    super(message, ErrorCode.INGRESS_BLOCKED);
+    this.name = 'IngressBlockedError';
   }
 }

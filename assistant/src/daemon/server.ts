@@ -11,6 +11,8 @@ import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { IngressBlockedError } from '../util/errors.js';
 import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
@@ -817,6 +819,12 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
+    // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
+    const ingressCheck = checkIngressForSecrets(content);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     // Reject concurrent requests upfront. The HTTP path should never use
@@ -864,6 +872,12 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
+    // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
+    const ingressCheck = checkIngressForSecrets(content);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     if (session.isProcessing()) {
