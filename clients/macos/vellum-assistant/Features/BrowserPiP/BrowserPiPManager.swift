@@ -183,14 +183,14 @@ final class BrowserPiPManager: ObservableObject {
             object: panel,
             queue: .main
         ) { [weak self] _ in
-            self?.savePosition()
+            Task { @MainActor in self?.savePosition() }
         }
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification,
             object: panel,
             queue: .main
         ) { [weak self] _ in
-            self?.savePosition()
+            Task { @MainActor in self?.savePosition() }
         }
 
         self.panel = panel
