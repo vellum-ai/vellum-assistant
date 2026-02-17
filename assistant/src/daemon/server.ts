@@ -327,12 +327,12 @@ export class DaemonServer {
    */
   private refreshConfigFromSources(): boolean {
     invalidateConfigCache();
-    clearEmbeddingBackendCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
     if (fingerprint === this.lastConfigFingerprint) {
       return false;
     }
+    clearEmbeddingBackendCache();
     const isFirstInit = this.lastConfigFingerprint === '';
     initializeProviders(config);
     this.lastConfigFingerprint = fingerprint;
