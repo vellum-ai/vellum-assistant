@@ -800,9 +800,7 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
-        !isUser
-            && onReportMessage != nil
-            && FeatureFlagManager.shared.isEnabled(.monitoringExport)
+        !isUser && onReportMessage != nil
     }
 
     private var statusLabel: String? {
