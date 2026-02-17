@@ -362,6 +362,30 @@ describe('Trust Store', () => {
         const match = findMatchingRule('bash', 'ls', '/');
         expect(match).not.toBeNull();
       });
+
+      test('does not match sibling path with shared prefix', () => {
+        addRule('bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project-evil');
+        expect(match).toBeNull();
+      });
+
+      test('matches exact scope with trailing slash on working dir', () => {
+        addRule('bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project/');
+        expect(match).not.toBeNull();
+      });
+
+      test('matches when rule scope has trailing slash', () => {
+        addRule('bash', 'npm *', '/home/user/project/');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project');
+        expect(match).not.toBeNull();
+      });
+
+      test('does not match sibling with glob-suffixed scope', () => {
+        addRule('bash', 'npm *', '/home/user/project*');
+        const match = findMatchingRule('bash', 'npm install', '/home/user/project-evil');
+        expect(match).toBeNull();
+      });
     });
 
     // Pattern matching with minimatch
