@@ -1628,3 +1628,41 @@ exports[`IPC message snapshots ServerMessage types accept_starter_bundle_respons
   "type": "accept_starter_bundle_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types doctor_bash serializes to expected JSON 1`] = `
+{
+  "command": "uname -a",
+  "type": "doctor_bash",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types doctor_bash_list serializes to expected JSON 1`] = `
+{
+  "type": "doctor_bash_list",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types doctor_bash_response serializes to expected JSON 1`] = `
+{
+  "command": "uname -a",
+  "output": "Darwin hostname 23.0.0 Darwin Kernel Version 23.0.0",
+  "success": true,
+  "type": "doctor_bash_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types doctor_bash_list_response serializes to expected JSON 1`] = `
+{
+  "commands": [
+    {
+      "command": "uname -a",
+      "description": "Show system info",
+    },
+    {
+      "command": "whoami",
+      "description": "Show current user",
+    },
+  ],
+  "type": "doctor_bash_list_response",
+}
+`;
