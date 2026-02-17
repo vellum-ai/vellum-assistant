@@ -150,6 +150,36 @@ struct MainWindowView: View {
     }
 
     var body: some View {
+        coreLayoutView
+            .onChange(of: windowState.isDynamicExpanded) { _, expanded in
+                threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            }
+            .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
+                if windowState.isDynamicExpanded {
+                    threadManager.activeViewModel?.activeSurfaceId = surfaceId
+                }
+            }
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
+                // Close activity panel if the referenced message no longer exists
+                // (e.g., after regenerate, undo, or message rebuild flows)
+                if let messageId = windowState.activityMessageId,
+                   windowState.activePanel == .activity,
+                   let viewModel = threadManager.activeViewModel {
+                    let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
+                    if !messageExists {
+                        windowState.activePanel = nil
+                        windowState.activityMessageId = nil
+                    }
+                }
+            }
+            .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
+            .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
+                systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            }
+    }
+
+    /// Core layout extracted to break up type-checker complexity.
+    private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
                 if useThreadDrawer {
@@ -302,31 +332,6 @@ struct MainWindowView: View {
                 windowState.activeDynamicSurface = nil
                 windowState.activeDynamicParsedSurface = nil
             }
-        }
-        .onChange(of: windowState.isDynamicExpanded) { _, expanded in
-            threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
-        }
-        .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
-            if windowState.isDynamicExpanded {
-                threadManager.activeViewModel?.activeSurfaceId = surfaceId
-            }
-        }
-        .onChange(of: threadManager.activeViewModel?.messages) { _, _ in
-            // Close activity panel if the referenced message no longer exists
-            // (e.g., after regenerate, undo, or message rebuild flows)
-            if let messageId = windowState.activityMessageId,
-               windowState.activePanel == .activity,
-               let viewModel = threadManager.activeViewModel {
-                let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
-                if !messageExists {
-                    windowState.activePanel = nil
-                    windowState.activityMessageId = nil
-                }
-            }
-        }
-        .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
-        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
-            systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         }
     }
 
