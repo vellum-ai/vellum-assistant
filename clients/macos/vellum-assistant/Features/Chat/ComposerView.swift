@@ -45,6 +45,7 @@ struct ComposerView: View {
     @State private var isMicrophoneHovered = false
     @State private var isAttachmentHovered = false
     @State private var isComposerFocused = false
+    @State private var isEditorOverflowing = false
     @FocusState private var focusedComposerAction: ComposerActionFocus?
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -53,7 +54,7 @@ struct ComposerView: View {
     /// once the TextEditor scrolls internally.
     private var ghostSuffix: String? {
         guard let suggestion else { return nil }
-        guard editorContentHeight <= composerMaxHeight else { return nil }
+        guard !isEditorOverflowing else { return nil }
         if suggestion.hasPrefix(inputText) {
             let suffix = String(suggestion.dropFirst(inputText.count))
             return suffix.isEmpty ? nil : suffix
@@ -150,6 +151,9 @@ struct ComposerView: View {
             focusRequestID: composerFocusRequestID,
             onHeightChange: { height in
                 editorContentHeight = height
+            },
+            onOverflowChange: { overflowing in
+                isEditorOverflowing = overflowing
             },
             onFocusChange: { focused in
                 isComposerFocused = focused
@@ -426,6 +430,7 @@ private struct ComposerTextView: NSViewRepresentable {
     let maxHeight: CGFloat
     let focusRequestID: Int
     let onHeightChange: (CGFloat) -> Void
+    var onOverflowChange: ((Bool) -> Void)?
     let onFocusChange: (Bool) -> Void
     let onSubmit: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -555,6 +560,8 @@ private struct ComposerTextView: NSViewRepresentable {
             let usedRect = layoutManager.usedRect(for: textContainer)
             let rawHeight = ceil(usedRect.height + (textView.textContainerInset.height * 2))
             let clampedHeight = min(max(rawHeight, parent.minHeight), parent.maxHeight)
+
+            parent.onOverflowChange?(rawHeight > parent.maxHeight)
 
             if abs(lastReportedHeight - clampedHeight) > 0.5 {
                 lastReportedHeight = clampedHeight
