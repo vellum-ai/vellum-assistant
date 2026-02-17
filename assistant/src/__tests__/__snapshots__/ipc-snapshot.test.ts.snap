@@ -420,6 +420,7 @@ exports[`IPC message snapshots ClientMessage types sign_bundle_payload_response 
 {
   "keyId": "abc123",
   "publicKey": "dGVzdA==",
+  "requestId": "req-sign-001",
   "signature": "dGVzdC1zaWduYXR1cmU=",
   "type": "sign_bundle_payload_response",
 }
@@ -429,6 +430,7 @@ exports[`IPC message snapshots ClientMessage types get_signing_identity_response
 {
   "keyId": "abc123",
   "publicKey": "dGVzdA==",
+  "requestId": "req-identity-001",
   "type": "get_signing_identity_response",
 }
 `;
@@ -1393,12 +1395,14 @@ exports[`IPC message snapshots ServerMessage types open_bundle_response serializ
 exports[`IPC message snapshots ServerMessage types sign_bundle_payload serializes to expected JSON 1`] = `
 {
   "payload": "{"content_hashes":{},"manifest":{}}",
+  "requestId": "req-sign-001",
   "type": "sign_bundle_payload",
 }
 `;
 
 exports[`IPC message snapshots ServerMessage types get_signing_identity serializes to expected JSON 1`] = `
 {
+  "requestId": "req-identity-001",
   "type": "get_signing_identity",
 }
 `;

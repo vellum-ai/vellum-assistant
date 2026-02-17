@@ -20,20 +20,20 @@ let cachedScreenDims: { width: number; height: number } | null = null;
 // Module-level map for non-session secret prompts (e.g. publish_page)
 export const pendingStandaloneSecrets = new Map<string, { resolve: (result: SecretPromptResult) => void; timer: ReturnType<typeof setTimeout> }>();
 
-// Pending IPC signing responses (bundle signing orchestration)
+// Pending IPC signing responses (bundle signing orchestration), keyed by unique requestId
 interface PendingSigningResolve {
   resolve: (result: { signature: string; keyId: string; publicKey: string }) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
-export const pendingSignBundlePayload = new Map<net.Socket, PendingSigningResolve>();
+export const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
 
 interface PendingIdentityResolve {
   resolve: (result: { keyId: string; publicKey: string }) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
-export const pendingSigningIdentity = new Map<net.Socket, PendingIdentityResolve>();
+export const pendingSigningIdentity = new Map<string, PendingIdentityResolve>();
 
 export interface HistoryToolCall {
   name: string;
@@ -482,12 +482,13 @@ export function createSigningCallback(
 ): (payload: string) => Promise<{ signature: string; keyId: string; publicKey: string }> {
   return (payload: string) =>
     new Promise((resolve, reject) => {
+      const requestId = uuid();
       const timer = setTimeout(() => {
-        pendingSignBundlePayload.delete(socket);
+        pendingSignBundlePayload.delete(requestId);
         reject(new Error('Signing request timed out'));
       }, SIGNING_TIMEOUT_MS);
-      pendingSignBundlePayload.set(socket, { resolve, reject, timer });
-      ctx.send(socket, { type: 'sign_bundle_payload', payload });
+      pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
+      ctx.send(socket, { type: 'sign_bundle_payload', requestId, payload });
     });
 }
 

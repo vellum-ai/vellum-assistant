@@ -171,24 +171,24 @@ const handlers: DispatchMap = {
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
   fork_shared_app: handleForkSharedApp,
-  sign_bundle_payload_response: (msg, socket) => {
-    const pending = pendingSignBundlePayload.get(socket);
+  sign_bundle_payload_response: (msg) => {
+    const pending = pendingSignBundlePayload.get(msg.requestId);
     if (pending) {
       clearTimeout(pending.timer);
-      pendingSignBundlePayload.delete(socket);
+      pendingSignBundlePayload.delete(msg.requestId);
       pending.resolve({ signature: msg.signature, keyId: msg.keyId, publicKey: msg.publicKey });
     } else {
-      log.warn('Received sign_bundle_payload_response with no pending request');
+      log.warn({ requestId: msg.requestId }, 'Received sign_bundle_payload_response with no pending request');
     }
   },
-  get_signing_identity_response: (msg, socket) => {
-    const pending = pendingSigningIdentity.get(socket);
+  get_signing_identity_response: (msg) => {
+    const pending = pendingSigningIdentity.get(msg.requestId);
     if (pending) {
       clearTimeout(pending.timer);
-      pendingSigningIdentity.delete(socket);
+      pendingSigningIdentity.delete(msg.requestId);
       pending.resolve({ keyId: msg.keyId, publicKey: msg.publicKey });
     } else {
-      log.warn('Received get_signing_identity_response with no pending request');
+      log.warn({ requestId: msg.requestId }, 'Received get_signing_identity_response with no pending request');
     }
   },
   gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),

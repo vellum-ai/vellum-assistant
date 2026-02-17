@@ -424,10 +424,12 @@ public struct IPCGenerationHandoff: Codable, Sendable {
 
 public struct IPCGetSigningIdentityRequest: Codable, Sendable {
     public let type: String
+    public let requestId: String
 }
 
 public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     public let type: String
+    public let requestId: String
     public let keyId: String
     public let publicKey: String
 }
@@ -996,11 +998,13 @@ public struct IPCShareToSlackResponse: Codable, Sendable {
 
 public struct IPCSignBundlePayloadRequest: Codable, Sendable {
     public let type: String
+    public let requestId: String
     public let payload: String
 }
 
 public struct IPCSignBundlePayloadResponse: Codable, Sendable {
     public let type: String
+    public let requestId: String
     public let signature: String
     public let keyId: String
     public let publicKey: String

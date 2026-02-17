@@ -271,12 +271,14 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   sign_bundle_payload_response: {
     type: 'sign_bundle_payload_response',
+    requestId: 'req-sign-001',
     signature: 'dGVzdC1zaWduYXR1cmU=',
     keyId: 'abc123',
     publicKey: 'dGVzdA==',
   },
   get_signing_identity_response: {
     type: 'get_signing_identity_response',
+    requestId: 'req-identity-001',
     keyId: 'abc123',
     publicKey: 'dGVzdA==',
   },
@@ -894,10 +896,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   sign_bundle_payload: {
     type: 'sign_bundle_payload',
+    requestId: 'req-sign-001',
     payload: '{"content_hashes":{},"manifest":{}}',
   },
   get_signing_identity: {
     type: 'get_signing_identity',
+    requestId: 'req-identity-001',
   },
   session_error: {
     type: 'session_error',

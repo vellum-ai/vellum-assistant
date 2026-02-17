@@ -378,6 +378,7 @@ export interface OpenBundleRequest {
 
 export interface SignBundlePayloadResponse {
   type: 'sign_bundle_payload_response';
+  requestId: string;
   signature: string;
   keyId: string;
   publicKey: string;
@@ -385,6 +386,7 @@ export interface SignBundlePayloadResponse {
 
 export interface GetSigningIdentityResponse {
   type: 'get_signing_identity_response';
+  requestId: string;
   keyId: string;
   publicKey: string;
 }
@@ -1284,11 +1286,13 @@ export interface OpenBundleResponse {
 
 export interface SignBundlePayloadRequest {
   type: 'sign_bundle_payload';
+  requestId: string;
   payload: string;
 }
 
 export interface GetSigningIdentityRequest {
   type: 'get_signing_identity';
+  requestId: string;
 }
 
 export interface ShareAppCloudResponse {
