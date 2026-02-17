@@ -1588,6 +1588,22 @@ exports[`IPC message snapshots ServerMessage types app_files_changed serializes 
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types browser_frame serializes to expected JSON 1`] = `
+{
+  "frame": "base64-jpeg-data",
+  "metadata": {
+    "offsetTop": 0,
+    "pageScaleFactor": 1,
+    "scrollOffsetX": 0,
+    "scrollOffsetY": 0,
+    "timestamp": 1700000000,
+  },
+  "sessionId": "sess-001",
+  "surfaceId": "surface-001",
+  "type": "browser_frame",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types accept_starter_bundle_response serializes to expected JSON 1`] = `
 {
   "accepted": true,
