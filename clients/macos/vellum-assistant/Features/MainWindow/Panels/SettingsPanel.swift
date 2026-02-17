@@ -22,6 +22,7 @@ struct SettingsPanel: View {
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTimer: Timer?
     @State private var pollCount: Int = 0
+    @State private var continuousCheckTimer: Timer?
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -438,6 +439,7 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
             refreshPermissionStatus()
+            startContinuousPermissionCheck()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -445,6 +447,7 @@ struct SettingsPanel: View {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTimer?.invalidate()
+            continuousCheckTimer?.invalidate()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -589,6 +592,17 @@ struct SettingsPanel: View {
     private func refreshPermissionStatus() {
         accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
         screenRecordingGranted = PermissionManager.screenRecordingStatus() == .granted
+    }
+
+    private func startContinuousPermissionCheck() {
+        // Continuously check permission status while settings panel is visible
+        // This ensures status updates even if user grants permissions without clicking the card
+        continuousCheckTimer?.invalidate()
+        continuousCheckTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [self] _ in
+            Task { @MainActor in
+                self.refreshPermissionStatus()
+            }
+        }
     }
 
     private func startPermissionPolling() {
