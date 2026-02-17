@@ -216,7 +216,7 @@ In strict mode, a **starter bundle** can be accepted to seed common safe rules (
 
 ### Skill source mutation protection
 
-Writing to files inside skill directories (managed, bundled, workspace, or extra) is classified as **high risk** regardless of the tool used. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent.
+When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside a skill directory (managed, bundled, workspace, or extra), the operation is escalated to **high risk**. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent. Note that mutations via `bash` are not covered by this escalation.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
 
