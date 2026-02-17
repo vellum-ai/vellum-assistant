@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import type { ToolExecutionResult, ToolLifecycleEvent, ToolLifecycleEventHandler } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +115,8 @@ function makeMockPrompter() {
     dispose: () => {},
   } as unknown as PermissionPrompter;
 }
+
+afterAll(() => { mock.restore(); });
 
 describe('Secret scanner executor integration', () => {
   let executor: ToolExecutor;
