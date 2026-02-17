@@ -55,6 +55,8 @@ export interface SkillSummary {
   metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
+  /** IDs of child skills that this skill includes (composed into its prompt). */
+  includes?: string[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -225,6 +227,7 @@ interface ParsedFrontmatter {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   metadata?: VellumMetadata;
+  includes?: string[];
 }
 
 function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontmatter | null {
