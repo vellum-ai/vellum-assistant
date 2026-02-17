@@ -40,6 +40,63 @@ export function getImmediateChildren(
  * Returns all visited skill IDs in DFS pre-order.
  * Happy-path only — skips missing children silently.
  */
+export interface IncludeValidationSuccess {
+  ok: true;
+  visited: string[];
+}
+
+export interface IncludeValidationError {
+  ok: false;
+  error: 'missing';
+  missingChildId: string;
+  parentId: string;
+  path: string[];  // full path from root to the parent that referenced the missing child
+}
+
+export type IncludeValidationResult = IncludeValidationSuccess | IncludeValidationError;
+
+/**
+ * Validate the include graph starting from the given root skill ID.
+ * Returns an error result on the first missing child encountered (DFS order),
+ * including the full path from root to the parent that referenced it.
+ */
+export function validateIncludes(
+  rootId: string,
+  catalogIndex: Map<string, SkillSummary>,
+): IncludeValidationResult {
+  const visited: string[] = [];
+  const seen = new Set<string>();
+
+  function dfs(id: string, path: string[]): IncludeValidationError | null {
+    if (seen.has(id)) return null;
+    seen.add(id);
+    visited.push(id);
+
+    const skill = catalogIndex.get(id);
+    if (!skill?.includes) return null;
+
+    const currentPath = [...path, id];
+    for (const childId of skill.includes) {
+      if (!catalogIndex.has(childId)) {
+        return {
+          ok: false,
+          error: 'missing',
+          missingChildId: childId,
+          parentId: id,
+          path: currentPath,
+        };
+      }
+      const childError = dfs(childId, currentPath);
+      if (childError) return childError;
+    }
+    return null;
+  }
+
+  const error = dfs(rootId, []);
+  if (error) return error;
+  return { ok: true, visited };
+}
+
 export function traverseIncludes(
   rootId: string,
   catalogIndex: Map<string, SkillSummary>,
