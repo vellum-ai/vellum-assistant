@@ -36,9 +36,12 @@ cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEm
 
 ### 3. Ship
 
-Review what changed, draft a commit message and PR title, then ship everything in one step:
+Review what changed, draft a commit message and PR title, then ship everything in one step.
+
+**Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
+cd <worktree>
 .claude/ship \
   --commit-msg "<commit message>" \
   --title "<PR title>" \
