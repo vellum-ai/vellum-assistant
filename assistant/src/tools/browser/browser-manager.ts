@@ -157,8 +157,10 @@ class BrowserManager {
       return existing;
     }
 
-    // Clear stale snapshot mappings when replacing a closed page
+    // Clear stale snapshot mappings and CDP state when replacing a closed page
     this.snapshotMaps.delete(sessionId);
+    this.cdpSessions.delete(sessionId);
+    this.screencastCallbacks.delete(sessionId);
 
     const page = await context.newPage();
     this.pages.set(sessionId, page);
@@ -226,13 +228,16 @@ class BrowserManager {
     const rawPage = this.rawPages.get(sessionId);
     if (!rawPage) throw new Error('No page for session');
 
+    // Stop any existing screencast before creating a new CDP session
+    await this.stopScreencast(sessionId);
+
     const cdp = await rawPage.context().newCDPSession(rawPage);
     this.cdpSessions.set(sessionId, cdp);
     this.screencastCallbacks.set(sessionId, onFrame);
 
     cdp.on('Page.screencastFrame', (params: any) => {
       onFrame({ data: params.data, metadata: params.metadata });
-      cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+      cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
     });
 
     await cdp.send('Page.startScreencast', {
