@@ -78,7 +78,7 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 
     if (ctx.html.includes('data-vellum-home-base="v1"')) {
       lines.push(
-        '6. This is the prebuilt Home Base scaffold. Preserve layout anchors:',
+        '9. This is the prebuilt Home Base scaffold. Preserve layout anchors:',
         '   `home-base-root`, `home-base-onboarding-lane`, and `home-base-starter-lane`.',
       );
     }
