@@ -63,9 +63,12 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
                 return nil
             }
 
-            // Must be a regular file (not a symlink, device, pipe, etc.)
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: realPath, isDirectory: &isDir), !isDir.boolValue else {
+            // Must be a regular file — reject directories, symlinks, FIFOs,
+            // device nodes, and anything else that could block or behave
+            // unexpectedly when read via Data(contentsOf:).
+            let realURL = URL(fileURLWithPath: realPath)
+            guard let rv = try? realURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  rv.isRegularFile == true else {
                 return nil
             }
 

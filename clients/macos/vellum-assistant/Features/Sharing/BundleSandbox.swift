@@ -123,20 +123,34 @@ enum BundleSandbox {
         var removed: [String] = []
 
         for case let fileURL as URL in enumerator {
-            let absURL = root.appendingPathComponent(fileURL.relativePath)
+            // Use the enumerated URL directly — when .producesRelativePathURLs
+            // is not honored the enumerator returns absolute URLs, and
+            // re-appending relativePath to root would build a wrong path.
+            let absURL = fileURL.baseURL != nil
+                ? root.appendingPathComponent(fileURL.relativePath)
+                : fileURL
 
-            let values = try absURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .linkCountKey])
+            let label = fileURL.relativePath
+
+            // Treat unreadable files as suspicious — if resourceValues throws
+            // (I/O error, permissions, etc.) we must not skip the file and
+            // leave a potentially unsafe link on disk unchecked.
+            guard let values = try? absURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .linkCountKey]) else {
+                removed.append(label)
+                try? fm.removeItem(at: absURL)
+                continue
+            }
 
             if values.isSymbolicLink == true {
                 // Resolve and check containment
                 let target = absURL.resolvingSymlinksInPath().path
                 if target != rootReal && !target.hasPrefix(rootReal + "/") {
-                    removed.append(fileURL.relativePath)
+                    removed.append(label)
                     try? fm.removeItem(at: absURL)
                 }
             } else if values.isRegularFile == true, let linkCount = values.linkCount, linkCount > 1 {
                 // Hardlink — can't verify target containment, reject outright
-                removed.append(fileURL.relativePath)
+                removed.append(label)
                 try? fm.removeItem(at: absURL)
             }
         }
