@@ -92,7 +92,10 @@ Fix any failures before proceeding.
 
 #### 8d. Ship (do NOT merge)
 
+**Run from the worktree root** (not `assistant/` or the main repo):
+
 ```bash
+cd <worktree>
 .claude/ship \
   --commit-msg "<commit message>" \
   --title "<title from plan>" \

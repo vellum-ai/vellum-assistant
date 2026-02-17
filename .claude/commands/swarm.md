@@ -66,8 +66,8 @@ ALL work happens here. Do NOT touch the main repo.
 ## Workflow
 1. Make the changes in your worktree.
 2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
-3. Ship it (stages, commits, pushes, creates PR, and merges in one step):
-   .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
+3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
+   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
 4. Send a message to "lead" with:
    - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
