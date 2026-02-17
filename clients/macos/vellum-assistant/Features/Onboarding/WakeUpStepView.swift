@@ -11,11 +11,6 @@ struct WakeUpStepView: View {
     /// Optional auth manager for showing loading/error state on the Vellum card.
     var authManager: AuthManager?
 
-    // Configurable text
-    var title: String = "Create your Velly"
-    var subtitle: String = "The safest way to create your personal assistant."
-    var questionPrompt: String = "How would you like to start?"
-
     /// When true, disables all option cards (e.g. during 0.3s advance delay).
     var isAdvancing: Bool = false
 
@@ -35,7 +30,7 @@ struct WakeUpStepView: View {
 
     var body: some View {
         // Title
-        Text(title)
+        Text("Create your Velly")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)
@@ -43,7 +38,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.md)
 
         // Subtitle
-        Text(subtitle)
+        Text("The safest way to create your personal assistant.")
             .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
@@ -51,7 +46,7 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
 
         // Question prompt
-        Text(questionPrompt)
+        Text("How would you like to start?")
             .font(.system(size: 16, weight: .medium, design: .monospaced))
             .foregroundColor(VColor.textPrimary)
             .opacity(showSubtext ? 1 : 0)
@@ -177,23 +172,3 @@ struct WakeUpStepView: View {
     .frame(width: 520, height: 580)
 }
 
-#Preview("Auth gate context") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: 0) {
-            Spacer()
-            Image("VellyLogo")
-                .resizable()
-                .interpolation(.none)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
-            WakeUpStepView(
-                title: "Sign in to continue",
-                subtitle: "Sign in with your Vellum account to get started.",
-                questionPrompt: "How would you like to start?"
-            )
-        }
-    }
-    .frame(width: 520, height: 580)
-}

@@ -9,10 +9,6 @@ struct OnboardingFlowView: View {
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
-    // Optional text overrides for WakeUpStepView (used by auth gate)
-    var wakeUpTitle: String?
-    var wakeUpSubtitle: String?
-
     @State private var isAdvancingFromWakeUp = false
 
     var body: some View {
@@ -52,8 +48,6 @@ struct OnboardingFlowView: View {
                             WakeUpStepView(
                                 state: state,
                                 authManager: authManager,
-                                title: wakeUpTitle ?? "Create your Velly",
-                                subtitle: wakeUpSubtitle ?? "The safest way to create your personal assistant.",
                                 isAdvancing: isAdvancingFromWakeUp,
                                 onStartWithAPIKey: {
                                     guard !isAdvancingFromWakeUp else { return }
