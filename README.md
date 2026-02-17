@@ -185,6 +185,41 @@ All three tools require explicit user approval before execution (Risk Level = Hi
 - After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
 
+## Permission Modes and Trust Rules
+
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
+
+```bash
+# Default — low-risk tools auto-allowed, medium/high prompted
+vellum config set permissions.mode '"legacy"'
+
+# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
+vellum config set permissions.mode '"strict"'
+```
+
+### Trust rules
+
+User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
+
+- **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
+- **Principal binding**: Rules can target specific skills (`principalId`) and even specific versions (`principalVersion`) via content hashing.
+- **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
+- **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
+
+### Version-bound skill approvals
+
+When you approve a skill-originated action, the trust rule can record the skill's version hash. If the skill's source files change, the hash changes and the old rule no longer matches — you are re-prompted. This prevents modified skills from silently inheriting previous approvals.
+
+### Starter approval bundle
+
+In strict mode, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
+
+### Skill source mutation protection
+
+Writing to files inside skill directories (managed, bundled, workspace, or extra) is classified as **high risk** regardless of the tool used. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
+
 ## Assistant Attachments
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:

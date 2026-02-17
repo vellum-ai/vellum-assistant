@@ -1509,6 +1509,178 @@ graph TB
 
 ---
 
+## Permission and Trust Security Model
+
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes, principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+
+### Permission Evaluation Flow
+
+```mermaid
+graph TB
+    TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>→ Low / Medium / High"]
+    CLASSIFY --> CANDIDATES["buildCommandCandidates()<br/>tool:target strings +<br/>canonical path variants"]
+    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>principal, executionTarget"]
+
+    FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
+    FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
+    FIND_RULE -->|"Allow rule"| RISK_CHECK{"Risk level?"}
+    FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
+
+    RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
+    RISK_CHECK -->|"High"| HIGH_CHECK{"allowHighRisk<br/>on rule?"}
+    HIGH_CHECK -->|"true"| AUTO_ALLOW
+    HIGH_CHECK -->|"false / absent"| PROMPT_HIGH["decision: prompt<br/>High risk override"]
+
+    NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
+    NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
+    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
+    RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
+    RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
+    RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
+```
+
+### Strict Mode vs Legacy Mode
+
+The `permissions.mode` config option (`legacy` or `strict`) controls the default behavior when no trust rule matches a tool invocation.
+
+| Behavior | Legacy mode (default) | Strict mode |
+|---|---|---|
+| Low-risk tools with no matching rule | Auto-allowed | Prompted |
+| Medium-risk tools with no matching rule | Prompted | Prompted |
+| High-risk tools with no matching rule | Prompted | Prompted |
+| `skill_load` with no matching rule | Auto-allowed (low risk) | Prompted (explicit rule required) |
+| Skill-origin tools with no matching rule | Prompted | Prompted |
+| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed |
+| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
+| Deny rules | Blocked | Blocked |
+
+Strict mode is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
+
+### Trust Rules (v3 Schema)
+
+Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule can include the following fields:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `id` | `string` | Unique identifier (UUID for user rules, `default:*` for system defaults) |
+| `tool` | `string` | Tool name to match (e.g., `bash`, `file_write`, `skill_load`) |
+| `pattern` | `string` | Minimatch glob pattern for the command/target string |
+| `scope` | `string` | Path prefix or `everywhere` — restricts where the rule applies |
+| `decision` | `allow \| deny \| ask` | What to do when the rule matches |
+| `priority` | `number` | Higher priority wins; deny wins ties at equal priority |
+| `principalKind` | `string?` | `core` or `skill` — filters by tool origin |
+| `principalId` | `string?` | Skill ID — only matches invocations from this skill |
+| `principalVersion` | `string?` | Version hash — only matches this exact skill version |
+| `executionTarget` | `string?` | `sandbox` or `host` — restricts by execution context |
+| `allowHighRisk` | `boolean?` | When true, auto-allows even high-risk invocations |
+
+Missing optional fields act as wildcards. A rule with no `principalKind`, `principalId`, or `principalVersion` matches any principal. A rule with no `executionTarget` matches any target.
+
+### Principal and Version Matching
+
+When a tool invocation carries a `PolicyContext` with a `ToolPrincipal`, the trust store filters rules by principal constraints:
+
+```mermaid
+graph TB
+    RULE["Trust rule with<br/>principalKind, principalId,<br/>principalVersion"] --> KIND_CHECK{"principalKind<br/>on rule?"}
+    KIND_CHECK -->|"absent"| ID_CHECK
+    KIND_CHECK -->|"present"| KIND_MATCH{"ctx.principal.kind<br/>matches?"}
+    KIND_MATCH -->|"no"| SKIP["Rule does not match"]
+    KIND_MATCH -->|"yes"| ID_CHECK{"principalId<br/>on rule?"}
+
+    ID_CHECK -->|"absent"| VER_CHECK
+    ID_CHECK -->|"present"| ID_MATCH{"ctx.principal.id<br/>matches?"}
+    ID_MATCH -->|"no"| SKIP
+    ID_MATCH -->|"yes"| VER_CHECK{"principalVersion<br/>on rule?"}
+
+    VER_CHECK -->|"absent"| MATCH["Rule matches<br/>(any version)"]
+    VER_CHECK -->|"present"| VER_MATCH{"ctx.principal.version<br/>matches?"}
+    VER_MATCH -->|"no"| SKIP
+    VER_MATCH -->|"yes"| MATCH
+```
+
+Version-bound rules are central to the security model for skills: when a user approves a specific skill version, the trust rule records the version hash. If the skill's source files change (producing a different hash from `computeSkillVersionHash()`), the old rule no longer matches and the user is re-prompted.
+
+### Risk Classification and Escalation
+
+The `classifyRisk()` function determines the risk level for each tool invocation:
+
+| Tool | Risk level | Notes |
+|---|---|---|
+| `file_read`, `web_search`, `skill_load` | Low | Read-only or informational |
+| `file_write`, `file_edit` | Medium (default) | Filesystem mutations |
+| `file_write`, `file_edit` targeting skill source paths | **High** | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots |
+| `host_file_write`, `host_file_edit` targeting skill source paths | **High** | Same path classification, host variant |
+| `bash`, `host_bash` | Varies | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
+| `scaffold_managed_skill`, `delete_managed_skill` | High | Skill lifecycle mutations always high-risk |
+| `evaluate_typescript_code` | High | Arbitrary code execution |
+| Skill-origin tools with no matching rule | Prompted regardless of risk | Even Low-risk skill tools default to `ask` |
+
+The escalation of skill source file mutations to High risk is a privilege-escalation defense: modifying skill source code could grant the agent new capabilities, so such operations always require explicit approval.
+
+### Skill Load Approval
+
+The `skill_load` tool generates version-aware command candidates for rule matching:
+
+1. `skill_load:<skill-id>@<version-hash>` — matches version-pinned rules
+2. `skill_load:<skill-id>` — matches any-version rules
+3. `skill_load:<raw-selector>` — matches the raw user-provided selector
+
+In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns.
+
+### Starter Approval Bundle
+
+The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly in strict mode. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
+
+| Rule | Tool | Pattern |
+|---|---|---|
+| `file_read` | `file_read` | `file_read:**` |
+| `glob` | `glob` | `glob:**` |
+| `grep` | `grep` | `grep:**` |
+| `list_directory` | `list_directory` | `list_directory:**` |
+| `web_search` | `web_search` | `web_search:**` |
+| `web_fetch` | `web_fetch` | `web_fetch:**` |
+
+Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trust.json`. Rules are seeded at priority 90 (below user rules at 100, above system defaults at 50).
+
+### Prompt UX
+
+When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
+
+| Field | Content |
+|---|---|
+| `toolName` | The tool being invoked |
+| `input` | Redacted tool input (sensitive fields removed) |
+| `riskLevel` | `low`, `medium`, or `high` |
+| `executionTarget` | `sandbox` or `host` — where the action will execute |
+| `principalKind` | `core` or `skill` — who owns the tool |
+| `principalId` | Skill ID (if skill-origin) |
+| `principalVersion` | Version hash (if available) |
+| `allowlistOptions` | Suggested patterns for "always allow" rules |
+| `scopeOptions` | Suggested scopes for rule persistence |
+
+The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `always_allow_high_risk` (create allow rule with `allowHighRisk: true`), `deny` (one-time), or `always_deny` (create deny rule).
+
+### Canonical Paths
+
+File tool candidates include canonical (symlink-resolved) absolute paths via `normalizeFilePath()` to prevent policy bypass through symlinked or relative path variations. The path classifier (`isSkillSourcePath()`) also resolves symlinks before checking against skill root directories.
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `ToolPrincipal`, `RiskLevel`, `UserDecision` types |
+| `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
+| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, principal/version matching, starter bundle |
+| `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
+| `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
+| `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
+| `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
+| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`legacy` / `strict`) |
+| `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
+
+---
+
 ## Swarm Orchestration — Parallel Task Execution
 
 When the model invokes `swarm_delegate`, the daemon decomposes a complex task into parallel specialist subtasks and executes them concurrently.
