@@ -41,6 +41,11 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
+    /// Timeout (in seconds) for AX API calls to a target app. If an app is
+    /// unresponsive, individual AXUIElementCopyAttributeValue calls will return
+    /// kAXErrorCannotComplete after this duration instead of blocking indefinitely.
+    private static let axMessagingTimeoutSeconds: Float = 5.0
+
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
         "AXPopUpButton", "AXComboBox", "AXSlider", "AXLink", "AXMenuItem",
@@ -116,6 +121,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         let pid = frontApp.processIdentifier
         let appName = frontApp.localizedName ?? "Unknown"
         let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
         // Tell apps (especially Chrome, Electron) to expose full web content AX tree.
         // This is what real assistive technologies do.
@@ -187,6 +193,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     /// Returns nil if the app has no focused window or yields no elements.
     private func enumerateAppByPID(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
         if !Self.enhancedAXEnabled.contains(pid) {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
@@ -231,6 +238,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             guard results.count < maxWindows else { break }
             let pid = app.processIdentifier
             let appElement = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
             if !Self.enhancedAXEnabled.contains(pid) {
                 AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
