@@ -91,7 +91,7 @@ import {
   createToolExecutor,
   type ToolSetupContext,
 } from './session-tool-setup.js';
-import { projectSkillTools } from './session-skill-tools.js';
+import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session');
 
@@ -128,6 +128,8 @@ export class Session {
   preactivatedSkillIds?: string[];
   /** Core tool names (computed once in constructor), always allowed regardless of skill state. */
   private coreToolNames: Set<string>;
+  /** Per-session tracking of previously active skill IDs for projection diffing. */
+  private readonly skillProjectionState = new Set<string>();
   /** @internal — exposed for session-usage.ts module functions. */
   usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
@@ -260,6 +262,7 @@ export class Session {
       ? (history: Message[]) => {
           const projection = projectSkillTools(history, {
             preactivatedSkillIds: this.preactivatedSkillIds,
+            previouslyActiveSkillIds: this.skillProjectionState,
           });
           return [...toolDefs, ...projection.toolDefinitions];
         }
@@ -439,6 +442,7 @@ export class Session {
       sessionId: this.conversationId,
     });
     this.abort();
+    resetSkillToolProjection(this.skillProjectionState);
     this.eventBus.dispose();
   }
 
@@ -744,6 +748,7 @@ export class Session {
       // Core tools are always included so they're never gated.
       const skillProjection = projectSkillTools(runMessages, {
         preactivatedSkillIds: this.preactivatedSkillIds,
+        previouslyActiveSkillIds: this.skillProjectionState,
       });
       const turnAllowed = new Set(this.coreToolNames);
       for (const name of skillProjection.allowedToolNames) {

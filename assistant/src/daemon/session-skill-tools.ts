@@ -38,17 +38,17 @@ export interface SkillToolProjection {
 export interface ProjectSkillToolsOptions {
   /** Skill IDs that should be treated as active regardless of history markers. */
   preactivatedSkillIds?: string[];
+  /**
+   * Session-scoped tracking set of previously active skill IDs. Each session
+   * should own its own set to prevent cross-session state bleed when the
+   * daemon serves multiple concurrent sessions.
+   */
+  previouslyActiveSkillIds?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Track which skill IDs were active on the previous call so we can detect
- * removals and unregister stale tools.
- */
-let previouslyActiveSkillIds = new Set<string>();
 
 /**
  * Load and parse a skill's TOOLS.json manifest, returning null on any failure.
@@ -87,13 +87,14 @@ export function projectSkillTools(
 ): SkillToolProjection {
   const contextIds = deriveActiveSkillIds(history);
   const preactivated = options?.preactivatedSkillIds ?? [];
+  const prevActive = options?.previouslyActiveSkillIds ?? new Set<string>();
 
   // Union of context-derived and preactivated IDs
   const activeIds = new Set<string>([...contextIds, ...preactivated]);
 
   // Determine which skills were removed since last projection
   const removedIds = new Set<string>();
-  for (const id of previouslyActiveSkillIds) {
+  for (const id of prevActive) {
     if (!activeIds.has(id)) {
       removedIds.add(id);
     }
@@ -107,7 +108,7 @@ export function projectSkillTools(
 
   // Early exit if nothing is active
   if (activeIds.size === 0) {
-    previouslyActiveSkillIds = new Set<string>();
+    prevActive.clear();
     return { toolDefinitions: [], allowedToolNames: new Set() };
   }
 
@@ -150,7 +151,11 @@ export function projectSkillTools(
     }
   }
 
-  previouslyActiveSkillIds = activeIds;
+  // Update the session-scoped tracking set in-place
+  prevActive.clear();
+  for (const id of activeIds) {
+    prevActive.add(id);
+  }
 
   return {
     toolDefinitions: allToolDefinitions,
@@ -159,8 +164,14 @@ export function projectSkillTools(
 }
 
 /**
- * Reset the projection state. Useful for tests and session teardown.
+ * Reset the projection state and unregister all skill tools tracked in the
+ * given set. Used for session teardown and tests.
  */
-export function resetSkillToolProjection(): void {
-  previouslyActiveSkillIds = new Set<string>();
+export function resetSkillToolProjection(trackedIds?: Set<string>): void {
+  if (trackedIds) {
+    for (const id of trackedIds) {
+      unregisterSkillTools(id);
+    }
+    trackedIds.clear();
+  }
 }

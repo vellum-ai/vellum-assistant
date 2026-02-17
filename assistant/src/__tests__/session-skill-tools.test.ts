@@ -180,16 +180,18 @@ function toolResultMsg(content: string): Message {
 // ---------------------------------------------------------------------------
 
 describe('projectSkillTools', () => {
+  let sessionState: Set<string>;
+
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('no active skills returns empty projection', () => {
-    const result = projectSkillTools([]);
+    const result = projectSkillTools([], { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames.size).toBe(0);
@@ -203,7 +205,7 @@ describe('projectSkillTools', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(2);
     expect(result.toolDefinitions.map((d) => d.name)).toEqual([
@@ -227,7 +229,7 @@ describe('projectSkillTools', () => {
       toolResultMsg('<loaded_skill id="oncall" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(2);
     expect(result.allowedToolNames).toEqual(
@@ -249,6 +251,7 @@ describe('projectSkillTools', () => {
 
     const result = projectSkillTools(history, {
       preactivatedSkillIds: ['oncall'],
+      previouslyActiveSkillIds: sessionState,
     });
 
     expect(result.toolDefinitions).toHaveLength(2);
@@ -269,14 +272,14 @@ describe('projectSkillTools', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
       toolResultMsg('<loaded_skill id="oncall" />'),
     ];
-    projectSkillTools(history1);
+    projectSkillTools(history1, { previouslyActiveSkillIds: sessionState });
 
     // Second turn: only deploy remains active (oncall marker gone)
     mockUnregisteredSkillIds = [];
     const history2: Message[] = [
       toolResultMsg('<loaded_skill id="deploy" />'),
     ];
-    const result = projectSkillTools(history2);
+    const result = projectSkillTools(history2, { previouslyActiveSkillIds: sessionState });
 
     expect(mockUnregisteredSkillIds).toContain('oncall');
     expect(result.allowedToolNames).toEqual(new Set(['deploy_run']));
@@ -290,7 +293,7 @@ describe('projectSkillTools', () => {
       toolResultMsg('<loaded_skill id="broken" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     // Should not throw, just return empty projection for that skill
     expect(result.toolDefinitions).toEqual([]);
@@ -305,7 +308,7 @@ describe('projectSkillTools', () => {
       toolResultMsg('<loaded_skill id="nonexistent" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toEqual([]);
     expect(result.allowedToolNames.size).toBe(0);
@@ -322,6 +325,7 @@ describe('projectSkillTools', () => {
     // deploy is both in history AND preactivated — should not duplicate
     const result = projectSkillTools(history, {
       preactivatedSkillIds: ['deploy'],
+      previouslyActiveSkillIds: sessionState,
     });
 
     expect(result.toolDefinitions).toHaveLength(1);
@@ -334,10 +338,37 @@ describe('projectSkillTools', () => {
 
     const result = projectSkillTools([], {
       preactivatedSkillIds: ['oncall'],
+      previouslyActiveSkillIds: sessionState,
     });
 
     expect(result.toolDefinitions).toHaveLength(1);
     expect(result.allowedToolNames).toEqual(new Set(['oncall_page']));
+  });
+
+  test('concurrent sessions do not interfere with each other', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    const sessionA = new Set<string>();
+    const sessionB = new Set<string>();
+
+    // Session A activates deploy
+    const historyA: Message[] = [toolResultMsg('<loaded_skill id="deploy" />')];
+    const resultA = projectSkillTools(historyA, { previouslyActiveSkillIds: sessionA });
+    expect(resultA.allowedToolNames.has('deploy_run')).toBe(true);
+
+    // Session B activates oncall — should NOT unregister deploy from session A
+    mockUnregisteredSkillIds = [];
+    const historyB: Message[] = [toolResultMsg('<loaded_skill id="oncall" />')];
+    projectSkillTools(historyB, { previouslyActiveSkillIds: sessionB });
+    expect(mockUnregisteredSkillIds).not.toContain('deploy');
+
+    // Session A's state should still track deploy
+    expect(sessionA.has('deploy')).toBe(true);
+    expect(sessionB.has('oncall')).toBe(true);
   });
 });
 
@@ -353,9 +384,11 @@ describe('resolveTools callback (session wiring)', () => {
     { name: 'bash', description: 'Run a shell command', input_schema: { type: 'object', properties: {} } },
   ];
 
+  let sessionState: Set<string>;
+
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]): ToolDefinition[] => {
-      const projection = projectSkillTools(history);
+      const projection = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
       return [...base, ...projection.toolDefinitions];
     };
   }
@@ -365,7 +398,7 @@ describe('resolveTools callback (session wiring)', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('returns only base tools when no skills are active', () => {
@@ -444,13 +477,14 @@ describe('resolveTools callback (session wiring)', () => {
 
 describe('allowed tool set merging', () => {
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+  let sessionState: Set<string>;
 
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   /**
@@ -466,7 +500,7 @@ describe('allowed tool set merging', () => {
   }
 
   test('core tools are always included even with no active skills', () => {
-    const projection = projectSkillTools([]);
+    const projection = projectSkillTools([], { previouslyActiveSkillIds: sessionState });
     const allowed = buildAllowedSet(projection);
 
     for (const core of CORE_TOOL_NAMES) {
@@ -482,7 +516,7 @@ describe('allowed tool set merging', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
     ];
 
-    const projection = projectSkillTools(history);
+    const projection = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
     const allowed = buildAllowedSet(projection);
 
     // Core tools present
@@ -506,7 +540,7 @@ describe('allowed tool set merging', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
     ];
 
-    const projection = projectSkillTools(history);
+    const projection = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
     const allowed = buildAllowedSet(projection);
 
     expect(allowed.has('deploy_run')).toBe(true);
@@ -526,7 +560,7 @@ describe('allowed tool set merging', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
       toolResultMsg('<loaded_skill id="oncall" />'),
     ];
-    const projection1 = projectSkillTools(history1);
+    const projection1 = projectSkillTools(history1, { previouslyActiveSkillIds: sessionState });
     const allowed1 = buildAllowedSet(projection1);
 
     expect(allowed1.has('deploy_run')).toBe(true);
@@ -536,7 +570,7 @@ describe('allowed tool set merging', () => {
     const history2: Message[] = [
       toolResultMsg('<loaded_skill id="deploy" />'),
     ];
-    const projection2 = projectSkillTools(history2);
+    const projection2 = projectSkillTools(history2, { previouslyActiveSkillIds: sessionState });
     const allowed2 = buildAllowedSet(projection2);
 
     expect(allowed2.has('deploy_run')).toBe(true);
@@ -559,10 +593,11 @@ describe('mid-run skill tool activation (end-to-end)', () => {
   ];
 
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+  let sessionState: Set<string>;
 
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]) => {
-      const projection = projectSkillTools(history);
+      const projection = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
       return {
         toolDefinitions: [...base, ...projection.toolDefinitions],
         allowedToolNames: new Set([...CORE_TOOL_NAMES, ...projection.allowedToolNames]),
@@ -575,7 +610,7 @@ describe('mid-run skill tool activation (end-to-end)', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('Turn 1 calls skill_load → Turn 2 sees added tool', () => {
@@ -747,10 +782,11 @@ describe('context-derived deactivation regression', () => {
   ];
 
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+  let sessionState: Set<string>;
 
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]) => {
-      const projection = projectSkillTools(history);
+      const projection = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
       return {
         toolDefinitions: [...base, ...projection.toolDefinitions],
         allowedToolNames: new Set([...CORE_TOOL_NAMES, ...projection.allowedToolNames]),
@@ -763,7 +799,7 @@ describe('context-derived deactivation regression', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('tool definitions shrink when skill load marker is removed from history', () => {
@@ -844,7 +880,7 @@ describe('context-derived deactivation regression', () => {
       toolResultMsg('<loaded_skill id="deploy" />'),
       toolResultMsg('<loaded_skill id="oncall" />'),
     ];
-    projectSkillTools(history1);
+    projectSkillTools(history1, { previouslyActiveSkillIds: sessionState });
 
     // Clear tracking before turn 2
     mockUnregisteredSkillIds = [];
@@ -853,7 +889,7 @@ describe('context-derived deactivation regression', () => {
     const history2: Message[] = [
       toolResultMsg('<loaded_skill id="oncall" />'),
     ];
-    projectSkillTools(history2);
+    projectSkillTools(history2, { previouslyActiveSkillIds: sessionState });
 
     expect(mockUnregisteredSkillIds).toContain('deploy');
     expect(mockUnregisteredSkillIds).not.toContain('oncall');
@@ -938,12 +974,14 @@ describe('context-derived deactivation regression', () => {
 // ---------------------------------------------------------------------------
 
 describe('slash preactivation through session processing', () => {
+  let sessionState: Set<string>;
+
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('slash-known skill has its tools available on first projection (turn-0)', () => {
@@ -956,6 +994,7 @@ describe('slash preactivation through session processing', () => {
 
     const result = projectSkillTools(emptyHistory, {
       preactivatedSkillIds: ['deploy'],
+      previouslyActiveSkillIds: sessionState,
     });
 
     expect(result.toolDefinitions).toHaveLength(2);
@@ -975,13 +1014,14 @@ describe('slash preactivation through session processing', () => {
     // First request: preactivated via slash command
     const result1 = projectSkillTools([], {
       preactivatedSkillIds: ['deploy'],
+      previouslyActiveSkillIds: sessionState,
     });
     expect(result1.toolDefinitions).toHaveLength(1);
     expect(result1.allowedToolNames.has('deploy_run')).toBe(true);
 
     // Second request: no preactivation, no history markers.
     // Without preactivated IDs, the skill should not appear.
-    const result2 = projectSkillTools([]);
+    const result2 = projectSkillTools([], { previouslyActiveSkillIds: sessionState });
 
     expect(result2.toolDefinitions).toHaveLength(0);
     expect(result2.allowedToolNames.has('deploy_run')).toBe(false);
@@ -1002,6 +1042,7 @@ describe('slash preactivation through session processing', () => {
     // deploy is preactivated via slash, oncall is from history
     const result = projectSkillTools(history, {
       preactivatedSkillIds: ['deploy'],
+      previouslyActiveSkillIds: sessionState,
     });
 
     expect(result.toolDefinitions).toHaveLength(2);
@@ -1031,12 +1072,14 @@ const GMAIL_TOOL_NAMES = [
 ] as const;
 
 describe('bundled skill: gmail', () => {
+  let sessionState: Set<string>;
+
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('gmail skill activation via loaded_skill marker projects all 12 tool definitions', () => {
@@ -1047,7 +1090,7 @@ describe('bundled skill: gmail', () => {
       toolResultMsg('<loaded_skill id="gmail" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(12);
     expect(result.toolDefinitions.map((d) => d.name)).toEqual([...GMAIL_TOOL_NAMES]);
@@ -1063,7 +1106,7 @@ describe('bundled skill: gmail', () => {
       { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(0);
     expect(result.allowedToolNames.size).toBe(0);
@@ -1074,12 +1117,14 @@ describe('bundled skill: gmail', () => {
 });
 
 describe('bundled skill: claude-code', () => {
+  let sessionState: Set<string>;
+
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('claude-code skill activation produces claude_code tool definition', () => {
@@ -1090,7 +1135,7 @@ describe('bundled skill: claude-code', () => {
       toolResultMsg('<loaded_skill id="claude-code" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(1);
     expect(result.toolDefinitions[0].name).toBe('claude_code');
@@ -1105,7 +1150,7 @@ describe('bundled skill: claude-code', () => {
       { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(0);
     expect(result.allowedToolNames.has('claude_code')).toBe(false);
@@ -1113,12 +1158,14 @@ describe('bundled skill: claude-code', () => {
 });
 
 describe('bundled skill: weather', () => {
+  let sessionState: Set<string>;
+
   beforeEach(() => {
     mockCatalog = [];
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection();
+    sessionState = new Set<string>();
   });
 
   test('weather skill activation produces get_weather tool definition', () => {
@@ -1129,7 +1176,7 @@ describe('bundled skill: weather', () => {
       toolResultMsg('<loaded_skill id="weather" />'),
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(1);
     expect(result.toolDefinitions[0].name).toBe('get_weather');
@@ -1144,9 +1191,59 @@ describe('bundled skill: weather', () => {
       { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
     ];
 
-    const result = projectSkillTools(history);
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
 
     expect(result.toolDefinitions).toHaveLength(0);
     expect(result.allowedToolNames.has('get_weather')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resetSkillToolProjection tests
+// ---------------------------------------------------------------------------
+
+describe('resetSkillToolProjection', () => {
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+  });
+
+  test('unregisters all tracked skills and clears the set', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    const trackedIds = new Set<string>();
+
+    // Activate both skills
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: trackedIds });
+    expect(trackedIds.size).toBe(2);
+
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection(trackedIds);
+
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    expect(mockUnregisteredSkillIds).toContain('oncall');
+    expect(trackedIds.size).toBe(0);
+  });
+
+  test('no-op when called with undefined', () => {
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection(undefined);
+    expect(mockUnregisteredSkillIds).toHaveLength(0);
+  });
+
+  test('no-op when called with empty set', () => {
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection(new Set());
+    expect(mockUnregisteredSkillIds).toHaveLength(0);
   });
 });
