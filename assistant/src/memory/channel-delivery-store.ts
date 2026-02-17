@@ -19,6 +19,10 @@ export interface InboundResult {
   duplicate: boolean;
 }
 
+export interface RecordInboundOptions {
+  sourceMessageId?: string;
+}
+
 /**
  * Record an inbound channel event. Returns `duplicate: true` if this
  * exact (assistant, channel, chat, message) combination was already seen.
@@ -28,6 +32,7 @@ export function recordInbound(
   sourceChannel: string,
   externalChatId: string,
   externalMessageId: string,
+  options?: RecordInboundOptions,
 ): InboundResult {
   const db = getDb();
 
@@ -73,6 +78,7 @@ export function recordInbound(
         sourceChannel,
         externalChatId,
         externalMessageId,
+        sourceMessageId: options?.sourceMessageId ?? null,
         conversationId: mapping.conversationId,
         deliveryStatus: 'pending',
         createdAt: now,
@@ -87,6 +93,49 @@ export function recordInbound(
     conversationId: mapping.conversationId,
     duplicate: false,
   };
+}
+
+/**
+ * Link an inbound event to the user message it created, so edits can
+ * later find the correct message by source_message_id → message_id.
+ */
+export function linkMessage(eventId: string, messageId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ messageId, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Find the message ID linked to the original inbound event for a given
+ * platform-level message identifier (e.g. Telegram message_id).
+ */
+export function findMessageBySourceId(
+  assistantId: string,
+  sourceChannel: string,
+  externalChatId: string,
+  sourceMessageId: string,
+): { messageId: string; conversationId: string } | null {
+  const db = getDb();
+  const row = db
+    .select({
+      messageId: channelInboundEvents.messageId,
+      conversationId: channelInboundEvents.conversationId,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.assistantId, assistantId),
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.sourceMessageId, sourceMessageId),
+      ),
+    )
+    .get();
+
+  if (!row || !row.messageId) return null;
+  return { messageId: row.messageId, conversationId: row.conversationId };
 }
 
 /**

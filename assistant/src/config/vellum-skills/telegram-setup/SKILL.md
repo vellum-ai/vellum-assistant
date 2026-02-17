@@ -54,7 +54,7 @@ export default async (input: { token: string; url: string; secret: string }) => 
     body: JSON.stringify({
       url: input.url,
       secret_token: input.secret,
-      allowed_updates: ['message'],
+      allowed_updates: ['message', 'edited_message'],
     }),
   });
   return res.json();

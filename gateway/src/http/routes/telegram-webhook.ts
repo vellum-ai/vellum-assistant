@@ -188,7 +188,10 @@ export function createTelegramWebhookHandler(
       }
     }
 
-    // Start typing indicator only for routable chats.
+    // Edits don't produce a new reply, so skip typing indicator
+    const isEdit = !!normalized.message.isEdit;
+
+    // Start typing indicator only for routable chats with new messages.
     // A safety timeout ensures the interval is cleared even if handleInbound hangs.
     // Cancel early if the Telegram API fails repeatedly (MAX_TYPING_FAILURES consecutive).
     let typingInterval: ReturnType<typeof setInterval> | undefined;
@@ -197,7 +200,7 @@ export function createTelegramWebhookHandler(
       clearInterval(typingInterval);
       clearTimeout(typingTimeout);
     };
-    if (routable) {
+    if (routable && !isEdit) {
       let consecutiveFailures = 0;
       sendTypingIndicator(config, chatId).then((ok) => {
         if (!ok) consecutiveFailures++;

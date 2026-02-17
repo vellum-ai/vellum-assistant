@@ -47,6 +47,7 @@ export async function handleChannelInbound(
     externalChatId?: string;
     externalMessageId?: string;
     content?: string;
+    isEdit?: boolean;
     senderName?: string;
     attachmentIds?: string[];
     senderExternalUserId?: string;
@@ -59,6 +60,7 @@ export async function handleChannelInbound(
     externalChatId,
     externalMessageId,
     content,
+    isEdit,
     attachmentIds,
     sourceMetadata,
   } = body;
@@ -97,11 +99,63 @@ export async function handleChannelInbound(
     }
   }
 
+  const sourceMessageId = typeof sourceMetadata?.messageId === 'string'
+    ? sourceMetadata.messageId
+    : undefined;
+
+  // ── Edit path: update existing message content, no new agent loop ──
+  if (isEdit && sourceMessageId) {
+    // Dedup the edit event itself (retried edited_message webhooks)
+    const editResult = channelDeliveryStore.recordInbound(
+      assistantId,
+      sourceChannel,
+      externalChatId,
+      externalMessageId,
+      { sourceMessageId },
+    );
+
+    if (editResult.duplicate) {
+      return Response.json({
+        accepted: true,
+        duplicate: true,
+        eventId: editResult.eventId,
+      });
+    }
+
+    const original = channelDeliveryStore.findMessageBySourceId(
+      assistantId,
+      sourceChannel,
+      externalChatId,
+      sourceMessageId,
+    );
+
+    if (original) {
+      conversationStore.updateMessageContent(original.messageId, content ?? '');
+      log.info(
+        { assistantId, sourceMessageId, messageId: original.messageId },
+        'Updated message content from edited_message',
+      );
+    } else {
+      log.warn(
+        { assistantId, sourceChannel, externalChatId, sourceMessageId },
+        'Could not find original message for edit, ignoring',
+      );
+    }
+
+    return Response.json({
+      accepted: true,
+      duplicate: false,
+      eventId: editResult.eventId,
+    });
+  }
+
+  // ── New message path ──
   const result = channelDeliveryStore.recordInbound(
     assistantId,
     sourceChannel,
     externalChatId,
     externalMessageId,
+    { sourceMessageId },
   );
 
   const metadataHintsRaw = sourceMetadata?.hints;
@@ -116,7 +170,7 @@ export async function handleChannelInbound(
   let processingSucceeded = false;
   if (!result.duplicate && processMessage) {
     try {
-      await processMessage(
+      const { messageId: userMessageId } = await processMessage(
         assistantId,
         result.conversationId,
         content ?? '',
@@ -129,6 +183,8 @@ export async function handleChannelInbound(
           },
         },
       );
+      // Link the user message to the inbound event so edits can find it later
+      channelDeliveryStore.linkMessage(result.eventId, userMessageId);
       processingSucceeded = true;
     } catch (err) {
       console.error(`[runtime-http] Processing failed`, err);

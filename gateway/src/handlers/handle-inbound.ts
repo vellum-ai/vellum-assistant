@@ -66,6 +66,7 @@ export async function handleInbound(
       externalChatId: event.message.externalChatId,
       externalMessageId: event.message.externalMessageId,
       content: event.message.content,
+      ...(event.message.isEdit ? { isEdit: true } : {}),
       senderName: displayName,
       senderExternalUserId: event.sender.externalUserId,
       senderUsername: event.sender.username,

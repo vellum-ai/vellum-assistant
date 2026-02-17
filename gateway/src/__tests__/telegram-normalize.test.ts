@@ -197,6 +197,87 @@ describe("normalizeTelegramUpdate", () => {
     };
     expect(normalizeTelegramUpdate(payload)).toBeNull();
   });
+
+  test("normalizes an edited_message update with isEdit flag", () => {
+    const payload = {
+      update_id: 200,
+      edited_message: {
+        message_id: 42,
+        text: "Hello bot (edited)",
+        chat: { id: 99001, type: "private" },
+        from: {
+          id: 55001,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+        },
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.content).toBe("Hello bot (edited)");
+    expect(result!.message.externalChatId).toBe("99001");
+    expect(result!.message.externalMessageId).toBe("200");
+    expect(result!.source.updateId).toBe("200");
+    expect(result!.source.messageId).toBe("42");
+    expect(result!.sender.externalUserId).toBe("55001");
+  });
+
+  test("prefers message over edited_message when both are present", () => {
+    const payload = {
+      update_id: 300,
+      message: {
+        message_id: 50,
+        text: "Original",
+        chat: { id: 99001, type: "private" },
+        from: { id: 55001, is_bot: false },
+      },
+      edited_message: {
+        message_id: 50,
+        text: "Edited",
+        chat: { id: 99001, type: "private" },
+        from: { id: 55001, is_bot: false },
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.isEdit).toBeUndefined();
+    expect(result!.message.content).toBe("Original");
+  });
+
+  test("sets isEdit for edited_message with photo", () => {
+    const payload = {
+      update_id: 400,
+      edited_message: {
+        message_id: 60,
+        chat: { id: 200, type: "private" },
+        from: { id: 300, is_bot: false },
+        photo: [
+          { file_id: "edited_photo", file_unique_id: "ep1", width: 800, height: 800 },
+        ],
+        caption: "Updated caption",
+      },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.content).toBe("Updated caption");
+    expect(result!.message.attachments).toHaveLength(1);
+  });
+
+  test("returns null for edited_message in group chat", () => {
+    const payload = {
+      update_id: 500,
+      edited_message: {
+        message_id: 70,
+        text: "Edited group msg",
+        chat: { id: 99001, type: "group" },
+        from: { id: 55001, is_bot: false },
+      },
+    };
+    expect(normalizeTelegramUpdate(payload)).toBeNull();
+  });
 });
 
 describe("verifyWebhookSecret", () => {
