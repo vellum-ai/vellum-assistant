@@ -56,13 +56,11 @@ describe('scaffold_managed_skill tool', () => {
     expect(parsed.skill_id).toBe('test-skill');
     expect(parsed.index_updated).toBe(true);
 
-    // Verify file was created
     const skillFile = join(TEST_DIR, 'skills', 'test-skill', 'SKILL.md');
     expect(existsSync(skillFile)).toBe(true);
     const content = readFileSync(skillFile, 'utf-8');
     expect(content).toContain('name: "Test Skill"');
 
-    // Verify index was updated
     const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
     expect(indexContent).toContain('- test-skill');
   });
@@ -226,7 +224,6 @@ describe('scaffold_managed_skill tool', () => {
   });
 
   test('e2e: scaffold child then parent with includes, verify files and index', async () => {
-    // 1. Scaffold a child skill
     const childResult = await tool.execute({
       skill_id: 'e2e-child',
       name: 'E2E Child',
@@ -235,7 +232,6 @@ describe('scaffold_managed_skill tool', () => {
     }, makeContext());
     expect(childResult.isError).toBe(false);
 
-    // 2. Scaffold a parent skill that includes the child
     const parentResult = await tool.execute({
       skill_id: 'e2e-parent',
       name: 'E2E Parent',
@@ -245,13 +241,11 @@ describe('scaffold_managed_skill tool', () => {
     }, makeContext());
     expect(parentResult.isError).toBe(false);
 
-    // 3. Read the parent SKILL.md and verify it contains includes metadata
     const parentSkillFile = join(TEST_DIR, 'skills', 'e2e-parent', 'SKILL.md');
     expect(existsSync(parentSkillFile)).toBe(true);
     const parentContent = readFileSync(parentSkillFile, 'utf-8');
     expect(parentContent).toContain('includes: ["e2e-child"]');
 
-    // 4. Read the SKILLS.md index and verify both skills are listed
     const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
     expect(indexContent).toContain('- e2e-child');
     expect(indexContent).toContain('- e2e-parent');
