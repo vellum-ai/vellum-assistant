@@ -149,6 +149,11 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// When true, the chat is docked to the side panel alongside the workspace.
+    /// Messages should flow through the normal chat conversation instead of the
+    /// workspace activity feed overlay.
+    public var isChatDockedToSide: Bool = false
+
     /// The page currently displayed in the workspace WebView (e.g. "settings.html").
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
@@ -182,7 +187,7 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isWorkspaceRefinement = activeSurfaceId != nil
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide
 
         let willBeQueued = isSending && sessionId != nil
         var queuedMessageId: UUID?
