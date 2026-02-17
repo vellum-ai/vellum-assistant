@@ -383,7 +383,7 @@ const habitTrackerHtml = `<!DOCTYPE html>
     var html = '';
     habits.forEach(function(record) {
       var completedDates = [];
-      try { completedDates = JSON.parse(record.data.completedDates || '[]'); } catch(e) {}
+      try { completedDates = JSON.parse(record.data.completedDates || '[]'); } catch(e) { console.error('Failed to parse completedDates for habit ' + record.id + ':', e); }
       html += '<div class="habit-row">';
       html += '<div style="display:flex;align-items:center;gap:8px">';
       html += '<span class="habit-name">' + escapeHtml(record.data.name) + '</span>';
@@ -421,7 +421,7 @@ const habitTrackerHtml = `<!DOCTYPE html>
     var record = habits.find(function(h) { return h.id === recordId; });
     if (!record) return;
     var completedDates = [];
-    try { completedDates = JSON.parse(record.data.completedDates || '[]'); } catch(e) {}
+    try { completedDates = JSON.parse(record.data.completedDates || '[]'); } catch(e) { console.error('Failed to parse completedDates for habit ' + record.id + ':', e); }
     var idx = completedDates.indexOf(date);
     if (idx === -1) { completedDates.push(date); } else { completedDates.splice(idx, 1); }
     vellum.data.update(recordId, {
