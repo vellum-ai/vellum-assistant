@@ -6,7 +6,7 @@ import VellumAssistantShared
 @MainActor
 final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
-    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = true
+    @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
     @AppStorage("chatDockOpen") private var chatDockOpen = false
     @Published var activePanel: SidePanelType? {
         didSet {
