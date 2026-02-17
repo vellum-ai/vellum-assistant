@@ -202,8 +202,11 @@ export function createTelegramWebhookHandler(
         }
       } catch (err) {
         // Transient attachment failure — return 500 so Telegram retries.
+        // Use Response.json() instead of respond() to bypass the dedup cache,
+        // otherwise the cached 500 prevents Telegram retries from being processed.
         log.error({ err }, "Attachment processing failed with transient error");
-        return respond({ error: "Attachment processing failed" }, 500);
+        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        return Response.json({ error: "Attachment processing failed" }, { status: 500 });
       }
     }
 
