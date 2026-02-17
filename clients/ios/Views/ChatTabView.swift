@@ -68,7 +68,10 @@ struct ChatTabView: View {
                 text: $viewModel.inputText,
                 isInputFocused: $isInputFocused,
                 isGenerating: viewModel.isSending || viewModel.isThinking,
-                onSend: viewModel.sendMessage
+                onSend: viewModel.sendMessage,
+                onVoiceResult: { _ in
+                    viewModel.pendingVoiceMessage = true
+                }
             )
         }
         .background(VColor.background)
