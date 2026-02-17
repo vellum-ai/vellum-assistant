@@ -907,7 +907,7 @@ private struct ChatBubble: View {
             .fixedSize(horizontal: false, vertical: true)
             .contextMenu {
                 if canReportMessage, let onReportMessage {
-                    Button("Report this response") {
+                    Button("Export response for diagnostics") {
                         onReportMessage(message.daemonMessageId)
                     }
                 }
@@ -917,7 +917,7 @@ private struct ChatBubble: View {
                 VStack {
                     Menu {
                         if let onReportMessage {
-                            Button("Report this response") {
+                            Button("Export response for diagnostics") {
                                 onReportMessage(message.daemonMessageId)
                             }
                         }
