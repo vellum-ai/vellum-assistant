@@ -1,13 +1,4 @@
 #!/usr/bin/env bun
-
-// Bun does not ignore SIGPIPE by default (unlike Node.js). The parent CLI
-// process pipes our stderr during startup for crash diagnostics, then destroys
-// the read end once the IPC socket appears. Any later stderr write (Sentry,
-// console.warn, debug hooks) would deliver SIGPIPE and silently kill the
-// daemon. Ignoring the signal matches Node.js behaviour and lets the process
-// survive a broken pipe on fd 2.
-process.on('SIGPIPE', () => {});
-
 import '../instrument.js';
 import * as Sentry from '@sentry/node';
 import { runDaemon } from './lifecycle.js';
