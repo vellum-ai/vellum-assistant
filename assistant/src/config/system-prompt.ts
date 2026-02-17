@@ -333,18 +333,23 @@ function buildConfigSection(): string {
   // which would trigger approval prompts for routine workspace updates.
   const hostWorkspaceDir = getWorkspaceDir();
 
-  // When Docker sandbox is active the workspace is mounted at /workspace inside
-  // the container. The assistant should prefer the local path for all operations
-  // (shell commands, file reads, file_edit, etc.).
   const config = getConfig();
-  const localWorkspaceDir =
-    config.sandbox.enabled && config.sandbox.backend === 'docker'
-      ? '/workspace'
-      : hostWorkspaceDir;
+  const dockerSandboxActive =
+    config.sandbox.enabled && config.sandbox.backend === 'docker';
+  const localWorkspaceDir = dockerSandboxActive
+    ? '/workspace'
+    : hostWorkspaceDir;
+
+  // When Docker sandbox is active, shell commands run inside the container
+  // (use /workspace/) but file_edit/file_read/file_write run on the host
+  // (use the host path). Without Docker, both use the same path.
+  const configPreamble = dockerSandboxActive
+    ? `Your workspace is mounted at \`${localWorkspaceDir}/\` inside the Docker sandbox (host path: \`${hostWorkspaceDir}/\`). For **bash/shell commands** (which run inside Docker), use \`${localWorkspaceDir}/\`. For **file_edit, file_read, and file_write** tools (which run on the host), use the host path \`${hostWorkspaceDir}/\` or relative paths.`
+    : `Your configuration directory is \`${hostWorkspaceDir}/\`.`;
 
   return [
     '## Configuration',
-    `Your configuration directory is \`${localWorkspaceDir}/\` (host path: \`${hostWorkspaceDir}/\`). Prefer the local path for all operations. Key files you may read or edit include but are not limited to:`,
+    `${configPreamble} Key files you may read or edit include but are not limited to:`,
     '',
     '- `IDENTITY.md` — Your name, nature, vibe, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
