@@ -5,18 +5,15 @@ import AppKit
 
 public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
-    /// When true, show the humanDescription above buttons (used when no assistant text precedes this).
-    public let showDescription: Bool
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAddTrustRule: (String, String, String, String) -> Bool
 
-    @State private var showDetails = false
+    @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
 
-    public init(confirmation: ToolConfirmationData, showDescription: Bool = false, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
+    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
-        self.showDescription = showDescription
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAddTrustRule = onAddTrustRule
@@ -30,10 +27,20 @@ public struct ToolConfirmationBubble: View {
         confirmation.state != .pending
     }
 
-    /// The raw command/path preview for the details disclosure.
-    private var detailsPreview: String? {
+    /// The raw command/path preview for the inline display.
+    private var inlinePreviewText: String? {
         let preview = confirmation.commandPreview
         return preview.isEmpty ? nil : preview
+    }
+
+    /// Color for the risk level badge.
+    private var riskColor: Color {
+        switch confirmation.riskLevel.lowercased() {
+        case "low":    return VColor.textMuted
+        case "medium": return VColor.warning
+        case "high":   return VColor.error
+        default:       return VColor.textMuted
+        }
     }
 
     public var body: some View {
@@ -136,78 +143,163 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var pendingContent: some View {
-        if showDescription {
-            Text(confirmation.humanDescription)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .frame(maxWidth: 520, alignment: .leading)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            headerRow
+            if let preview = inlinePreviewText {
+                inlinePreview(preview)
+            }
+            descriptionText
+            if confirmation.hasDiff {
+                diffDisclosure
+            }
+            buttonRow
         }
+    }
 
+    // MARK: - Header Row
+
+    @ViewBuilder
+    private var headerRow: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Don\u{2019}t Allow", style: .ghost) {
-                onDeny()
+            Image(systemName: confirmation.toolCategoryIcon)
+                .font(.system(size: 12))
+                .foregroundColor(VColor.textSecondary)
+
+            Text(confirmation.toolCategory)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textPrimary)
+
+            VBadge(
+                style: .label(confirmation.riskLevel.capitalized),
+                color: riskColor
+            )
+
+            if let target = confirmation.normalizedExecutionTarget {
+                Text(target)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(VColor.backgroundSubtle)
+                    )
             }
 
+            Spacer()
+        }
+    }
+
+    // MARK: - Inline Preview
+
+    @ViewBuilder
+    private func inlinePreview(_ preview: String) -> some View {
+        Text(preview)
+            .font(VFont.monoSmall)
+            .foregroundColor(VColor.textSecondary)
+            .lineLimit(3)
+            .padding(VSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.backgroundSubtle)
+            )
+            .textSelection(.enabled)
+    }
+
+    // MARK: - Description Text
+
+    @ViewBuilder
+    private var descriptionText: some View {
+        Text(confirmation.humanDescription)
+            .font(VFont.caption)
+            .foregroundColor(VColor.textMuted)
+    }
+
+    // MARK: - Diff Disclosure
+
+    @ViewBuilder
+    private var diffDisclosure: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Button {
+                withAnimation(VAnimation.fast) {
+                    showDiff.toggle()
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text("View diff")
+                        .font(.system(size: 10))
+                        .foregroundColor(VColor.textMuted)
+                    Image(systemName: showDiff ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(showDiff ? "Hide diff" : "View diff")
+
+            if showDiff, let diffInfo = confirmation.diff {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(diffInfo.filePath)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textMuted)
+
+                    Text(diffInfo.newContent)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                        .lineLimit(10)
+                }
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.backgroundSubtle)
+                )
+                .textSelection(.enabled)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    // MARK: - Button Row
+
+    @ViewBuilder
+    private var buttonRow: some View {
+        HStack(spacing: VSpacing.sm) {
             VButton(label: "Allow", style: .primary) {
                 onAllow()
             }
 
+            VButton(label: "Don\u{2019}t Allow", style: .danger) {
+                onDeny()
+            }
+
             if hasRuleOptions {
-                if confirmation.allowlistOptions.count > 2 {
-                    alwaysAllowDropdown
-                } else {
-                    VButton(label: "Always Allow", style: .ghost) {
-                        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                        let scope = confirmation.scopeOptions.first?.scope ?? ""
-                        if !pattern.isEmpty && !scope.isEmpty {
-                            _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
-                        }
-                        onAllow()
-                    }
-                }
+                alwaysAllowInlineButton
             }
 
             Spacer()
-
-            if detailsPreview != nil {
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        showDetails.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 3) {
-                        Text("Details")
-                            .font(.system(size: 10))
-                            .foregroundColor(VColor.textMuted)
-                        Image(systemName: showDetails ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(showDetails ? "Hide details" : "Show details")
-            }
         }
+    }
 
-        if showDetails, let preview = detailsPreview {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(confirmation.detailsSummary)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+    // MARK: - Always Allow Button
 
-                Text(preview)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textSecondary)
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.backgroundSubtle)
-                    )
-                    .textSelection(.enabled)
+    @ViewBuilder
+    private var alwaysAllowInlineButton: some View {
+        if confirmation.allowlistOptions.count > 2 {
+            alwaysAllowDropdown
+        } else {
+            let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
+            VButton(label: "Always Allow", style: .ghost) {
+                let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+                let scope = confirmation.scopeOptions.first?.scope ?? ""
+                if !pattern.isEmpty && !scope.isEmpty {
+                    _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                }
+                onAllow()
             }
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
         }
     }
 
@@ -265,8 +357,11 @@ public struct ToolConfirmationBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(confirmation.state == .approved ? "Permission granted" :
-                 confirmation.state == .denied ? "Permission denied" : "Timed out")
+            Text(confirmation.state == .approved
+                 ? "\(confirmation.toolCategory) allowed"
+                 : confirmation.state == .denied
+                 ? "\(confirmation.toolCategory) denied"
+                 : "Timed out")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
 
@@ -313,41 +408,44 @@ private struct AlwaysAllowRow: View {
 #if DEBUG
 #Preview("ToolConfirmationBubble") {
     VStack(spacing: VSpacing.lg) {
-        // System permission request (pending)
+        // Bash command — medium risk, pending
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
-                requestId: "test-perm",
-                toolName: "request_system_permission",
-                input: [
-                    "permission_type": AnyCodable("full_disk_access"),
-                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
+                requestId: "test-bash-medium",
+                toolName: "host_bash",
+                input: ["command": AnyCodable("npm install express")],
+                riskLevel: "medium",
+                allowlistOptions: [
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
                 ],
-                riskLevel: "high"
+                scopeOptions: [
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                ],
+                executionTarget: "host"
             ),
             onAllow: {},
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
-        // System permission (granted)
+
+        // File write — high risk, pending
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
-                requestId: "test-perm-done",
-                toolName: "request_system_permission",
-                input: [
-                    "permission_type": AnyCodable("full_disk_access"),
-                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
-                ],
+                requestId: "test-write-high",
+                toolName: "host_file_write",
+                input: ["path": AnyCodable("/Users/me/project/main.swift")],
                 riskLevel: "high",
-                state: .approved
+                executionTarget: "host"
             ),
             onAllow: {},
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
-        // Tool confirmation (pending)
+
+        // Bash — low risk, pending
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
-                requestId: "test-1",
+                requestId: "test-bash-low",
                 toolName: "host_bash",
                 input: ["command": AnyCodable("ls -lt ~/Downloads/ | head -50")],
                 riskLevel: "low",
@@ -357,7 +455,8 @@ private struct AlwaysAllowRow: View {
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
-        // Tool confirmation with always-allow dropdown (pending)
+
+        // Always-allow dropdown — medium risk
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
                 requestId: "test-dropdown",
@@ -378,20 +477,58 @@ private struct AlwaysAllowRow: View {
             onDeny: {},
             onAddTrustRule: { _, _, _, _ in true }
         )
-        // Tool confirmation (approved)
+
+        // Collapsed — approved
         ToolConfirmationBubble(
             confirmation: ToolConfirmationData(
-                requestId: "test-2",
+                requestId: "test-approved",
                 toolName: "host_bash",
                 input: ["command": AnyCodable("npm install")],
                 riskLevel: "medium",
-                allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "npm install", description: "This exact command", pattern: "npm install"),
-                ],
-                scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
-                ],
                 state: .approved
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+
+        // Collapsed — denied
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-denied",
+                toolName: "host_file_write",
+                input: ["path": AnyCodable("/etc/hosts")],
+                riskLevel: "high",
+                state: .denied
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+
+        // Unknown tool fallback
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-unknown",
+                toolName: "custom_plugin_action",
+                input: ["query": AnyCodable("test")],
+                riskLevel: "medium"
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAddTrustRule: { _, _, _, _ in true }
+        )
+
+        // System permission request (pending)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-perm",
+                toolName: "request_system_permission",
+                input: [
+                    "permission_type": AnyCodable("full_disk_access"),
+                    "reason": AnyCodable("I need Full Disk Access to read your Documents folder.")
+                ],
+                riskLevel: "high"
             ),
             onAllow: {},
             onDeny: {},
