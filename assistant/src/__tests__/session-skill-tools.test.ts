@@ -1465,6 +1465,177 @@ describe('bundled skill: weather', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tamper detection regression tests
+// ---------------------------------------------------------------------------
+
+describe('tamper detection', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('file mutation after projection invalidates the stored hash, causing re-registration on next turn', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:original-file-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: project with original hash
+    const result1 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(result1.toolDefinitions[0].name).toBe('deploy_run');
+    expect(sessionState.get('deploy')).toBe('v1:original-file-hash');
+
+    // Simulate file mutation on disk — the hash changes
+    mockVersionHashes = { deploy: 'v1:tampered-file-hash' };
+
+    // Turn 2: re-project detects hash drift and re-registers
+    mockUnregisteredSkillIds = [];
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Tools are still available (re-registered with new hash)
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+
+    // Old tools were unregistered before new ones registered
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Session state now tracks the new hash
+    expect(sessionState.get('deploy')).toBe('v1:tampered-file-hash');
+
+    // Refcount stays at 1 (unregister decremented, re-register incremented)
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('unmodified skill file does NOT trigger re-registration across multiple turns', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:stable-content-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: initial projection
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Turns 2-4: hash stays the same, no re-registration should occur
+    for (let turn = 2; turn <= 4; turn++) {
+      mockUnregisteredSkillIds = [];
+      const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+      expect(result.toolDefinitions).toHaveLength(1);
+      expect(mockUnregisteredSkillIds).not.toContain('deploy');
+      expect(mockSkillRefCount.get('deploy')).toBe(1);
+    }
+  });
+
+  test('re-projection after tamper produces tools with the updated hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run', 'deploy_status']) };
+    mockVersionHashes = { deploy: 'v1:hash-before-edit' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: initial projection
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:hash-before-edit');
+
+    // Simulate tamper: file changes on disk
+    mockVersionHashes = { deploy: 'v1:hash-after-edit' };
+
+    // Turn 2: re-projection picks up the new hash
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.allowedToolNames).toEqual(new Set(['deploy_run', 'deploy_status']));
+    expect(sessionState.get('deploy')).toBe('v1:hash-after-edit');
+  });
+
+  test('multiple skills with only one tampered triggers selective re-registration', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+    mockVersionHashes = {
+      deploy: 'v1:deploy-hash-v1',
+      oncall: 'v1:oncall-hash-v1',
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="oncall" />'),
+    ];
+
+    // Turn 1: both skills registered
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:deploy-hash-v1');
+    expect(sessionState.get('oncall')).toBe('v1:oncall-hash-v1');
+
+    // Tamper only deploy
+    mockVersionHashes = {
+      deploy: 'v1:deploy-hash-v2-tampered',
+      oncall: 'v1:oncall-hash-v1', // unchanged
+    };
+    mockUnregisteredSkillIds = [];
+
+    // Turn 2: only deploy should be re-registered
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.allowedToolNames).toEqual(new Set(['deploy_run', 'oncall_page']));
+
+    // Only deploy was unregistered (for re-registration), oncall was untouched
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    expect(mockUnregisteredSkillIds).not.toContain('oncall');
+
+    // Hashes updated accordingly
+    expect(sessionState.get('deploy')).toBe('v1:deploy-hash-v2-tampered');
+    expect(sessionState.get('oncall')).toBe('v1:oncall-hash-v1');
+  });
+
+  test('hash failure (e.g., unreadable directory) causes fallback re-registration', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:initial-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: normal registration
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:initial-hash');
+
+    // Turn 2: remove hash override so computeSkillVersionHash returns the
+    // default fallback which differs from the stored hash
+    delete mockVersionHashes['deploy'];
+    mockUnregisteredSkillIds = [];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result.toolDefinitions).toHaveLength(1);
+
+    // Hash changed (from stored 'v1:initial-hash' to default 'v1:default-hash-deploy')
+    // so re-registration should have occurred
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    expect(sessionState.get('deploy')).toBe('v1:default-hash-deploy');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // resetSkillToolProjection tests
 // ---------------------------------------------------------------------------
 

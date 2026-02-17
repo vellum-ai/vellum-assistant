@@ -235,3 +235,146 @@ describe('runSkillToolScript — host hash guard', () => {
     expect(options.skillDirHashResolver!('/some/dir')).toBe('v1:hash-of-/some/dir');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tamper regression: end-to-end hash guard lifecycle
+// ---------------------------------------------------------------------------
+
+describe('runSkillToolScript — tamper regression lifecycle', () => {
+  test('execution succeeds with matching hash, fails after tamper, succeeds after re-approval', async () => {
+    // Simulates the full lifecycle:
+    // 1. Tool approved with hash A — execution succeeds
+    // 2. File tampered (hash changes to B) — execution blocked
+    // 3. Skill reloaded (re-approved with hash B) — execution succeeds again
+
+    let currentDiskHash = 'v1:approved-hash-aaa';
+    const resolver = (_dir: string) => currentDiskHash;
+
+    // Phase 1: hash matches approved hash — execution succeeds
+    const result1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'phase1' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:approved-hash-aaa',
+      skillDirHashResolver: resolver,
+    });
+    expect(result1.isError).toBe(false);
+    expect(result1.content).toBe('hello from phase1');
+
+    // Phase 2: file tampered on disk — hash drifts
+    currentDiskHash = 'v1:tampered-hash-bbb';
+
+    const result2 = await runSkillToolScript(tempDir, 'success.ts', { name: 'phase2' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:approved-hash-aaa', // still using old approval
+      skillDirHashResolver: resolver,
+    });
+    expect(result2.isError).toBe(true);
+    expect(result2.content).toContain('Skill version mismatch');
+    expect(result2.content).toContain('v1:approved-hash-aaa');
+    expect(result2.content).toContain('v1:tampered-hash-bbb');
+
+    // Phase 3: skill reloaded — now approved with the new hash
+    const result3 = await runSkillToolScript(tempDir, 'success.ts', { name: 'phase3' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:tampered-hash-bbb', // updated approval
+      skillDirHashResolver: resolver,
+    });
+    expect(result3.isError).toBe(false);
+    expect(result3.content).toBe('hello from phase3');
+  });
+
+  test('multiple sequential tampers each block until re-approved', async () => {
+    let currentDiskHash = 'v1:version-1';
+    const resolver = (_dir: string) => currentDiskHash;
+
+    // Approved at version-1
+    let approvedHash = 'v1:version-1';
+
+    // Execute successfully with version-1
+    const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v1' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r1.isError).toBe(false);
+
+    // First tamper to version-2
+    currentDiskHash = 'v1:version-2';
+    const r2 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v2' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r2.isError).toBe(true);
+    expect(r2.content).toContain('Skill version mismatch');
+
+    // Re-approve at version-2
+    approvedHash = 'v1:version-2';
+    const r2ok = await runSkillToolScript(tempDir, 'success.ts', { name: 'v2' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r2ok.isError).toBe(false);
+
+    // Second tamper to version-3
+    currentDiskHash = 'v1:version-3';
+    const r3 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v3' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r3.isError).toBe(true);
+    expect(r3.content).toContain('Skill version mismatch');
+
+    // Re-approve at version-3
+    approvedHash = 'v1:version-3';
+    const r3ok = await runSkillToolScript(tempDir, 'success.ts', { name: 'v3' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r3ok.isError).toBe(false);
+    expect(r3ok.content).toBe('hello from v3');
+  });
+
+  test('tamper blocks execution even for different executor scripts in the same skill', async () => {
+    let currentDiskHash = 'v1:skill-hash-ok';
+    const resolver = (_dir: string) => currentDiskHash;
+
+    // Both scripts work when hash matches
+    const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'a' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:skill-hash-ok',
+      skillDirHashResolver: resolver,
+    });
+    expect(r1.isError).toBe(false);
+
+    const r2 = await runSkillToolScript(tempDir, 'echo.ts', { key: 'val' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:skill-hash-ok',
+      skillDirHashResolver: resolver,
+    });
+    expect(r2.isError).toBe(false);
+
+    // Tamper the skill directory
+    currentDiskHash = 'v1:skill-hash-tampered';
+
+    // Both scripts are blocked
+    const r3 = await runSkillToolScript(tempDir, 'success.ts', { name: 'b' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:skill-hash-ok',
+      skillDirHashResolver: resolver,
+    });
+    expect(r3.isError).toBe(true);
+    expect(r3.content).toContain('Skill version mismatch');
+
+    const r4 = await runSkillToolScript(tempDir, 'echo.ts', { key: 'val2' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:skill-hash-ok',
+      skillDirHashResolver: resolver,
+    });
+    expect(r4.isError).toBe(true);
+    expect(r4.content).toContain('Skill version mismatch');
+  });
+
+  test('error message instructs user to reload the skill', async () => {
+    const resolver = (_dir: string) => 'v1:changed';
+
+    const result = await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: 'v1:original',
+      skillDirHashResolver: resolver,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Please reload the skill to re-approve');
+    expect(result.content).toContain('modified since it was approved');
+  });
+});
