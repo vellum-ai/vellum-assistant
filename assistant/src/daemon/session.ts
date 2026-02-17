@@ -257,13 +257,20 @@ export class Session {
 
     const config = getConfig();
     // Build a resolveTools callback that merges base tool definitions with
-    // dynamically projected skill tools on each agent turn.
+    // dynamically projected skill tools on each agent turn. Also updates
+    // allowedToolNames so newly-activated skill tools aren't blocked by
+    // the executor's stale gate.
     const resolveTools = toolDefs.length > 0
       ? (history: Message[]) => {
           const projection = projectSkillTools(history, {
             preactivatedSkillIds: this.preactivatedSkillIds,
             previouslyActiveSkillIds: this.skillProjectionState,
           });
+          const turnAllowed = new Set(this.coreToolNames);
+          for (const name of projection.allowedToolNames) {
+            turnAllowed.add(name);
+          }
+          this.allowedToolNames = turnAllowed;
           return [...toolDefs, ...projection.toolDefinitions];
         }
       : undefined;
@@ -743,18 +750,6 @@ export class Session {
         activeSurface,
         workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
-
-      // Project skill tools for this turn and build the allowed tool set.
-      // Core tools are always included so they're never gated.
-      const skillProjection = projectSkillTools(runMessages, {
-        preactivatedSkillIds: this.preactivatedSkillIds,
-        previouslyActiveSkillIds: this.skillProjectionState,
-      });
-      const turnAllowed = new Set(this.coreToolNames);
-      for (const name of skillProjection.allowedToolNames) {
-        turnAllowed.add(name);
-      }
-      this.allowedToolNames = turnAllowed;
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
       // Keep a reference to the original (un-repaired) messages so we can
