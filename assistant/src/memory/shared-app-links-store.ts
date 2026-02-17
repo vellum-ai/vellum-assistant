@@ -4,7 +4,7 @@
  * Each record holds a .vellumapp zip bundle keyed by a short, shareable token.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, lte } from 'drizzle-orm';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { getDb } from './db.js';
 import { sharedAppLinks } from './schema.js';
@@ -21,14 +21,26 @@ export interface SharedAppLinkRecord {
   expiresAt: number | null;
 }
 
+const SHARE_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 function generateShareToken(): string {
   return randomBytes(9).toString('base64url').slice(0, 12);
+}
+
+/** Delete all rows whose expiresAt has passed. */
+function sweepExpiredLinks(): void {
+  const db = getDb();
+  db.delete(sharedAppLinks)
+    .where(lte(sharedAppLinks.expiresAt, Date.now()))
+    .run();
 }
 
 export function createSharedAppLink(
   bundleData: Buffer,
   manifest: AppManifest,
 ): { id: string; shareToken: string } {
+  sweepExpiredLinks();
+
   const db = getDb();
   const id = randomUUID();
   const shareToken = generateShareToken();
@@ -43,7 +55,7 @@ export function createSharedAppLink(
       manifestJson: JSON.stringify(manifest),
       downloadCount: 0,
       createdAt: now,
-      expiresAt: null,
+      expiresAt: now + SHARE_LINK_TTL_MS,
     })
     .run();
 
@@ -59,6 +71,7 @@ export function getSharedAppLink(shareToken: string): SharedAppLinkRecord | null
     .get();
 
   if (!row) return null;
+  if (row.expiresAt != null && row.expiresAt < Date.now()) return null;
 
   return {
     id: row.id,
