@@ -24,5 +24,7 @@
     <string>Vellum Assistant needs access to your microphone for voice input.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum Assistant needs access to speech recognition to transcribe your voice input.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Select photos to attach to your message</string>
 </dict>
 </plist>

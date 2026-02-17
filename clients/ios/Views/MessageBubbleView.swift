@@ -12,6 +12,9 @@ struct MessageBubbleView: View {
     let message: ChatMessage
     let onConfirmationResponse: ((String, String) -> Void)?
     let onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
+    /// When non-nil, a "Regenerate" option appears in the long-press context menu
+    /// for the last assistant message. Pass nil when generation is in-flight.
+    let onRegenerate: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
@@ -46,16 +49,7 @@ struct MessageBubbleView: View {
 
                     // Message text (only shown for non-confirmation messages)
                     if !message.text.isEmpty {
-                        Text(message.text)
-                            .font(VFont.body)
-                            .foregroundColor(message.role == .user ? VColor.background : VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(
-                                message.role == .user
-                                    ? VColor.accent
-                                    : VColor.surface
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        messageBubble(text: message.text, role: message.role)
                     }
 
                     // Post-text tool calls render below the bubble
@@ -147,12 +141,7 @@ struct MessageBubbleView: View {
                 if i < message.textSegments.count {
                     let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
                     if !segmentText.isEmpty {
-                        Text(segmentText)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        messageBubble(text: segmentText, role: message.role)
                     }
                 }
             case .toolCalls(let indices):
@@ -173,6 +162,48 @@ struct MessageBubbleView: View {
         }
     }
 
+    /// Render a message text bubble with markdown for assistant messages.
+    @ViewBuilder
+    private func messageBubble(text: String, role: ChatRole) -> some View {
+        let isUser = role == .user
+        if isUser {
+            Text(text)
+                .font(VFont.body)
+                .foregroundColor(VColor.background)
+                .padding(VSpacing.md)
+                .background(VColor.accent)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .textSelection(.enabled)
+        } else {
+            Text(Self.markdownString(text))
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .tint(VColor.accent)
+                .padding(VSpacing.md)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .textSelection(.enabled)
+                .contextMenu {
+                    if let onRegenerate {
+                        Button {
+                            onRegenerate()
+                        } label: {
+                            Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                        }
+                    }
+                }
+        }
+    }
+
+    /// Parse markdown in text using SwiftUI's native AttributedString support.
+    static func markdownString(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+    }
+
     private func streamingScale(for index: Int, at date: Date) -> CGFloat {
         let time = date.timeIntervalSince1970
         let phase = (time + Double(index) * 0.3).truncatingRemainder(dividingBy: 1.2)
@@ -189,7 +220,8 @@ struct MessageBubbleView: View {
                 text: "Hello! Can you help me with something?"
             ),
             onConfirmationResponse: nil,
-            onSurfaceAction: nil
+            onSurfaceAction: nil,
+            onRegenerate: nil
         )
     }
     .padding()
@@ -201,10 +233,11 @@ struct MessageBubbleView: View {
         MessageBubbleView(
             message: ChatMessage(
                 role: .assistant,
-                text: "Of course! I'd be happy to help. What do you need assistance with?"
+                text: "Of course! I'd be happy to help. What do you need assistance with?\n\n**Bold text** and _italic_ and `code` all render via markdown."
             ),
             onConfirmationResponse: nil,
-            onSurfaceAction: nil
+            onSurfaceAction: nil,
+            onRegenerate: { log.debug("Preview: Regenerate tapped") }
         )
     }
     .padding()
@@ -220,7 +253,8 @@ struct MessageBubbleView: View {
                 isStreaming: true
             ),
             onConfirmationResponse: nil,
-            onSurfaceAction: nil
+            onSurfaceAction: nil,
+            onRegenerate: nil
         )
     }
     .padding()
@@ -244,7 +278,8 @@ struct MessageBubbleView: View {
             onConfirmationResponse: { requestId, decision in
                 log.debug("Preview: Confirmation \(decision) for \(requestId)")
             },
-            onSurfaceAction: nil
+            onSurfaceAction: nil,
+            onRegenerate: nil
         )
     }
     .padding()

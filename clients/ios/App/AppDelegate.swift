@@ -7,7 +7,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let daemonClient: DaemonClient
 
     override init() {
-        self.daemonClient = DaemonClient(config: .default)
+        self.daemonClient = DaemonClient(config: .fromUserDefaults())
         super.init()
     }
 
@@ -19,6 +19,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             try? await daemonClient.connect()
         }
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = SceneDelegate.self
+        return config
     }
 }
 #endif

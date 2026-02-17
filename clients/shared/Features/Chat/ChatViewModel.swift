@@ -51,8 +51,9 @@ public final class ChatViewModel: ObservableObject {
     /// Maximum number of attachments per message.
     static let maxAttachments = 5
 
-    let daemonClient: DaemonClient
+    let daemonClient: any DaemonClientProtocol
     public var sessionId: String?
+    private var reconnectObserver: NSObjectProtocol?
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -118,7 +119,7 @@ public final class ChatViewModel: ObservableObject {
     /// Called when the daemon sends a `watch_started` message to begin a watch session.
     /// The closure receives the WatchStartedMessage and the DaemonClient so the macOS
     /// layer can create and start a WatchSession.
-    public var onWatchStarted: ((WatchStartedMessage, DaemonClient) -> Void)?
+    public var onWatchStarted: ((WatchStartedMessage, any DaemonClientProtocol) -> Void)?
 
     /// Called when the daemon sends a `watch_complete_request` to stop the active watch session.
     public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
@@ -158,9 +159,17 @@ public final class ChatViewModel: ObservableObject {
     /// Set via the onPageChanged callback when the user navigates within a multi-page app.
     public var currentPage: String?
 
-    public init(daemonClient: DaemonClient, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
+    public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.onToolCallsComplete = onToolCallsComplete
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pendingQueuedCount = 0
+            self?.pendingMessageIds.removeAll()
+        }
     }
 
     // MARK: - Sending
@@ -583,7 +592,7 @@ public final class ChatViewModel: ObservableObject {
         }
 
         do {
-            try daemonClient.sendRegenerate(sessionId: sessionId)
+            try daemonClient.send(RegenerateMessage(sessionId: sessionId))
         } catch {
             log.error("Failed to send regenerate: \(error.localizedDescription)")
             isSending = false
@@ -597,7 +606,7 @@ public final class ChatViewModel: ObservableObject {
         guard let sessionId, let surfaceId = activeSurfaceId else { return }
         guard surfaceUndoCount > 0 else { return }
         do {
-            try daemonClient.sendSurfaceUndo(sessionId: sessionId, surfaceId: surfaceId)
+            try daemonClient.send(UiSurfaceUndoMessage(sessionId: sessionId, surfaceId: surfaceId))
         } catch {
             log.error("Failed to send surface undo: \(error.localizedDescription)")
         }
@@ -723,7 +732,7 @@ public final class ChatViewModel: ObservableObject {
         // This prevents the UI from showing a finalized decision when the IPC
         // message was never delivered (e.g. daemon disconnected).
         do {
-            try daemonClient.sendConfirmationResponse(requestId: requestId, decision: decision)
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil))
         } catch {
             log.error("Failed to send confirmation response: \(error.localizedDescription)")
             errorText = "Failed to send confirmation response."
@@ -760,12 +769,12 @@ public final class ChatViewModel: ObservableObject {
             return false
         }
         do {
-            try daemonClient.sendAddTrustRule(
+            try daemonClient.send(AddTrustRuleMessage(
                 toolName: toolName,
                 pattern: pattern,
                 scope: scope,
                 decision: decision
-            )
+            ))
             return true
         } catch {
             log.error("Failed to send add_trust_rule: \(error.localizedDescription)")
@@ -954,5 +963,8 @@ public final class ChatViewModel: ObservableObject {
 
     deinit {
         messageLoopTask?.cancel()
+        if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }
