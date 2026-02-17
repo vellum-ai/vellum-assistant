@@ -1308,12 +1308,12 @@ private struct ActiveChatViewWrapper: View {
                 windowState.toggleActivityPanel(with: messageId)
             },
             isActivityPanelOpen: windowState.activePanel == .activity,
-            onReportMessage: { messageId in
+            onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
                 do {
                     try daemonClient.sendDiagnosticsExportRequest(
                         conversationId: sessionId,
-                        anchorMessageId: messageId.uuidString
+                        anchorMessageId: daemonMessageId
                     )
                 } catch {
                     windowState.showToast(

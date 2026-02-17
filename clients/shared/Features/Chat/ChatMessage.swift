@@ -527,6 +527,10 @@ public struct ChatMessage: Identifiable {
     public var streamingCodePreview: String?
     /// Tool name associated with the streaming code preview.
     public var streamingCodeToolName: String?
+    /// The daemon's persisted message ID, populated from history responses.
+    /// Nil for freshly streamed messages that haven't been loaded from history.
+    /// Used for anchoring diagnostics exports so the daemon can locate the message.
+    public var daemonMessageId: String?
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {

@@ -894,6 +894,11 @@ public final class ChatViewModel: ObservableObject {
                 )
             }
 
+            // Store the daemon's persisted message ID so diagnostics exports can
+            // anchor to it. This is the database ID from the daemon, not the
+            // client-side UUID.
+            chatMsg.daemonMessageId = item.id
+
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
 
