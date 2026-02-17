@@ -51,6 +51,10 @@ extension DashboardTask {
     ]
 
     /// Deferred permission tasks that unlock additional capabilities.
+    /// Note: The kickoff IDs (`enable_voice`, `enable_computer_control`) are
+    /// intentional placeholders for future implementation. They are not yet
+    /// handled by the assistant's starter-task playbook and will be wired up
+    /// when the corresponding permission flows are built.
     static let deferredPermissionTasks: [DashboardTask] = [
         DashboardTask(
             id: "enable_voice",

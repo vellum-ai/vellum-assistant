@@ -211,9 +211,15 @@ final class MainWindow {
     // MARK: - Dashboard Message Handlers
 
     /// Apply a theme/color update from the daemon to the dashboard.
-    /// Persists the color in `@AppStorage` via a notification so that
-    /// `DashboardView` can pick it up reactively.
+    /// Writes directly to `UserDefaults` so the values persist even when
+    /// `DashboardView` is not mounted (e.g. user is in chat mode during
+    /// the "Make it yours" flow). The `@AppStorage` properties in
+    /// `DashboardView` will pick up the new values automatically when
+    /// the view is next mounted. The notification is still posted for any
+    /// live observers.
     private func handleDashboardThemeUpdate(_ msg: DashboardThemeUpdateMessage) {
+        UserDefaults.standard.set(msg.colorHex, forKey: "dashboardAccentColorHex")
+        UserDefaults.standard.set(msg.colorName, forKey: "dashboardAccentColorName")
         NotificationCenter.default.post(
             name: .dashboardThemeDidUpdate,
             object: nil,
