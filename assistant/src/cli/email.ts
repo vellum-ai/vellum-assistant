@@ -204,9 +204,10 @@ export function registerEmailCommand(program: Command): void {
   draft
     .command('get <draftId>')
     .description('Get a draft by ID')
-    .action(async (draftId: string, _opts: unknown, cmd: Command) => {
+    .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
+    .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const d = await svc.getDraft(draftId);
+        const d = await svc.getDraft(draftId, opts.inbox);
         return { draft: d };
       });
     });
@@ -263,9 +264,10 @@ export function registerEmailCommand(program: Command): void {
     .command('list')
     .description('List inbound messages')
     .option('--thread-id <id>', 'Filter by thread ID')
-    .action(async (opts: { threadId?: string }, cmd: Command) => {
+    .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
+    .action(async (opts: { threadId?: string; inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const messages = await svc.listMessages(opts.threadId);
+        const messages = await svc.listMessages(opts.threadId, opts.inbox);
         return { messages };
       });
     });

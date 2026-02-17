@@ -223,9 +223,12 @@ export class EmailService {
   // Inbound / Messages
   // =========================================================================
 
-  async listMessages(threadId?: string): Promise<EmailMessage[]> {
+  async listMessages(threadId?: string, inboxId?: string): Promise<EmailMessage[]> {
     const p = await this.provider();
-    return p.listMessages(threadId ? { threadId } : undefined);
+    const opts: { threadId?: string; inboxId?: string } = {};
+    if (threadId) opts.threadId = threadId;
+    if (inboxId) opts.inboxId = inboxId;
+    return p.listMessages(Object.keys(opts).length > 0 ? opts : undefined);
   }
 
   async getMessage(messageId: string): Promise<EmailMessage> {
