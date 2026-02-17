@@ -283,7 +283,8 @@ export class RuntimeHttpServer {
         return Response.json({ error: err.message, code: err.code }, { status: 422 });
       }
       log.error({ err, endpoint, assistantId }, 'Runtime HTTP handler error');
-      return Response.json({ error: 'Internal server error' }, { status: 500 });
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      return Response.json({ error: message }, { status: 500 });
     }
   }
 

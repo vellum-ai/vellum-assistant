@@ -100,6 +100,20 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const resHeaders = stripHopByHop(new Headers(response.headers));
     const duration = Math.round(performance.now() - start);
+
+    if (response.status >= 400) {
+      const body = await response.text();
+      const level = response.status >= 500 ? "error" : "warn";
+      log[level](
+        { method: req.method, path: url.pathname, status: response.status, duration, body },
+        "Upstream returned error",
+      );
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
+    }
+
     log.info(
       { method: req.method, path: url.pathname, status: response.status, duration },
       "Proxy request completed",
