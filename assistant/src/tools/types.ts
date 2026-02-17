@@ -138,6 +138,10 @@ export interface Tool {
   defaultRiskLevel: RiskLevel;
   /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
   executionMode?: 'local' | 'proxy';
+  /** Whether this tool is a core built-in or provided by a skill. */
+  origin?: 'core' | 'skill';
+  /** If origin is 'skill', the ID of the owning skill. */
+  ownerSkillId?: string;
   getDefinition(): ToolDefinition;
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
 }
