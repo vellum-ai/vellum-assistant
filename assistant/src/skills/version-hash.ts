@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -36,7 +36,35 @@ function collectFiles(dir: string, base: string): string[] {
     } catch {
       continue;
     }
-    if (stat.isSymbolicLink()) continue;
+    if (stat.isSymbolicLink()) {
+      let resolved: string;
+      try {
+        resolved = realpathSync(full);
+      } catch {
+        continue;
+      }
+      let resolvedStat;
+      try {
+        resolvedStat = statSync(resolved);
+      } catch {
+        continue;
+      }
+      if (resolvedStat.isDirectory()) {
+        // Skip directory symlinks that resolve into the skill dir to avoid loops
+        let realBase: string;
+        try {
+          realBase = realpathSync(base);
+        } catch {
+          continue;
+        }
+        const relToBase = relative(realBase, resolved);
+        if (!relToBase.startsWith('..') && !relToBase.startsWith('/')) continue;
+        entries.push(...collectFiles(full, base));
+      } else if (resolvedStat.isFile()) {
+        entries.push(relative(base, full));
+      }
+      continue;
+    }
     if (stat.isDirectory()) {
       entries.push(...collectFiles(full, base));
     } else if (stat.isFile()) {

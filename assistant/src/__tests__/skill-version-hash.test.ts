@@ -112,27 +112,40 @@ describe('computeSkillVersionHash', () => {
     expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
   });
 
-  test('skips symlinked directories to avoid loops', () => {
+  test('skips symlinked directories that point back into skill dir', () => {
     const dir = makeTempSkill();
     writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
     const hash1 = computeSkillVersionHash(dir);
 
-    // Create a symlink that points back to the skill dir (would loop with statSync)
+    // Create a symlink that points back to the skill dir (would loop)
     symlinkSync(dir, join(dir, 'loop'));
     const hash2 = computeSkillVersionHash(dir);
 
     expect(hash1).toBe(hash2);
   });
 
-  test('skips symlinked files', () => {
+  test('resolves symlinked files and includes their content', () => {
     const dir = makeTempSkill();
     writeFileSync(join(dir, 'real.ts'), 'export {};');
     const hash1 = computeSkillVersionHash(dir);
 
-    // Add a symlink to an existing file — should be ignored
+    // Add a symlink to an existing file — should be included
     symlinkSync(join(dir, 'real.ts'), join(dir, 'linked.ts'));
     const hash2 = computeSkillVersionHash(dir);
 
-    expect(hash1).toBe(hash2);
+    expect(hash1).not.toBe(hash2);
+  });
+
+  test('hash changes when symlink target content changes', () => {
+    const dir = makeTempSkill();
+    const external = makeTempSkill();
+    writeFileSync(join(external, 'executor.ts'), 'export const run = () => "v1";');
+    symlinkSync(join(external, 'executor.ts'), join(dir, 'executor.ts'));
+    const hash1 = computeSkillVersionHash(dir);
+
+    writeFileSync(join(external, 'executor.ts'), 'export const run = () => "v2";');
+    const hash2 = computeSkillVersionHash(dir);
+
+    expect(hash1).not.toBe(hash2);
   });
 });
