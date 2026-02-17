@@ -1,0 +1,208 @@
+import AppKit
+import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Sessions")
+
+extension AppDelegate {
+
+    // MARK: - Escalation
+
+    /// Handle escalation from an active text_qa session to foreground computer use.
+    func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
+        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+
+        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+        let session = ComputerUseSession(
+            task: routed.task ?? "Escalated task",
+            daemonClient: self.daemonClient,
+            maxSteps: maxSteps,
+            sessionId: routed.sessionId,
+            skipSessionCreate: true,
+            notificationService: self.services.activityNotificationService
+        )
+        // Don't bind relatedViewModel for escalated sessions — the active view model
+        // may be unrelated if the user switched threads. Tool calls for escalated
+        // sessions are tracked by the daemon session, not by ChatViewModel.
+        self.currentSession = session
+
+        let overlay = SessionOverlayWindow(session: session)
+        overlay.show()
+        self.overlayWindow = overlay
+        self.ambientAgent.pause()
+
+        // Close the text response window but keep the text session reference
+        // (no de-escalation for MVP — text session is effectively done)
+        self.textResponseWindow?.close()
+        self.textResponseWindow = nil
+
+        Task { @MainActor in
+            await session.run()
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            overlay.close()
+            self.overlayWindow = nil
+            self.currentSession = nil
+            self.currentTextSession = nil
+            self.ambientAgent.resume()
+        }
+    }
+
+    // MARK: - Session
+
+    func startSession(task: String, source: String? = nil) {
+        startSession(submission: TaskSubmission(task: task, attachments: [], source: source))
+    }
+
+    func startSession(submission: TaskSubmission) {
+        guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
+        isStartingSession = true
+
+        let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
+
+        // Ensure daemon connection before starting any session
+        startSessionTask = Task { @MainActor in
+            defer { self.isStartingSession = false; self.startSessionTask = nil }
+
+            if !daemonClient.isConnected {
+                log.info("Daemon not connected, attempting to connect before session start")
+                do {
+                    try await daemonClient.connect()
+                    self.setupAmbientAgent()
+                } catch {
+                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
+                    self.showDaemonConnectionError()
+                    return
+                }
+            }
+
+            // Show thinking indicator IMMEDIATELY
+            let thinking = ThinkingIndicatorWindow()
+            thinking.show()
+            self.thinkingWindow = thinking
+
+            // 1. Subscribe to daemon stream before sending task_submit
+            let messageStream = self.daemonClient.subscribe()
+
+            // 2. Send task_submit — daemon classifies and creates the session
+            let screenBounds = CGDisplayBounds(CGMainDisplayID())
+            let ipcAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
+                IPCAttachment(
+                    filename: $0.fileName,
+                    mimeType: $0.mimeType,
+                    data: $0.data.base64EncodedString(),
+                    extractedText: $0.extractedText
+                )
+            }
+            try? self.daemonClient.send(TaskSubmitMessage(
+                task: effectiveTask,
+                screenWidth: Int(screenBounds.width),
+                screenHeight: Int(screenBounds.height),
+                attachments: ipcAttachments,
+                source: submission.source
+            ))
+
+            // 3. Wait for task_routed response (or error)
+            var routedMessage: TaskRoutedMessage?
+            for await message in messageStream {
+                guard !Task.isCancelled else { break }
+                if case .taskRouted(let routed) = message {
+                    routedMessage = routed
+                    break
+                }
+                if case .error(let err) = message {
+                    log.error("Task routing failed: \(err.message)")
+                    break
+                }
+            }
+
+            // Check if cancelled or failed during classification
+            guard !Task.isCancelled, let routed = routedMessage else {
+                thinking.close()
+                self.thinkingWindow = nil
+                return
+            }
+
+            // Dismiss thinking indicator
+            thinking.close()
+            self.thinkingWindow = nil
+
+            switch routed.interactionType {
+            case "computer_use":
+                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+                let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+                let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+                let session = ComputerUseSession(
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    maxSteps: maxSteps,
+                    attachments: submission.attachments,
+                    sessionId: routed.sessionId,
+                    skipSessionCreate: true,
+                    notificationService: self.services.activityNotificationService
+                )
+                // Don't bind relatedViewModel — sessions started via startSession() don't
+                // originate from a chat thread, so there's no ChatViewModel to extract
+                // tool calls from. Tool calls are tracked by the daemon session itself.
+                self.currentSession = session
+                let overlay = SessionOverlayWindow(session: session)
+                overlay.show()
+                self.overlayWindow = overlay
+                self.ambientAgent.pause()
+                await session.run()
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                overlay.close()
+                self.overlayWindow = nil
+                self.currentSession = nil
+                self.ambientAgent.resume()
+
+            default: // text_qa
+                let session = TextSession(
+                    task: effectiveTask,
+                    daemonClient: self.daemonClient,
+                    attachments: submission.attachments,
+                    sessionId: routed.sessionId,
+                    skipSessionCreate: true,
+                    existingStream: messageStream
+                )
+                self.currentTextSession = session
+                let inputState = ConversationInputState()
+                let window = TextResponseWindow(session: session, inputState: inputState)
+                window.show()
+                self.textResponseWindow = window
+                self.ambientAgent.pause()
+
+                // Clean up when the user closes the panel
+                window.onClose = { [weak self] in
+                    self?.currentTextSession?.cancel()
+                    self?.textResponseWindow = nil
+                    self?.currentTextSession = nil
+                    self?.ambientAgent.resume()
+                }
+
+                await session.run()
+            }
+        }
+    }
+
+    func showDaemonConnectionError() {
+        // Create a temporary session in failed state to show the error in the overlay
+        let session = ComputerUseSession(
+            task: "",
+            daemonClient: daemonClient,
+            maxSteps: 1
+        )
+        session.state = .failed(reason: "Cannot connect to daemon. Please ensure the daemon is running.")
+        currentSession = session
+        let overlay = SessionOverlayWindow(session: session)
+        overlay.show()
+        overlayWindow = overlay
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // Show error for 5 seconds
+            overlay.close()
+            self.overlayWindow = nil
+            self.currentSession = nil
+        }
+    }
+}

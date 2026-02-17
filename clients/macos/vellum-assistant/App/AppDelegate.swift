@@ -73,49 +73,49 @@ enum InteractionType {
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var statusItem: NSStatusItem!
+    var statusItem: NSStatusItem!
     private var hotKey: HotKey?
     private var escapeMonitor: Any?
-    private var overlayWindow: SessionOverlayWindow?
+    var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
-    private var isStartingSession = false
-    private var startSessionTask: Task<Void, Never>?
-    private var textResponseWindow: TextResponseWindow?
+    var isStartingSession = false
+    var startSessionTask: Task<Void, Never>?
+    var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
-    private var thinkingWindow: ThinkingIndicatorWindow?
+    var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
     private let daemonLauncher = DaemonLauncher()
-    private let updateManager = UpdateManager()
+    let updateManager = UpdateManager()
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
-    private var daemonClient: DaemonClient { services.daemonClient }
-    private var ambientAgent: AmbientAgent { services.ambientAgent }
-    private var surfaceManager: SurfaceManager { services.surfaceManager }
+    var daemonClient: DaemonClient { services.daemonClient }
+    var ambientAgent: AmbientAgent { services.ambientAgent }
+    var surfaceManager: SurfaceManager { services.surfaceManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
-    private var zoomManager: ZoomManager { services.zoomManager }
+    var zoomManager: ZoomManager { services.zoomManager }
 
-    private let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    let toolConfirmationNotificationService = ToolConfirmationNotificationService()
 
     private var onboardingWindow: OnboardingWindow?
-    private var mainWindow: MainWindow?
+    var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
-    private var bundleConfirmationWindow: BundleConfirmationWindow?
+    var bundleConfirmationWindow: BundleConfirmationWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
-    private var pendingBundleFilePaths: [String] = []
+    var pendingBundleFilePaths: [String] = []
     #if DEBUG
-    private var galleryWindow: ComponentGalleryWindow?
+    var galleryWindow: ComponentGalleryWindow?
     #endif
     private var windowObserver: Any?
     private var settingsWindowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
-    private var cachedSkills: [SkillInfo] = []
-    private var refreshSkillsTask: Task<Void, Never>?
+    var cachedSkills: [SkillInfo] = []
+    var refreshSkillsTask: Task<Void, Never>?
 
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -172,7 +172,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupDaemonClient() {
+    func setupDaemonClient() {
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
             let content = UNMutableNotificationContent()
@@ -266,46 +266,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 setupAmbientAgent()
                 refreshSkillsCache()
             }
-        }
-    }
-
-    /// Handle escalation from an active text_qa session to foreground computer use.
-    private func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
-        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
-
-        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-        let session = ComputerUseSession(
-            task: routed.task ?? "Escalated task",
-            daemonClient: self.daemonClient,
-            maxSteps: maxSteps,
-            sessionId: routed.sessionId,
-            skipSessionCreate: true,
-            notificationService: self.services.activityNotificationService
-        )
-        // Don't bind relatedViewModel for escalated sessions — the active view model
-        // may be unrelated if the user switched threads. Tool calls for escalated
-        // sessions are tracked by the daemon session, not by ChatViewModel.
-        self.currentSession = session
-
-        let overlay = SessionOverlayWindow(session: session)
-        overlay.show()
-        self.overlayWindow = overlay
-        self.ambientAgent.pause()
-
-        // Close the text response window but keep the text session reference
-        // (no de-escalation for MVP — text session is effectively done)
-        self.textResponseWindow?.close()
-        self.textResponseWindow = nil
-
-        Task { @MainActor in
-            await session.run()
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            overlay.close()
-            self.overlayWindow = nil
-            self.currentSession = nil
-            self.currentTextSession = nil
-            self.ambientAgent.resume()
         }
     }
 
@@ -475,261 +435,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    // MARK: - Menu Bar
-
-    private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            configureMenuBarIcon(button)
-            button.action = #selector(statusBarButtonClicked(_:))
-            button.target = self
-        }
-    }
-
-    private func setupViewMenu() {
-        guard let mainMenu = NSApp.mainMenu else { return }
-
-        let viewMenu = NSMenu(title: "View")
-
-        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(handleZoomIn), keyEquivalent: "=")
-        zoomInItem.keyEquivalentModifierMask = .command
-        zoomInItem.target = self
-        viewMenu.addItem(zoomInItem)
-
-        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(handleZoomOut), keyEquivalent: "-")
-        zoomOutItem.keyEquivalentModifierMask = .command
-        zoomOutItem.target = self
-        viewMenu.addItem(zoomOutItem)
-
-        let resetItem = NSMenuItem(title: "Actual Size", action: #selector(handleZoomReset), keyEquivalent: "0")
-        resetItem.keyEquivalentModifierMask = .command
-        resetItem.target = self
-        viewMenu.addItem(resetItem)
-
-        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
-        viewMenuItem.submenu = viewMenu
-        mainMenu.addItem(viewMenuItem)
-    }
-
-    @objc private func handleZoomIn() { zoomManager.zoomIn() }
-    @objc private func handleZoomOut() { zoomManager.zoomOut() }
-    @objc private func handleZoomReset() { zoomManager.resetZoom() }
-
-    private func configureMenuBarIcon(_ button: NSStatusBarButton) {
-        let iconSize: CGFloat = 18
-        let dotSize: CGFloat = 6
-        let dotPadding: CGFloat = 0.5
-
-        let appIcon = ResourceBundle.bundle.image(forResource: "MenuBarIcon")
-            ?? NSImage(named: "MenuBarIcon")
-            ?? NSApp.applicationIconImage
-        guard let appIcon else {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
-            return
-        }
-
-        let status = currentAssistantStatus
-        let dotColor = status.statusColor
-
-        let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        composited.lockFocus()
-        appIcon.draw(
-            in: NSRect(x: 0, y: 0, width: iconSize, height: iconSize),
-            from: NSRect(origin: .zero, size: appIcon.size),
-            operation: .copy,
-            fraction: 1.0
-        )
-        let dotX = iconSize - dotSize - dotPadding
-        let dotY = dotPadding
-        let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
-        NSColor.black.withAlphaComponent(0.5).setFill()
-        NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-        dotColor.setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
-        composited.unlockFocus()
-        composited.isTemplate = false
-        button.image = composited
-    }
-
-    private var currentAssistantStatus: AssistantStatus {
-        guard let viewModel = mainWindow?.threadManager.activeViewModel else { return .idle }
-        if let error = viewModel.errorText { return .error(error) }
-        if viewModel.isThinking { return .thinking }
-        return .idle
-    }
-
-    @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        showStatusMenu()
-    }
-
-    private func showStatusMenu() {
-        guard let button = statusItem.button else { return }
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-
-        let status = currentAssistantStatus
-        let statusItem = NSMenuItem(title: status.menuTitle, action: nil, keyEquivalent: "")
-        statusItem.isEnabled = false
-        statusItem.image = status.statusIcon
-        menu.addItem(statusItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let currentThreadItem = NSMenuItem(title: "Current Thread", action: #selector(openCurrentThread), keyEquivalent: "")
-        currentThreadItem.target = self
-        currentThreadItem.image = NSImage(systemSymbolName: "message", accessibilityDescription: nil)
-        menu.addItem(currentThreadItem)
-
-        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
-        newChatItem.target = self
-        newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
-        menu.addItem(newChatItem)
-
-        let myAppsItem = NSMenuItem(title: "My Apps", action: #selector(openAppCollection), keyEquivalent: "")
-        myAppsItem.target = self
-        myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
-        menu.addItem(myAppsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Skills submenu
-        let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
-        skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
-        let skillsSubmenu = NSMenu(title: "Skills")
-
-        let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
-        let disabledSkills = cachedSkills.filter { $0.state != "enabled" }
-
-        for skill in enabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .on
-            item.representedObject = skill.name
-            skillsSubmenu.addItem(item)
-        }
-
-        for skill in disabledSkills {
-            let emoji = skill.emoji ?? "\u{1F527}"
-            let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
-            item.target = self
-            item.state = .off
-            item.representedObject = skill.name
-            skillsSubmenu.addItem(item)
-        }
-
-        if !cachedSkills.isEmpty {
-            skillsSubmenu.addItem(NSMenuItem.separator())
-        }
-
-        let manageItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
-        manageItem.target = self
-        skillsSubmenu.addItem(manageItem)
-
-        skillsItem.submenu = skillsSubmenu
-        menu.addItem(skillsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
-        menu.addItem(settingsItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: #selector(showRideShotgunInvitation), keyEquivalent: "")
-        rideShotgunItem.target = self
-        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
-        rideShotgunItem.isEnabled = ambientAgent.currentSession == nil
-        menu.addItem(rideShotgunItem)
-
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
-        menu.addItem(updateItem)
-
-        let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
-        onboardingItem.target = self
-        menu.addItem(onboardingItem)
-
-        #if DEBUG
-        menu.addItem(NSMenuItem.separator())
-        let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
-        galleryItem.target = self
-        menu.addItem(galleryItem)
-        #endif
-
-        menu.addItem(NSMenuItem.separator())
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
-        menu.addItem(quitItem)
-
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
-    }
-
-    @objc private func openCurrentThread() {
-        showMainWindow()
-    }
-
-    @objc private func openNewChat() {
-        showMainWindow()
-        mainWindow?.threadManager.createThread()
-    }
-
-    @objc private func openAppCollection() {
-        showMainWindow()
-        mainWindow?.windowState.activePanel = .directory
-    }
-
-    @objc private func checkForUpdates() {
-        updateManager.checkForUpdates()
-    }
-
-    @objc private func showRideShotgunInvitation() {
-        Task { @MainActor in
-            await ambientAgent.showInvitation()
-        }
-    }
-
-    @objc private func toggleSkill(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        if sender.state == .on {
-            try? daemonClient.disableSkill(name)
-        } else {
-            try? daemonClient.enableSkill(name)
-        }
-        refreshSkillsCache()
-    }
-
-    private func refreshSkillsCache() {
-        // Cancel any in-flight refresh so we don't consume a stale response.
-        // The new task will send its own request and wait for the next response,
-        // ensuring the cache always reflects the latest daemon state.
-        refreshSkillsTask?.cancel()
-        refreshSkillsTask = Task {
-            let stream = daemonClient.subscribe()
-            do {
-                try daemonClient.send(SkillsListRequestMessage())
-            } catch { return }
-            for await message in stream {
-                guard !Task.isCancelled else { return }
-                if case .skillsListResponse(let response) = message {
-                    self.cachedSkills = response.skills
-                    return
-                }
-            }
-        }
-    }
-
-    #if DEBUG
-    @objc private func showComponentGallery() {
-        if galleryWindow == nil { galleryWindow = ComponentGalleryWindow() }
-        galleryWindow?.show()
-    }
-    #endif
-
     // MARK: - Hotkey
 
     private func setupHotKey() {
@@ -839,7 +544,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Ambient Agent
 
-    private func setupAmbientAgent() {
+    func setupAmbientAgent() {
         ambientAgent.appDelegate = self
         ambientAgent.daemonClient = daemonClient
         ambientAgent.setupRideShotgun()
@@ -850,7 +555,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         configureMenuBarIcon(button)
     }
 
-    @objc private func replayOnboarding() {
+    @objc func replayOnboarding() {
         guard onboardingWindow == nil else { return }
 
         // Ensure daemon connectivity for the interview step
@@ -976,7 +681,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showMainWindow() {
+    // MARK: - Main Window
+
+    func showMainWindow() {
         if let existing = mainWindow {
             existing.show()
             return
@@ -1076,389 +783,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: - Session
-
-    func startSession(task: String, source: String? = nil) {
-        startSession(submission: TaskSubmission(task: task, attachments: [], source: source))
-    }
-
-    func startSession(submission: TaskSubmission) {
-        guard currentSession == nil && currentTextSession == nil && !isStartingSession else { return }
-        isStartingSession = true
-
-        let sessionTask = submission.task.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTask = !sessionTask.isEmpty ? sessionTask : "Use the attached files as context."
-
-        // Ensure daemon connection before starting any session
-        startSessionTask = Task { @MainActor in
-            defer { self.isStartingSession = false; self.startSessionTask = nil }
-
-            if !daemonClient.isConnected {
-                log.info("Daemon not connected, attempting to connect before session start")
-                do {
-                    try await daemonClient.connect()
-                    self.setupAmbientAgent()
-                } catch {
-                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
-                    self.showDaemonConnectionError()
-                    return
-                }
-            }
-
-            // Show thinking indicator IMMEDIATELY
-            let thinking = ThinkingIndicatorWindow()
-            thinking.show()
-            self.thinkingWindow = thinking
-
-            // 1. Subscribe to daemon stream before sending task_submit
-            let messageStream = self.daemonClient.subscribe()
-
-            // 2. Send task_submit — daemon classifies and creates the session
-            let screenBounds = CGDisplayBounds(CGMainDisplayID())
-            let ipcAttachments: [IPCAttachment]? = submission.attachments.isEmpty ? nil : submission.attachments.map {
-                IPCAttachment(
-                    filename: $0.fileName,
-                    mimeType: $0.mimeType,
-                    data: $0.data.base64EncodedString(),
-                    extractedText: $0.extractedText
-                )
-            }
-            try? self.daemonClient.send(TaskSubmitMessage(
-                task: effectiveTask,
-                screenWidth: Int(screenBounds.width),
-                screenHeight: Int(screenBounds.height),
-                attachments: ipcAttachments,
-                source: submission.source
-            ))
-
-            // 3. Wait for task_routed response (or error)
-            var routedMessage: TaskRoutedMessage?
-            for await message in messageStream {
-                guard !Task.isCancelled else { break }
-                if case .taskRouted(let routed) = message {
-                    routedMessage = routed
-                    break
-                }
-                if case .error(let err) = message {
-                    log.error("Task routing failed: \(err.message)")
-                    break
-                }
-            }
-
-            // Check if cancelled or failed during classification
-            guard !Task.isCancelled, let routed = routedMessage else {
-                thinking.close()
-                self.thinkingWindow = nil
-                return
-            }
-
-            // Dismiss thinking indicator
-            thinking.close()
-            self.thinkingWindow = nil
-
-            switch routed.interactionType {
-            case "computer_use":
-                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
-                let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-                let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-                let session = ComputerUseSession(
-                    task: effectiveTask,
-                    daemonClient: self.daemonClient,
-                    maxSteps: maxSteps,
-                    attachments: submission.attachments,
-                    sessionId: routed.sessionId,
-                    skipSessionCreate: true,
-                    notificationService: self.services.activityNotificationService
-                )
-                // Don't bind relatedViewModel — sessions started via startSession() don't
-                // originate from a chat thread, so there's no ChatViewModel to extract
-                // tool calls from. Tool calls are tracked by the daemon session itself.
-                self.currentSession = session
-                let overlay = SessionOverlayWindow(session: session)
-                overlay.show()
-                self.overlayWindow = overlay
-                self.ambientAgent.pause()
-                await session.run()
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                overlay.close()
-                self.overlayWindow = nil
-                self.currentSession = nil
-                self.ambientAgent.resume()
-
-            default: // text_qa
-                let session = TextSession(
-                    task: effectiveTask,
-                    daemonClient: self.daemonClient,
-                    attachments: submission.attachments,
-                    sessionId: routed.sessionId,
-                    skipSessionCreate: true,
-                    existingStream: messageStream
-                )
-                self.currentTextSession = session
-                let inputState = ConversationInputState()
-                let window = TextResponseWindow(session: session, inputState: inputState)
-                window.show()
-                self.textResponseWindow = window
-                self.ambientAgent.pause()
-
-                // Clean up when the user closes the panel
-                window.onClose = { [weak self] in
-                    self?.currentTextSession?.cancel()
-                    self?.textResponseWindow = nil
-                    self?.currentTextSession = nil
-                    self?.ambientAgent.resume()
-                }
-
-                await session.run()
-            }
-        }
-    }
-
-    private func showDaemonConnectionError() {
-        // Create a temporary session in failed state to show the error in the overlay
-        let session = ComputerUseSession(
-            task: "",
-            daemonClient: daemonClient,
-            maxSteps: 1
-        )
-        session.state = .failed(reason: "Cannot connect to daemon. Please ensure the daemon is running.")
-        currentSession = session
-        let overlay = SessionOverlayWindow(session: session)
-        overlay.show()
-        overlayWindow = overlay
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // Show error for 5 seconds
-            overlay.close()
-            self.overlayWindow = nil
-            self.currentSession = nil
-        }
-    }
-
-    // MARK: - Notifications
-
-    private func setupNotifications() {
-
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                log.error("Notification authorization error: \(error.localizedDescription)")
-            }
-        }
-
-        let viewAction = UNNotificationAction(
-            identifier: "VIEW_ACTIVITY",
-            title: "View Results",
-            options: .foreground
-        )
-        let activityCategory = UNNotificationCategory(
-            identifier: "ACTIVITY_COMPLETE",
-            actions: [viewAction],
-            intentIdentifiers: [],
-            options: []
-        )
-
-        let confirmAllowAction = UNNotificationAction(
-            identifier: "CONFIRM_ALLOW",
-            title: "Allow",
-            options: []
-        )
-        let confirmDenyAction = UNNotificationAction(
-            identifier: "CONFIRM_DENY",
-            title: "Deny",
-            options: []
-        )
-        let toolConfirmationCategory = UNNotificationCategory(
-            identifier: "TOOL_CONFIRMATION",
-            actions: [confirmAllowAction, confirmDenyAction],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-
-        // Ride Shotgun invitation — duration choices
-        let shotgun1Action = UNNotificationAction(identifier: "SHOTGUN_1MIN", title: "1 min", options: [])
-        let shotgun3Action = UNNotificationAction(identifier: "SHOTGUN_3MIN", title: "3 min", options: [])
-        let shotgun5Action = UNNotificationAction(identifier: "SHOTGUN_5MIN", title: "5 min", options: [])
-        let rideShotgunCategory = UNNotificationCategory(
-            identifier: "RIDE_SHOTGUN",
-            actions: [shotgun1Action, shotgun3Action, shotgun5Action],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory])
-    }
-
-    private func registerBundledFonts() {
-        for name in ["Silkscreen-Regular", "Silkscreen-Bold", "DMMono-Regular", "DMMono-Medium", "Inter-Regular", "Inter-Medium", "Inter-SemiBold"] {
-            guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: "ttf") else {
-                log.warning("Font file \(name).ttf not found in bundle")
-                continue
-            }
-            var error: Unmanaged<CFError>?
-            if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
-                log.warning("Failed to register font \(name): \(error?.takeRetainedValue().localizedDescription ?? "unknown")")
-            }
-        }
-    }
-
-    // MARK: - File Open Handler
-
-    public func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            guard url.pathExtension == "vellumapp" else { continue }
-            log.info("Opening .vellumapp file: \(url.path)")
-
-            guard daemonClient.isConnected else {
-                log.warning("Cannot open bundle: daemon not connected")
-                continue
-            }
-
-            do {
-                pendingBundleFilePaths.append(url.path)
-                try daemonClient.sendOpenBundle(filePath: url.path)
-            } catch {
-                log.error("Failed to send open_bundle message: \(error.localizedDescription)")
-                // Remove the path we just appended since the send failed
-                if let idx = pendingBundleFilePaths.lastIndex(of: url.path) {
-                    pendingBundleFilePaths.remove(at: idx)
-                }
-            }
-        }
-    }
-
-    // MARK: - Bundle Open Handling
-
-    private func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
-        let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
-
-        // Check format version compatibility
-        if response.manifest.formatVersion > 1 {
-            let alert = NSAlert()
-            alert.messageText = "Incompatible App"
-            alert.informativeText = "This app requires a newer version of vellum-assistant."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        // If scan blocked, show error alert
-        if !response.scanResult.passed {
-            let reason = response.scanResult.blocked.first ?? "Unknown security issue"
-            let alert = NSAlert()
-            alert.messageText = "This app can't be opened"
-            alert.informativeText = "Security scan found: \(reason)"
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        // Show confirmation dialog
-        let viewModel = BundleConfirmationViewModel(
-            response: response,
-            filePath: filePath
-        )
-
-        let confirmWindow = BundleConfirmationWindow()
-        self.bundleConfirmationWindow = confirmWindow
-
-        viewModel.onConfirm = { [weak self] in
-            guard let self else { return }
-            confirmWindow.close()
-            self.bundleConfirmationWindow = nil
-            self.unpackAndLoadBundle(
-                filePath: filePath,
-                manifest: response.manifest,
-                signatureResult: response.signatureResult,
-                bundleSizeBytes: response.bundleSizeBytes
-            )
-        }
-
-        viewModel.onCancel = { [weak self] in
-            confirmWindow.close()
-            self?.bundleConfirmationWindow = nil
-        }
-
-        confirmWindow.show(viewModel: viewModel)
-    }
-
-    private func unpackAndLoadBundle(
-        filePath: String,
-        manifest: OpenBundleResponseMessage.Manifest,
-        signatureResult: OpenBundleResponseMessage.SignatureResult,
-        bundleSizeBytes: Int
-    ) {
-        // Run the unzip on a background thread to avoid blocking the UI.
-        Task.detached {
-            do {
-                let (uuid, _) = try BundleSandbox.unpack(
-                    filePath: filePath,
-                    manifest: manifest,
-                    signatureResult: signatureResult,
-                    bundleSizeBytes: bundleSizeBytes
-                )
-
-                await MainActor.run {
-                    // Build the vellumapp:// URL for the entry point.
-                    // Sanitize manifest.entry to prevent JS string breakout.
-                    let sanitizedEntry = manifest.entry
-                        .replacingOccurrences(of: "\\", with: "")
-                        .replacingOccurrences(of: "'", with: "")
-                    let entryURL = "\(VellumAppSchemeHandler.scheme)://\(uuid)/\(sanitizedEntry)"
-                    log.info("Loading shared app at \(entryURL)")
-
-                    // HTML-escape manifest.name to prevent XSS injection.
-                    let safeName = Self.htmlEscape(manifest.name)
-
-                    // Load the shared app as a surface via SurfaceManager
-                    let surfaceId = "shared-app-\(uuid)"
-                    let html = """
-                    <!DOCTYPE html>
-                    <html>
-                    <head><meta charset="utf-8"><title>\(safeName)</title></head>
-                    <body>
-                        <script>window.location.href = '\(entryURL)';</script>
-                    </body>
-                    </html>
-                    """
-                    let surfaceMsg = UiSurfaceShowMessage(
-                        sessionId: "shared-app",
-                        surfaceId: surfaceId,
-                        surfaceType: "dynamic_page",
-                        title: manifest.name,
-                        data: AnyCodable(["html": html]),
-                        actions: nil,
-                        display: "panel",
-                        messageId: nil
-                    )
-                    self.surfaceManager.showSurface(surfaceMsg)
-                }
-            } catch {
-                await MainActor.run {
-                    log.error("Failed to unpack bundle: \(error.localizedDescription)")
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to open app"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-            }
-        }
-    }
-
-    /// HTML-escape a string to prevent injection when interpolated into HTML.
-    private static func htmlEscape(_ string: String) -> String {
-        string
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&#39;")
-    }
+    // MARK: - Application Lifecycle
 
     public func applicationWillTerminate(_ notification: Notification) {
         if let monitor = escapeMonitor {
@@ -1477,77 +802,5 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
         daemonLauncher.stop()
-    }
-}
-
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    nonisolated public func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
-    }
-
-    nonisolated public func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
-        let categoryId = response.notification.request.content.categoryIdentifier
-
-        // Handle activity completion notifications
-        if categoryId == "ACTIVITY_COMPLETE" {
-            await MainActor.run {
-                self.showMainWindow()
-            }
-            return
-        }
-
-        // Handle tool confirmation notifications
-        if categoryId == "TOOL_CONFIRMATION" {
-            let requestId = response.notification.request.content.userInfo["requestId"] as? String ?? ""
-            let decision: String
-            switch response.actionIdentifier {
-            case "CONFIRM_ALLOW":
-                decision = "allow"
-            case "CONFIRM_DENY":
-                decision = "deny"
-            case UNNotificationDismissActionIdentifier:
-                decision = "deny"
-            default:
-                // Default action (clicked banner) — deny and bring app forward
-                decision = "deny"
-                await MainActor.run { self.showMainWindow() }
-            }
-            await MainActor.run {
-                self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
-            }
-            return
-        }
-
-        // Handle ride shotgun invitation notifications
-        if categoryId == "RIDE_SHOTGUN" {
-            let durationSeconds: Int?
-            switch response.actionIdentifier {
-            case "SHOTGUN_1MIN":
-                durationSeconds = 60
-            case "SHOTGUN_3MIN":
-                durationSeconds = 180
-            case "SHOTGUN_5MIN":
-                durationSeconds = 300
-            case UNNotificationDismissActionIdentifier:
-                durationSeconds = nil
-            default:
-                // Clicked the banner itself — start with default 3 min
-                durationSeconds = 180
-            }
-            await MainActor.run {
-                if let durationSeconds {
-                    self.ambientAgent.startRideShotgun(durationSeconds: durationSeconds)
-                } else {
-                    self.ambientAgent.rideShotgunTrigger.recordDeclined()
-                }
-            }
-            return
-        }
     }
 }
