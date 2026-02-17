@@ -194,6 +194,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        OnboardingState.clearPersistedState()
         let state = OnboardingState()
         let authView = OnboardingFlowView(
             state: state,
