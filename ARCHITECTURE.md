@@ -50,7 +50,7 @@ graph TB
 
         subgraph "Dashboard"
             DASH_VIEW["DashboardView<br/>greeting + cards"]
-            DASH_WEATHER["DashboardWeatherCard<br/>locale-aware weather"]
+            DASH_WEATHER["DashboardWeatherCard<br/>weather (Palo Alto fallback)"]
             DASH_TASK["DashboardTaskCard<br/>starter task CTA"]
             DASH_THEME["@AppStorage<br/>dashboardAccentColorHex<br/>dashboardAccentColorName"]
         end
@@ -957,7 +957,7 @@ Main Window (default: dashboard mode)
 │                                             │
 │  DashboardView                              │
 │  ├─ Greeting (time-of-day)                  │
-│  ├─ Weather card (locale-aware)             │
+│  ├─ Weather card (Palo Alto, CA fallback)    │
 │  ├─ Starter task cards                      │
 │  │   ├─ Make It Yours (color flow)          │
 │  │   ├─ Research Something                  │
@@ -1071,7 +1071,7 @@ Use this matrix to validate the dashboard-first UX, trust-earned onboarding, and
 
 - [ ] On first launch, the main window defaults to `DashboardView` (not chat).
 - [ ] The greeting text reflects the current time of day (morning/afternoon/evening).
-- [ ] The weather card displays weather for the user's locale (falls back to Palo Alto, CA when locale is not set).
+- [ ] The weather card displays weather for Palo Alto, CA (locale-aware coordinates are future work).
 - [ ] All three starter task cards are visible: "Make It Yours", "Research Something", "Turn It Into a UI".
 - [ ] Clicking "Make It Yours" sends `[STARTER_TASK:make_it_yours]` to the daemon and the assistant begins the color flow.
 - [ ] After selecting a color, the dashboard accent color updates and is visible immediately.
@@ -1097,9 +1097,8 @@ Use this matrix to validate the dashboard-first UX, trust-earned onboarding, and
 
 ### Locale and Weather Behavior
 
-- [ ] When the user has no locale set in USER.md, the weather card defaults to Palo Alto, CA.
-- [ ] After the user sets their locale during onboarding, the weather card updates to the correct location.
-- [ ] The locale `confidence` field updates appropriately (`low` → `medium` → `high`).
+- [ ] The weather card always displays Palo Alto, CA weather (locale-aware coordinates are future work; see `DashboardWeatherService`).
+- [ ] The locale `confidence` field in USER.md updates appropriately (`low` → `medium` → `high`).
 
 ### Dashboard Color Persistence
 

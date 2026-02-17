@@ -187,13 +187,13 @@ The app will auto-reconnect if the daemon restarts. For development, `bun run de
 
 ## Permissions
 
-The app requests macOS permissions progressively based on trust stage, not all at once during onboarding:
+The app requests macOS permissions progressively, not all at once during onboarding:
 
 - **Accessibility** — Requested during onboarding (required for reading UI element trees and injecting mouse/keyboard events)
 - **Screen Recording** — Deferred to dashboard task cards (needed for capturing screenshots when AX tree is sparse)
-- **Microphone** — Deferred to dashboard task cards (needed for voice input via speech recognition)
+- **Microphone** — Requested on first voice input attempt (when the user holds the Fn key or taps the mic button, `VoiceInputManager` checks `AVCaptureDevice.authorizationStatus` and triggers the system permission prompt if not yet determined)
 
-Grant these in System Settings → Privacy & Security when prompted. Screen Recording and Microphone are only requested after the user has completed their first conversation (trust-earned, not upfront).
+Grant these in System Settings → Privacy & Security when prompted.
 
 ## Usage
 
@@ -331,7 +331,7 @@ Features/MainWindow/Dashboard/
   DashboardTaskCard   Starter task CTA card
   DashboardTaskModel  Task model and definitions
   DashboardWeatherCard Weather display card
-  DashboardWeatherService Locale-aware weather data
+  DashboardWeatherService Weather data (hardcoded Palo Alto, CA fallback)
 UI/                   SwiftUI views + overlay windows
   Onboarding/         First-launch setup flow (naming, Accessibility — 6 steps)
 Logging/
