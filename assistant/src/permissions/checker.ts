@@ -196,7 +196,8 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
 
   const fileTarget = getStringField(input, 'path', 'file_path');
   if (toolName === 'host_file_read' || toolName === 'host_file_write' || toolName === 'host_file_edit') {
-    const normalized = fileTarget ? resolve(fileTarget) : fileTarget;
+    const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
+    const normalized = resolved && process.platform === 'win32' ? resolved.replaceAll('\\', '/') : resolved;
     const candidates = [`${toolName}:${normalized}`];
     if (normalized !== fileTarget) {
       candidates.push(`${toolName}:${fileTarget}`);
@@ -212,7 +213,8 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [...new Set(candidates)];
   }
 
-  const resolved = fileTarget ? resolve(workingDir, fileTarget).replaceAll('\\', '/') : fileTarget;
+  const rawResolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
+  const resolved = rawResolved && process.platform === 'win32' ? rawResolved.replaceAll('\\', '/') : rawResolved;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
   // raw paths still match.

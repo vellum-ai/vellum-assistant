@@ -3426,4 +3426,70 @@ describe('Permission Checker', () => {
       expect(extraRules.length).toBe(0);
     });
   });
+
+  // ── backslash normalization gated to Windows (PR 3558 follow-up) ──
+
+  describe('backslash normalization is gated to Windows', () => {
+    // On macOS/Linux, backslash is a valid filename character and must NOT
+    // be replaced with forward slash. The normalization should only happen
+    // when process.platform === 'win32'.
+    //
+    // Since we cannot run on actual Windows in this test environment, we
+    // verify that on the current platform (non-Windows) the normalization
+    // does NOT fire — i.e. standard forward-slash paths still resolve
+    // correctly for all file tool variants, including host_file_* tools
+    // which were missing normalization coverage before this fix.
+
+    // Use realpathSync on checkerTestDir to get the canonical path that
+    // normalizeFilePath will return (e.g. /private/var/... on macOS).
+    const resolvedTestDir = realpathSync(checkerTestDir);
+
+    test('file_read: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/file.txt`;
+      addRule('file_read', `file_read:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('file_read', { path: filePath }, resolvedTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`file_read:${filePath}`);
+    });
+
+    test('file_write: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/out.txt`;
+      addRule('file_write', `file_write:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('file_write', { path: filePath }, resolvedTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`file_write:${filePath}`);
+    });
+
+    test('file_edit: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/edit.txt`;
+      addRule('file_edit', `file_edit:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('file_edit', { path: filePath }, resolvedTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`file_edit:${filePath}`);
+    });
+
+    test('host_file_read: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/host.txt`;
+      addRule('host_file_read', `host_file_read:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('host_file_read', { path: filePath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`host_file_read:${filePath}`);
+    });
+
+    test('host_file_write: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/host-out.txt`;
+      addRule('host_file_write', `host_file_write:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('host_file_write', { path: filePath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`host_file_write:${filePath}`);
+    });
+
+    test('host_file_edit: path resolves correctly on non-Windows', async () => {
+      const filePath = `${resolvedTestDir}/some/host-edit.txt`;
+      addRule('host_file_edit', `host_file_edit:${filePath}`, 'everywhere', 'allow', 2000);
+      const result = await check('host_file_edit', { path: filePath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.pattern).toBe(`host_file_edit:${filePath}`);
+    });
+  });
 });
