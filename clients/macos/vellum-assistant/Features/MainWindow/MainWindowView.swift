@@ -375,13 +375,13 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
-        .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(alignment: .trailing) {
             if threadPendingDeletion == thread.id {
                 Button {
@@ -400,35 +400,28 @@ struct MainWindowView: View {
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHoveredThread == thread.id {
-                HStack(spacing: VSpacing.xxs) {
-                    Button {
+                Menu {
+                    Button(thread.isPinned ? "Unpin" : "Pin to Top") {
                         if thread.isPinned {
                             threadManager.unpinThread(id: thread.id)
                         } else {
                             threadManager.pinThread(id: thread.id)
                         }
-                    } label: {
-                        Image(systemName: thread.isPinned ? "pin.slash" : "pin")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-
-                    Button {
+                    Divider()
+                    Button("Archive", role: .destructive) {
                         threadPendingDeletion = thread.id
-                    } label: {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Archive \(thread.title)")
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 24)
                 .padding(.trailing, VSpacing.xs)
             }
         }
@@ -600,13 +593,43 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
-        .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(alignment: .trailing) {
+            if isHoveredApp == app.id {
+                Menu {
+                    Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                        if app.isPinned {
+                            appListManager.unpinApp(id: app.id)
+                        } else {
+                            appListManager.pinApp(id: app.id)
+                        }
+                    }
+                    Button("Open") {
+                        openAppInWorkspace(app: app)
+                    }
+                    Divider()
+                    Button("Remove from Recents", role: .destructive) {
+                        appListManager.removeApp(id: app.id)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 24)
+                .padding(.trailing, VSpacing.xs)
+            }
+        }
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
