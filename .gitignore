@@ -31,6 +31,7 @@ dist
 !.claude/worktree
 !.claude/ship
 !.claude/gh-project
+!.claude/gh-review
 .private/
 temp.sh
 context.md
