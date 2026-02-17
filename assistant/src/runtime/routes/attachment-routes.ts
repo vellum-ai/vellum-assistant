@@ -4,7 +4,18 @@
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { validateAttachmentUpload } from '../../memory/attachments-store.js';
 
+/** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
+const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
+
 export async function handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
+  const contentLength = Number(req.headers.get('content-length'));
+  if (contentLength > MAX_UPLOAD_BODY_BYTES) {
+    return Response.json(
+      { error: `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)` },
+      { status: 413 },
+    );
+  }
+
   const body = await req.json() as {
     filename?: string;
     mimeType?: string;
