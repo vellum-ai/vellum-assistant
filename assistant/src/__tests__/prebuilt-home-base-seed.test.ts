@@ -24,7 +24,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { ensurePrebuiltHomeBaseSeeded, findSeededHomeBaseApp } from '../home-base/prebuilt/seed.js';
-import { listApps, updateApp } from '../memory/app-store.js';
+import { listApps, getApp, updateApp } from '../memory/app-store.js';
 
 describe('prebuilt home base seed', () => {
   beforeEach(() => {
@@ -52,7 +52,11 @@ describe('prebuilt home base seed', () => {
 
     expect(found).not.toBeNull();
     expect(found?.id).toBe(seeded.appId);
-    expect(found?.htmlDefinition).toContain('home-base-starter-lane');
+    // listApps() (used by findSeededHomeBaseApp) no longer stores htmlDefinition
+    // in the JSON file — it is persisted as index.html on disk.
+    // Use getApp() to load the full definition including htmlDefinition.
+    const fullApp = getApp(found!.id);
+    expect(fullApp?.htmlDefinition).toContain('home-base-starter-lane');
   });
 
   test('rejects updates that remove required Home Base anchors', () => {
