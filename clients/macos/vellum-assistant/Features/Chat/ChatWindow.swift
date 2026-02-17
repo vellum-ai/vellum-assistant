@@ -9,6 +9,7 @@ import VellumAssistantShared
 @MainActor
 final class ChatWindow {
     private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
     private let threadManager: ThreadManager
     private let windowState: MainWindowState
     private let ambientAgent: AmbientAgent
@@ -82,7 +83,7 @@ final class ChatWindow {
         window.setFrameAutosaveName("ChatPopOutWindow")
 
         // Observe the window closing to revert to docked mode
-        NotificationCenter.default.addObserver(
+        closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
@@ -100,6 +101,10 @@ final class ChatWindow {
     }
 
     func close() {
+        if let observer = closeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            closeObserver = nil
+        }
         window?.close()
         window = nil
     }

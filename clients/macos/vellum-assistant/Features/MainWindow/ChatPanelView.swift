@@ -31,6 +31,14 @@ struct ChatPanelView: View {
                     isRecording: viewModel.isRecording,
                     onOpenSettings: {
                         windowState.activePanel = .settings
+                        if windowState.isChatPoppedOut {
+                            // When chat is popped out, the main window is in
+                            // dashboard mode which doesn't render side panels.
+                            // Switch to chat mode so the settings panel is
+                            // visible, and bring the main window forward.
+                            windowState.contentMode = .chat
+                            Self.bringMainWindowToFront()
+                        }
                     },
                     onSend: viewModel.sendMessage,
                     onStop: viewModel.stopGenerating,
@@ -80,6 +88,17 @@ struct ChatPanelView: View {
                 .background(VColor.chatBackground)
             }
         }
+    }
+
+    /// Bring the main window to the front so the user can see the settings
+    /// panel that was just opened. Used when opening settings from pop-out mode.
+    @MainActor
+    private static func bringMainWindowToFront() {
+        for window in NSApp.windows where window.frameAutosaveName == "MainWindow" {
+            window.makeKeyAndOrderFront(nil)
+            break
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @MainActor
