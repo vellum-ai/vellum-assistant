@@ -4,6 +4,7 @@ import VellumAssistantShared
 @MainActor
 struct LoginView: View {
     @Bindable var authManager: AuthManager
+    var onBack: (() -> Void)? = nil
     @State private var email = ""
     @State private var password = ""
 
@@ -80,15 +81,28 @@ struct LoginView: View {
             }
 
             VStack(spacing: VSpacing.sm) {
-                Button {
-                    authManager.errorMessage = nil
-                    authManager.currentFlow = .signup
-                } label: {
-                    Text("Create an account")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.accent)
+                HStack {
+                    if let onBack {
+                        Button(action: onBack) {
+                            Text("Back")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        authManager.errorMessage = nil
+                        authManager.currentFlow = .signup
+                    } label: {
+                        Text("Create an account")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 Button {
                     authManager.errorMessage = nil

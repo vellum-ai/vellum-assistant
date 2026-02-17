@@ -15,24 +15,6 @@ struct AuthContainerView: View {
                 VStack {
                     Spacer(minLength: VSpacing.xxl)
 
-                    if let onBack {
-                        HStack {
-                            Button(action: onBack) {
-                                HStack(spacing: VSpacing.xs) {
-                                    Image(systemName: "chevron.left")
-                                        .font(.system(size: 13, weight: .medium))
-                                    Text("Back")
-                                        .font(VFont.body)
-                                }
-                                .foregroundColor(VColor.accent)
-                            }
-                            .buttonStyle(.plain)
-                            Spacer()
-                        }
-                        .padding(.horizontal, VSpacing.xxl)
-                        .padding(.bottom, VSpacing.sm)
-                    }
-
                     Image(systemName: "sparkles")
                         .font(.system(size: 28))
                         .foregroundColor(VColor.accent)
@@ -41,7 +23,7 @@ struct AuthContainerView: View {
                     Group {
                         switch authManager.currentFlow {
                         case .login:
-                            LoginView(authManager: authManager)
+                            LoginView(authManager: authManager, onBack: onBack)
                         case .signup:
                             SignupView(authManager: authManager)
                         case .verifyEmail:
