@@ -34,6 +34,7 @@ let package = Package(
             name: "VellumAssistantShared",
             dependencies: [],
             path: "shared",
+            exclude: ["Tests"],
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
@@ -86,7 +87,7 @@ let package = Package(
             name: "vellum-assistant-ios",
             dependencies: ["VellumAssistantShared"],
             path: "ios",
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources/Info.plist", "README.md"],
             resources: [
                 .process("Resources/Assets.xcassets")
             ],
@@ -94,6 +95,11 @@ let package = Package(
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
                 .linkedFramework("SwiftUI", .when(platforms: [.iOS]))
             ]
+        ),
+        .testTarget(
+            name: "VellumAssistantSharedTests",
+            dependencies: ["VellumAssistantShared"],
+            path: "shared/Tests"
         )
     ]
 )
