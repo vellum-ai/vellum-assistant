@@ -70,10 +70,12 @@ export function classifyError(err: unknown): ErrorCategory {
   return 'fatal';
 }
 
-/** Exponential backoff with full jitter: uniform random in [0, cap]. */
+/** Equal jitter backoff: floor of cap/2 plus random in [0, cap/2].
+ *  Prevents retry delays from collapsing to 0ms while still avoiding thundering herds. */
 export function retryDelayForAttempt(attempts: number): number {
   const cap = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)), RETRY_MAX_DELAY_MS);
-  return Math.random() * cap;
+  const half = cap / 2;
+  return half + Math.random() * half;
 }
 
 // ── Payload extraction helpers ─────────────────────────────────────
