@@ -80,7 +80,7 @@ cmd_resolve_threads() {
           body: $body
         }) { comment { id } }
       }' \
-      -F threadId="$thread_id" \
+      -f threadId="$thread_id" \
       -f body="$message" > /dev/null
 
     echo "==> Resolving thread $thread_id..."
@@ -90,7 +90,7 @@ cmd_resolve_threads() {
           threadId: $threadId
         }) { thread { isResolved } }
       }' \
-      -F threadId="$thread_id" > /dev/null
+      -f threadId="$thread_id" > /dev/null
 
   done <<< "$thread_ids"
 
