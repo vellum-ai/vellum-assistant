@@ -141,7 +141,7 @@ struct ModelSelectionStepView: View {
 
     private func goBack() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            state.currentStep = 2
+            state.currentStep -= 1
         }
     }
 
