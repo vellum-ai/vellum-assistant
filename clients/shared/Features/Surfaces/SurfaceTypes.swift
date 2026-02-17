@@ -967,10 +967,10 @@ public extension Surface {
         var highlights: [BrowserHighlight]?
         if let highlightsArray = dict["highlights"] as? [[String: Any?]] {
             highlights = highlightsArray.compactMap { item in
-                guard let x = asDouble(item["x"]),
-                      let y = asDouble(item["y"]),
-                      let w = asDouble(item["w"]),
-                      let h = asDouble(item["h"]),
+                guard let x = asDouble(item["x"] as Any?),
+                      let y = asDouble(item["y"] as Any?),
+                      let w = asDouble(item["w"] as Any?),
+                      let h = asDouble(item["h"] as Any?),
                       let label = item["label"] as? String else { return nil }
                 return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
             }
@@ -1008,10 +1008,10 @@ public extension Surface {
         if update.keys.contains("highlights") {
             if let highlightsArray = update["highlights"] as? [[String: Any?]] {
                 highlights = highlightsArray.compactMap { item in
-                    guard let x = asDouble(item["x"]),
-                          let y = asDouble(item["y"]),
-                          let w = asDouble(item["w"]),
-                          let h = asDouble(item["h"]),
+                    guard let x = asDouble(item["x"] as Any?),
+                          let y = asDouble(item["y"] as Any?),
+                          let w = asDouble(item["w"] as Any?),
+                          let h = asDouble(item["h"] as Any?),
                           let label = item["label"] as? String else { return nil }
                     return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
                 }
