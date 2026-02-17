@@ -10,6 +10,11 @@ const log = getLogger('memory-embeddings');
 /** Global cache of embedding backend instances, keyed by "provider:model". */
 const backendCache = new Map<string, EmbeddingBackend>();
 
+/** Clear cached embedding backends so new instances pick up fresh credentials. */
+export function clearEmbeddingBackendCache(): void {
+  backendCache.clear();
+}
+
 function cacheKey(provider: string, model: string): string {
   return `${provider}:${model}`;
 }

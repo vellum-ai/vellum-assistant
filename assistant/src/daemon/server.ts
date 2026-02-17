@@ -10,6 +10,7 @@ import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
+import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session } from './session.js';
@@ -325,6 +326,7 @@ export class DaemonServer {
    */
   private refreshConfigFromSources(): boolean {
     invalidateConfigCache();
+    clearEmbeddingBackendCache();
     const config = getConfig();
     const fingerprint = this.configFingerprint(config);
     if (fingerprint === this.lastConfigFingerprint) {
