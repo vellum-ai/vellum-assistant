@@ -61,13 +61,12 @@ ${app.htmlDefinition}
 </body>
 </html>`;
 
-  // Strict CSP: inline scripts are blocked (no 'unsafe-inline' in script-src),
-  // inline styles are allowed only via nonce for the design-system CSS,
-  // and resource origins are tightened to HTTPS-only for external loads.
+  // CSP: inline scripts allowed because app HTML definitions contain inline
+  // <script> blocks and event handlers. Other directives are tightened.
   const csp = [
     "default-src 'self'",
     `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
-    "script-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data: https:",
     "object-src 'none'",
