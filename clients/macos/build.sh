@@ -18,12 +18,15 @@ set -euo pipefail
 #   SIGN_IDENTITY     Override code signing identity
 
 if [ -z "${DEVELOPER_DIR:-}" ]; then
-    # Prefer full Xcode over CommandLineTools — CLT lacks PreviewsMacros plugin
-    if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+    # Use xcode-select, but fall back to Xcode.app if it points to
+    # CommandLineTools (which lacks PreviewsMacros needed for #Preview).
+    _dev_dir=$(xcode-select -p 2>/dev/null || echo "")
+    if [ -z "$_dev_dir" ] || [[ "$_dev_dir" == */CommandLineTools* ]]; then
         DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
     else
-        DEVELOPER_DIR=$(xcode-select -p 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer")
+        DEVELOPER_DIR="$_dev_dir"
     fi
+    unset _dev_dir
 fi
 export DEVELOPER_DIR
 
