@@ -49,7 +49,7 @@ export async function approveHostAttachmentRead(
   const response = await prompter.prompt(
     toolName,
     input,
-    await classifyRisk(toolName, input),
+    await classifyRisk(toolName, input, workingDir),
     generateAllowlistOptions(toolName, input),
     generateScopeOptions(workingDir, toolName),
     undefined,

@@ -95,7 +95,7 @@ export class ToolExecutor {
 
     try {
       // Check permissions
-      const risk = await classifyRisk(name, input);
+      const risk = await classifyRisk(name, input, context.workingDir);
       riskLevel = risk;
 
       // Build principal context from tool metadata so policy rules can

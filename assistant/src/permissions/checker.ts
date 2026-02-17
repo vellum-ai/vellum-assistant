@@ -239,11 +239,11 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
-    if (filePath && isSkillSourcePath(resolve(filePath))) {
+    if (filePath && isSkillSourcePath(resolve(workingDir ?? process.cwd(), filePath))) {
       return RiskLevel.High;
     }
     return RiskLevel.Medium;
@@ -342,7 +342,7 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
-  const risk = await classifyRisk(toolName, input);
+  const risk = await classifyRisk(toolName, input, workingDir);
 
   // Build command string candidates for rule matching
   const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
