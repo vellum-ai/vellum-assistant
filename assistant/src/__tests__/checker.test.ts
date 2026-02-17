@@ -32,8 +32,9 @@ mock.module('../util/logger.js', () => ({
 
 // Mutable config object so tests can switch permissions.mode between
 // 'legacy' and 'strict' without re-registering the mock.
-const testConfig = {
+const testConfig: Record<string, any> = {
   permissions: { mode: 'legacy' as 'legacy' | 'strict' },
+  skills: { load: { extraDirs: [] as string[] } },
 };
 
 mock.module('../config/loader.js', () => ({
@@ -50,6 +51,7 @@ mock.module('../config/loader.js', () => ({
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 import { registerTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
 
@@ -95,7 +97,8 @@ describe('Permission Checker', () => {
     // Reset trust-store state between tests
     clearCache();
     // Reset permissions mode to legacy so existing tests are not affected
-    testConfig.permissions.mode = 'legacy';
+    testConfig.permissions = { mode: 'legacy' };
+    testConfig.skills = { load: { extraDirs: [] } };
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
@@ -3303,6 +3306,94 @@ describe('Permission Checker', () => {
         expect(result.decision).toBe('allow');
         expect(result.matchedRule!.pattern).toBe('skill_load:*');
       });
+    });
+  });
+
+  // ── extra skill dirs coverage ─────────────────────────────────────
+  // Files in user-configured extra skill directories must be treated as
+  // skill source paths (High risk escalation) and receive default ask
+  // rules, just like managed and bundled dirs.
+
+  describe('extra skill dirs coverage', () => {
+    const extraSkillDir = join(checkerTestDir, 'extra-skills');
+
+    function ensureExtraDir(): void {
+      mkdirSync(extraSkillDir, { recursive: true });
+    }
+
+    // Temporarily wire up the extra dir in the mock config, then restore.
+    function withExtraDirs(fn: () => void | Promise<void>): () => Promise<void> {
+      return async () => {
+        ensureExtraDir();
+        testConfig.skills = { load: { extraDirs: [extraSkillDir] } };
+        try {
+          await fn();
+        } finally {
+          testConfig.skills = { load: { extraDirs: [] } };
+        }
+      };
+    }
+
+    test(
+      'file_write to extra skill dir is High risk',
+      withExtraDirs(async () => {
+        const risk = await classifyRisk('file_write', { path: join(extraSkillDir, 'my-skill', 'foo.ts') }, '/tmp');
+        expect(risk).toBe(RiskLevel.High);
+      }),
+    );
+
+    test(
+      'file_edit of file in extra skill dir is High risk',
+      withExtraDirs(async () => {
+        const risk = await classifyRisk('file_edit', { path: join(extraSkillDir, 'my-skill', 'SKILL.md') }, '/tmp');
+        expect(risk).toBe(RiskLevel.High);
+      }),
+    );
+
+    test(
+      'host_file_write to extra skill dir is High risk',
+      withExtraDirs(async () => {
+        const risk = await classifyRisk('host_file_write', { path: join(extraSkillDir, 'my-skill', 'executor.ts') });
+        expect(risk).toBe(RiskLevel.High);
+      }),
+    );
+
+    test(
+      'host_file_edit of file in extra skill dir is High risk',
+      withExtraDirs(async () => {
+        const risk = await classifyRisk('host_file_edit', { path: join(extraSkillDir, 'my-skill', 'SKILL.md') });
+        expect(risk).toBe(RiskLevel.High);
+      }),
+    );
+
+    test(
+      'file_write to non-extra dir remains Medium when extra dirs are configured',
+      withExtraDirs(async () => {
+        const risk = await classifyRisk('file_write', { path: '/tmp/unrelated.txt' }, '/tmp');
+        expect(risk).toBe(RiskLevel.Medium);
+      }),
+    );
+
+    test(
+      'getDefaultRuleTemplates includes rules for extra skill dirs',
+      withExtraDirs(() => {
+        const templates = getDefaultRuleTemplates();
+        const extraRules = templates.filter((t) => t.id.includes('extra-0'));
+        // Should have rules for file_write, file_edit, host_file_write, host_file_edit
+        expect(extraRules.length).toBe(4);
+        for (const rule of extraRules) {
+          expect(rule.decision).toBe('ask');
+          expect(rule.pattern).toContain(extraSkillDir);
+        }
+      }),
+    );
+
+    test('getDefaultRuleTemplates has no extra rules when extraDirs is empty', () => {
+      // Default testConfig has no skills property → getConfig returns default
+      // with extraDirs: []
+      const templates = getDefaultRuleTemplates();
+      const extraRules = templates.filter((t) => t.id.includes('extra-'));
+      expect(extraRules.length).toBe(0);
     });
   });
 });

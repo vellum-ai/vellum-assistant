@@ -235,7 +235,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
-    if (filePath && isSkillSourcePath(resolve(workingDir ?? process.cwd(), filePath))) {
+    if (filePath && isSkillSourcePath(resolve(workingDir ?? process.cwd(), filePath), getConfig().skills.load.extraDirs)) {
       return RiskLevel.High;
     }
     return RiskLevel.Medium;
@@ -256,7 +256,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   // but writing to skill source code is a privilege-escalation vector.
   if (toolName === 'host_file_write' || toolName === 'host_file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
-    if (filePath && isSkillSourcePath(resolve(filePath))) {
+    if (filePath && isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)) {
       return RiskLevel.High;
     }
     // Fall through to the tool registry default (Medium) below.
