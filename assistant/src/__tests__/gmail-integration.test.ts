@@ -42,12 +42,10 @@ describe('Gmail integration contract', () => {
       (t: { name: string }) => t.name,
     );
 
-    // Every tool in the integration must exist in the manifest
     for (const name of gmailIntegration.allowedTools) {
       expect(manifestToolNames).toContain(name);
     }
 
-    // Every tool in the manifest must exist in the integration
     for (const name of manifestToolNames) {
       expect(gmailIntegration.allowedTools).toContain(name);
     }
