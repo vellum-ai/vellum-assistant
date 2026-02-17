@@ -65,7 +65,7 @@ struct WakeUpStepView: View {
             .padding(.top, VSpacing.lg)
 
             // Footer
-            Text("2026 Vellum Inc.")
+            Text("© 2026 Vellum Inc.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(VColor.textMuted.opacity(0.5))
         }
@@ -112,7 +112,7 @@ struct WakeUpStepView: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xl)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
                 .fill(Color.white.opacity(0.02))
