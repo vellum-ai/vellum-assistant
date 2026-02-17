@@ -201,8 +201,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -211,6 +211,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 400, height: 500)
         window.center()
 
         NSApp.setActivationPolicy(.regular)
