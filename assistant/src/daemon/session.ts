@@ -91,6 +91,7 @@ import {
   createToolExecutor,
   type ToolSetupContext,
 } from './session-tool-setup.js';
+import { projectSkillTools } from './session-skill-tools.js';
 
 const log = getLogger('session');
 
@@ -246,12 +247,22 @@ export class Session {
     );
 
     const config = getConfig();
+    // Build a resolveTools callback that merges base tool definitions with
+    // dynamically projected skill tools on each agent turn.
+    const resolveTools = toolDefs.length > 0
+      ? (history: Message[]) => {
+          const projection = projectSkillTools(history);
+          return [...toolDefs, ...projection.toolDefinitions];
+        }
+      : undefined;
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
       { maxTokens, thinking: config.thinking },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
+      resolveTools,
     );
     this.contextWindowManager = new ContextWindowManager(
       provider,

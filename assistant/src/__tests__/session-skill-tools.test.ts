@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import * as realFs from 'node:fs';
-import type { Message } from '../providers/types.js';
+import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import type { Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -338,5 +338,102 @@ describe('projectSkillTools', () => {
 
     expect(result.toolDefinitions).toHaveLength(1);
     expect(result.allowedToolNames).toEqual(new Set(['oncall_page']));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTools callback integration tests
+// ---------------------------------------------------------------------------
+
+describe('resolveTools callback (session wiring)', () => {
+  // Simulates the resolveTools callback wired in the Session constructor:
+  //   (history) => [...baseToolDefs, ...projectSkillTools(history).toolDefinitions]
+  const baseToolDefs: ToolDefinition[] = [
+    { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+    { name: 'bash', description: 'Run a shell command', input_schema: { type: 'object', properties: {} } },
+  ];
+
+  function makeResolveTools(base: ToolDefinition[]) {
+    return (history: Message[]): ToolDefinition[] => {
+      const projection = projectSkillTools(history);
+      return [...base, ...projection.toolDefinitions];
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('returns only base tools when no skills are active', () => {
+    const resolveTools = makeResolveTools(baseToolDefs);
+    const result = resolveTools([]);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((d) => d.name)).toEqual(['file_read', 'bash']);
+  });
+
+  test('combines base tools with projected skill tools', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run', 'deploy_status']) };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+
+    const result = resolveTools(history);
+
+    expect(result).toHaveLength(4);
+    expect(result.map((d) => d.name)).toEqual([
+      'file_read',
+      'bash',
+      'deploy_run',
+      'deploy_status',
+    ]);
+  });
+
+  test('skill tools appear after base tools and do not replace them', () => {
+    mockCatalog = [makeSkill('oncall')];
+    mockManifests = { oncall: makeManifest(['oncall_page']) };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+
+    const result = resolveTools(history);
+
+    // Base tools come first, skill tools are appended
+    expect(result[0].name).toBe('file_read');
+    expect(result[1].name).toBe('bash');
+    expect(result[2].name).toBe('oncall_page');
+  });
+
+  test('multiple skills add all their tools alongside base tools', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page', 'oncall_ack']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+
+    const result = resolveTools(history);
+
+    expect(result).toHaveLength(5);
+    const names = result.map((d) => d.name);
+    expect(names).toContain('file_read');
+    expect(names).toContain('bash');
+    expect(names).toContain('deploy_run');
+    expect(names).toContain('oncall_page');
+    expect(names).toContain('oncall_ack');
   });
 });
