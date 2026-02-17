@@ -169,7 +169,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(16);
+    expect(eagerModules.length).toBe(15);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -207,15 +207,14 @@ describe('baseline characterization: hardcoded tool loading', () => {
     expect(eagerModules).toContain('./gmail/executors.js');
   });
 
-  test('weather tool is registered via eager module after initializeTools()', async () => {
+  test('weather tool is NOT in global registry after initializeTools()', async () => {
     await initializeTools();
     const tool = getTool('get_weather');
-    expect(tool).toBeDefined();
-    expect(tool?.category).toBe('weather');
+    expect(tool).toBeUndefined();
   });
 
-  test('weather eager module is in eagerModules manifest', () => {
-    expect(eagerModules).toContain('./weather/get-weather.js');
+  test('weather eager module is NOT in eagerModules manifest', () => {
+    expect(eagerModules).not.toContain('./weather/get-weather.js');
   });
 
   test('claude_code is registered via lazy descriptor after initializeTools()', async () => {

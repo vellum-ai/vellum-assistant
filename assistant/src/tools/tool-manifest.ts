@@ -29,7 +29,6 @@ export const eagerModules: string[] = [
   './skills/scaffold-managed.js',
   './skills/delete-managed.js',
   './browser/headless-browser.js',
-  './weather/get-weather.js',
   './system/request-permission.js',
   './schedule/create.js',
   './schedule/list.js',
