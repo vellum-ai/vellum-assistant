@@ -26,47 +26,46 @@ struct WakeUpStepView: View {
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
 
+        // Question prompt
+        Text("How would you like to start?")
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(VColor.textPrimary)
+            .opacity(showSubtext ? 1 : 0)
+            .offset(y: showSubtext ? 0 : 8)
+            .padding(.top, VSpacing.xl)
+
         Spacer()
 
-        // Buttons
-        VStack(spacing: VSpacing.md) {
-            Button(action: { advanceStep() }) {
-                Text("Start with an API key")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
-                                dark: Violet._600
-                            ))
-                    )
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        // Option cards
+        VStack(spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.lg) {
+                // Card 1: Own API Key
+                optionCard(
+                    title: "Own API Key",
+                    description: "When you already have a subscription to a model.",
+                    action: { advanceStep() }
+                )
+
+                // Card 2: Vellum Account
+                optionCard(
+                    title: "Vellum Account",
+                    description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
+                    action: {}
+                )
             }
 
-            Button(action: {}) {
-                Text("Continue with Google")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(VColor.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(light: .white, dark: VColor.surface))
-                    )
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+            // Progress dots
+            OnboardingProgressDots(currentStep: 0, totalSteps: 4)
+                .padding(.top, VSpacing.sm)
+
+            // Footer
+            Text("2026 Vellum Inc.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .padding(.bottom, VSpacing.sm)
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing)
@@ -82,6 +81,56 @@ struct WakeUpStepView: View {
             }
         }
     }
+
+    // MARK: - Option Card
+
+    @ViewBuilder
+    private func optionCard(
+        title: String,
+        description: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(title)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(VColor.textPrimary)
+
+            Text(description)
+                .font(.system(size: 13))
+                .foregroundColor(VColor.textSecondary)
+                .lineSpacing(3)
+
+            Spacer()
+
+            Button(action: action) {
+                Text("Start")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(Violet._600)
+                    )
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(VSpacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .fill(VColor.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Advance
 
     private func advanceStep() {
         guard !isAdvancing else { return }
@@ -107,5 +156,5 @@ struct WakeUpStepView: View {
             WakeUpStepView(state: OnboardingState())
         }
     }
-    .frame(width: 460, height: 520)
+    .frame(width: 520, height: 580)
 }
