@@ -24,6 +24,7 @@ import {
 } from './session-surfaces.js';
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
+import { registerSessionSender } from '../tools/browser/browser-screencast.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -75,6 +76,9 @@ export function createToolExecutor(
   handleToolLifecycleEvent: ToolLifecycleEventHandler,
   broadcastToAllClients?: (msg: ServerMessage) => void,
 ): (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<ToolExecutionResult> {
+  // Register the session's sendToClient for browser screencast surface messages
+  registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
+
   return async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
     const result = await executor.execute(name, input, {
       workingDir: ctx.workingDir,
