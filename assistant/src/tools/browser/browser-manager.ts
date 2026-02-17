@@ -159,8 +159,7 @@ class BrowserManager {
 
     // Clear stale snapshot mappings and CDP state when replacing a closed page
     this.snapshotMaps.delete(sessionId);
-    this.cdpSessions.delete(sessionId);
-    this.screencastCallbacks.delete(sessionId);
+    await this.stopScreencast(sessionId);
 
     const page = await context.newPage();
     this.pages.set(sessionId, page);
