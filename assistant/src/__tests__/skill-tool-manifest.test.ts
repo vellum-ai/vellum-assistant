@@ -203,3 +203,456 @@ describe('parseToolManifestFile', () => {
     expect(result.tools[1].name).toBe('beta');
   });
 });
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — root-level validation errors
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — root-level validation', () => {
+  test('rejects null input', () => {
+    expect(() => parseToolManifest(null)).toThrow('TOOLS.json must be a JSON object');
+  });
+
+  test('rejects undefined input', () => {
+    expect(() => parseToolManifest(undefined)).toThrow('TOOLS.json must be a JSON object');
+  });
+
+  test('rejects a string input', () => {
+    expect(() => parseToolManifest('not an object')).toThrow('TOOLS.json must be a JSON object');
+  });
+
+  test('rejects a number input', () => {
+    expect(() => parseToolManifest(42)).toThrow('TOOLS.json must be a JSON object');
+  });
+
+  test('rejects a boolean input', () => {
+    expect(() => parseToolManifest(true)).toThrow('TOOLS.json must be a JSON object');
+  });
+
+  test('rejects an array instead of object at root', () => {
+    expect(() => parseToolManifest([{ version: 1 }])).toThrow('TOOLS.json must be a JSON object');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — version field validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — version validation', () => {
+  test('rejects missing version field', () => {
+    const raw = { tools: [makeToolEntry()] };
+    expect(() => parseToolManifest(raw)).toThrow('TOOLS.json is missing required field "version"');
+  });
+
+  test('rejects version 0', () => {
+    expect(() => parseToolManifest(makeManifest({ version: 0 }))).toThrow(
+      'TOOLS.json "version" must be 1, got: 0',
+    );
+  });
+
+  test('rejects version 2', () => {
+    expect(() => parseToolManifest(makeManifest({ version: 2 }))).toThrow(
+      'TOOLS.json "version" must be 1, got: 2',
+    );
+  });
+
+  test('rejects string version', () => {
+    expect(() => parseToolManifest(makeManifest({ version: '1' }))).toThrow(
+      'TOOLS.json "version" must be 1, got: "1"',
+    );
+  });
+
+  test('rejects float version', () => {
+    expect(() => parseToolManifest(makeManifest({ version: 1.5 }))).toThrow(
+      'TOOLS.json "version" must be 1, got: 1.5',
+    );
+  });
+
+  test('rejects null version', () => {
+    expect(() => parseToolManifest(makeManifest({ version: null }))).toThrow(
+      'TOOLS.json "version" must be 1, got: null',
+    );
+  });
+
+  test('rejects boolean version', () => {
+    expect(() => parseToolManifest(makeManifest({ version: true }))).toThrow(
+      'TOOLS.json "version" must be 1, got: true',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — tools field validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — tools field validation', () => {
+  test('rejects missing tools field', () => {
+    expect(() => parseToolManifest({ version: 1 })).toThrow(
+      'TOOLS.json is missing required field "tools"',
+    );
+  });
+
+  test('rejects tools as a string', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: 'not-an-array' }))).toThrow(
+      'TOOLS.json "tools" must be an array',
+    );
+  });
+
+  test('rejects tools as an object', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: {} }))).toThrow(
+      'TOOLS.json "tools" must be an array',
+    );
+  });
+
+  test('rejects tools as null', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: null }))).toThrow(
+      'TOOLS.json "tools" must be an array',
+    );
+  });
+
+  test('rejects empty tools array', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [] }))).toThrow(
+      'TOOLS.json "tools" must contain at least one tool entry',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — tool entry type validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — tool entry type validation', () => {
+  test('rejects null tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [null] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('rejects undefined tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [undefined] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('rejects string tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: ['a string'] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('rejects number tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [42] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('rejects array tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [[]] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('rejects boolean tool entry', () => {
+    expect(() => parseToolManifest(makeManifest({ tools: [true] }))).toThrow(
+      'TOOLS.json tools[0]: each tool entry must be a JSON object',
+    );
+  });
+
+  test('error message includes correct index for later entries', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ name: 'ok' }), 'bad'] })),
+    ).toThrow('TOOLS.json tools[1]: each tool entry must be a JSON object');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — required field validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — required field validation', () => {
+  const requiredStringFields = ['name', 'description', 'category', 'risk', 'executor', 'execution_target'] as const;
+
+  for (const field of requiredStringFields) {
+    test(`rejects missing "${field}" field`, () => {
+      const entry = makeToolEntry();
+      delete entry[field];
+      expect(() => parseToolManifest(makeManifest({ tools: [entry] }))).toThrow(
+        `TOOLS.json tools[0]: missing or non-string "${field}"`,
+      );
+    });
+
+    test(`rejects non-string "${field}" field (number)`, () => {
+      const entry = makeToolEntry({ [field]: 123 });
+      expect(() => parseToolManifest(makeManifest({ tools: [entry] }))).toThrow(
+        `TOOLS.json tools[0]: missing or non-string "${field}"`,
+      );
+    });
+
+    test(`rejects null "${field}" field`, () => {
+      const entry = makeToolEntry({ [field]: null });
+      expect(() => parseToolManifest(makeManifest({ tools: [entry] }))).toThrow(
+        `TOOLS.json tools[0]: missing or non-string "${field}"`,
+      );
+    });
+  }
+
+  test('rejects missing input_schema', () => {
+    const entry = makeToolEntry();
+    delete entry.input_schema;
+    expect(() => parseToolManifest(makeManifest({ tools: [entry] }))).toThrow(
+      'TOOLS.json tools[0]: missing or non-object "input_schema"',
+    );
+  });
+
+  test('rejects null input_schema', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ input_schema: null })] })),
+    ).toThrow('TOOLS.json tools[0]: missing or non-object "input_schema"');
+  });
+
+  test('rejects array input_schema', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ input_schema: [] })] })),
+    ).toThrow('TOOLS.json tools[0]: missing or non-object "input_schema"');
+  });
+
+  test('rejects string input_schema', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ input_schema: 'schema' })] })),
+    ).toThrow('TOOLS.json tools[0]: missing or non-object "input_schema"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — empty string validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — empty string validation', () => {
+  test('rejects empty name', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ name: '' })] })),
+    ).toThrow('TOOLS.json tools[0]: "name" must be a non-empty string');
+  });
+
+  test('rejects whitespace-only name', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ name: '   ' })] })),
+    ).toThrow('TOOLS.json tools[0]: "name" must be a non-empty string');
+  });
+
+  test('rejects empty description', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ description: '' })] })),
+    ).toThrow('TOOLS.json tools[0]: "description" must be a non-empty string');
+  });
+
+  test('rejects whitespace-only description', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ description: '  \t  ' })] })),
+    ).toThrow('TOOLS.json tools[0]: "description" must be a non-empty string');
+  });
+
+  test('rejects empty category', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ category: '' })] })),
+    ).toThrow('TOOLS.json tools[0]: "category" must be a non-empty string');
+  });
+
+  test('rejects whitespace-only category', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ category: '\n' })] })),
+    ).toThrow('TOOLS.json tools[0]: "category" must be a non-empty string');
+  });
+
+  test('rejects empty executor', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ executor: '' })] })),
+    ).toThrow('TOOLS.json tools[0]: "executor" must be a non-empty string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — risk level validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — risk level validation', () => {
+  test('rejects invalid risk level "critical"', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ risk: 'critical' })] })),
+    ).toThrow('TOOLS.json tools[0]: "risk" must be one of "low", "medium", "high", got: "critical"');
+  });
+
+  test('rejects uppercase risk level', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ risk: 'LOW' })] })),
+    ).toThrow('TOOLS.json tools[0]: "risk" must be one of "low", "medium", "high", got: "LOW"');
+  });
+
+  test('rejects mixed case risk level', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ risk: 'Medium' })] })),
+    ).toThrow('TOOLS.json tools[0]: "risk" must be one of "low", "medium", "high", got: "Medium"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — execution_target validation
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — execution_target validation', () => {
+  test('rejects invalid execution_target', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ execution_target: 'cloud' })] })),
+    ).toThrow(
+      'TOOLS.json tools[0]: "execution_target" must be one of "host", "sandbox", got: "cloud"',
+    );
+  });
+
+  test('rejects uppercase execution_target', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ execution_target: 'HOST' })] })),
+    ).toThrow(
+      'TOOLS.json tools[0]: "execution_target" must be one of "host", "sandbox", got: "HOST"',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — executor path traversal
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — executor path traversal', () => {
+  test('rejects absolute path executor', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ executor: '/absolute/path.ts' })] })),
+    ).toThrow(
+      'TOOLS.json tools[0]: "executor" must be a relative path, got absolute path: "/absolute/path.ts"',
+    );
+  });
+
+  test('rejects simple ../ path traversal', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ executor: '../escape.ts' })] })),
+    ).toThrow(
+      'TOOLS.json tools[0]: "executor" must not contain ".." path segments: "../escape.ts"',
+    );
+  });
+
+  test('rejects embedded ../ path traversal', () => {
+    expect(() =>
+      parseToolManifest(
+        makeManifest({ tools: [makeToolEntry({ executor: 'foo/../../escape.ts' })] }),
+      ),
+    ).toThrow(
+      'TOOLS.json tools[0]: "executor" must not contain ".." path segments: "foo/../../escape.ts"',
+    );
+  });
+
+  test('rejects deeply nested ../ path traversal', () => {
+    expect(() =>
+      parseToolManifest(
+        makeManifest({ tools: [makeToolEntry({ executor: 'a/b/../../../escape.ts' })] }),
+      ),
+    ).toThrow(
+      'TOOLS.json tools[0]: "executor" must not contain ".." path segments: "a/b/../../../escape.ts"',
+    );
+  });
+
+  test('rejects .. as the only path segment', () => {
+    expect(() =>
+      parseToolManifest(makeManifest({ tools: [makeToolEntry({ executor: '..' })] })),
+    ).toThrow('TOOLS.json tools[0]: "executor" must not contain ".." path segments: ".."');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifest — duplicate tool names
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifest — duplicate tool names', () => {
+  test('rejects duplicate tool names', () => {
+    expect(() =>
+      parseToolManifest(
+        makeManifest({
+          tools: [
+            makeToolEntry({ name: 'dupe-tool', executor: 'tools/a.ts' }),
+            makeToolEntry({ name: 'dupe-tool', executor: 'tools/b.ts' }),
+          ],
+        }),
+      ),
+    ).toThrow('TOOLS.json tools[1]: duplicate tool name "dupe-tool"');
+  });
+
+  test('allows tools with different names', () => {
+    const result = parseToolManifest(
+      makeManifest({
+        tools: [
+          makeToolEntry({ name: 'tool-x', executor: 'tools/x.ts' }),
+          makeToolEntry({ name: 'tool-y', executor: 'tools/y.ts' }),
+        ],
+      }),
+    );
+    expect(result.tools).toHaveLength(2);
+  });
+
+  test('detects duplicate at third position', () => {
+    expect(() =>
+      parseToolManifest(
+        makeManifest({
+          tools: [
+            makeToolEntry({ name: 'unique-a' }),
+            makeToolEntry({ name: 'unique-b' }),
+            makeToolEntry({ name: 'unique-a' }),
+          ],
+        }),
+      ),
+    ).toThrow('TOOLS.json tools[2]: duplicate tool name "unique-a"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseToolManifestFile — failure cases
+// ---------------------------------------------------------------------------
+
+describe('parseToolManifestFile — failure cases', () => {
+  test('throws for nonexistent file', () => {
+    const fakePath = join(tempDir, 'does-not-exist.json');
+    expect(() => parseToolManifestFile(fakePath)).toThrow(
+      `Failed to read TOOLS.json at "${fakePath}"`,
+    );
+  });
+
+  test('throws for invalid JSON content', async () => {
+    const filePath = join(tempDir, 'bad-json.json');
+    await writeFile(filePath, '{ this is not valid json }', 'utf-8');
+
+    expect(() => parseToolManifestFile(filePath)).toThrow(
+      `Failed to parse TOOLS.json at "${filePath}" as JSON`,
+    );
+  });
+
+  test('throws for empty file', async () => {
+    const filePath = join(tempDir, 'empty.json');
+    await writeFile(filePath, '', 'utf-8');
+
+    expect(() => parseToolManifestFile(filePath)).toThrow(
+      `Failed to parse TOOLS.json at "${filePath}" as JSON`,
+    );
+  });
+
+  test('throws validation error for valid JSON but invalid manifest', async () => {
+    const filePath = join(tempDir, 'bad-manifest.json');
+    await writeFile(filePath, JSON.stringify({ version: 2, tools: [] }), 'utf-8');
+
+    expect(() => parseToolManifestFile(filePath)).toThrow(
+      'TOOLS.json "version" must be 1, got: 2',
+    );
+  });
+
+  test('throws validation error for JSON array file', async () => {
+    const filePath = join(tempDir, 'array-root.json');
+    await writeFile(filePath, JSON.stringify([{ version: 1 }]), 'utf-8');
+
+    expect(() => parseToolManifestFile(filePath)).toThrow('TOOLS.json must be a JSON object');
+  });
+});
