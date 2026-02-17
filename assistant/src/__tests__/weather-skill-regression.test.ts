@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { weatherCodeToDescription, weatherCodeToSFSymbol } from '../tools/weather/service.js';
+import { getTool } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -12,11 +13,17 @@ import type { ToolContext } from '../tools/types.js';
 const CONFIG_DIR = join(dirname(import.meta.dirname!), 'config', 'bundled-skills', 'weather');
 
 describe('weather skill script wrapper', () => {
-  test('exports a run function', async () => {
+  test('exports a run function without registering get_weather in the tool registry', async () => {
+    // Before importing the wrapper, verify get_weather is not in the registry.
+    expect(getTool('get_weather')).toBeUndefined();
+
     // Dynamic import of the skill wrapper — it should NOT trigger any
     // registerTool side-effect (the wrapper delegates to the service module).
     const mod = await import('../config/bundled-skills/weather/tools/get-weather.js');
     expect(typeof mod.run).toBe('function');
+
+    // After importing, the registry should still be clean — no side-effect.
+    expect(getTool('get_weather')).toBeUndefined();
   });
 
   test('run function delegates to executeGetWeather from the service module', async () => {
@@ -126,15 +133,17 @@ describe('weather TOOLS.json manifest', () => {
   });
 
   test('schema matches the GetWeatherTool class definition', async () => {
-    // Import the legacy tool module to get the class-based definition,
-    // then compare its schema against the TOOLS.json manifest schema.
-    // The legacy module calls registerTool() as a side-effect, but that
-    // is harmless in tests.
-    // The legacy module re-exports executeGetWeather from the service module.
-    // Verify the re-export is the exact same function reference.
-    const legacyMod = await import('../tools/weather/get-weather.js');
-    const serviceMod = await import('../tools/weather/service.js');
-    expect(legacyMod.executeGetWeather).toBe(serviceMod.executeGetWeather);
+    // Import the legacy tool module so its registerTool() side-effect fires,
+    // then retrieve the registered tool and compare its input_schema against
+    // the TOOLS.json manifest schema. This catches any drift between the two
+    // definitions (added/removed fields, changed enums, etc.).
+    await import('../tools/weather/get-weather.js');
+    const registeredTool = getTool('get_weather');
+    expect(registeredTool).toBeDefined();
+
+    const legacySchema = registeredTool!.getDefinition().input_schema;
+    const manifestSchema = manifest.tools[0].input_schema;
+    expect(manifestSchema).toEqual(legacySchema);
   });
 });
 
