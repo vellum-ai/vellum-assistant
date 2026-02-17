@@ -135,31 +135,31 @@ describe('uploadAttachment', () => {
 describe('deleteAttachment', () => {
   beforeEach(resetTables);
 
-  test('deletes existing attachment and returns true', () => {
+  test('deletes existing attachment and returns deleted', () => {
     const stored = uploadAttachment('ast-1', 'file.txt', 'text/plain', 'dGVzdA==');
     const result = deleteAttachment('ast-1', stored.id);
-    expect(result).toBe(true);
+    expect(result).toBe('deleted');
 
     const fetched = getAttachmentById('ast-1', stored.id);
     expect(fetched).toBeNull();
   });
 
-  test('returns false for nonexistent attachment', () => {
+  test('returns not_found for nonexistent attachment', () => {
     const result = deleteAttachment('ast-1', 'nonexistent-id');
-    expect(result).toBe(false);
+    expect(result).toBe('not_found');
   });
 
-  test('returns false when assistantId does not match', () => {
+  test('returns not_found when assistantId does not match', () => {
     const stored = uploadAttachment('ast-owner', 'file.txt', 'text/plain', 'dGVzdA==');
     const result = deleteAttachment('ast-other', stored.id);
-    expect(result).toBe(false);
+    expect(result).toBe('not_found');
 
     // Original still exists
     const fetched = getAttachmentById('ast-owner', stored.id);
     expect(fetched).not.toBeNull();
   });
 
-  test('preserves shared attachment when other messages still reference it', () => {
+  test('returns still_referenced when messages reference the attachment', () => {
     const conv = createConversation();
     const msg1 = addMessage(conv.id, 'user', 'First upload');
     const msg2 = addMessage(conv.id, 'user', 'Duplicate upload');
@@ -172,9 +172,9 @@ describe('deleteAttachment', () => {
     linkAttachmentToMessage(msg1.id, first.id, 0);
     linkAttachmentToMessage(msg2.id, second.id, 0);
 
-    // Delete should succeed but NOT remove the attachment row
+    // Delete should return still_referenced and NOT remove the attachment row
     const result = deleteAttachment('ast-1', first.id);
-    expect(result).toBe(true);
+    expect(result).toBe('still_referenced');
 
     // Attachment row still exists because messages reference it
     const fetched = getAttachmentById('ast-1', first.id);
@@ -191,7 +191,7 @@ describe('deleteAttachment', () => {
     const stored = uploadAttachment('ast-1', 'lonely.txt', 'text/plain', 'UNREFERENCED');
     // No linkAttachmentToMessage call — zero references
     const result = deleteAttachment('ast-1', stored.id);
-    expect(result).toBe(true);
+    expect(result).toBe('deleted');
 
     const fetched = getAttachmentById('ast-1', stored.id);
     expect(fetched).toBeNull();

@@ -181,7 +181,9 @@ export function uploadAttachment(
   };
 }
 
-export function deleteAttachment(assistantId: string, attachmentId: string): boolean {
+export type DeleteAttachmentResult = 'deleted' | 'not_found' | 'still_referenced';
+
+export function deleteAttachment(assistantId: string, attachmentId: string): DeleteAttachmentResult {
   const db = getDb();
   const existing = db
     .select({ id: attachments.id })
@@ -194,7 +196,7 @@ export function deleteAttachment(assistantId: string, attachmentId: string): boo
     )
     .get();
 
-  if (!existing) return false;
+  if (!existing) return 'not_found';
 
   // With content-hash deduplication, multiple messages may reference the same
   // attachment row. Only delete the attachment (and cascade its links) when no
@@ -206,13 +208,13 @@ export function deleteAttachment(assistantId: string, attachmentId: string): boo
     .all()
     .length;
 
-  if (refCount === 0) {
-    db.delete(attachments)
-      .where(eq(attachments.id, attachmentId))
-      .run();
-  }
+  if (refCount > 0) return 'still_referenced';
 
-  return true;
+  db.delete(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .run();
+
+  return 'deleted';
 }
 
 export function getAttachmentsByIds(

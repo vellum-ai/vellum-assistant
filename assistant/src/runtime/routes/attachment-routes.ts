@@ -78,12 +78,19 @@ export async function handleDeleteAttachment(assistantId: string, req: Request):
     );
   }
 
-  const deleted = attachmentsStore.deleteAttachment(assistantId, attachmentId);
+  const result = attachmentsStore.deleteAttachment(assistantId, attachmentId);
 
-  if (!deleted) {
+  if (result === 'not_found') {
     return Response.json(
       { error: 'Attachment not found' },
       { status: 404 },
+    );
+  }
+
+  if (result === 'still_referenced') {
+    return Response.json(
+      { error: 'Attachment is still referenced by one or more messages' },
+      { status: 409 },
     );
   }
 
