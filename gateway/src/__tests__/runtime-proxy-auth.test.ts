@@ -84,7 +84,7 @@ describe("runtime proxy auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
-  test("auth required: strips authorization header from upstream request", async () => {
+  test("auth required: replaces client authorization with configured bearer token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
     globalThis.fetch = mock(async (_input: any, init?: any) => {
       capturedHeaders = init?.headers;
@@ -100,7 +100,7 @@ describe("runtime proxy auth enforcement", () => {
     });
     await handler(req);
 
-    expect(capturedHeaders!.has("authorization")).toBe(false);
+    expect(capturedHeaders!.get("authorization")).toBe(`Bearer ${TOKEN}`);
   });
 
   test("auth not required: proxies without token", async () => {
