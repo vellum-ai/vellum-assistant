@@ -19,7 +19,7 @@ export function createSkillTool(
   entry: SkillToolEntry,
   skillId: string,
   skillDir: string,
-  versionHash?: string,
+  versionHash: string,
 ): Tool {
   return {
     name: entry.name,
@@ -55,7 +55,7 @@ export function createSkillToolsFromManifest(
   entries: SkillToolEntry[],
   skillId: string,
   skillDir: string,
-  versionHash?: string,
+  versionHash: string,
 ): Tool[] {
   return entries.map(entry => createSkillTool(entry, skillId, skillDir, versionHash));
 }

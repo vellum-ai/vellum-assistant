@@ -69,7 +69,7 @@ afterAll(async () => {
 
 describe('createSkillTool', () => {
   test('produces a tool with correct name, description, and category', () => {
-    const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill');
+    const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill', 'v1:test');
 
     expect(tool.name).toBe('test_tool');
     expect(tool.description).toBe('A test tool');
@@ -77,23 +77,17 @@ describe('createSkillTool', () => {
   });
 
   test('sets origin to skill and ownerSkillId', () => {
-    const tool = createSkillTool(makeEntry(), 'weather-skill', '/skills/weather');
+    const tool = createSkillTool(makeEntry(), 'weather-skill', '/skills/weather', 'v1:test');
 
     expect(tool.origin).toBe('skill');
     expect(tool.ownerSkillId).toBe('weather-skill');
   });
 
-  test('sets ownerSkillVersionHash when versionHash is provided', () => {
+  test('sets ownerSkillVersionHash from versionHash', () => {
     const hash = 'v1:abc123def456';
     const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill', hash);
 
     expect(tool.ownerSkillVersionHash).toBe(hash);
-  });
-
-  test('ownerSkillVersionHash is undefined when no versionHash is provided', () => {
-    const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill');
-
-    expect(tool.ownerSkillVersionHash).toBeUndefined();
   });
 
   test.each([
@@ -101,7 +95,7 @@ describe('createSkillTool', () => {
     ['medium', RiskLevel.Medium],
     ['high', RiskLevel.High],
   ] as const)('maps risk "%s" to RiskLevel.%s', (risk, expected) => {
-    const tool = createSkillTool(makeEntry({ risk }), 'sk', '/skills/sk');
+    const tool = createSkillTool(makeEntry({ risk }), 'sk', '/skills/sk', 'v1:test');
 
     expect(tool.defaultRiskLevel).toBe(expected);
   });
@@ -120,6 +114,7 @@ describe('createSkillTool', () => {
       makeEntry({ name: 'web_scrape', description: 'Scrape a URL', input_schema: schema }),
       'scraper',
       '/skills/scraper',
+      'v1:test',
     );
 
     const def = tool.getDefinition();
@@ -134,10 +129,12 @@ describe('createSkillTool', () => {
   // ---------------------------------------------------------------------------
 
   test('execute() routes through runSkillToolScript to the executor', async () => {
+    const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: 'echo.ts' }),
       'my-skill',
       tempDir,
+      hash,
     );
     const ctx = makeContext({ workingDir: '/my/project' });
     const input = { query: 'hello' };
@@ -155,6 +152,7 @@ describe('createSkillTool', () => {
       makeEntry({ executor: 'nonexistent.ts' }),
       'my-skill',
       tempDir,
+      'v1:test',
     );
 
     const result = await tool.execute({}, makeContext());
@@ -176,7 +174,7 @@ describe('createSkillToolsFromManifest', () => {
       makeEntry({ name: 'tool_c', description: 'Tool C', risk: 'medium' }),
     ];
 
-    const tools = createSkillToolsFromManifest(entries, 'multi-skill', '/skills/multi');
+    const tools = createSkillToolsFromManifest(entries, 'multi-skill', '/skills/multi', 'v1:test');
 
     expect(tools).toHaveLength(3);
     expect(tools.map(t => t.name)).toEqual(['tool_a', 'tool_b', 'tool_c']);
@@ -193,7 +191,7 @@ describe('createSkillToolsFromManifest', () => {
       makeEntry({ name: 'beta' }),
     ];
 
-    const tools = createSkillToolsFromManifest(entries, 'shared-skill', '/skills/shared');
+    const tools = createSkillToolsFromManifest(entries, 'shared-skill', '/skills/shared', 'v1:test');
 
     for (const tool of tools) {
       expect(tool.origin).toBe('skill');
@@ -202,7 +200,7 @@ describe('createSkillToolsFromManifest', () => {
   });
 
   test('returns an empty array when given no entries', () => {
-    const tools = createSkillToolsFromManifest([], 'empty-skill', '/skills/empty');
+    const tools = createSkillToolsFromManifest([], 'empty-skill', '/skills/empty', 'v1:test');
 
     expect(tools).toEqual([]);
   });
@@ -221,15 +219,6 @@ describe('createSkillToolsFromManifest', () => {
     }
   });
 
-  test('ownerSkillVersionHash is undefined when no versionHash passed to manifest function', () => {
-    const entries: SkillToolEntry[] = [
-      makeEntry({ name: 'gamma' }),
-    ];
-
-    const tools = createSkillToolsFromManifest(entries, 'no-hash-skill', '/skills/no-hash');
-
-    expect(tools[0].ownerSkillVersionHash).toBeUndefined();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,18 +248,4 @@ describe('createSkillTool — version hash plumbing to runner', () => {
     expect(tool.ownerSkillVersionHash).toBe(hash);
   });
 
-  test('execute() works correctly when no versionHash is provided', async () => {
-    const tool = createSkillTool(
-      makeEntry({ executor: 'echo.ts' }),
-      'my-skill',
-      tempDir,
-    );
-    const ctx = makeContext();
-    const input = { query: 'no-hash' };
-
-    const result = await tool.execute(input, ctx);
-
-    expect(result.isError).toBe(false);
-    expect(tool.ownerSkillVersionHash).toBeUndefined();
-  });
 });

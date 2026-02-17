@@ -89,7 +89,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
     entries: SkillToolManifest['tools'],
     skillId: string,
     _skillDir: string,
-    versionHash?: string,
+    versionHash: string,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
