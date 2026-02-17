@@ -3,7 +3,7 @@ import * as readline from 'node:readline';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { getSocketPath, getHistoryPath, readSessionToken } from './util/platform.js';
-import { hasSocketOverride } from './daemon/connection-policy.js';
+import { hasNoAuthOverride } from './daemon/connection-policy.js';
 import {
   serialize,
   createMessageParser,
@@ -694,10 +694,11 @@ export async function startCli(): Promise<void> {
         // accept any other messages.
         const token = readSessionToken();
         if (!token) {
-          if (hasSocketOverride()) {
-            // SSH-forwarded socket: the token file lives on the remote
-            // host, not locally. Connect without auth and let the server
-            // decide whether to accept the unauthenticated connection.
+          if (hasNoAuthOverride()) {
+            // VELLUM_DAEMON_NOAUTH=1: the operator has explicitly opted
+            // into unauthenticated connections (e.g. SSH-forwarded socket
+            // where the token file lives on the remote host). Connect
+            // without auth and let the server decide.
             authenticated = true;
             startHeartbeat();
             resolve();

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { hasSocketOverride, shouldAutoStartDaemon } from '../daemon/connection-policy.js';
+import { hasSocketOverride, hasNoAuthOverride, shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 
 describe('hasSocketOverride', () => {
   test('returns false when VELLUM_DAEMON_SOCKET is not set', () => {
@@ -16,6 +16,46 @@ describe('hasSocketOverride', () => {
 
   test('returns true when VELLUM_DAEMON_SOCKET is set', () => {
     expect(hasSocketOverride({ VELLUM_DAEMON_SOCKET: '/tmp/custom.sock' })).toBe(true);
+  });
+});
+
+describe('hasNoAuthOverride', () => {
+  test('returns false when VELLUM_DAEMON_NOAUTH is not set', () => {
+    expect(hasNoAuthOverride({})).toBe(false);
+  });
+
+  test('returns false when VELLUM_DAEMON_NOAUTH is empty', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: '' })).toBe(false);
+  });
+
+  test('returns false when VELLUM_DAEMON_NOAUTH is whitespace', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: '   ' })).toBe(false);
+  });
+
+  test('returns false when VELLUM_DAEMON_NOAUTH is 0', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: '0' })).toBe(false);
+  });
+
+  test('returns false when VELLUM_DAEMON_NOAUTH is false', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: 'false' })).toBe(false);
+  });
+
+  test('returns true when VELLUM_DAEMON_NOAUTH is 1', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: '1' })).toBe(true);
+  });
+
+  test('returns true when VELLUM_DAEMON_NOAUTH is true', () => {
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_NOAUTH: 'true' })).toBe(true);
+  });
+
+  test('is independent of VELLUM_DAEMON_SOCKET', () => {
+    // Socket override alone does NOT enable no-auth
+    expect(hasNoAuthOverride({ VELLUM_DAEMON_SOCKET: '/tmp/custom.sock' })).toBe(false);
+    // No-auth requires its own explicit flag
+    expect(hasNoAuthOverride({
+      VELLUM_DAEMON_SOCKET: '/tmp/custom.sock',
+      VELLUM_DAEMON_NOAUTH: '1',
+    })).toBe(true);
   });
 });
 
