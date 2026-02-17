@@ -188,11 +188,7 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: #selector(showRideShotgunInvitation), keyEquivalent: "")
-        rideShotgunItem.target = self
-        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
-        rideShotgunItem.isEnabled = ambientAgent.currentSession == nil
-        menu.addItem(rideShotgunItem)
+        // Ride Shotgun menu item disabled — re-enable when the feature has a clearer value prop
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
