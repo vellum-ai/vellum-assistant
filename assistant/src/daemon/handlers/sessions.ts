@@ -125,13 +125,14 @@ export async function handleUserMessage(
 
 export function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  socket: net.Socket,
+  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const sessionId = ctx.socketToSession.get(socket);
-  if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
+  // Route by requestId to the session that originated the prompt, not by
+  // the current socket-session binding which may have changed since the
+  // request was issued (e.g. after a session switch).
+  for (const [sessionId, session] of ctx.sessions) {
+    if (session.hasPendingConfirmation(msg.requestId)) {
       ctx.touchSession(sessionId);
       session.handleConfirmationResponse(
         msg.requestId,
@@ -139,13 +140,15 @@ export function handleConfirmationResponse(
         msg.selectedPattern,
         msg.selectedScope,
       );
+      return;
     }
   }
+  log.warn({ requestId: msg.requestId }, 'No session found with pending confirmation for requestId');
 }
 
 export function handleSecretResponse(
   msg: SecretResponse,
-  socket: net.Socket,
+  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Check standalone (non-session) prompts first, since they use a dedicated
@@ -158,15 +161,17 @@ export function handleSecretResponse(
     return;
   }
 
-  // Otherwise route to the session's secret prompter
-  const sessionId = ctx.socketToSession.get(socket);
-  if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
+  // Route by requestId to the session that originated the prompt, not by
+  // the current socket-session binding which may have changed since the
+  // request was issued (e.g. after a session switch).
+  for (const [sessionId, session] of ctx.sessions) {
+    if (session.hasPendingSecret(msg.requestId)) {
       ctx.touchSession(sessionId);
       session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
+      return;
     }
   }
+  log.warn({ requestId: msg.requestId }, 'No session found with pending secret prompt for requestId');
 }
 
 export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
