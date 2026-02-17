@@ -430,6 +430,12 @@ describe('buildOnboardingGuidanceSection', () => {
     expect(section).toContain('firstConversationComplete');
   });
 
+  test('includes fallback instruction for missing sections', () => {
+    const section = buildOnboardingGuidanceSection();
+    expect(section).toContain('does not yet exist in USER.md');
+    expect(section).toContain('create it with the default values');
+  });
+
   test('does not contain platform-specific logic', () => {
     const section = buildOnboardingGuidanceSection();
     expect(section).not.toContain('macOS');
