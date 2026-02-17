@@ -18,6 +18,9 @@ struct SettingsPanel: View {
     @State private var integrationError: (id: String, message: String)?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
+    @State private var accessibilityGranted: Bool = false
+    @State private var screenRecordingGranted: Bool = false
+    @State private var permissionCheckTimer: Timer?
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -305,7 +308,12 @@ struct SettingsPanel: View {
                     permissionRow(
                         emoji: "\u{1F47B}",
                         label: "Accessibility",
-                        granted: PermissionManager.accessibilityStatus() == .granted
+                        granted: accessibilityGranted,
+                        action: {
+                            // Request accessibility permission (opens System Settings)
+                            _ = PermissionManager.accessibilityStatus(prompt: true)
+                            startPermissionPolling()
+                        }
                     )
                     .padding(VSpacing.md)
                     .vCard(background: VColor.surfaceSubtle)
@@ -313,7 +321,12 @@ struct SettingsPanel: View {
                     permissionRow(
                         emoji: "\u{1F355}",
                         label: "Screen Recording",
-                        granted: PermissionManager.screenRecordingStatus() == .granted
+                        granted: screenRecordingGranted,
+                        action: {
+                            // Request screen recording permission (opens System Settings)
+                            PermissionManager.requestScreenRecordingAccess()
+                            startPermissionPolling()
+                        }
                     )
                     .padding(VSpacing.md)
                     .vCard(background: VColor.surfaceSubtle)
@@ -423,12 +436,14 @@ struct SettingsPanel: View {
         }
         .onAppear {
             store.refreshAPIKeyState()
+            refreshPermissionStatus()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
+            permissionCheckTimer?.invalidate()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -537,22 +552,48 @@ struct SettingsPanel: View {
 
     // MARK: - Permission Row
 
-    private func permissionRow(emoji: String, label: String, granted: Bool) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Text(emoji)
-                .font(.system(size: 14))
-                .frame(width: 20)
-                .accessibilityLabel(label)
+    private func permissionRow(emoji: String, label: String, granted: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Text(emoji)
+                    .font(.system(size: 14))
+                    .frame(width: 20)
+                    .accessibilityLabel(label)
 
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
 
-            Spacer()
+                Spacer()
 
-            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(granted ? VColor.success : VColor.error)
+                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(granted ? VColor.success : VColor.error)
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .vHover()
+    }
+
+    // MARK: - Permission Helpers
+
+    private func refreshPermissionStatus() {
+        accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
+        screenRecordingGranted = PermissionManager.screenRecordingStatus() == .granted
+    }
+
+    private func startPermissionPolling() {
+        // Poll permission status for a few seconds after user clicks
+        // to detect when they grant permission in System Settings
+        permissionCheckTimer?.invalidate()
+        var pollCount = 0
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+            refreshPermissionStatus()
+            pollCount += 1
+            if pollCount >= 20 {  // Stop after 10 seconds
+                timer.invalidate()
+            }
         }
     }
 
