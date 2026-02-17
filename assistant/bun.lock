@@ -11,6 +11,7 @@
         "@huggingface/transformers": "^3.8.1",
         "@qdrant/js-client-rest": "^1.16.2",
         "@sentry/node": "^10.38.0",
+        "agentmail": "^0.1.0",
         "archiver": "^7.0.1",
         "commander": "^13.1.0",
         "croner": "^10.0.1",
@@ -434,6 +435,8 @@
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 
     "agentkeepalive": ["agentkeepalive@4.6.0", "", { "dependencies": { "humanize-ms": "^1.2.1" } }, "sha512-kja8j7PjmncONqaTsB8fQ+wE2mSU2DJ9D4XKoJ5PFWIdRMa6SLSN1ff4mOr4jCbfRSsxR4keIiySJU0N9T5hIQ=="],
+
+    "agentmail": ["agentmail@0.1.19", "", { "dependencies": { "ws": "^8.16.0" } }, "sha512-L0au0GnyH24Ob7l0QrkkdwJWL25Aa26f6YnuQlpvwtQMVOTu6IiMftJ8LnVVwQtKwBSZ6cWLS+9SdCvgw+LWGg=="],
 
     "ajv": ["ajv@6.12.6", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-j3fVLgvTo527anyYyJOGTYJbG+vnnQYvE0m5mmkc1TK+nxAppkCLMIL0aZ4dblVCNoGShhm+kzE4ZUykBoMg4g=="],
 
