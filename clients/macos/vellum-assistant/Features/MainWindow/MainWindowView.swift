@@ -187,7 +187,7 @@ struct MainWindowView: View {
                     HStack(spacing: 0) {
                         // Left: Full-height sidebar (always rendered, width collapses to 0)
                         threadDrawerView
-                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
+                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
                             .clipped()
                             .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
                             .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
