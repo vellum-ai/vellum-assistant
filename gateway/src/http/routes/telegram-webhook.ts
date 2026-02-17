@@ -77,12 +77,14 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // Dedup check — short-circuit retried webhooks before doing any real work
+    // Dedup check — reserve the update_id immediately so concurrent retries
+    // are blocked even while the first request is still processing.
     const updateId = typeof payload.update_id === "number" ? payload.update_id : undefined;
     if (updateId !== undefined) {
-      const cached = dedupCache.get(updateId);
-      if (cached) {
+      const reserved = dedupCache.reserve(updateId);
+      if (!reserved) {
         log.info({ updateId }, "Duplicate update_id, returning cached response");
+        const cached = dedupCache.get(updateId)!;
         return new Response(cached.body, {
           status: cached.status,
           headers: { "content-type": "application/json" },
@@ -90,7 +92,7 @@ export function createTelegramWebhookHandler(
       }
     }
 
-    // Helper: build a JSON response and cache it for this update_id
+    // Helper: build a JSON response and update the cache with the final result
     const respond = (body: Record<string, unknown>, status = 200): Response => {
       const json = JSON.stringify(body);
       if (updateId !== undefined) {
