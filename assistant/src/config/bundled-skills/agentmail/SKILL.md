@@ -7,17 +7,10 @@ metadata: {"vellum": {"emoji": "📬"}}
 
 ## How to run
 
-Run all commands via `host_bash`. The CLI is your own binary — do NOT attempt to install it.
+`vellum` is your own CLI binary — it is already installed and available on the PATH.
+Run all commands via `host_bash`. Do NOT attempt to install, build, or locate the CLI — just execute it directly.
 
-To find the correct invocation, run this discovery command first:
-```
-host_bash("command -v vellum 2>/dev/null && echo 'USE: vellum' || echo \"USE: bun run $(ps -p $(pgrep -f 'daemon/main.ts' | head -1) -o args= 2>/dev/null | sed 's|^bun run ||;s|daemon/main.ts|index.ts|')\"")
-```
-
-- If the output says `USE: vellum`, use `vellum email ...` for all commands.
-- If the output says `USE: bun run /path/to/index.ts`, use that prefix instead of `vellum` (e.g., `bun run /path/to/index.ts email status --json`).
-
-Store the resolved prefix and reuse it for the rest of the session. Do NOT re-discover on every command.
+Example: `host_bash("vellum email status --json")`
 
 Never use browser/computer-use unless user explicitly approves fallback.
 
