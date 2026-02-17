@@ -48,7 +48,8 @@ Check for feedback from any reviewer — bots (chatgpt-codex-connector[bot], dev
 
 - **Approved:** Left a PR review containing "No Issues Found"
 - **Requested changes:** Has **unresolved** review threads with comments
-- **Pending:** No review from this user
+- **Skipped:** No review after 30+ minutes (Devin likely errored out) — treat as approved
+- **Pending:** No review from this user (PR < 30 minutes old)
 
 #### Human reviewers
 
@@ -70,7 +71,7 @@ Show a summary table:
 | --- | --- | --- |
 | CI | Passing / Failing / Pending | brief summary |
 | codex | Approved / Changes requested / Pending | brief summary |
-| devin | Approved / Changes requested / Pending | brief summary |
+| devin | Approved / Changes requested / Skipped / Pending | brief summary |
 | <human> | Commented / Approved / Changes requested | brief summary |
 
 ### 5. Address feedback (if any)
