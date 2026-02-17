@@ -22,49 +22,53 @@ struct WakeUpStepView: View {
 
         // Subtitle
         Text("The safest way to create your personal assistant.")
-            .font(.system(size: 16))
+            .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
+            .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
 
-        Spacer()
+        // Question prompt
+        Text("How would you like to start?")
+            .font(.system(size: 16, weight: .medium, design: .monospaced))
+            .foregroundColor(VColor.textPrimary)
+            .opacity(showSubtext ? 1 : 0)
+            .offset(y: showSubtext ? 0 : 8)
+            .padding(.top, VSpacing.xxl)
 
-        // Buttons
-        VStack(spacing: VSpacing.md) {
-            Button(action: { advanceStep() }) {
-                Text("Start with an API key")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
-                                dark: Violet._600
-                            ))
-                    )
-            }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
+        // Option cards
+        VStack(spacing: VSpacing.lg) {
+            HStack(spacing: VSpacing.md) {
+                // Card 1: Own API Key
+                optionCard(
+                    title: "Own API Key",
+                    description: "When you already have a subscription to a model.",
+                    action: { advanceStep() }
+                )
 
-            Button(action: { onContinueWithVellum() }) {
-                Text("Continue with Vellum")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(VColor.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(adaptiveColor(light: .white, dark: VColor.surface))
-                    )
+                // Card 2: Vellum Account
+                optionCard(
+                    title: "Vellum Account",
+                    description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
+                    action: { onContinueWithVellum() }
+                )
             }
-            .buttonStyle(.plain)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            .padding(.top, VSpacing.xl)
+
+            // Progress dots (4 dots)
+            HStack(spacing: VSpacing.sm) {
+                ForEach(0..<4, id: \.self) { index in
+                    Circle()
+                        .fill(index == 0 ? VColor.textPrimary : VColor.textMuted.opacity(0.3))
+                        .frame(width: index == 0 ? 8 : 6, height: index == 0 ? 8 : 6)
+                }
             }
+            .padding(.top, VSpacing.lg)
+
+            // Footer
+            Text("© 2026 Vellum Inc.")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(VColor.textMuted.opacity(0.5))
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.xxl)
@@ -83,6 +87,44 @@ struct WakeUpStepView: View {
             }
         }
     }
+
+    // MARK: - Option Card
+
+    @ViewBuilder
+    private func optionCard(
+        title: String,
+        description: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: VSpacing.md) {
+            Text(title)
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .foregroundColor(VColor.textPrimary)
+
+            Text(description)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(VColor.textMuted)
+                .lineSpacing(3)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+
+            VButton(label: "Start", action: action)
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .fill(Color.white.opacity(0.02))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .strokeBorder(Slate._800, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Advance
 
     private func advanceStep() {
         guard !isAdvancing else { return }
@@ -108,5 +150,5 @@ struct WakeUpStepView: View {
             WakeUpStepView(state: OnboardingState())
         }
     }
-    .frame(width: 460, height: 520)
+    .frame(width: 520, height: 580)
 }

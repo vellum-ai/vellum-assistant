@@ -68,30 +68,15 @@ struct OnboardingFlowView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
-                    ZStack {
-                        VColor.background
-
-                        RadialGradient(
-                            colors: [
-                                Violet._600.opacity(0.15),
-                                Violet._700.opacity(0.05),
-                                Color.clear
-                            ],
-                            center: .bottom,
-                            startRadius: 20,
-                            endRadius: 350
-                        )
-
-                        RadialGradient(
-                            colors: [
-                                Violet._400.opacity(0.08),
-                                Color.clear
-                            ],
-                            center: UnitPoint(x: 0.7, y: 1.0),
-                            startRadius: 10,
-                            endRadius: 250
-                        )
-                    }
+                    RadialGradient(
+                        colors: [
+                            Color(hex: 0x0F172A),
+                            Color(hex: 0x080B17)
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 500
+                    )
                     .ignoresSafeArea()
                 )
             } else if state.currentStep <= 7 {
