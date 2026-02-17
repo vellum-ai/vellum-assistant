@@ -63,24 +63,17 @@ struct JITPermissionView: View {
 
     private func permissionCard(for request: JITPermissionManager.JITPermissionType) -> some View {
         VStack(spacing: VSpacing.xl) {
-            // Body part icon with breathing animation
+            // Icon with breathing glow
             ZStack {
-                // Glow behind icon
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [
-                                VColor.accent.opacity(0.3),
-                                VColor.accent.opacity(0.0)
-                            ],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 40
+                            colors: [VColor.accent.opacity(0.3), VColor.accent.opacity(0.0)],
+                            center: .center, startRadius: 0, endRadius: 40
                         )
                     )
                     .frame(width: 80, height: 80)
                     .scaleEffect(iconScale)
-
                 Image(systemName: request.icon)
                     .font(.system(size: 32, weight: .light))
                     .foregroundColor(VColor.accent)
@@ -89,11 +82,12 @@ struct JITPermissionView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            // Title
+            // Non-technical question (bold) + supporting message
             VStack(spacing: VSpacing.sm) {
                 Text(request.title)
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .multilineTextAlignment(.center)
 
                 Text(request.message)
                     .font(VFont.body)
@@ -104,55 +98,44 @@ struct JITPermissionView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 6)
 
-            // Explanation card
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "lock.shield")
-                        .font(.system(size: 11))
-                        .foregroundColor(VColor.textMuted)
-                    Text("Privacy")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                Text(request.explanation)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Technical details accordion
-                VStack(alignment: .leading, spacing: 0) {
-                    Button(action: {
-                        withAnimation(VAnimation.standard) {
-                            showTechnicalDetails.toggle()
-                        }
-                    }) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(VColor.accent)
-                                .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
-                            Text("Technical details")
-                                .font(VFont.captionMedium)
-                                .foregroundColor(VColor.accent)
-                        }
-                        .padding(.top, VSpacing.xs)
+            // Collapsed technical details accordion
+            VStack(alignment: .leading, spacing: 0) {
+                Button(action: {
+                    withAnimation(VAnimation.standard) {
+                        showTechnicalDetails.toggle()
                     }
-                    .buttonStyle(.plain)
+                }) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VColor.accent)
+                            .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
+                        Text("Technical details")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.accent)
+                    }
+                }
+                .buttonStyle(.plain)
 
-                    if showTechnicalDetails {
+                if showTechnicalDetails {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text(request.explanation)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         Text(request.technicalDetails)
                             .font(VFont.small)
                             .foregroundColor(VColor.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, VSpacing.xs)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
+                    .padding(.top, VSpacing.sm)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .clipped()
             }
+            .clipped()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(VSpacing.lg)
+            .padding(VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.surface.opacity(0.3))
@@ -163,9 +146,9 @@ struct JITPermissionView: View {
             )
             .opacity(showContent ? 1 : 0)
 
-            // Three action buttons
+            // Action buttons
             HStack(spacing: VSpacing.sm) {
-                permissionButton("Not Allow", isPrimary: false) {
+                permissionButton("Don't Allow", isPrimary: false) {
                     dismiss()
                 }
                 permissionButton("Allow", isPrimary: false) {
