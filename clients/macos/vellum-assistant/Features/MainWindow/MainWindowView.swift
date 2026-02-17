@@ -360,7 +360,7 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        HStack(spacing: 0) {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
             Button(action: {
                 threadManager.selectThread(id: thread.id)
                 switch windowState.activePanel {
