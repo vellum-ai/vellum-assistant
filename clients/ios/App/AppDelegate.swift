@@ -7,7 +7,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let daemonClient: DaemonClient
 
     override init() {
-        self.daemonClient = DaemonClient(config: .default)
+        self.daemonClient = DaemonClient(config: .fromUserDefaults())
         super.init()
     }
 
