@@ -305,35 +305,35 @@ struct SettingsPanel: View {
                     Text("PERMISSIONS")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.top, VSpacing.lg)
 
-                    VStack(spacing: VSpacing.md) {
-                        permissionRow(
-                            emoji: "\u{1F47B}",
-                            label: "Accessibility",
-                            granted: accessibilityGranted,
-                            action: {
-                                // Request accessibility permission (opens System Settings)
-                                _ = PermissionManager.accessibilityStatus(prompt: true)
-                                startPermissionPolling()
-                            }
-                        )
+                    permissionRow(
+                        emoji: "\u{1F47B}",
+                        label: "Accessibility",
+                        granted: accessibilityGranted,
+                        action: {
+                            // Request accessibility permission (opens System Settings)
+                            _ = PermissionManager.accessibilityStatus(prompt: true)
+                            startPermissionPolling()
+                        }
+                    )
+                    .padding(VSpacing.md)
+                    .vCard(background: VColor.surfaceSubtle)
 
-                        permissionRow(
-                            emoji: "\u{1F355}",
-                            label: "Screen Recording",
-                            granted: screenRecordingGranted,
-                            action: {
-                                // Request screen recording permission (opens System Settings)
-                                PermissionManager.requestScreenRecordingAccess()
-                                startPermissionPolling()
-                            }
-                        )
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.lg)
+                    permissionRow(
+                        emoji: "\u{1F355}",
+                        label: "Screen Recording",
+                        granted: screenRecordingGranted,
+                        action: {
+                            // Request screen recording permission (opens System Settings)
+                            PermissionManager.requestScreenRecordingAccess()
+                            startPermissionPolling()
+                        }
+                    )
+                    .padding(VSpacing.md)
+                    .vCard(background: VColor.surfaceSubtle)
                 }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // SCHEDULED TASKS section
                 if daemonClient != nil {
@@ -571,12 +571,10 @@ struct SettingsPanel: View {
                     .font(.system(size: 16))
                     .foregroundColor(granted ? VColor.success : VColor.error)
             }
-            .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .vCard(background: VColor.surfaceSubtle)
         .onHover { hovering in
             if hovering {
                 NSCursor.pointingHand.push()
