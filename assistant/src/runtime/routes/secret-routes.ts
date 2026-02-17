@@ -5,8 +5,6 @@ import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('runtime-http');
 
-const apiKeyProviders = new Set<string>(API_KEY_PROVIDERS);
-
 export async function handleAddSecret(req: Request): Promise<Response> {
   const body = await req.json() as {
     type?: string;
@@ -28,9 +26,9 @@ export async function handleAddSecret(req: Request): Promise<Response> {
 
   try {
     if (type === 'api_key') {
-      if (!apiKeyProviders.has(name)) {
+      if (!API_KEY_PROVIDERS.includes(name as typeof API_KEY_PROVIDERS[number])) {
         return Response.json(
-          { error: `Unknown API key provider: ${name}. Valid providers: ${[...apiKeyProviders].join(', ')}` },
+          { error: `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(', ')}` },
           { status: 400 },
         );
       }
