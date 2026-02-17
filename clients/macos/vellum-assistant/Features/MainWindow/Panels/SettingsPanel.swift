@@ -21,7 +21,6 @@ struct SettingsPanel: View {
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -428,13 +427,13 @@ struct SettingsPanel: View {
             daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                // Primary mechanism: Check permissions when app becomes active.
-                // This handles the common case where the user grants permission in
-                // System Settings and returns to the app via Cmd+Tab or clicking.
-                refreshPermissionStatus()
-            }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Primary mechanism: Check permissions when app becomes active.
+            // This handles the common case where the user grants permission in
+            // System Settings and returns to the app via Cmd+Tab or clicking.
+            // Uses NSApplication notification instead of scenePhase because this
+            // view is hosted in an NSHostingController, not a SwiftUI Scene.
+            refreshPermissionStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -585,10 +584,11 @@ struct SettingsPanel: View {
 
     private func startPermissionPolling() {
         // Hybrid permission checking approach:
-        // 1. Primary: scenePhase onChange detects when user returns from System Settings
+        // 1. Primary: NSApplication.didBecomeActiveNotification detects when user
+        //    returns from System Settings
         // 2. Fallback: Poll every 1 second for 15 seconds to catch edge cases where
-        //    scenePhase doesn't fire (LSUIElement apps, or user grants permission
-        //    while app stays focused)
+        //    the notification doesn't fire (e.g., user grants permission while app
+        //    stays focused)
         //
         // Polling stops early if both permissions are granted, minimizing overhead.
         permissionCheckTask?.cancel()
