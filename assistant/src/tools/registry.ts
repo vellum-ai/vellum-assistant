@@ -192,25 +192,14 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 export async function initializeTools(): Promise<void> {
   const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
-  // Collect names of tools registered by the manifest so the snapshot
-  // captures exactly the canonical core tools — not test helpers or other
-  // tools that may have been registered before initializeTools() ran.
-  const manifestToolNames = new Set<string>();
-
   // Import tool modules to trigger registration side effects.
   for (const modulePath of eagerModules) {
-    const knownBefore = new Set(tools.keys());
     await import(modulePath);
-    // Detect tools added by the side-effect import.
-    for (const name of tools.keys()) {
-      if (!knownBefore.has(name)) manifestToolNames.add(name);
-    }
   }
 
   // Explicit tool instances — no side-effect import required.
   for (const tool of explicitTools) {
     registerTool(tool);
-    manifestToolNames.add(tool.name);
   }
 
   // Host tools are registered explicitly so host access stays opt-in until
@@ -218,34 +207,30 @@ export async function initializeTools(): Promise<void> {
   const hostTools = [hostFileReadTool, hostFileWriteTool, hostFileEditTool, hostShellTool];
   for (const tool of hostTools) {
     registerTool(tool);
-    manifestToolNames.add(tool.name);
   }
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded
   // from getAllToolDefinitions() since regular chat sessions don't use them.
-  const knownBeforeProxies = new Set(tools.keys());
   registerComputerUseTools();
   registerUiSurfaceTools();
   registerAppTools();
-  for (const name of tools.keys()) {
-    if (!knownBeforeProxies.has(name)) manifestToolNames.add(name);
-  }
 
   // Lazy tools — defer module loading until first invocation.
   for (const descriptor of lazyTools) {
     registerLazyTool(descriptor);
-    manifestToolNames.add(descriptor.name);
   }
 
-  // Build the snapshot from exactly the manifest-registered tools.
-  // This avoids capturing test-only or session-specific tools that may
-  // have been registered before initializeTools() ran.
+  // Snapshot every non-skill tool currently in the registry.  This captures
+  // eager-module tools even when the module was already imported before
+  // initializeTools() ran (ESM cache hit) — their tools are in the registry
+  // regardless of whether the import triggered side effects this time.
+  // Skill-origin tools are excluded since they are session-scoped and
+  // managed separately by registerSkillTools/unregisterSkillTools.
   if (!coreToolsSnapshot) {
     coreToolsSnapshot = new Map<string, Tool>();
-    for (const name of manifestToolNames) {
-      const tool = tools.get(name);
-      if (tool) coreToolsSnapshot.set(name, tool);
+    for (const [name, tool] of tools) {
+      if (tool.origin !== 'skill') coreToolsSnapshot.set(name, tool);
     }
   }
 
