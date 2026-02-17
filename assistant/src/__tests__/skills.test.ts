@@ -273,6 +273,7 @@ describe('tool manifest detection', () => {
       valid: true,
       toolCount: 2,
       toolNames: ['run-lint', 'run-test'],
+      versionHash: expect.stringMatching(/^v1:[0-9a-f]{64}$/),
     });
   });
 
@@ -291,6 +292,7 @@ describe('tool manifest detection', () => {
       valid: false,
       toolCount: 0,
       toolNames: [],
+      versionHash: expect.stringMatching(/^v1:[0-9a-f]{64}$/),
     });
   });
 
@@ -310,6 +312,7 @@ describe('tool manifest detection', () => {
       valid: false,
       toolCount: 0,
       toolNames: [],
+      versionHash: expect.stringMatching(/^v1:[0-9a-f]{64}$/),
     });
   });
 
@@ -318,6 +321,61 @@ describe('tool manifest detection', () => {
 
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === 'no-tools');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toBeUndefined();
+  });
+
+  test('versionHash is a v1: prefixed string when TOOLS.json is valid', () => {
+    writeSkill('hash-valid', 'Hash Valid Skill', 'Skill with valid tools for hash check');
+    const toolsJson = {
+      version: 1,
+      tools: [
+        {
+          name: 'hash-tool',
+          description: 'A tool for hash testing',
+          category: 'test',
+          risk: 'low',
+          input_schema: { type: 'object', properties: {} },
+          executor: 'run.sh',
+          execution_target: 'host',
+        },
+      ],
+    };
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'hash-valid', 'TOOLS.json'),
+      JSON.stringify(toolsJson),
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'hash-valid');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toBeDefined();
+    expect(typeof skill!.toolManifest!.versionHash).toBe('string');
+    expect(skill!.toolManifest!.versionHash).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  test('versionHash is computed even when TOOLS.json is invalid', () => {
+    writeSkill('hash-invalid', 'Hash Invalid Skill', 'Skill with invalid tools for hash check');
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'hash-invalid', 'TOOLS.json'),
+      '{ broken json',
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'hash-invalid');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toBeDefined();
+    expect(skill!.toolManifest!.valid).toBe(false);
+    // Hash is based on the directory content, not manifest validity
+    expect(typeof skill!.toolManifest!.versionHash).toBe('string');
+    expect(skill!.toolManifest!.versionHash).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  test('toolManifest is undefined when TOOLS.json is absent (no hash computed)', () => {
+    writeSkill('hash-absent', 'Hash Absent Skill', 'Skill without tools for hash check');
+
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'hash-absent');
     expect(skill).toBeDefined();
     expect(skill!.toolManifest).toBeUndefined();
   });

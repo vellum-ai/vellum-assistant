@@ -6,6 +6,7 @@ import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
+import { computeSkillVersionHash } from '../skills/version-hash.js';
 
 const log = getLogger('skills');
 
@@ -114,6 +115,8 @@ export interface SkillToolManifestMeta {
   toolCount: number;
   /** Tool names declared in the manifest (empty if invalid). */
   toolNames: string[];
+  /** Deterministic content hash of the skill directory (`v1:<hex-sha256>`). */
+  versionHash?: string;
 }
 
 // ─── Requirements check ──────────────────────────────────────────────────────
@@ -324,6 +327,13 @@ function detectToolManifest(directoryPath: string): SkillToolManifestMeta | unde
     return undefined;
   }
 
+  let versionHash: string | undefined;
+  try {
+    versionHash = computeSkillVersionHash(directoryPath);
+  } catch (err) {
+    log.warn({ err, directoryPath }, 'Failed to compute skill version hash');
+  }
+
   try {
     const manifest = parseToolManifestFile(manifestPath);
     return {
@@ -331,6 +341,7 @@ function detectToolManifest(directoryPath: string): SkillToolManifestMeta | unde
       valid: true,
       toolCount: manifest.tools.length,
       toolNames: manifest.tools.map((t) => t.name),
+      versionHash,
     };
   } catch (err) {
     log.warn({ err, manifestPath }, 'Failed to parse TOOLS.json manifest');
@@ -339,6 +350,7 @@ function detectToolManifest(directoryPath: string): SkillToolManifestMeta | unde
       valid: false,
       toolCount: 0,
       toolNames: [],
+      versionHash,
     };
   }
 }
