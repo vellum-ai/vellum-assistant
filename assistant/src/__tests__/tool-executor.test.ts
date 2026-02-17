@@ -640,6 +640,146 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     });
   });
 
+  // ── Skill mutation approval regression tests (PR 30) ──────────
+
+  test('always_allow_high_risk for skill source write creates rule with allowHighRisk and principal context', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill tool that writes to skill source',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'code-editor-skill',
+        ownerSkillVersionHash: 'sha256-v1-original',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill source writer', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'file_write:*/skills/**', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_write', { path: '/tmp/skills/my-skill/executor.ts' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, , options] = spy.mock.calls[0];
+    expect(tool).toBe('file_write');
+    expect(pattern).toBe('file_write:*/skills/**');
+    expect(scope).toBe('everywhere');
+    expect(decision).toBe('allow');
+    expect(options.allowHighRisk).toBe(true);
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('code-editor-skill');
+    expect(options.principalVersion).toBe('sha256-v1-original');
+    expect(options.executionTarget).toBe('sandbox');
+  });
+
+  test('always_allow (not high risk) for skill source write creates rule WITHOUT allowHighRisk', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill tool that writes to skill source',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'editor-skill',
+        ownerSkillVersionHash: 'sha256-editor-v1',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill source writer', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    // User chooses always_allow instead of always_allow_high_risk
+    const prompter = makePrompterWithDecision('always_allow', 'file_write:*/skills/**', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_write', { path: '/tmp/skills/my-skill/executor.ts' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [,,,, , options] = spy.mock.calls[0];
+    expect(options).toBeDefined();
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('editor-skill');
+    // Without always_allow_high_risk, the allowHighRisk flag should NOT be set
+    expect(options.allowHighRisk).toBeUndefined();
+  });
+
+  test('skill version is captured in rule for future version-bound matching', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'versioned skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'versioned-editor',
+        ownerSkillVersionHash: 'v3:content-hash-xyz789',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'versioned skill editor', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'file_edit:*/skills/**', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_edit', { path: '/tmp/skills/my-skill/SKILL.md' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, , , , , options] = spy.mock.calls[0];
+    expect(tool).toBe('file_edit');
+    // Verify the version hash is persisted — a changed skill will have a
+    // different hash, so the rule won't match (version mismatch rejection).
+    expect(options.principalVersion).toBe('v3:content-hash-xyz789');
+    expect(options.allowHighRisk).toBe(true);
+  });
+
+  test('executor forwards policyContext with version for skill source mutation', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill source editor',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'editor-skill',
+        ownerSkillVersionHash: 'sha256-v2-updated',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill editor', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    await executor.execute('file_write', { path: '/tmp/skills/my-skill/index.ts' }, makeContext());
+
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      principal: {
+        kind: 'skill',
+        id: 'editor-skill',
+        version: 'sha256-v2-updated',
+      },
+      executionTarget: 'sandbox',
+    });
+  });
+
   test('executor creates principal-scoped rule on always_allow_high_risk with full context', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
     const spy = setupAddRuleSpy();
