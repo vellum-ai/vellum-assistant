@@ -46,6 +46,40 @@ public struct ToolConfirmationData: Equatable {
         return normalized
     }
 
+    /// Short third-person summary shown above the code snippet in the details disclosure.
+    public var detailsSummary: String {
+        switch toolName {
+        case "bash", "host_bash":
+            return "The assistant wants to run a command"
+        case "file_write", "host_file_write":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return name.isEmpty ? "The assistant wants to write a file" : "The assistant wants to write to \(name)"
+        case "file_edit", "host_file_edit":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return name.isEmpty ? "The assistant wants to edit a file" : "The assistant wants to edit \(name)"
+        case "file_read", "host_file_read":
+            let path = (input["path"]?.value as? String) ?? ""
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return name.isEmpty ? "The assistant wants to read a file" : "The assistant wants to read \(name)"
+        case "web_fetch":
+            let url = (input["url"]?.value as? String) ?? ""
+            if let host = URL(string: url)?.host {
+                return "The assistant wants to fetch data from \(host)"
+            }
+            return "The assistant wants to fetch a URL"
+        case "browser_navigate":
+            let url = (input["url"]?.value as? String) ?? ""
+            if let host = URL(string: url)?.host {
+                return "The assistant wants to open \(host)"
+            }
+            return "The assistant wants to open a page"
+        default:
+            return "The assistant wants to use \(toolName)"
+        }
+    }
+
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
     public var commandPreview: String {
         switch toolName {
