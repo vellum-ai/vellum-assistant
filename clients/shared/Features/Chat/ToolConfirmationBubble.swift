@@ -203,17 +203,23 @@ public struct ToolConfirmationBubble: View {
         }
 
         if showDetails, let preview = detailsPreview {
-            Text(preview)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textSecondary)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(VColor.backgroundSubtle)
-                )
-                .textSelection(.enabled)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(confirmation.detailsSummary)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text(preview)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textSecondary)
+                    .padding(VSpacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(VColor.backgroundSubtle)
+                    )
+                    .textSelection(.enabled)
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 
