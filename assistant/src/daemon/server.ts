@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
+import { hasSocketOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -480,6 +481,20 @@ export class DaemonServer {
     log.info('Client connected');
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
+
+    // When the daemon is listening on a custom/forwarded socket
+    // (VELLUM_DAEMON_SOCKET), clients may not have access to the local
+    // session token file (e.g. SSH-forwarded connections). Auto-authenticate
+    // these connections so they aren't disconnected by the auth timeout.
+    // Clients that DO have a token will still send an auth message which
+    // is accepted normally via the auth gate below.
+    if (hasSocketOverride()) {
+      this.authenticatedSockets.add(socket);
+      log.info('Auto-authenticated client on overridden socket path');
+      this.sendInitialSession(socket).catch((err) => {
+        log.error({ err }, 'Failed to send initial session info after auto-auth');
+      });
+    }
 
     // Require authentication before sending session info or accepting
     // commands. Clients must send { type: 'auth', token } as their
