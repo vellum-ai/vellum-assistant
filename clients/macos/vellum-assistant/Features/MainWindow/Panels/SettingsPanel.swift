@@ -29,7 +29,10 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textPrimary)
 
                     if store.hasKey {
-                        HStack {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 14))
                             Text(store.maskedKey)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
@@ -81,7 +84,10 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textPrimary)
 
                     if store.hasBraveKey {
-                        HStack {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 14))
                             Text(store.maskedBraveKey)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)

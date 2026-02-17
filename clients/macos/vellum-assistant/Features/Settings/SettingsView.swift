@@ -32,7 +32,10 @@ public struct SettingsView: View {
         Form {
             Section("Anthropic API Key") {
                 if store.hasKey {
-                    HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
                         Text(store.maskedKey)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -61,7 +64,10 @@ public struct SettingsView: View {
 
             Section("Brave Search API Key") {
                 if store.hasBraveKey {
-                    HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
                         Text(store.maskedBraveKey)
                             .foregroundStyle(.secondary)
                         Spacer()
