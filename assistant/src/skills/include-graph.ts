@@ -35,11 +35,6 @@ export function getImmediateChildren(
   return children;
 }
 
-/**
- * Recursively traverse the include graph starting from the given root skill ID.
- * Returns all visited skill IDs in DFS pre-order.
- * Happy-path only — skips missing children silently.
- */
 export interface IncludeValidationSuccess {
   ok: true;
   visited: string[];
@@ -118,6 +113,11 @@ export function validateIncludes(
   return { ok: true, visited };
 }
 
+/**
+ * Recursively traverse the include graph starting from the given root skill ID.
+ * Returns all visited skill IDs in DFS pre-order.
+ * Happy-path only — skips missing children silently.
+ */
 export function traverseIncludes(
   rootId: string,
   catalogIndex: Map<string, SkillSummary>,
