@@ -140,9 +140,21 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
 
   // Only consolidate if there are multiple assistant messages
   if (messagesToConsolidate.length <= 1) {
-    // Still delete internal tool_result messages even if only one assistant message
+    // Still delete internal tool_result messages even if only one assistant message,
+    // and collect IDs for vector cleanup
+    const allSegmentIds: string[] = [];
+    const allOrphanedItemIds: string[] = [];
     for (const id of messagesToDelete) {
-      conversationStore.deleteMessageById(id);
+      const deleted = conversationStore.deleteMessageById(id);
+      allSegmentIds.push(...deleted.segmentIds);
+      allOrphanedItemIds.push(...deleted.orphanedItemIds);
+    }
+
+    // Clean up Qdrant vectors (fire-and-forget)
+    if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
+      cleanupQdrantVectors(conversationId, allSegmentIds, allOrphanedItemIds).catch((err) => {
+        log.warn({ err, conversationId }, 'Qdrant cleanup after consolidation failed (non-fatal)');
+      });
     }
     return;
   }
