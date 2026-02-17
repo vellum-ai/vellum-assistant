@@ -25,7 +25,7 @@ public struct VButton: View {
     public var body: some View {
         Button(action: action) {
             Text(label)
-                .font(VFont.bodyMedium)
+                .font(VFont.monoMedium)
         }
         .buttonStyle(VButtonStyle(style: style, isHovered: isHovered, isFullWidth: isFullWidth))
         #if os(macOS)
@@ -55,6 +55,7 @@ private struct VButtonStyle: ButtonStyle {
             .foregroundColor(foregroundColor)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.buttonV)
+            .frame(height: 32)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -72,7 +73,7 @@ private struct VButtonStyle: ButtonStyle {
     private var shadowColor: Color {
         switch style {
         case .primary:
-            return isHovered ? Violet._600 : Violet._800
+            return isHovered ? Indigo._600 : Indigo._800
         case .danger:
             return isHovered ? Rose._700 : Rose._800
         case .ghost:
@@ -83,9 +84,9 @@ private struct VButtonStyle: ButtonStyle {
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return Violet._400 }
-            if isHovered { return Violet._500 }
-            return Violet._600
+            if isPressed { return Indigo._400 }
+            if isHovered { return Indigo._500 }
+            return Indigo._600
         case .danger:
             if isPressed { return Rose._400 }
             if isHovered { return Rose._500 }
