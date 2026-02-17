@@ -167,7 +167,13 @@ enum AuthServiceError: LocalizedError {
 final class AuthService {
     static let shared = AuthService()
 
-    private static let defaultBaseURL = "https://app.vellum.ai"
+    private static let defaultBaseURL: String = {
+        #if DEBUG
+        return "http://localhost:8000"
+        #else
+        return "https://app.vellum.ai"
+        #endif
+    }()
 
     var baseURL: String {
         UserDefaults.standard.string(forKey: "authServiceBaseURL") ?? Self.defaultBaseURL
