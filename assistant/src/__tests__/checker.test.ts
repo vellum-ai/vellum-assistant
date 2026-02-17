@@ -2407,4 +2407,109 @@ describe('Permission Checker', () => {
       expect(options[0].pattern).toBe('skill_load:*');
     });
   });
+
+  // ── strict mode: skill_load requires explicit approval (PR 34) ──
+
+  describe('strict mode — skill_load requires explicit approval (PR 34)', () => {
+    function ensureSkillsDir(): void {
+      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+    }
+
+    test('skill_load with no matching rule triggers prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('skill_load', { skill: 'some-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('skill_load with exact version rule auto-allows in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-exact-ver', 'PR34 Exact Version');
+      testConfig.permissions.mode = 'strict';
+
+      const { computeSkillVersionHash: computeHash } = await import('../skills/version-hash.js');
+      const skillDir = join(checkerTestDir, 'skills', 'pr34-exact-ver');
+      const expectedHash = computeHash(skillDir);
+
+      addRule('skill_load', `skill_load:pr34-exact-ver@${expectedHash}`, 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-exact-ver' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe(`skill_load:pr34-exact-ver@${expectedHash}`);
+    });
+
+    test('skill_load with wildcard rule auto-allows in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-wildcard', 'PR34 Wildcard');
+      testConfig.permissions.mode = 'strict';
+
+      addRule('skill_load', 'skill_load:*', 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-wildcard' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
+    });
+
+    test('skill_load with any-version (bare id) rule auto-allows in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-bare-id', 'PR34 Bare ID');
+      testConfig.permissions.mode = 'strict';
+
+      addRule('skill_load', 'skill_load:pr34-bare-id', 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-bare-id' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe('skill_load:pr34-bare-id');
+    });
+
+    test('skill_load auto-allows in legacy mode (backward compat)', async () => {
+      testConfig.permissions.mode = 'legacy';
+      const result = await check('skill_load', { skill: 'any-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Low risk');
+    });
+
+    test('skill_load deny rule blocks in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-denied', 'PR34 Denied');
+      testConfig.permissions.mode = 'strict';
+
+      addRule('skill_load', 'skill_load:pr34-denied', 'everywhere', 'deny', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-denied' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('skill_load ask rule prompts in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-ask', 'PR34 Ask');
+      testConfig.permissions.mode = 'strict';
+
+      addRule('skill_load', 'skill_load:pr34-ask', 'everywhere', 'ask', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-ask' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+    });
+
+    test('skill_load with wrong version hash does not match and prompts in strict mode', async () => {
+      ensureSkillsDir();
+      writeSkill('pr34-wrong-ver', 'PR34 Wrong Version');
+      testConfig.permissions.mode = 'strict';
+
+      // Add a rule with a wrong hash — should not match
+      addRule('skill_load', 'skill_load:pr34-wrong-ver@v1:wronghash', 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'pr34-wrong-ver' }, '/tmp');
+      // The version-specific candidate won't match the wrong hash, but the
+      // bare id candidate (pr34-wrong-ver) doesn't match the versioned rule
+      // either, so strict mode kicks in.
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+  });
 });

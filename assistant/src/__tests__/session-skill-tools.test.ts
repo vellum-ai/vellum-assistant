@@ -841,6 +841,65 @@ describe('allowed tool set merging', () => {
 // End-to-end mid-run activation tests
 // ---------------------------------------------------------------------------
 
+// ── Security invariant (PR 34): skill_load is the permission gate ──
+// In strict mode, skill_load requires an explicit trust rule before the
+// tool executor emits a <loaded_skill> marker. Without that marker in
+// the conversation history, projectSkillTools will never activate the
+// skill's tools. The permission enforcement lives in checker.ts; the
+// tests here verify that tool activation only occurs when markers are
+// present — meaning the permission check already succeeded.
+
+describe('skill activation requires loaded_skill marker (security invariant)', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('skill_load tool_use without tool_result marker does not activate skill tools', () => {
+    mockCatalog = [makeSkill('gated')];
+    mockManifests = { gated: makeManifest(['gated_action']) };
+
+    // History has a skill_load call but NO tool_result with a
+    // <loaded_skill> marker — simulating a permission denial or pending
+    // prompt in strict mode where the tool never executed.
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'sl-gate-1', name: 'skill_load', input: { skill_id: 'gated' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'sl-gate-1', content: 'Permission denied.' }],
+      },
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(0);
+  });
+
+  test('skill_load with valid marker activates skill tools (approved path)', () => {
+    mockCatalog = [makeSkill('approved')];
+    mockManifests = { approved: makeManifest(['approved_action']) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="approved" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('approved_action');
+    expect(result.allowedToolNames.has('approved_action')).toBe(true);
+  });
+});
+
 describe('mid-run skill tool activation (end-to-end)', () => {
   const baseToolDefs: ToolDefinition[] = [
     { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
