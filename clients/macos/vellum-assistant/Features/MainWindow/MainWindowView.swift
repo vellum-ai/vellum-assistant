@@ -366,34 +366,37 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected = thread.id == threadManager.activeThreadId
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Button(action: {
-                threadManager.selectThread(id: thread.id)
-                switch windowState.activePanel {
-                case .settings, .agent, .directory, .debug, .doctor, .identity:
-                    windowState.activePanel = nil
-                default:
-                    break
-                }
-            }) {
-                HStack(spacing: VSpacing.xs) {
-                    if thread.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(-45))
-                    }
-                    Text(thread.title)
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        Button(action: {
+            threadManager.selectThread(id: thread.id)
+            switch windowState.activePanel {
+            case .settings, .agent, .directory, .debug, .doctor, .identity:
+                windowState.activePanel = nil
+            default:
+                break
             }
-            .buttonStyle(.plain)
-
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                if thread.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                }
+                Text(thread.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
             if threadPendingDeletion == thread.id {
                 Button {
                     threadManager.archiveThread(id: thread.id)
@@ -408,28 +411,35 @@ struct MainWindowView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else {
-                Button {
-                    threadPendingDeletion = thread.id
+            } else if isHoveredThread == thread.id {
+                Menu {
+                    Button(thread.isPinned ? "Unpin" : "Pin to Top") {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
+                    }
+                    Divider()
+                    Button("Archive", role: .destructive) {
+                        threadPendingDeletion = thread.id
+                    }
                 } label: {
-                    Image(systemName: "archivebox")
+                    Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
+                        .rotationEffect(.degrees(90))
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .frame(width: 24)
-                .opacity(isHoveredThread == thread.id ? 1 : 0)
-                .allowsHitTesting(isHoveredThread == thread.id)
-                .accessibilityLabel("Archive \(thread.title)")
+                .padding(.trailing, VSpacing.xs)
             }
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
@@ -492,7 +502,7 @@ struct MainWindowView: View {
                 VStack(spacing: VSpacing.xl) {
                     // MARK: Threads Section
                     VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Threads")
+                        SidebarSectionHeader(title: "Threads", icon: "text.bubble")
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
@@ -522,7 +532,7 @@ struct MainWindowView: View {
                     // MARK: Apps Section
                     if !appListManager.apps.isEmpty {
                         VStack(spacing: VSpacing.xs) {
-                            SidebarSectionHeader(title: "Apps")
+                            SidebarSectionHeader(title: "Apps", icon: "square.grid.2x2")
 
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
@@ -581,51 +591,61 @@ struct MainWindowView: View {
         let isSelected = windowState.isDynamicExpanded
             && windowState.activeDynamicSurface?.surfaceId != nil
             && isAppSurfaceActive(appId: app.id)
-        HStack(spacing: VSpacing.sm) {
-            Button(action: {
-                openAppInWorkspace(app: app)
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    if app.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 14)
-                    }
-                    if let icon = app.icon, !icon.isEmpty {
-                        Text(icon)
-                            .font(.system(size: 14))
-                            .frame(width: 22, height: 22)
-                    } else {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 22, height: 22)
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(app.name)
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let appType = app.appType {
-                            Text(appType)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
+        Button(action: {
+            openAppInWorkspace(app: app)
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                if app.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
+                }
+                Text(app.name)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if isHoveredApp == app.id {
+                Menu {
+                    Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                        if app.isPinned {
+                            appListManager.unpinApp(id: app.id)
+                        } else {
+                            appListManager.pinApp(id: app.id)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Open") {
+                        openAppInWorkspace(app: app)
+                    }
+                    Divider()
+                    Button("Remove from Recents", role: .destructive) {
+                        appListManager.removeApp(id: app.id)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                        .rotationEffect(.degrees(90))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 24)
+                .padding(.trailing, VSpacing.xs)
             }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
@@ -1047,15 +1067,23 @@ private struct ZoomIndicatorView: View {
 
 private struct SidebarSectionHeader: View {
     let title: String
+    var icon: String? = nil
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(VColor.textMuted)
-            .textCase(.uppercase)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.lg)
-            .padding(.bottom, VSpacing.xs)
+        HStack(spacing: VSpacing.xs) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .textCase(.uppercase)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.lg)
+        .padding(.bottom, VSpacing.xs)
     }
 }
 

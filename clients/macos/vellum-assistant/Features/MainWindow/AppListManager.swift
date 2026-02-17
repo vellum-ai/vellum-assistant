@@ -44,7 +44,11 @@ final class AppListManager: ObservableObject {
 
     func recordAppOpen(id: String, name: String, icon: String? = nil, previewBase64: String? = nil, appType: String? = nil) {
         if let index = apps.firstIndex(where: { $0.id == id }) {
-            apps[index].lastOpenedAt = Date()
+            // Don't reshuffle apps that are already visible in the collapsed top-5 sidebar.
+            let top5Ids = Set(displayApps.prefix(5).map(\.id))
+            if !top5Ids.contains(id) {
+                apps[index].lastOpenedAt = Date()
+            }
             apps[index].name = name
             if let icon { apps[index].icon = icon }
             if let previewBase64 { apps[index].previewBase64 = previewBase64 }
