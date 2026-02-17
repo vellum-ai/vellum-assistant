@@ -75,20 +75,19 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
     # Only prompt for certificate on commands that actually sign the app
     if [ -z "$SIGN_IDENTITY" ] && [ ! -f "$SCRIPT_DIR/.no-auto-cert" ] && \
        [[ "$CMD" =~ ^(build|run|release)$ ]]; then
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "⚠️  No code signing certificate found"
-        echo ""
-        echo "Without a certificate, TCC permissions (Accessibility, Screen"
-        echo "Recording) won't persist across rebuilds. You'll need to re-grant"
-        echo "them every time you rebuild."
-        echo ""
-        echo "Would you like to create a self-signed development certificate?"
-        echo "(No Apple Developer account required - takes ~5 seconds)"
-        echo ""
-        echo -n "Create certificate? [Y/n]: "
-
         # Only prompt if running interactively (not in CI)
         if [ -t 0 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "⚠️  No code signing certificate found"
+            echo ""
+            echo "Without a certificate, TCC permissions (Accessibility, Screen"
+            echo "Recording) won't persist across rebuilds. You'll need to re-grant"
+            echo "them every time you rebuild."
+            echo ""
+            echo "Would you like to create a self-signed development certificate?"
+            echo "(No Apple Developer account required - takes ~5 seconds)"
+            echo ""
+            echo -n "Create certificate? [Y/n]: "
             read -r response
             case "$response" in
                 [nN]|[nN][oO])
@@ -118,17 +117,20 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
                     fi
                     ;;
             esac
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
         else
-            # Non-interactive (CI environment)
+            # Non-interactive (CI environment) - silently fall through to adhoc signing
             SIGN_IDENTITY="-"
         fi
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
     elif [ -z "$SIGN_IDENTITY" ]; then
         # User has opted out (.no-auto-cert exists) or command doesn't need signing
         SIGN_IDENTITY="-"
     fi
 fi
+
+# Export SIGN_IDENTITY so nested invocations (watch mode) inherit it
+export SIGN_IDENTITY
 
 case "$CMD" in
     test)
