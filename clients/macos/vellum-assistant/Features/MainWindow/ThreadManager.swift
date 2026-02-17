@@ -45,9 +45,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Forwards only message count changes to ThreadManager's objectWillChange.
     private var activeViewModelCancellable: AnyCancellable?
 
-    /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
+    /// Threads that are not archived — used by the UI to populate the sidebar.
+    /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
     var visibleThreads: [ThreadModel] {
-        threads.filter { !$0.isArchived }
+        threads.filter { !$0.isArchived }.sorted { a, b in
+            if a.isPinned && b.isPinned {
+                return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
+            }
+            if a.isPinned { return true }
+            if b.isPinned { return false }
+            return a.lastInteractedAt > b.lastInteractedAt
+        }
     }
 
     var archivedThreads: [ThreadModel] {
@@ -239,6 +247,72 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
         return true
+    }
+
+    // MARK: - Pinning & Ordering
+
+    func pinThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        let nextOrder = (threads.compactMap(\.pinnedOrder).max() ?? -1) + 1
+        threads[index].isPinned = true
+        threads[index].pinnedOrder = nextOrder
+    }
+
+    func unpinThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        threads[index].isPinned = false
+        threads[index].pinnedOrder = nil
+        recompactPinnedOrders()
+    }
+
+    func reorderPinnedThreads(from source: IndexSet, to destination: Int) {
+        var pinned = visibleThreads.filter(\.isPinned)
+        pinned.move(fromOffsets: source, toOffset: destination)
+        for (order, item) in pinned.enumerated() {
+            if let idx = threads.firstIndex(where: { $0.id == item.id }) {
+                threads[idx].pinnedOrder = order
+            }
+        }
+    }
+
+    func updateLastInteracted(threadId: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        threads[index].lastInteractedAt = Date()
+    }
+
+    /// Move a thread to a new position in the visible list (for drag-and-drop reorder).
+    /// If the source thread is pinned, reorder among pinned items.
+    /// If unpinned, pin it and insert at the target position.
+    func moveThread(sourceId: UUID, beforeId: UUID) {
+        guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
+              let targetIdx = threads.firstIndex(where: { $0.id == beforeId }) else { return }
+        let targetThread = threads[targetIdx]
+
+        // If dropping onto a pinned item, pin the source too and reorder
+        if targetThread.isPinned {
+            if !threads[sourceIdx].isPinned {
+                threads[sourceIdx].isPinned = true
+            }
+            // Set pinnedOrder to place before the target
+            let targetOrder = targetThread.pinnedOrder ?? 0
+            threads[sourceIdx].pinnedOrder = targetOrder
+            // Bump all pinned items at or after targetOrder (except source)
+            for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
+                if let order = threads[i].pinnedOrder, order >= targetOrder {
+                    threads[i].pinnedOrder = order + 1
+                }
+            }
+            recompactPinnedOrders()
+        }
+    }
+
+    private func recompactPinnedOrders() {
+        let pinned = threads.enumerated()
+            .filter { $0.element.isPinned }
+            .sorted { ($0.element.pinnedOrder ?? 0) < ($1.element.pinnedOrder ?? 0) }
+        for (order, item) in pinned.enumerated() {
+            threads[item.offset].pinnedOrder = order
+        }
     }
 
     // MARK: - ThreadRestorerDelegate
