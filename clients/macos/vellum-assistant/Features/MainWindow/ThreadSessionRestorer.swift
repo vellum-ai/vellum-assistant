@@ -77,8 +77,14 @@ final class ThreadSessionRestorer {
 
     func handleSessionListResponse(_ response: SessionListResponseMessage) {
         guard let delegate else { return }
-        guard delegate.restoreRecentThreads else { return }
-        guard !response.sessions.isEmpty else { return }
+        guard delegate.restoreRecentThreads else {
+            delegate.restoreLastActiveThread()
+            return
+        }
+        guard !response.sessions.isEmpty else {
+            delegate.restoreLastActiveThread()
+            return
+        }
 
         let recentSessions = Array(response.sessions.prefix(5))
 
