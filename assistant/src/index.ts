@@ -981,6 +981,39 @@ program
         fail(check.label, check.detail);
       }
     }
+
+    // 14. Host environment checks (via daemon allowlisted bash commands)
+    log.info('\n  Host Environment\n');
+    const hostCommands = [
+      'uname -a',
+      'whoami',
+      'node --version',
+      'git --version',
+      'df -h /',
+    ];
+
+    const sock = getSocketPath();
+    if (existsSync(sock)) {
+      for (const cmd of hostCommands) {
+        try {
+          const response = await sendOneMessage({ type: 'doctor_bash', command: cmd });
+          if (response.type === 'doctor_bash_response') {
+            const resp = response as { type: 'doctor_bash_response'; success: boolean; output?: string; error?: string };
+            if (resp.success && resp.output) {
+              pass(`${cmd}: ${resp.output.split('\n')[0]}`);
+            } else {
+              fail(cmd, resp.error ?? 'unknown error');
+            }
+          } else {
+            fail(cmd, 'unexpected response type');
+          }
+        } catch {
+          fail(cmd, 'daemon communication error');
+        }
+      }
+    } else {
+      fail('Host environment checks', 'daemon not running (skipped)');
+    }
   });
 
 // --- Hooks commands ---

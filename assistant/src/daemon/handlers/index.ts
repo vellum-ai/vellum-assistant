@@ -83,6 +83,7 @@ import {
 } from './publish.js';
 import { handleHomeBaseGet } from './home-base.js';
 import { handleDiagnosticsExport } from './diagnostics.js';
+import { handleDoctorBash, handleDoctorBashList } from './doctor-bash.js';
 
 import {
   handleTaskSubmit,
@@ -237,6 +238,8 @@ const handlers: DispatchMap = {
     handleIntegrationDisconnect(msg as IntegrationDisconnectRequest, socket, ctx);
   },
   diagnostics_export_request: handleDiagnosticsExport,
+  doctor_bash: handleDoctorBash,
+  doctor_bash_list: (_msg: { type: 'doctor_bash_list' }, socket: net.Socket, ctx: HandlerContext) => handleDoctorBashList(_msg, socket, ctx),
 };
 
 export function handleMessage(

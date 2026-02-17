@@ -1526,6 +1526,47 @@ public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+/// Sent to execute an allowlisted bash command via the doctor.
+/// Wire type: `"doctor_bash"`
+public struct DoctorBashRequestMessage: Encodable, Sendable {
+    public let type: String = "doctor_bash"
+    public let command: String
+
+    public init(command: String) {
+        self.command = command
+    }
+}
+
+/// Sent to list available doctor bash commands.
+/// Wire type: `"doctor_bash_list"`
+public struct DoctorBashListRequestMessage: Encodable, Sendable {
+    public let type: String = "doctor_bash_list"
+
+    public init() {}
+}
+
+/// A command entry returned by doctor_bash_list_response.
+public struct DoctorBashCommandEntry: Decodable, Sendable {
+    public let command: String
+    public let description: String
+}
+
+/// Response from a doctor bash command execution.
+/// Wire type: `"doctor_bash_response"`
+public struct DoctorBashResponseMessage: Decodable, Sendable {
+    public let command: String
+    public let success: Bool
+    public let output: String?
+    public let error: String?
+    public let availableCommands: [DoctorBashCommandEntry]?
+}
+
+/// Response listing available doctor bash commands.
+/// Wire type: `"doctor_bash_list_response"`
+public struct DoctorBashListResponseMessage: Decodable, Sendable {
+    public let commands: [DoctorBashCommandEntry]
+}
+
 /// Browser frame update from the daemon, delivering a new screenshot frame for an active browser session.
 /// Wire type: `"browser_frame"`
 public struct BrowserFrameMessage: Decodable, Sendable {
@@ -1615,6 +1656,8 @@ public enum ServerMessage: Decodable, Sendable {
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
+    case doctorBashResponse(DoctorBashResponseMessage)
+    case doctorBashListResponse(DoctorBashListResponseMessage)
     case browserFrame(BrowserFrameMessage)
     case pong
     case unknown(String)
@@ -1844,6 +1887,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "diagnostics_export_response":
             let message = try DiagnosticsExportResponseMessage(from: decoder)
             self = .diagnosticsExportResponse(message)
+        case "doctor_bash_response":
+            let message = try DoctorBashResponseMessage(from: decoder)
+            self = .doctorBashResponse(message)
+        case "doctor_bash_list_response":
+            let message = try DoctorBashListResponseMessage(from: decoder)
+            self = .doctorBashListResponse(message)
         case "browser_frame":
             let message = try BrowserFrameMessage(from: decoder)
             self = .browserFrame(message)

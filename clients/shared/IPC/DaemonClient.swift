@@ -223,6 +223,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `doctor_bash_response` message.
+    public var onDoctorBashResponse: ((DoctorBashResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `doctor_bash_list_response` message.
+    public var onDoctorBashListResponse: ((DoctorBashListResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -897,6 +903,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(DiagnosticsExportRequestMessage(conversationId: conversationId, anchorMessageId: anchorMessageId))
     }
 
+    // MARK: - Doctor Bash
+
+    /// Execute an allowlisted bash command via the doctor.
+    public func sendDoctorBashRequest(command: String) throws {
+        try send(DoctorBashRequestMessage(command: command))
+    }
+
+    /// Request the list of available doctor bash commands.
+    public func sendDoctorBashListRequest() throws {
+        try send(DoctorBashListRequestMessage())
+    }
+
     // MARK: - Link Open
 
     /// Send a link_open_request to the daemon, requesting it open a URL externally.
@@ -1185,6 +1203,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onIntegrationConnectResult?(msg)
         case .diagnosticsExportResponse(let msg):
             onDiagnosticsExportResponse?(msg)
+        case .doctorBashResponse(let msg):
+            onDoctorBashResponse?(msg)
+        case .doctorBashListResponse(let msg):
+            onDoctorBashListResponse?(msg)
         case .browserFrame(let msg):
             onBrowserFrame?(msg)
         default:

@@ -445,6 +445,15 @@ export interface DiagnosticsExportRequest {
   anchorMessageId?: string;  // if omitted, use latest assistant message
 }
 
+export interface DoctorBashRequest {
+  type: 'doctor_bash';
+  command: string;
+}
+
+export interface DoctorBashListRequest {
+  type: 'doctor_bash_list';
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -667,6 +676,20 @@ export interface DiagnosticsExportResponse {
   error?: string;      // error message on failure
 }
 
+export interface DoctorBashResponse {
+  type: 'doctor_bash_response';
+  command: string;
+  success: boolean;
+  output?: string;
+  error?: string;
+  availableCommands?: Array<{ command: string; description: string }>;
+}
+
+export interface DoctorBashListResponse {
+  type: 'doctor_bash_list_response';
+  commands: Array<{ command: string; description: string }>;
+}
+
 export interface AppFilesChanged {
   type: 'app_files_changed';
   appId: string;
@@ -753,7 +776,9 @@ export type ClientMessage =
   | IntegrationDisconnectRequest
   | PublishPageRequest
   | UnpublishPageRequest
-  | DiagnosticsExportRequest;
+  | DiagnosticsExportRequest
+  | DoctorBashRequest
+  | DoctorBashListRequest;
 
 // === Server → Client messages ===
 
@@ -1631,6 +1656,8 @@ export type ServerMessage =
   | PublishPageResponse
   | UnpublishPageResponse
   | DiagnosticsExportResponse
+  | DoctorBashResponse
+  | DoctorBashListResponse
   | AppFilesChanged
   | BrowserFrame;
 

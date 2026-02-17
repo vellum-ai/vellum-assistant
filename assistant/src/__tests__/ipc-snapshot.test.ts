@@ -358,6 +358,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     conversationId: 'conv-001',
     anchorMessageId: 'msg-042',
   },
+  doctor_bash: {
+    type: 'doctor_bash',
+    command: 'uname -a',
+  },
+  doctor_bash_list: {
+    type: 'doctor_bash_list',
+  },
   accept_starter_bundle: {
     type: 'accept_starter_bundle',
   },
@@ -1036,6 +1043,19 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'diagnostics_export_response',
     success: true,
     filePath: '/tmp/diagnostics-conv-001.zip',
+  },
+  doctor_bash_response: {
+    type: 'doctor_bash_response',
+    command: 'uname -a',
+    success: true,
+    output: 'Darwin hostname 23.0.0 Darwin Kernel Version 23.0.0',
+  },
+  doctor_bash_list_response: {
+    type: 'doctor_bash_list_response',
+    commands: [
+      { command: 'uname -a', description: 'Show system info' },
+      { command: 'whoami', description: 'Show current user' },
+    ],
   },
   accept_starter_bundle_response: {
     type: 'accept_starter_bundle_response',
