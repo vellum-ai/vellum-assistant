@@ -4,13 +4,23 @@
  * Ensures duplicate channel messages (e.g. Telegram webhook retries)
  * don't produce duplicate replies. Tracks delivery acknowledgement
  * so the runtime owns the full lifecycle instead of web Postgres.
+ *
+ * Dead-letter support: when processMessage fails, the event is marked
+ * with processing_status='failed' (retryable) or 'dead_letter' (fatal
+ * or max attempts exceeded). A periodic sweep retries failed events,
+ * and a replay endpoint allows manual recovery of dead-lettered ones.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { channelInboundEvents, conversations } from './schema.js';
 import { getOrCreateConversation } from './conversation-key-store.js';
+import {
+  classifyError,
+  retryDelayForAttempt,
+  RETRY_MAX_ATTEMPTS,
+} from './job-utils.js';
 
 export interface InboundResult {
   accepted: boolean;
@@ -174,4 +184,171 @@ export function acknowledgeDelivery(
     .run();
 
   return true;
+}
+
+// ── Dead-letter queue helpers ───────────────────────────────────────
+
+/**
+ * Store the raw request payload on an inbound event so it can be
+ * replayed later if processing fails.
+ */
+export function storePayload(eventId: string, payload: Record<string, unknown>): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ rawPayload: JSON.stringify(payload), updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/** Mark an event as successfully processed. */
+export function markProcessed(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ processingStatus: 'processed', updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
+ * Record a processing failure. Classifies the error to decide whether
+ * the event should be retried (status='failed') or dead-lettered
+ * (status='dead_letter') when the error is fatal or max attempts
+ * are exhausted.
+ */
+export function recordProcessingFailure(eventId: string, err: unknown): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.processingAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+  const category = classifyError(err);
+  const errorMsg = err instanceof Error ? err.message : String(err);
+
+  if (category === 'fatal' || attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: 'dead_letter',
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: 'failed',
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
+/** Fetch events eligible for automatic retry (failed + past their backoff). */
+export function getRetryableEvents(limit = 20): Array<{
+  id: string;
+  assistantId: string;
+  conversationId: string;
+  processingAttempts: number;
+  rawPayload: string | null;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      assistantId: channelInboundEvents.assistantId,
+      conversationId: channelInboundEvents.conversationId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      rawPayload: channelInboundEvents.rawPayload,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.processingStatus, 'failed'),
+        lte(channelInboundEvents.retryAfter, now),
+      ),
+    )
+    .limit(limit)
+    .all();
+}
+
+/** Fetch dead-lettered events for an assistant. */
+export function getDeadLetterEvents(assistantId: string): Array<{
+  id: string;
+  sourceChannel: string;
+  externalChatId: string;
+  externalMessageId: string;
+  conversationId: string;
+  processingAttempts: number;
+  lastProcessingError: string | null;
+  createdAt: number;
+}> {
+  const db = getDb();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      sourceChannel: channelInboundEvents.sourceChannel,
+      externalChatId: channelInboundEvents.externalChatId,
+      externalMessageId: channelInboundEvents.externalMessageId,
+      conversationId: channelInboundEvents.conversationId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      lastProcessingError: channelInboundEvents.lastProcessingError,
+      createdAt: channelInboundEvents.createdAt,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.assistantId, assistantId),
+        eq(channelInboundEvents.processingStatus, 'dead_letter'),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Reset dead-lettered events back to 'failed' so the sweep can retry
+ * them. Resets attempt counter and sets an immediate retry_after.
+ */
+export function replayDeadLetters(eventIds: string[]): number {
+  const db = getDb();
+  const now = Date.now();
+  let count = 0;
+  for (const id of eventIds) {
+    const existing = db
+      .select({ id: channelInboundEvents.id })
+      .from(channelInboundEvents)
+      .where(
+        and(
+          eq(channelInboundEvents.id, id),
+          eq(channelInboundEvents.processingStatus, 'dead_letter'),
+        ),
+      )
+      .get();
+    if (!existing) continue;
+
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: 'failed',
+        processingAttempts: 0,
+        lastProcessingError: null,
+        retryAfter: now,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, id))
+      .run();
+    count++;
+  }
+  return count;
 }

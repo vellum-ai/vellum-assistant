@@ -169,6 +169,15 @@ export async function handleChannelInbound(
   // For new (non-duplicate) messages, run the agent loop to generate a reply.
   let processingSucceeded = false;
   if (!result.duplicate && processMessage) {
+    // Persist the raw payload so the event can be replayed on failure
+    channelDeliveryStore.storePayload(result.eventId, {
+      sourceChannel, externalChatId, externalMessageId, content,
+      attachmentIds, sourceMetadata: body.sourceMetadata,
+      senderName: body.senderName,
+      senderExternalUserId: body.senderExternalUserId,
+      senderUsername: body.senderUsername,
+    });
+
     try {
       const { messageId: userMessageId } = await processMessage(
         assistantId,
@@ -185,10 +194,12 @@ export async function handleChannelInbound(
       );
       // Link the user message to the inbound event so edits can find it later
       channelDeliveryStore.linkMessage(result.eventId, userMessageId);
+      channelDeliveryStore.markProcessed(result.eventId);
       processingSucceeded = true;
     } catch (err) {
       console.error(`[runtime-http] Processing failed`, err);
       log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
+      channelDeliveryStore.recordProcessingFailure(result.eventId, err);
     }
   }
 
@@ -234,6 +245,23 @@ export async function handleChannelInbound(
     eventId: result.eventId,
     ...(assistantMessage ? { assistantMessage } : {}),
   });
+}
+
+export function handleListDeadLetters(assistantId: string): Response {
+  const events = channelDeliveryStore.getDeadLetterEvents(assistantId);
+  return Response.json({ events });
+}
+
+export async function handleReplayDeadLetters(assistantId: string, req: Request): Promise<Response> {
+  const body = await req.json() as { eventIds?: string[] };
+  const eventIds = body.eventIds;
+
+  if (!Array.isArray(eventIds) || eventIds.length === 0) {
+    return Response.json({ error: 'eventIds array is required' }, { status: 400 });
+  }
+
+  const replayed = channelDeliveryStore.replayDeadLetters(eventIds);
+  return Response.json({ replayed });
 }
 
 export async function handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
