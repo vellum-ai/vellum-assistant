@@ -235,7 +235,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.escapeMonitor = nil
             }
             voiceInput = nil
-            ambientAgent.stop()
+            ambientAgent.teardown()
 
             hasSetupApp = false
             showAuthWindow()
