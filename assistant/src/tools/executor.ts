@@ -505,11 +505,17 @@ function resolveExecutionTarget(toolName: string): ExecutionTarget {
   if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
     return 'host';
   }
+  const tool = getTool(toolName);
   // Check the tool's executionMode metadata — proxy tools run on the connected
   // client (host), not inside the sandbox.
-  const tool = getTool(toolName);
   if (tool?.executionMode === 'proxy') {
     return 'host';
+  }
+  // Skill tools carry an explicit execution target from their manifest entry.
+  // Trust the manifest value so lifecycle events accurately reflect where the
+  // tool script actually runs.
+  if (tool?.executionTarget) {
+    return tool.executionTarget;
   }
   return 'sandbox';
 }

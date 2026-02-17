@@ -54,6 +54,39 @@ mock.module('../memory/tool-usage-store.js', () => ({
 mock.module('../tools/registry.js', () => ({
   getTool: (name: string) => {
     if (name === 'unknown_tool') return undefined;
+    // Skill tools carry origin and executionTarget from their manifest
+    if (name === 'skill_host_tool') {
+      return {
+        name,
+        description: 'skill host tool',
+        category: 'skill',
+        defaultRiskLevel: 'low',
+        origin: 'skill' as const,
+        ownerSkillId: 'test-skill',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({}),
+        execute: async () => {
+          if (toolThrow) throw toolThrow;
+          return fakeToolResult;
+        },
+      };
+    }
+    if (name === 'skill_sandbox_tool') {
+      return {
+        name,
+        description: 'skill sandbox tool',
+        category: 'skill',
+        defaultRiskLevel: 'low',
+        origin: 'skill' as const,
+        ownerSkillId: 'test-skill',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({}),
+        execute: async () => {
+          if (toolThrow) throw toolThrow;
+          return fakeToolResult;
+        },
+      };
+    }
     return {
       name,
       description: 'test tool',
@@ -283,6 +316,36 @@ describe('ToolExecutor lifecycle events', () => {
     expect(startEvent.executionTarget).toBe('host');
     const executedEvent = events.find((e) => e.type === 'executed' || e.type === 'error');
     expect(executedEvent?.executionTarget).toBe('host');
+  });
+
+  test('skill tool with host execution_target resolves to host executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('skill_host_tool', { query: 'test' }, makeContext(events));
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'executed']);
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('host');
+    const executed = events[1];
+    if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('host');
+  });
+
+  test('skill tool with sandbox execution_target resolves to sandbox executionTarget', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('skill_sandbox_tool', { query: 'test' }, makeContext(events));
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'executed']);
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('sandbox');
+    const executed = events[1];
+    if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('sandbox');
   });
 
   test('does not block tool execution on unresolved lifecycle callbacks', async () => {

@@ -1,4 +1,4 @@
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { SkillToolEntry } from '../../config/skills.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { RiskLevel } from '../../permissions/types.js';
@@ -27,6 +27,7 @@ export function createSkillTool(
     defaultRiskLevel: riskMap[entry.risk],
     origin: 'skill',
     ownerSkillId: skillId,
+    executionTarget: entry.execution_target as ExecutionTarget,
 
     getDefinition(): ToolDefinition {
       return {
