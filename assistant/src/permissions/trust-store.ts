@@ -130,7 +130,7 @@ function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
     // Only migrate patterns that match a known legacy format.
     // The "tool:**" prefix (e.g. "file_read:**") was the original pattern
     // before it was changed to standalone "**".
-    if (!isLegacyStarterPattern(rule.pattern)) continue;
+    if (!isLegacyStarterPattern(rule.pattern, rule.tool)) continue;
     log.info(
       { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
       'Migrated starter rule pattern to current template',
@@ -142,9 +142,11 @@ function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
 }
 
 /** Recognises legacy starter-rule patterns that should be auto-migrated. */
-function isLegacyStarterPattern(pattern: string): boolean {
+function isLegacyStarterPattern(pattern: string, tool: string): boolean {
   // Legacy format used "tool:**" prefixes, e.g. "file_read:**", "glob:**".
-  return /^[a-z_]+:\*\*$/.test(pattern);
+  // Only match the exact legacy pattern for this specific tool to avoid
+  // silently resetting user-customised patterns.
+  return pattern === `${tool}:**`;
 }
 
 function loadFromDisk(): TrustRule[] {
