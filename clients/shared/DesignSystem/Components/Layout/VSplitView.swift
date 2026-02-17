@@ -77,13 +77,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
     // MARK: - Drag Helpers
 
     private func handleDragChanged(_ value: DragGesture.Value, availableWidth: CGFloat) {
-        // Capture initial state on first drag event (translation near zero = drag just started)
-        // Always re-initialize if we're at the start of a drag to avoid stale state issues
-        let deltaX = value.location.x - value.startLocation.x
-        let isDragStart = abs(deltaX) < 2.0  // Within 2 points of start = new drag
-
-        if dragStartWidth == nil || isDragStart {
-            // Force reset and re-initialize state at the start of each drag
+        // Capture initial state on first drag event
+        if dragStartWidth == nil {
             dragStartWidth = panelWidth
             dragStartAvailableWidth = availableWidth
             isDragging = true
@@ -96,6 +91,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
         // Measure drag in a stable parent coordinate space so the divider moving
         // during resize does not change the gesture's reference frame.
+        let deltaX = value.location.x - value.startLocation.x
         let newWidth = initialWidth - Double(deltaX)
 
         // Calculate constraints

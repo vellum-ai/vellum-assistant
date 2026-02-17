@@ -496,13 +496,8 @@ struct MainWindowView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
                     .onChanged { value in
-                        // Capture initial state on first drag event (translation near zero = drag just started)
-                        // Always re-initialize if we're at the start of a drag to avoid stale state issues
-                        let deltaX = value.location.x - value.startLocation.x
-                        let isDragStart = abs(deltaX) < 2.0  // Within 2 points of start = new drag
-
-                        if drawerDragStartWidth == nil || isDragStart {
-                            // Force reset and re-initialize state at the start of each drag
+                        // Capture initial state on first drag event
+                        if drawerDragStartWidth == nil {
                             drawerDragStartWidth = threadDrawerWidth
                             drawerDragStartAvailableWidth = availableWidth
                             isDrawerDragging = true
@@ -515,6 +510,7 @@ struct MainWindowView: View {
 
                         // Use a stable parent coordinate space so divider movement
                         // does not feed back into gesture translation while dragging.
+                        let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
                         let minDrawerWidth: CGFloat = 200  // Increased from 180 for better usability
                         let minMainContent: CGFloat = 300
