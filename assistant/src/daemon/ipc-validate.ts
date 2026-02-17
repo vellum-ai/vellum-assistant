@@ -116,7 +116,7 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     if (typeof obj.requestId !== 'string' || obj.requestId === '') {
       return 'confirmation_response requires a non-empty string "requestId"';
     }
-    const validDecisions = ['allow', 'always_allow', 'deny', 'always_deny'];
+    const validDecisions = ['allow', 'always_allow', 'always_allow_high_risk', 'deny', 'always_deny'];
     if (typeof obj.decision !== 'string' || !validDecisions.includes(obj.decision)) {
       return `confirmation_response "decision" must be one of: ${validDecisions.join(', ')}`;
     }

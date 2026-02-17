@@ -39,7 +39,7 @@ export interface UserMessageAttachment {
 export interface ConfirmationResponse {
   type: 'confirmation_response';
   requestId: string;
-  decision: 'allow' | 'always_allow' | 'deny' | 'always_deny';
+  decision: 'allow' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
   selectedPattern?: string;
   selectedScope?: string;
 }
