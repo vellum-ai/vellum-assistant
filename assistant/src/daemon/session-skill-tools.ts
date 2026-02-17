@@ -164,6 +164,7 @@ export function projectSkillTools(
       manifest.tools,
       skillId,
       skill.directoryPath,
+      currentHash,
     );
 
     if (tools.length > 0) {

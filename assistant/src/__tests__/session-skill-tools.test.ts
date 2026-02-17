@@ -89,6 +89,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
     entries: SkillToolManifest['tools'],
     skillId: string,
     _skillDir: string,
+    versionHash?: string,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
@@ -97,6 +98,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
       defaultRiskLevel: RiskLevel.Medium,
       origin: 'skill' as const,
       ownerSkillId: skillId,
+      ownerSkillVersionHash: versionHash,
       getDefinition: () => ({
         name: entry.name,
         description: entry.description,
@@ -1976,5 +1978,118 @@ describe('hash change re-prompt regressions (PR 35)', () => {
     expect(toolsV2).toBeDefined();
     expect(toolsV2!.length).toBeGreaterThanOrEqual(1);
     expect(toolsV2![0].ownerSkillId).toBe('deploy');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Version hash plumbing regression tests
+// Verify that createSkillToolsFromManifest receives the computed hash and
+// that projected tools carry ownerSkillVersionHash, which downstream
+// components (executor.ts) use to build version-bound policy principals.
+// ---------------------------------------------------------------------------
+
+describe('version hash plumbing to projected tools', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('projected tools carry ownerSkillVersionHash matching the computed hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run', 'deploy_status']) };
+    mockVersionHashes = { deploy: 'v1:secure-hash-abc' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    const tools = mockRegisteredTools.get('deploy');
+    expect(tools).toBeDefined();
+    expect(tools!.length).toBe(2);
+
+    // Every tool created for this skill must carry the version hash
+    for (const tool of tools!) {
+      expect(tool.ownerSkillVersionHash).toBe('v1:secure-hash-abc');
+    }
+  });
+
+  test('after hash change re-registration, new tools carry the updated hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:hash-before' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: register with original hash
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    const toolsV1 = mockRegisteredTools.get('deploy');
+    expect(toolsV1).toBeDefined();
+    expect(toolsV1![0].ownerSkillVersionHash).toBe('v1:hash-before');
+
+    // Simulate file edit — hash changes
+    mockVersionHashes = { deploy: 'v2:hash-after' };
+
+    // Turn 2: re-registration with new hash
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    const toolsV2 = mockRegisteredTools.get('deploy');
+    expect(toolsV2).toBeDefined();
+
+    // The most recently registered tool should carry the new hash
+    const lastTool = toolsV2![toolsV2!.length - 1];
+    expect(lastTool.ownerSkillVersionHash).toBe('v2:hash-after');
+  });
+
+  test('tools for multiple co-active skills each carry their own version hash', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+    mockVersionHashes = {
+      deploy: 'v1:deploy-hash-123',
+      oncall: 'v1:oncall-hash-456',
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="oncall" />'),
+    ];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    const deployTools = mockRegisteredTools.get('deploy');
+    expect(deployTools).toBeDefined();
+    expect(deployTools![0].ownerSkillVersionHash).toBe('v1:deploy-hash-123');
+
+    const oncallTools = mockRegisteredTools.get('oncall');
+    expect(oncallTools).toBeDefined();
+    expect(oncallTools![0].ownerSkillVersionHash).toBe('v1:oncall-hash-456');
+  });
+
+  test('default hash is used and plumbed when no explicit hash override is set', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    // No mockVersionHashes override — mock returns 'v1:default-hash-deploy'
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    const tools = mockRegisteredTools.get('deploy');
+    expect(tools).toBeDefined();
+    expect(tools![0].ownerSkillVersionHash).toBe('v1:default-hash-deploy');
   });
 });
