@@ -6,8 +6,6 @@ import { getTool } from '../tools/registry.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
-import { isOnboardingComplete } from '../config/system-prompt.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -272,36 +270,11 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   return RiskLevel.Medium;
 }
 
-/** Workspace prompt files the agent needs to edit during the BOOTSTRAP.md ritual. */
-const ONBOARDING_PROMPT_FILES = ['IDENTITY.md', 'USER.md', 'SOUL.md', 'BOOTSTRAP.md'];
-
-/**
- * Returns true when the tool call targets a workspace prompt file and
- * onboarding is still in progress.  Used to auto-allow the edits /
- * deletions that the BOOTSTRAP.md ritual requires.
- */
-function isOnboardingAutoAllowed(toolName: string, input: Record<string, unknown>, workingDir: string): boolean {
-  if (toolName === 'file_edit' || toolName === 'file_write') {
-    const filePath = getStringField(input, 'path', 'file_path');
-    if (!filePath) return false;
-    const resolved = resolve(workingDir, filePath);
-    return ONBOARDING_PROMPT_FILES.some((f) => resolved === getWorkspacePromptPath(f));
-  }
-
-  return false;
-}
-
 export async function check(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
 ): Promise<PermissionCheckResult> {
-  // During onboarding, auto-allow workspace prompt file operations so the
-  // agent can complete the identity ritual without prompting the user.
-  if (!isOnboardingComplete() && isOnboardingAutoAllowed(toolName, input, workingDir)) {
-    return { decision: 'allow', reason: 'Auto-allowed during onboarding' };
-  }
-
   const risk = await classifyRisk(toolName, input);
 
   // Build command string candidates for rule matching
