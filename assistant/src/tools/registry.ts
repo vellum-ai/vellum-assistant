@@ -190,10 +190,6 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  // Remember which tools already exist before we register core tools,
-  // so the snapshot below captures only the core set.
-  const preExisting = new Set(tools.keys());
-
   const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
   // Import tool modules to trigger registration side effects.
@@ -225,17 +221,12 @@ export async function initializeTools(): Promise<void> {
     registerLazyTool(descriptor);
   }
 
-  // Snapshot only the tools registered during this call so
-  // __resetRegistryForTesting() can restore them. We filter out
-  // any tools that existed before initializeTools() ran (e.g. test
-  // helpers), preventing test contamination on reset.
+  // Snapshot all tools on the first call so __resetRegistryForTesting() can
+  // restore the complete baseline. This includes tools pre-registered via
+  // side-effect imports before initializeTools() ran — those are also core
+  // tools and must be preserved across test resets.
   if (!coreToolsSnapshot) {
-    coreToolsSnapshot = new Map<string, Tool>();
-    for (const [name, tool] of tools) {
-      if (!preExisting.has(name)) {
-        coreToolsSnapshot.set(name, tool);
-      }
-    }
+    coreToolsSnapshot = new Map(tools);
   }
 
   log.info({ count: tools.size }, 'Tools initialized');
