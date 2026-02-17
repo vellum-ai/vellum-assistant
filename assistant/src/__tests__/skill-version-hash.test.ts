@@ -136,6 +136,21 @@ describe('computeSkillVersionHash', () => {
     expect(hash1).not.toBe(hash2);
   });
 
+  test('skips symlinked directories that point to parent (avoids infinite recursion)', () => {
+    // Create a controlled parent so the symlink doesn't traverse the OS temp dir
+    const parent = makeTempSkill();
+    const skillDir = join(parent, 'skill');
+    mkdirSync(skillDir);
+    writeFileSync(join(skillDir, 'SKILL.md'), '# Skill\n');
+
+    // Symlink "up -> .." resolves to `parent`, which contains `skill` as a
+    // normal child — without cycle detection this causes infinite recursion.
+    symlinkSync(parent, join(skillDir, 'up'));
+    const hash = computeSkillVersionHash(skillDir);
+
+    expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
   test('hash changes when symlink target content changes', () => {
     const dir = makeTempSkill();
     const external = makeTempSkill();

@@ -16,9 +16,19 @@ const EXCLUDED_NAMES = new Set([
 
 /**
  * Collect all files under `dir` in sorted order, excluding transient entries.
+ * Uses a `visited` set of real directory paths to prevent all symlink cycle types.
  */
-function collectFiles(dir: string, base: string): string[] {
+function collectFiles(dir: string, base: string, visited: Set<string> = new Set()): string[] {
   const entries: string[] = [];
+
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return entries;
+  }
+  if (visited.has(realDir)) return entries;
+  visited.add(realDir);
 
   let items: string[];
   try {
@@ -50,23 +60,14 @@ function collectFiles(dir: string, base: string): string[] {
         continue;
       }
       if (resolvedStat.isDirectory()) {
-        // Skip directory symlinks that resolve into the skill dir to avoid loops
-        let realBase: string;
-        try {
-          realBase = realpathSync(base);
-        } catch {
-          continue;
-        }
-        const relToBase = relative(realBase, resolved);
-        if (!relToBase.startsWith('..') && !relToBase.startsWith('/')) continue;
-        entries.push(...collectFiles(full, base));
+        entries.push(...collectFiles(full, base, visited));
       } else if (resolvedStat.isFile()) {
         entries.push(relative(base, full));
       }
       continue;
     }
     if (stat.isDirectory()) {
-      entries.push(...collectFiles(full, base));
+      entries.push(...collectFiles(full, base, visited));
     } else if (stat.isFile()) {
       entries.push(relative(base, full));
     }
