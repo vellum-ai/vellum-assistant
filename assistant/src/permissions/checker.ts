@@ -7,6 +7,7 @@ import { getConfig } from '../config/loader.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
+import { normalizeFilePath } from '../skills/path-classifier.js';
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -177,7 +178,15 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     if (normalized !== fileTarget) {
       candidates.push(`${toolName}:${fileTarget}`);
     }
-    return candidates;
+    // Include the canonical (symlink-resolved) form so rules written against
+    // real paths match even when the tool receives a symlinked path.
+    if (fileTarget) {
+      const canonical = normalizeFilePath(normalized);
+      if (canonical !== normalized && canonical !== fileTarget) {
+        candidates.push(`${toolName}:${canonical}`);
+      }
+    }
+    return [...new Set(candidates)];
   }
 
   const resolved = fileTarget ? resolve(workingDir, fileTarget).replaceAll('\\', '/') : fileTarget;
@@ -187,7 +196,16 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   if (resolved !== fileTarget) {
     candidates.push(`${toolName}:${fileTarget}`);
   }
-  return candidates;
+  // Include the canonical (symlink-resolved) form so rules written against
+  // real paths match even when the tool receives a symlinked or relative path
+  // with redundant segments like `./foo/../bar`.
+  if (fileTarget) {
+    const canonical = normalizeFilePath(resolved);
+    if (canonical !== resolved && canonical !== fileTarget) {
+      candidates.push(`${toolName}:${canonical}`);
+    }
+  }
+  return [...new Set(candidates)];
 }
 
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {

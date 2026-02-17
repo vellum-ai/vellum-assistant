@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const checkerTestDir = mkdtempSync(join(tmpdir(), 'checker-test-'));
@@ -1509,6 +1509,129 @@ describe('Permission Checker', () => {
       const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('High risk');
+    });
+  });
+
+  // ── canonical file command candidates (PR 27) ─────────────────
+
+  describe('canonical file command candidates (PR 27)', () => {
+    // Directory for symlink tests. We create a real directory and a
+    // symlink pointing to it, then verify that rules written against the
+    // real (canonical) path match when the tool receives the symlinked form.
+    const symlinkTestDir = mkdtempSync(join(tmpdir(), 'checker-symlink-'));
+    const realDir = join(symlinkTestDir, 'real-dir');
+    const symDir = join(symlinkTestDir, 'sym-dir');
+
+    // On macOS /tmp itself is a symlink to /private/tmp, so we need the
+    // fully resolved paths when writing rules that should match the
+    // canonical (realpath-resolved) candidate.
+    let realDirResolved: string;
+    let symDirResolved: string;
+    let symlinkTestDirResolved: string;
+
+    beforeAll(() => {
+      mkdirSync(realDir, { recursive: true });
+      writeFileSync(join(realDir, 'config.json'), '{}');
+      symlinkSync(realDir, symDir);
+
+      realDirResolved = realpathSync(realDir);
+      symDirResolved = realpathSync(symDir); // resolves to realDirResolved
+      symlinkTestDirResolved = realpathSync(symlinkTestDir);
+    });
+
+    test('relative path with .. segments matches rule for canonical absolute path', async () => {
+      // A rule targeting the resolved absolute path should match when the
+      // tool receives a relative path with redundant `..` segments.
+      const workingDir = realDir;
+      const relPath = '../real-dir/config.json';
+      const canonical = resolve(workingDir, relPath);
+
+      addRule('file_write', `file_write:${canonical}`, 'everywhere');
+      const result = await check('file_write', { path: relPath }, workingDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    test('symlinked path matches rule written for the real path', async () => {
+      // A rule targeting the fully-resolved real path should match when
+      // the tool receives a path through a symlink. The canonical
+      // candidate resolves the symlink via normalizeFilePath.
+      const symlinkedFile = join(symDir, 'config.json');
+      const realFileResolved = join(realDirResolved, 'config.json');
+
+      // file_write is Medium risk — needs a matching rule to allow.
+      addRule('file_write', `file_write:${realFileResolved}`, 'everywhere');
+      const result = await check('file_write', { path: symlinkedFile }, symlinkTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    test('both raw and canonical candidates are generated for file_write', async () => {
+      // When the input path differs from the canonical form, both should
+      // appear as candidates so either form of rule can match.
+      const symlinkedFile = join(symDir, 'config.json');
+      const realFileResolved = join(realDirResolved, 'config.json');
+
+      // Rule targeting the resolved (symlinked) path form — the resolved
+      // candidate uses resolve(workingDir, path) which on the raw path
+      // preserves the sym-dir segment.
+      const resolvedSymPath = resolve(symlinkTestDir, symlinkedFile);
+      addRule('file_write', `file_write:${resolvedSymPath}`, 'everywhere');
+      const result = await check('file_write', { path: symlinkedFile }, symlinkTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+
+      // And a rule targeting the canonical (realpath) path should also match
+      clearCache();
+      addRule('file_write', `file_write:${realFileResolved}`, 'everywhere');
+      const result2 = await check('file_write', { path: symlinkedFile }, symlinkTestDir);
+      expect(result2.decision).toBe('allow');
+      expect(result2.matchedRule).toBeDefined();
+    });
+
+    test('host_file_read with symlinked path matches rule for real path', async () => {
+      const symlinkedFile = join(symDir, 'config.json');
+      const realFileResolved = join(realDirResolved, 'config.json');
+
+      addRule('host_file_read', `host_file_read:${realFileResolved}`, 'everywhere', 'allow', 2000);
+      const result = await check('host_file_read', { path: symlinkedFile }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    test('host_file_edit with symlinked path matches rule for real path', async () => {
+      const symlinkedFile = join(symDir, 'config.json');
+      const realFileResolved = join(realDirResolved, 'config.json');
+
+      addRule('host_file_edit', `host_file_edit:${realFileResolved}`, 'everywhere', 'allow', 2000);
+      const result = await check('host_file_edit', { path: symlinkedFile }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    test('file_edit with relative dotdot path matches rule for canonical path', async () => {
+      const workingDir = realDir;
+      const relPath = './../real-dir/./config.json';
+      const canonical = resolve(workingDir, relPath);
+
+      addRule('file_edit', `file_edit:${canonical}`, 'everywhere');
+      const result = await check('file_edit', { path: relPath }, workingDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    test('non-existent file under symlinked dir still produces canonical candidate', async () => {
+      // normalizeFilePath walks up to find the nearest existing ancestor,
+      // so even a non-existent leaf file under a symlink is resolved
+      // through the symlinked parent directory.
+      const symlinkedNewFile = join(symDir, 'new-file.txt');
+      // The canonical form resolves the symlink parent to realDirResolved
+      const realNewFileResolved = join(realDirResolved, 'new-file.txt');
+
+      addRule('file_write', `file_write:${realNewFileResolved}`, 'everywhere');
+      const result = await check('file_write', { path: symlinkedNewFile }, symlinkTestDir);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
     });
   });
 });
