@@ -1,0 +1,61 @@
+import { eq } from 'drizzle-orm';
+import type { AssistantConfig } from '../../config/types.js';
+import { getDb } from '../db.js';
+import type { MemoryJob } from '../jobs-store.js';
+import { asString, embedAndUpsert } from '../job-utils.js';
+import { memoryItems, memorySegments, memorySummaries } from '../schema.js';
+
+export async function embedSegmentJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+  const segmentId = asString(job.payload.segmentId);
+  if (!segmentId) return;
+  const db = getDb();
+  const segment = db
+    .select()
+    .from(memorySegments)
+    .where(eq(memorySegments.id, segmentId))
+    .get();
+  if (!segment) return;
+  await embedAndUpsert(config, 'segment', segment.id, segment.text, {
+    conversation_id: segment.conversationId,
+    message_id: segment.messageId,
+    created_at: segment.createdAt,
+  });
+}
+
+export async function embedItemJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+  const itemId = asString(job.payload.itemId);
+  if (!itemId) return;
+  const db = getDb();
+  const item = db
+    .select()
+    .from(memoryItems)
+    .where(eq(memoryItems.id, itemId))
+    .get();
+  if (!item || item.status !== 'active') return;
+  const text = `<kind>${item.kind}</kind> ${item.subject}: ${item.statement}`;
+  await embedAndUpsert(config, 'item', item.id, text, {
+    kind: item.kind,
+    subject: item.subject,
+    status: item.status,
+    confidence: item.confidence,
+    created_at: item.firstSeenAt,
+    last_seen_at: item.lastSeenAt,
+  });
+}
+
+export async function embedSummaryJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
+  const summaryId = asString(job.payload.summaryId);
+  if (!summaryId) return;
+  const db = getDb();
+  const summary = db
+    .select()
+    .from(memorySummaries)
+    .where(eq(memorySummaries.id, summaryId))
+    .get();
+  if (!summary) return;
+  await embedAndUpsert(config, 'summary', summary.id, `[${summary.scope}] ${summary.summary}`, {
+    kind: summary.scope,
+    created_at: summary.startAt,
+    last_seen_at: summary.endAt,
+  });
+}
