@@ -86,6 +86,7 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
+    var onReportMessage: ((String?) -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -450,7 +451,6 @@ struct ChatView: View {
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,
-                                    showDescription: true,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
                                     onAddTrustRule: onAddTrustRule
@@ -471,7 +471,6 @@ struct ChatView: View {
                                 if !hasPrecedingAssistant {
                                     ToolConfirmationBubble(
                                         confirmation: confirmation,
-                                        showDescription: true,
                                         onAllow: { onConfirmationAllow(confirmation.requestId) },
                                         onDeny: { onConfirmationDeny(confirmation.requestId) },
                                         onAddTrustRule: onAddTrustRule
@@ -513,7 +512,8 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onOpenActivity: onOpenActivity,
-                                isActivityPanelOpen: isActivityPanelOpen
+                                isActivityPanelOpen: isActivityPanelOpen,
+                                onReportMessage: onReportMessage
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -787,6 +787,7 @@ private struct ChatBubble: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
+    var onReportMessage: ((String?) -> Void)?
 
     @State private var isRegenerateHovered = false
 
@@ -892,6 +893,14 @@ private struct ChatBubble: View {
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
+            .contextMenu {
+                if !isUser, let onReportMessage,
+                   FeatureFlagManager.shared.isEnabled(.monitoringExport) {
+                    Button("Report this response") {
+                        onReportMessage(message.daemonMessageId)
+                    }
+                }
+            }
 
             if !isUser { Spacer(minLength: 0) }
         }

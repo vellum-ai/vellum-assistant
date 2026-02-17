@@ -786,6 +786,49 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             }
         }
 
+        /// Send a content update to the web view via window.vellum.onContentUpdate().
+        /// Used by document editor to receive content updates from the daemon.
+        func sendContentUpdate(_ data: [String: Any]) {
+            guard let webView = webView else {
+                log.warning("sendContentUpdate: no webView available")
+                return
+            }
+
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                  let jsonString = String(data: jsonData, encoding: .utf8) else {
+                log.error("sendContentUpdate: failed to serialize data to JSON")
+                return
+            }
+
+            let safeJSON = jsonString
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+
+            let script = """
+                (function() {
+                    try {
+                        if (typeof window.vellum !== 'undefined' &&
+                            typeof window.vellum.onContentUpdate === 'function') {
+                            var data = JSON.parse('\(safeJSON)');
+                            window.vellum.onContentUpdate(data);
+                        }
+                    } catch(e) {
+                        console.error('onContentUpdate error:', e);
+                    }
+                })();
+                """
+
+            webView.evaluateJavaScript(script) { result, error in
+                if let error = error {
+                    log.error("sendContentUpdate: JS eval error: \(error.localizedDescription, privacy: .public)")
+                } else {
+                    log.debug("sendContentUpdate: successfully sent update")
+                }
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Restore scroll position if this load was a refinement update.
             if let scrollJSON = pendingScrollRestore {

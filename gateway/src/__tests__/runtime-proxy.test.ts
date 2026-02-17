@@ -210,6 +210,24 @@ describe("runtime proxy handler", () => {
     expect(capturedHeaders!.get("authorization")).toBe("Bearer upstream-token");
   });
 
+  test("replaces client authorization with configured bearer token for upstream", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(
+      makeConfig({ runtimeProxyBearerToken: "daemon-token" }),
+    );
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: "Bearer client-token" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.get("authorization")).toBe("Bearer daemon-token");
+  });
+
   test("truncates long upstream error bodies in logs", async () => {
     const longBody = "x".repeat(512);
     globalThis.fetch = mock(async () => {

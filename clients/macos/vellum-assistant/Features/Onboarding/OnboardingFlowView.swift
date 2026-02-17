@@ -5,6 +5,7 @@ import VellumAssistantShared
 struct OnboardingFlowView: View {
     @Bindable var state: OnboardingState
     let daemonClient: DaemonClientProtocol
+    @Bindable var authManager: AuthManager
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
@@ -13,9 +14,9 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if [0, 2, 3, 4].contains(state.currentStep) {
-                // Steps 0–4: Shared layout with persistent icon + background.
-                // Only the content below the icon transitions between steps.
+            if [0, 1, 2].contains(state.currentStep) {
+                // Steps 0–2: Trimmed onboarding flow (WakeUp → APIKey → ModelSelection).
+                // Previous flow used steps [0, 2, 3, 4] — kept below but unreachable.
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -42,13 +43,19 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            WakeUpStepView(state: state)
-                        case 2:
+                            WakeUpStepView(state: state, onContinueWithVellum: {
+                                Task {
+                                    await authManager.startWorkOSLogin()
+                                }
+                            })
+                        case 1:
                             APIKeyStepView(state: state)
-                        case 3:
+                        case 2:
                             ModelSelectionStepView(state: state)
-                        case 4:
-                            FnKeyStepView(state: state)
+                        // Previous flow (preserved for revert):
+                        // case 2: APIKeyStepView(state: state)
+                        // case 3: ModelSelectionStepView(state: state)
+                        // case 4: FnKeyStepView(state: state)
                         default:
                             EmptyView()
                         }
@@ -63,30 +70,15 @@ struct OnboardingFlowView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
-                    ZStack {
-                        VColor.background
-
-                        RadialGradient(
-                            colors: [
-                                Violet._600.opacity(0.15),
-                                Violet._700.opacity(0.05),
-                                Color.clear
-                            ],
-                            center: .bottom,
-                            startRadius: 20,
-                            endRadius: 350
-                        )
-
-                        RadialGradient(
-                            colors: [
-                                Violet._400.opacity(0.08),
-                                Color.clear
-                            ],
-                            center: UnitPoint(x: 0.7, y: 1.0),
-                            startRadius: 10,
-                            endRadius: 250
-                        )
-                    }
+                    RadialGradient(
+                        colors: [
+                            Color(hex: 0x0F172A),
+                            Color(hex: 0x080B17)
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 500
+                    )
                     .ignoresSafeArea()
                 )
             } else if state.currentStep <= 7 {
@@ -131,8 +123,7 @@ struct OnboardingFlowView: View {
                         )
                         .id(state.currentStep)
 
-                        OnboardingProgressDots(currentStep: state.currentStep)
-                            .padding(.top, VSpacing.xs)
+                        OnboardingFooter(currentStep: state.currentStep)
                     }
                     .padding(.horizontal, VSpacing.xxl)
                     .padding(.top, VSpacing.xl)
@@ -157,7 +148,14 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
-            if newStep > 4 {
+            // Trimmed flow ends after step 2 (ModelSelection).
+            // Previous threshold was > 4 (after FnKey step).
+            if newStep > 2 {
+                onComplete()
+            }
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated {
                 onComplete()
             }
         }
@@ -211,6 +209,7 @@ struct OnboardingFlowView: View {
     OnboardingFlowView(
         state: OnboardingState(),
         daemonClient: DaemonClient(),
+        authManager: AuthManager(),
         onComplete: {},
         onOpenSettings: {}
     )

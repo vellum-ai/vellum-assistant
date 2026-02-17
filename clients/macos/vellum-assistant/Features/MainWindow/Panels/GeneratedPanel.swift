@@ -145,9 +145,51 @@ struct GeneratedPanel: View {
                         )
                         .frame(height: 100)
                     } else {
-                        VStack(spacing: VSpacing.md) {
-                            ForEach(filteredItems) { item in
-                                appRow(item)
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            // Documents section
+                            if !documentItems.isEmpty {
+                                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                    HStack {
+                                        Text("DOCUMENTS")
+                                            .font(VFont.display)
+                                            .foregroundColor(VColor.textMuted)
+                                        Spacer()
+                                        Text("\(documentItems.count)")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textMuted)
+                                    }
+                                    .padding(.horizontal, VSpacing.xs)
+
+                                    VStack(spacing: VSpacing.md) {
+                                        ForEach(documentItems) { item in
+                                            appRow(item)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Dynamic pages section
+                            if !otherItems.isEmpty {
+                                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                    if !documentItems.isEmpty {
+                                        HStack {
+                                            Text("PAGES")
+                                                .font(VFont.display)
+                                                .foregroundColor(VColor.textMuted)
+                                            Spacer()
+                                            Text("\(otherItems.count)")
+                                                .font(VFont.caption)
+                                                .foregroundColor(VColor.textMuted)
+                                        }
+                                        .padding(.horizontal, VSpacing.xs)
+                                    }
+
+                                    VStack(spacing: VSpacing.md) {
+                                        ForEach(otherItems) { item in
+                                            appRow(item)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -172,6 +214,16 @@ struct GeneratedPanel: View {
         }
     }
 
+    /// Document apps (appId starts with "doc-")
+    private var documentItems: [DisplayAppItem] {
+        filteredItems.filter { $0.localAppId?.starts(with: "doc-") ?? false }
+    }
+
+    /// Non-document apps
+    private var otherItems: [DisplayAppItem] {
+        filteredItems.filter { !($0.localAppId?.starts(with: "doc-") ?? false) }
+    }
+
     // MARK: - App Row
 
     private func appRow(_ item: DisplayAppItem) -> some View {
@@ -189,7 +241,8 @@ struct GeneratedPanel: View {
                     .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             } else {
-                Text(item.icon ?? "\u{1F4F1}")
+                let isDocument = item.localAppId?.starts(with: "doc-") ?? false
+                Text(isDocument ? "📝" : (item.icon ?? "\u{1F4F1}"))
                     .font(.system(size: 20))
                     .frame(width: 28, height: 28)
             }

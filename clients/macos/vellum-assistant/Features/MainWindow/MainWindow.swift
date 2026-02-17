@@ -15,6 +15,48 @@ import SwiftUI
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
 
+    /// Weak reference to the composer text view so we can redirect typing to it.
+    weak var composerTextView: NSTextView?
+
+    override func keyDown(with event: NSEvent) {
+        // If a text view is already focused, let it handle the event normally.
+        if firstResponder is NSTextView {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Only redirect plain characters (no Command/Control modifiers).
+        let modifiers = event.modifierFlags.intersection([.command, .control])
+        guard modifiers.isEmpty,
+              let chars = event.characters, !chars.isEmpty else {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Skip non-character keys: Escape, Tab, arrow keys, function keys, etc.
+        let kc = event.keyCode
+        let isNonCharacter = kc == 53 // Escape
+            || kc == 48 // Tab
+            || kc == 36 || kc == 76 // Return/Enter
+            || (kc >= 122 && kc <= 127) // F1-F6
+            || (kc >= 96 && kc <= 103) // F5-F12 (extended)
+            || kc == 105 || kc == 107 || kc == 113 || kc == 111 // F13-F16
+            || (kc >= 123 && kc <= 126) // Arrow keys
+        if isNonCharacter {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Redirect to the composer text view.
+        if let composer = composerTextView {
+            makeFirstResponder(composer)
+            composer.keyDown(with: event)
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         guard event.clickCount == 2 else { return }

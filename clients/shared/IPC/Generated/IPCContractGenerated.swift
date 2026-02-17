@@ -335,6 +335,19 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let httpPort: Double?
 }
 
+public struct IPCDiagnosticsExportRequest: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let anchorMessageId: String?
+}
+
+public struct IPCDiagnosticsExportResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let filePath: String?
+    public let error: String?
+}
+
 public struct IPCDynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?

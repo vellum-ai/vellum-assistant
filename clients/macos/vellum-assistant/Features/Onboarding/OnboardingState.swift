@@ -26,7 +26,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 5
+    private static let currentFlowVersion = 6
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -109,24 +109,18 @@ final class OnboardingState {
         // Default onboarding now exits immediately after the first post-hatch
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 4
+        // Trimmed flow: 3 steps (0, 1, 2). Previous default was 4.
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 2
         if currentStep > maxStep {
             currentStep = maxStep
-        }
-        // Skip naming step (step 1) if restored to it
-        if onboardingVariant == .default && currentStep == 1 {
-            currentStep = 2
         }
     }
 
     func advance() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
             currentStep += 1
-            // Skip naming step (step 1) — name defaults to "Velly"
-            // Skip everything after API key (steps 3+) — go straight to chat
-            if currentStep == 1 {
-                currentStep = 2
-            }
+            // Previous flow skipped step 1 (naming) with: if currentStep == 1 { currentStep = 2 }
+            // Trimmed flow uses step 1 for APIKey, so no skip needed.
         }
         persist()
     }

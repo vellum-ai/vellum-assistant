@@ -68,6 +68,7 @@ public enum VFont {
     public static let cardEmoji  = Font.system(size: 32)
     public static let mono       = dmMono("DMMono-Regular", size: 13)
     public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
+    public static let monoMedium = dmMono("DMMono-Medium", size: 16)
 
     /// All-caps pixel display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     public static let display    = Font.custom("Silkscreen-Bold", size: 18)

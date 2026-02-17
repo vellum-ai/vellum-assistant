@@ -556,6 +556,14 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types diagnostics_export_request serializes to expected JSON 1`] = `
+{
+  "anchorMessageId": "msg-042",
+  "conversationId": "conv-001",
+  "type": "diagnostics_export_request",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types accept_starter_bundle serializes to expected JSON 1`] = `
 {
   "type": "accept_starter_bundle",
@@ -1601,6 +1609,14 @@ exports[`IPC message snapshots ServerMessage types browser_frame serializes to e
   "sessionId": "sess-001",
   "surfaceId": "surface-001",
   "type": "browser_frame",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types diagnostics_export_response serializes to expected JSON 1`] = `
+{
+  "filePath": "/tmp/diagnostics-conv-001.zip",
+  "success": true,
+  "type": "diagnostics_export_response",
 }
 `;
 

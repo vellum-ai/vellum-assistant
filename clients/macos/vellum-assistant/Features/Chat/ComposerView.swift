@@ -510,6 +510,11 @@ private struct ComposerTextView: NSViewRepresentable {
             textView.needsDisplay = true
         }
 
+        // Register the composer with the window so typing auto-focuses it.
+        if let zoomableWindow = textView.window as? TitleBarZoomableWindow {
+            zoomableWindow.composerTextView = textView
+        }
+
         if context.coordinator.lastFocusRequestID != focusRequestID {
             context.coordinator.lastFocusRequestID = focusRequestID
             DispatchQueue.main.async {
@@ -652,12 +657,16 @@ private final class ComposerNativeTextView: NSTextView {
         }
 
         // Enter sends; Shift+Enter inserts newline.
+        // If ghost suggestion is visible, accept it first then send.
         if event.keyCode == 36 || event.keyCode == 76 {
             if modifiers == [.shift] {
                 insertNewline(nil)
                 return
             }
             if modifiers.isEmpty {
+                if hasGhostSuffix {
+                    onAcceptSuggestion?()
+                }
                 onSubmit?()
                 return
             }

@@ -1,0 +1,58 @@
+/**
+ * Email provider registry — resolves provider name → EmailProvider instance.
+ *
+ * Config path: integrations.email.provider (default: 'agentmail')
+ */
+
+import type { EmailProvider } from '../provider.js';
+import { getSecureKey } from '../../security/secure-keys.js';
+import { loadRawConfig, getNestedValue } from '../../config/loader.js';
+
+export const SUPPORTED_PROVIDERS = ['agentmail'] as const;
+export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
+
+const PROVIDER_KEY_MAP: Record<SupportedProvider, string[]> = {
+  agentmail: ['agentmail', 'credential:agentmail:api_key'],
+};
+
+/**
+ * Read the active email provider from config.
+ * Defaults to 'agentmail' if not set.
+ */
+export function getActiveProviderName(): SupportedProvider {
+  const raw = loadRawConfig();
+  const value = getNestedValue(raw, 'integrations.email.provider');
+  if (typeof value === 'string' && SUPPORTED_PROVIDERS.includes(value as SupportedProvider)) {
+    return value as SupportedProvider;
+  }
+  return 'agentmail';
+}
+
+/**
+ * Create an EmailProvider instance for the given (or active) provider.
+ * Throws if the API key is missing.
+ */
+export async function createProvider(name?: SupportedProvider): Promise<EmailProvider> {
+  const providerName = name ?? getActiveProviderName();
+
+  switch (providerName) {
+    case 'agentmail': {
+      const candidates = PROVIDER_KEY_MAP.agentmail;
+      let apiKey: string | undefined;
+      for (const account of candidates) {
+        apiKey = getSecureKey(account);
+        if (apiKey) break;
+      }
+      if (!apiKey) {
+        throw new Error(
+          'No AgentMail API key configured. Run: vellum keys set agentmail <key>',
+        );
+      }
+      const { AgentMailClient } = await import('agentmail');
+      const { AgentMailProvider } = await import('./agentmail.js');
+      return new AgentMailProvider(new AgentMailClient({ apiKey }));
+    }
+    default:
+      throw new Error(`Unknown email provider: ${providerName}`);
+  }
+}

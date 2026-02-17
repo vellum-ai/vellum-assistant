@@ -133,7 +133,7 @@ function validateFilePath(appId: string, path: string): string {
       }
     }
   }
-  const realAppDir = realpathSync(appDir);
+  const realAppDir = existsSync(appDir) ? realpathSync(appDir) : appDir;
   if (!realResolved.startsWith(realAppDir + '/') && realResolved !== realAppDir) {
     throw new Error(`Invalid file path: symlink resolves outside app directory`);
   }
