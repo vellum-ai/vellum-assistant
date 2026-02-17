@@ -19,9 +19,10 @@ export interface IngressCheckResult {
 /**
  * Scan inbound user text for secrets before it enters model context.
  *
- * When `secretDetection.action` is `block` (default), any message containing
- * a detected secret is rejected with a safe notice. The raw message content
- * is never logged or persisted.
+ * When `secretDetection.blockIngress` is `true` (default), any message
+ * containing a detected secret is rejected with a safe notice. This is
+ * independent of `secretDetection.action`, which only controls how
+ * secrets in tool *output* are handled.
  *
  * SECURITY: This function intentionally never logs the message content.
  */
@@ -31,8 +32,7 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
     return { blocked: false, detectedTypes: [] };
   }
 
-  // Only block in 'block' mode; 'warn' and 'redact' apply to tool output, not user input
-  if (config.secretDetection.action !== 'block') {
+  if (!config.secretDetection.blockIngress) {
     return { blocked: false, detectedTypes: [] };
   }
 
