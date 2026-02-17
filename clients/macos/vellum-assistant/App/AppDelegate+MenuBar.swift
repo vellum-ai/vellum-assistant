@@ -232,7 +232,7 @@ extension AppDelegate {
 
     @objc func openAppCollection() {
         showMainWindow()
-        mainWindow?.windowState.activePanel = .directory
+        mainWindow?.windowState.selection = .panel(.directory)
     }
 
     @objc func checkForUpdates() {
