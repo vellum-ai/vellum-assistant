@@ -51,9 +51,11 @@ import {
   applyRuntimeInjections,
   stripActiveSurfaceContext,
   stripWorkspaceTopLevelContext,
+  stripChannelCapabilityContext,
 } from './session-runtime-assembly.js';
 import type {
   ActiveSurfaceContext,
+  ChannelCapabilities,
 } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
@@ -149,6 +151,7 @@ export class Session {
   currentActiveSurfaceId?: string;
   /** @internal — exposed for session-process.ts module functions. */
   currentPage?: string;
+  private channelCapabilities?: ChannelCapabilities;
   /** @internal — exposed for session-surfaces.ts module functions. */
   pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -530,6 +533,10 @@ export class Session {
     this.assistantId = assistantId;
   }
 
+  setChannelCapabilities(caps: ChannelCapabilities): void {
+    this.channelCapabilities = caps;
+  }
+
   private async approveHostAttachmentReadImpl(filePath: string): Promise<boolean> {
     return approveHostAttachmentRead(filePath, this.workingDir, this.prompter, this.conversationId, this.hasNoClient);
   }
@@ -759,6 +766,7 @@ export class Session {
         softConflictInstruction,
         activeSurface,
         workspaceTopLevelContext: this.workspaceTopLevelContext,
+        channelCapabilities: this.channelCapabilities ?? null,
       });
 
       // Pre-run repair: fix any message ordering issues before sending to provider.
@@ -1079,9 +1087,11 @@ export class Session {
       });
       const restoredHistory = [...preRepairMessages, ...newMessages];
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-      this.messages = stripWorkspaceTopLevelContext(
-        stripActiveSurfaceContext(
-          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+      this.messages = stripChannelCapabilityContext(
+        stripWorkspaceTopLevelContext(
+          stripActiveSurfaceContext(
+            stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+          ),
         ),
       );
 

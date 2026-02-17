@@ -17,6 +17,7 @@ export type MessageProcessor = (
   content: string,
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
+  sourceChannel?: string,
 ) => Promise<{ messageId: string }>;
 
 /**
@@ -30,6 +31,7 @@ export type NonBlockingMessageProcessor = (
   content: string,
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
+  sourceChannel?: string,
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {

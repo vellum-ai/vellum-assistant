@@ -140,9 +140,10 @@ export async function handleSendMessage(
     conversationKey?: string;
     content?: string;
     attachmentIds?: string[];
+    sourceChannel?: string;
   };
 
-  const { conversationKey, content, attachmentIds } = body;
+  const { conversationKey, content, attachmentIds, sourceChannel } = body;
 
   if (!conversationKey) {
     return Response.json(
@@ -195,6 +196,8 @@ export async function handleSendMessage(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
+      undefined,
+      sourceChannel,
     );
     return Response.json({ accepted: true, messageId: result.messageId });
   } catch (err) {

@@ -221,6 +221,7 @@ export async function handleChannelInbound(
             uxBrief: metadataUxBrief,
           },
         },
+        sourceChannel,
       );
       // Link the user message to the inbound event so edits can find it later
       channelDeliveryStore.linkMessage(result.eventId, userMessageId);

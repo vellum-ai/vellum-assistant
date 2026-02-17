@@ -113,6 +113,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildDocumentCreationSection());
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
+  parts.push(buildChannelAwarenessSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
@@ -382,6 +383,27 @@ function buildSystemPermissionSection(): string {
     '- Accessibility / UI automation → `accessibility`',
     '',
     'Do NOT explain how to open System Settings manually — the tool handles it with a clickable button.',
+  ].join('\n');
+}
+
+export function buildChannelAwarenessSection(): string {
+  return [
+    '## Channel Awareness & Trust Gating',
+    '',
+    'Each turn may include a `<channel_capabilities>` block in the user message describing what the current channel supports. Use this to adapt your behaviour:',
+    '',
+    '### Channel-specific rules',
+    '- When `dashboard_capable` is `false`, never reference the dashboard UI, settings panels, dynamic pages, or visual pickers. Present data as formatted text.',
+    '- When `supports_dynamic_ui` is `false`, do not call `ui_show`, `ui_update`, or `app_create`.',
+    '- When `supports_voice_input` is `false`, do not ask the user to speak or use their microphone.',
+    '- Non-dashboard channels should defer dashboard-specific actions. Tell the user they can complete those steps later from the desktop app.',
+    '',
+    '### Permission ask trust gating',
+    '- Do NOT proactively ask for elevated permissions (microphone, computer control, file access) until the trust stage field `firstConversationComplete` in USER.md is `true`.',
+    '- Even after `firstConversationComplete`, only ask for permissions that are relevant to the current channel capabilities.',
+    '- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.',
+    '- Do not ask for computer-control permissions on non-dashboard channels.',
+    '- When you do request a permission, be transparent about what it enables and why you need it.',
   ].join('\n');
 }
 
