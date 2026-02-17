@@ -58,6 +58,11 @@ export class ScaffoldManagedSkillTool implements Tool {
             type: 'boolean',
             description: 'Whether to add the skill to SKILLS.md index (default: true).',
           },
+          includes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of child skill IDs that this skill includes (metadata only, no auto-activation).',
+          },
         },
         required: ['skill_id', 'name', 'description', 'body_markdown'],
       },
@@ -85,6 +90,26 @@ export class ScaffoldManagedSkillTool implements Tool {
       return { content: 'Error: body_markdown is required and must be a non-empty string', isError: true };
     }
 
+    // Validate and normalize includes
+    let includes: string[] | undefined;
+    if (input.includes !== undefined) {
+      if (!Array.isArray(input.includes)) {
+        return { content: 'Error: includes must be an array of strings', isError: true };
+      }
+      const normalized: string[] = [];
+      const seen = new Set<string>();
+      for (const item of input.includes) {
+        if (typeof item !== 'string' || !item.trim()) continue;
+        const trimmed = item.trim();
+        if (seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        normalized.push(trimmed);
+      }
+      if (normalized.length > 0) {
+        includes = normalized;
+      }
+    }
+
     const result = createManagedSkill({
       id: skillId.trim(),
       name: sanitizeFrontmatterValue(name),
@@ -95,6 +120,7 @@ export class ScaffoldManagedSkillTool implements Tool {
       disableModelInvocation: typeof input.disable_model_invocation === 'boolean' ? input.disable_model_invocation : undefined,
       overwrite: input.overwrite === true,
       addToIndex: input.add_to_index !== false,
+      includes,
     });
 
     if (!result.created) {

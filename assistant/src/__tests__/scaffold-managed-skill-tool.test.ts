@@ -130,6 +130,50 @@ describe('scaffold_managed_skill tool', () => {
     }
   });
 
+  test('creates a skill with includes metadata', async () => {
+    const result = await tool.execute({
+      skill_id: 'parent-skill',
+      name: 'Parent',
+      description: 'Has children',
+      body_markdown: 'Parent body.',
+      includes: ['child-a', 'child-b'],
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'parent-skill', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('normalizes includes — trims and deduplicates', async () => {
+    const result = await tool.execute({
+      skill_id: 'norm-skill',
+      name: 'Normalized',
+      description: 'Tests normalization',
+      body_markdown: 'Body.',
+      includes: ['  child-a  ', 'child-b', 'child-a', '', '  '],
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'norm-skill', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('omits includes when not provided', async () => {
+    const result = await tool.execute({
+      skill_id: 'no-includes',
+      name: 'Solo',
+      description: 'No children',
+      body_markdown: 'Body.',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'no-includes', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).not.toContain('includes');
+  });
+
   test('rejects invalid skill_id', async () => {
     const result = await tool.execute({
       skill_id: '../escape',
