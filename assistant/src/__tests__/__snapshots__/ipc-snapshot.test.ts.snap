@@ -1,4 +1,11 @@
-// Bun Snapshot v1, https://goo.gl/fbAQLP
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`IPC message snapshots ClientMessage types auth serializes to expected JSON 1`] = `
+{
+  "token": "abc123def456",
+  "type": "auth",
+}
+`;
 
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
@@ -375,6 +382,13 @@ exports[`IPC message snapshots ClientMessage types apps_list serializes to expec
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types home_base_get serializes to expected JSON 1`] = `
+{
+  "ensureLinked": true,
+  "type": "home_base_get",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types shared_apps_list serializes to expected JSON 1`] = `
 {
   "type": "shared_apps_list",
@@ -537,6 +551,21 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 {
   "integrationId": "gmail",
   "type": "integration_disconnect",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "auth_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types user_message_echo serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "text": "Check the weather for me",
+  "type": "user_message_echo",
 }
 `;
 
@@ -1256,6 +1285,43 @@ exports[`IPC message snapshots ServerMessage types apps_list_response serializes
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types home_base_get_response serializes to expected JSON 1`] = `
+{
+  "homeBase": {
+    "appId": "home-base-001",
+    "onboardingTasks": [
+      "Make it mine",
+      "Enable voice mode",
+      "Enable computer control",
+      "Try ambient mode",
+    ],
+    "preview": {
+      "description": "Prebuilt onboarding + starter task canvas",
+      "icon": "🏠",
+      "metrics": [
+        {
+          "label": "Starter tasks",
+          "value": "3",
+        },
+        {
+          "label": "Onboarding tasks",
+          "value": "4",
+        },
+      ],
+      "subtitle": "Dashboard",
+      "title": "Home Base",
+    },
+    "source": "prebuilt_seed",
+    "starterTasks": [
+      "Change the look and feel",
+      "Research something for me about X",
+      "Turn it into a webpage or interactive UI",
+    ],
+  },
+  "type": "home_base_get_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types shared_apps_list_response serializes to expected JSON 1`] = `
 {
   "apps": [
@@ -1499,58 +1565,6 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "integrationId": "gmail",
   "success": true,
   "type": "integration_connect_result",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types home_base_get serializes to expected JSON 1`] = `
-{
-  "ensureLinked": true,
-  "type": "home_base_get",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types home_base_get_response serializes to expected JSON 1`] = `
-{
-  "homeBase": {
-    "appId": "home-base-001",
-    "onboardingTasks": [
-      "Make it mine",
-      "Enable voice mode",
-      "Enable computer control",
-      "Try ambient mode",
-    ],
-    "preview": {
-      "description": "Prebuilt onboarding + starter task canvas",
-      "icon": "🏠",
-      "metrics": [
-        {
-          "label": "Starter tasks",
-          "value": "3",
-        },
-        {
-          "label": "Onboarding tasks",
-          "value": "4",
-        },
-      ],
-      "subtitle": "Dashboard",
-      "title": "Home Base",
-    },
-    "source": "prebuilt_seed",
-    "starterTasks": [
-      "Change the look and feel",
-      "Research something for me about X",
-      "Turn it into a webpage or interactive UI",
-    ],
-  },
-  "type": "home_base_get_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types user_message_echo serializes to expected JSON 1`] = `
-{
-  "sessionId": "sess-001",
-  "text": "Check the weather for me",
-  "type": "user_message_echo",
 }
 `;
 

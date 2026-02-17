@@ -17,6 +17,10 @@ import type {
 
 type ClientMessageType = ClientMessage['type'];
 const clientMessages: Record<ClientMessageType, ClientMessage> = {
+  auth: {
+    type: 'auth',
+    token: 'abc123def456',
+  },
   user_message: {
     type: 'user_message',
     sessionId: 'sess-001',
@@ -354,6 +358,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
 
 type ServerMessageType = ServerMessage['type'];
 const serverMessages: Record<ServerMessageType, ServerMessage> = {
+  auth_result: {
+    type: 'auth_result',
+    success: true,
+  },
   user_message_echo: {
     type: 'user_message_echo',
     text: 'Check the weather for me',

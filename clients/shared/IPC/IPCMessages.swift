@@ -1462,9 +1462,14 @@ extension IPCVercelApiConfigRequest {
 /// Backed by generated `IPCVercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 
+/// Authentication result from the daemon after the client sends an `auth` message.
+/// Backed by generated `IPCAuthResult`.
+public typealias AuthResultMessage = IPCAuthResult
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
+    case authResult(AuthResultMessage)
     case cuAction(CuActionMessage)
     case cuComplete(CuCompleteMessage)
     case cuError(CuErrorMessage)
@@ -1545,6 +1550,9 @@ public enum ServerMessage: Decodable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
+        case "auth_result":
+            let message = try AuthResultMessage(from: decoder)
+            self = .authResult(message)
         case "cu_action":
             let message = try CuActionMessage(from: decoder)
             self = .cuAction(message)

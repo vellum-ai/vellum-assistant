@@ -1,7 +1,8 @@
 import * as net from 'node:net';
-import { existsSync, chmodSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -57,6 +58,10 @@ export class DaemonServer {
   private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
   private static readonly MAX_CONNECTIONS = 50;
+  private static readonly AUTH_TIMEOUT_MS = 5_000;
+  private sessionToken = '';
+  private authenticatedSockets = new Set<net.Socket>();
+  private authTimeouts = new Map<net.Socket, ReturnType<typeof setTimeout>>();
 
   private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
     const transport = options?.transport;
@@ -97,6 +102,16 @@ export class DaemonServer {
 
     this.startFileWatchers();
 
+    // Generate a session token and write it to disk so clients can
+    // authenticate when connecting. Written before the socket starts
+    // listening to ensure the token is available by the time a client
+    // can connect.
+    this.sessionToken = randomBytes(32).toString('hex');
+    const tokenPath = getSessionTokenPath();
+    writeFileSync(tokenPath, this.sessionToken, { mode: 0o600 });
+    chmodSync(tokenPath, 0o600);
+    log.info({ tokenPath }, 'Session token written');
+
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
         this.handleConnection(socket);
@@ -130,6 +145,17 @@ export class DaemonServer {
       this.blobSweepTimer = null;
     }
     this.stopFileWatchers();
+
+    // Clean up session token
+    try {
+      unlinkSync(getSessionTokenPath());
+    } catch { /* ignore if already gone */ }
+
+    for (const timer of this.authTimeouts.values()) {
+      clearTimeout(timer);
+    }
+    this.authTimeouts.clear();
+    this.authenticatedSockets.clear();
 
     // 1. Stop accepting new connections first. server.close() prevents new
     //    connections from arriving, so the cleanup below won't race with
@@ -443,10 +469,17 @@ export class DaemonServer {
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
-    // Send initial session info
-    this.sendInitialSession(socket).catch((err) => {
-      log.error({ err }, 'Failed to send initial session info to client on connect');
-    });
+    // Require authentication before sending session info or accepting
+    // commands. Clients must send { type: 'auth', token } as their
+    // first message within AUTH_TIMEOUT_MS.
+    const authTimer = setTimeout(() => {
+      if (!this.authenticatedSockets.has(socket)) {
+        log.warn('Client failed to authenticate within timeout, disconnecting');
+        this.send(socket, { type: 'error', message: 'Authentication timeout' });
+        socket.destroy();
+      }
+    }, DaemonServer.AUTH_TIMEOUT_MS);
+    this.authTimeouts.set(socket, authTimer);
 
     socket.on('data', (data) => {
       const chunkReceivedAtMs = Date.now();
@@ -486,11 +519,49 @@ export class DaemonServer {
           socket.destroy();
           return;
         }
+
+        // Auth gate: first message must be 'auth' with a valid token.
+        if (!this.authenticatedSockets.has(socket)) {
+          const pendingTimer = this.authTimeouts.get(socket);
+          if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            this.authTimeouts.delete(socket);
+          }
+
+          if (result.message.type === 'auth') {
+            const authMsg = result.message as { type: 'auth'; token: string };
+            if (authMsg.token === this.sessionToken) {
+              this.authenticatedSockets.add(socket);
+              this.send(socket, { type: 'auth_result', success: true });
+              this.sendInitialSession(socket).catch((err) => {
+                log.error({ err }, 'Failed to send initial session info after auth');
+              });
+            } else {
+              log.warn('Client provided invalid auth token');
+              this.send(socket, { type: 'auth_result', success: false, message: 'Invalid token' });
+              socket.destroy();
+            }
+            continue;
+          }
+
+          // Non-auth message from unauthenticated socket
+          log.warn({ type: result.message.type }, 'Unauthenticated client sent non-auth message, disconnecting');
+          this.send(socket, { type: 'error', message: 'Authentication required' });
+          socket.destroy();
+          return;
+        }
+
         this.dispatchMessage(result.message, socket);
       }
     });
 
     socket.on('close', () => {
+      const pendingAuthTimer = this.authTimeouts.get(socket);
+      if (pendingAuthTimer) {
+        clearTimeout(pendingAuthTimer);
+        this.authTimeouts.delete(socket);
+      }
+      this.authenticatedSockets.delete(socket);
       this.connectedSockets.delete(socket);
       this.socketSandboxOverride.delete(socket);
       const sessionId = this.socketToSession.get(socket);

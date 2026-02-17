@@ -80,6 +80,11 @@ export interface SessionSwitchRequest {
   sessionId: string;
 }
 
+export interface AuthMessage {
+  type: 'auth';
+  token: string;
+}
+
 export interface PingMessage {
   type: 'ping';
 }
@@ -633,6 +638,7 @@ export interface AppFilesChanged {
 }
 
 export type ClientMessage =
+  | AuthMessage
   | UserMessage
   | ConfirmationResponse
   | SecretResponse
@@ -813,6 +819,12 @@ export interface SessionsClearResponse {
 export interface ErrorMessage {
   type: 'error';
   message: string;
+}
+
+export interface AuthResult {
+  type: 'auth_result';
+  success: boolean;
+  message?: string;
 }
 
 export interface PongMessage {
@@ -1472,6 +1484,7 @@ export interface UiSurfaceUndoResult {
 }
 
 export type ServerMessage =
+  | AuthResult
   | UserMessageEcho
   | AssistantTextDelta
   | AssistantThinkingDelta

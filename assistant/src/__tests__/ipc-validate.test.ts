@@ -312,6 +312,7 @@ describe('IPC Validate', () => {
   describe('contract parity', () => {
     // Minimal valid payloads for high-risk message types that require extra fields
     const HIGH_RISK_FIXTURES: Record<string, Record<string, unknown>> = {
+      auth: { token: 'abc123' },
       user_message: { sessionId: 's1', content: 'hi' },
       confirmation_response: { requestId: 'r1', decision: 'allow' },
       secret_response: { requestId: 'r1' },

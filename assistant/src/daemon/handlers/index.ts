@@ -107,13 +107,15 @@ export {
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
 type MessageType = ClientMessage['type'];
+// 'auth' is handled at the transport layer (server.ts) and never reaches dispatch.
+type DispatchableType = Exclude<MessageType, 'auth'>;
 type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
 type MessageHandler<T extends MessageType> = (
   msg: MessageOfType<T>,
   socket: net.Socket,
   ctx: HandlerContext,
 ) => void | Promise<void>;
-type DispatchMap = { [T in MessageType]: MessageHandler<T> };
+type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
 
 const handlers: DispatchMap = {
   user_message: handleUserMessage,
@@ -226,6 +228,9 @@ export function handleMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  // 'auth' is handled at the transport layer and should never reach dispatch.
+  if (msg.type === 'auth') return;
+
   const handler = handlers[msg.type] as
     | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
     | undefined;

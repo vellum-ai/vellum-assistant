@@ -92,6 +92,17 @@ public struct IPCAssistantThinkingDelta: Codable, Sendable {
     public let thinking: String
 }
 
+public struct IPCAuthMessage: Codable, Sendable {
+    public let type: String
+    public let token: String
+}
+
+public struct IPCAuthResult: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let message: String?
+}
+
 public struct IPCBundleAppRequest: Codable, Sendable {
     public let type: String
     public let appId: String

@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import * as readline from 'node:readline';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getSocketPath, getHistoryPath } from './util/platform.js';
+import { getSocketPath, getHistoryPath, readSessionToken } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -653,17 +653,40 @@ export async function startCli(): Promise<void> {
       parser = createMessageParser();
       const newSocket = net.createConnection(socketPath);
       let connected = false;
+      let authenticated = false;
 
       newSocket.on('connect', () => {
         connected = true;
         socket = newSocket;
-        startHeartbeat();
-        resolve();
+
+        // Authenticate with session token before the server will
+        // accept any other messages.
+        const token = readSessionToken();
+        if (!token) {
+          reject(new Error('Session token not found — is the daemon running?'));
+          newSocket.destroy();
+          return;
+        }
+        newSocket.write(serialize({ type: 'auth', token }));
       });
 
       newSocket.on('data', (data) => {
         const messages = parser.feed(data.toString()) as ServerMessage[];
         for (const msg of messages) {
+          // Wait for auth_result before processing other messages
+          if (!authenticated) {
+            if (msg.type === 'auth_result') {
+              if ((msg as { success: boolean }).success) {
+                authenticated = true;
+                startHeartbeat();
+                resolve();
+              } else {
+                reject(new Error((msg as { message?: string }).message ?? 'Authentication failed'));
+                newSocket.destroy();
+              }
+            }
+            continue;
+          }
           handleMessage(msg);
         }
       });

@@ -15,7 +15,7 @@ import {
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { startCli } from './cli.js';
-import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath, getWorkspaceDir, getWorkspaceSkillsDir, getWorkspaceHooksDir } from './util/platform.js';
+import { getSocketPath, readSessionToken, getRootDir, getDataDir, getDbPath, getLogPath, getWorkspaceDir, getWorkspaceSkillsDir, getWorkspaceHooksDir } from './util/platform.js';
 import {
   serialize,
   createMessageParser,
@@ -65,14 +65,40 @@ function sendOneMessage(
     const socket = net.createConnection(getSocketPath());
     const parser = createMessageParser();
     let resolved = false;
+    let authenticated = false;
 
     socket.on('connect', () => {
-      socket.write(serialize(msg));
+      // Authenticate first — the daemon requires a valid session token
+      // before it will accept any other messages.
+      const token = readSessionToken();
+      if (!token) {
+        resolved = true;
+        reject(new IpcError('Session token not found — is the daemon running?'));
+        socket.destroy();
+        return;
+      }
+      socket.write(serialize({ type: 'auth', token }));
     });
 
     socket.on('data', (data) => {
       const messages = parser.feed(data.toString()) as ServerMessage[];
       for (const m of messages) {
+        // Handle auth handshake
+        if (!authenticated) {
+          if (m.type === 'auth_result') {
+            if ((m as { success: boolean }).success) {
+              authenticated = true;
+              // Now send the actual message
+              socket.write(serialize(msg));
+            } else {
+              resolved = true;
+              reject(new IpcError((m as { message?: string }).message ?? 'Authentication failed'));
+              socket.destroy();
+            }
+          }
+          continue;
+        }
+
         // Skip push messages that aren't responses to our request
         if (m.type === 'daemon_status') {
           continue;

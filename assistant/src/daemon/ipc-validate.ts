@@ -61,6 +61,13 @@ export function isClientMessageEnvelope(value: unknown): value is ClientMessage 
 type PropertyValidator = (obj: Record<string, unknown>) => string | null;
 
 const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
+  auth: (obj) => {
+    if (typeof obj.token !== 'string' || obj.token === '') {
+      return 'auth requires a non-empty string "token"';
+    }
+    return null;
+  },
+
   user_message: (obj) => {
     if (typeof obj.sessionId !== 'string' || obj.sessionId === '') {
       return 'user_message requires a non-empty string "sessionId"';
