@@ -844,6 +844,7 @@ private final class ComposerNativeTextView: NSTextView {
             if modifiers.isEmpty {
                 if hasGhostSuffix {
                     onAcceptSuggestion?()
+                    onSubmit?()
                 } else if isSlashMenuOpen {
                     onSlashNavigate?(.select)
                 } else {
