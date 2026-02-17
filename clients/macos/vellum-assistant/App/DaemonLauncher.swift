@@ -47,6 +47,9 @@ final class DaemonLauncher {
     private var consecutiveCrashes = 0
     private var lastLaunchTime: Date?
 
+    /// Once set, prevents any further automatic restart attempts.
+    private var hasGivenUp = false
+
     /// If the daemon exits within this many seconds of being launched it
     /// counts as a crash for backoff purposes.
     private static let crashThreshold: TimeInterval = 10.0
@@ -156,6 +159,7 @@ final class DaemonLauncher {
 
     private func restartDaemon() async {
         guard let binaryURL = daemonBinaryURL else { return }
+        guard !hasGivenUp else { return }
 
         // Track consecutive rapid crashes for backoff
         if let lastLaunch = lastLaunchTime,
@@ -167,6 +171,7 @@ final class DaemonLauncher {
 
         if consecutiveCrashes >= Self.maxConsecutiveCrashes {
             log.error("Daemon crashed \(Self.maxConsecutiveCrashes) times in quick succession — giving up automatic restart")
+            hasGivenUp = true
             return
         }
 
