@@ -293,6 +293,31 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('Included Skills (immediate): none');
   });
 
+  test('e2e: load parent with includes shows child metadata and emits only parent marker', async () => {
+    // Set up a parent + child fixture using the helpers
+    writeSkill('e2e-child', 'E2E Child', 'Child for e2e test', 'Child instructions.');
+    writeSkillWithIncludes('e2e-parent', 'E2E Parent', 'Parent with includes', 'Parent instructions.', ['e2e-child']);
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- e2e-parent\n- e2e-child\n');
+
+    // Load the parent
+    const result = await executeSkillLoad({ skill: 'e2e-parent' });
+
+    // Should succeed
+    expect(result.isError).toBe(false);
+
+    // Output should contain the immediate children metadata section with the child
+    expect(result.content).toContain('Included Skills (immediate):');
+    expect(result.content).toContain('e2e-child: E2E Child');
+
+    // Should emit exactly one <loaded_skill> marker — for the parent only
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+    expect(result.content).toMatch(/<loaded_skill id="e2e-parent" version="v1:[a-f0-9]{64}" \/>/);
+
+    // Should NOT contain a loaded_skill marker for the child
+    expect(result.content).not.toContain('<loaded_skill id="e2e-child"');
+  });
+
   test('parent skill lists only immediate children, not transitive grandchildren', async () => {
     // 3-level hierarchy: grandparent -> child -> grandchild
     writeSkill('grandchild', 'Grandchild Skill', 'Leaf skill', 'Grandchild body');
