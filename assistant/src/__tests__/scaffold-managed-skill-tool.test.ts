@@ -151,13 +151,52 @@ describe('scaffold_managed_skill tool', () => {
       name: 'Normalized',
       description: 'Tests normalization',
       body_markdown: 'Body.',
-      includes: ['  child-a  ', 'child-b', 'child-a', '', '  '],
+      includes: ['  child-a  ', 'child-b', 'child-a'],
     }, makeContext());
 
     expect(result.isError).toBe(false);
     const skillFile = join(TEST_DIR, 'skills', 'norm-skill', 'SKILL.md');
     const content = readFileSync(skillFile, 'utf-8');
     expect(content).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('rejects includes with non-string elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'bad-includes',
+      name: 'Bad',
+      description: 'Has non-string',
+      body_markdown: 'Body.',
+      includes: ['child-a', 42],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
+  });
+
+  test('rejects includes with empty string elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'empty-includes',
+      name: 'Empty',
+      description: 'Has empty string',
+      body_markdown: 'Body.',
+      includes: ['', 'child-a'],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
+  });
+
+  test('rejects includes with whitespace-only elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'ws-includes',
+      name: 'Whitespace',
+      description: 'Has whitespace-only',
+      body_markdown: 'Body.',
+      includes: ['child-a', '  '],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
   });
 
   test('omits includes when not provided', async () => {

@@ -55,7 +55,7 @@ export interface SkillSummary {
   metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
-  /** IDs of child skills that this skill includes (composed into its prompt). */
+  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
   includes?: string[];
 }
 

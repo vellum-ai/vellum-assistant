@@ -96,10 +96,17 @@ export class ScaffoldManagedSkillTool implements Tool {
       if (!Array.isArray(input.includes)) {
         return { content: 'Error: includes must be an array of strings', isError: true };
       }
+      for (const item of input.includes) {
+        if (typeof item !== 'string') {
+          return { content: 'Error: each element in includes must be a non-empty string', isError: true };
+        }
+        if (!item.trim()) {
+          return { content: 'Error: each element in includes must be a non-empty string', isError: true };
+        }
+      }
       const normalized: string[] = [];
       const seen = new Set<string>();
-      for (const item of input.includes) {
-        if (typeof item !== 'string' || !item.trim()) continue;
+      for (const item of input.includes as string[]) {
         const trimmed = item.trim();
         if (seen.has(trimmed)) continue;
         seen.add(trimmed);
