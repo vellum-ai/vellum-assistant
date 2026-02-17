@@ -77,8 +77,9 @@ public struct VSplitView<Main: View, Panel: View>: View {
     // MARK: - Drag Helpers
 
     private func handleDragChanged(_ value: DragGesture.Value, availableWidth: CGFloat) {
-        // Capture initial state on first drag event
-        if dragStartWidth == nil {
+        // Capture initial state on first drag event. Check both nil state AND isDragging
+        // flag to handle race condition where async reset hasn't completed yet.
+        if dragStartWidth == nil || !isDragging {
             dragStartWidth = panelWidth
             dragStartAvailableWidth = availableWidth
             isDragging = true

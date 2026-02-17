@@ -496,8 +496,9 @@ struct MainWindowView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
                     .onChanged { value in
-                        // Capture initial state on first drag event
-                        if drawerDragStartWidth == nil {
+                        // Capture initial state on first drag event. Check both nil state AND
+                        // isDrawerDragging flag to handle race condition where async reset hasn't completed.
+                        if drawerDragStartWidth == nil || !isDrawerDragging {
                             drawerDragStartWidth = threadDrawerWidth
                             drawerDragStartAvailableWidth = availableWidth
                             isDrawerDragging = true
