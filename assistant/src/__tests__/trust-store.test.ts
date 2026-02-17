@@ -892,14 +892,14 @@ describe('Trust Store', () => {
       expect(managed).toBeDefined();
       expect(managed!.tool).toBe('file_write');
       expect(managed!.decision).toBe('ask');
-      expect(managed!.priority).toBe(1000);
+      expect(managed!.priority).toBe(50);
       expect(managed!.pattern).toContain('workspace/skills/**');
 
       const bundled = rules.find((r) => r.id === 'default:ask-file_write-bundled-skills');
       expect(bundled).toBeDefined();
       expect(bundled!.tool).toBe('file_write');
       expect(bundled!.decision).toBe('ask');
-      expect(bundled!.priority).toBe(1000);
+      expect(bundled!.priority).toBe(50);
     });
 
     test('default rules include ask rules for file_edit on skill source paths', () => {
@@ -908,14 +908,14 @@ describe('Trust Store', () => {
       expect(managed).toBeDefined();
       expect(managed!.tool).toBe('file_edit');
       expect(managed!.decision).toBe('ask');
-      expect(managed!.priority).toBe(1000);
+      expect(managed!.priority).toBe(50);
       expect(managed!.pattern).toContain('workspace/skills/**');
 
       const bundled = rules.find((r) => r.id === 'default:ask-file_edit-bundled-skills');
       expect(bundled).toBeDefined();
       expect(bundled!.tool).toBe('file_edit');
       expect(bundled!.decision).toBe('ask');
-      expect(bundled!.priority).toBe(1000);
+      expect(bundled!.priority).toBe(50);
     });
 
     test('default rules include ask rules for host_file_write on skill source paths', () => {
@@ -924,14 +924,14 @@ describe('Trust Store', () => {
       expect(managed).toBeDefined();
       expect(managed!.tool).toBe('host_file_write');
       expect(managed!.decision).toBe('ask');
-      expect(managed!.priority).toBe(1000);
+      expect(managed!.priority).toBe(50);
       expect(managed!.pattern).toContain('workspace/skills/**');
 
       const bundled = rules.find((r) => r.id === 'default:ask-host_file_write-bundled-skills');
       expect(bundled).toBeDefined();
       expect(bundled!.tool).toBe('host_file_write');
       expect(bundled!.decision).toBe('ask');
-      expect(bundled!.priority).toBe(1000);
+      expect(bundled!.priority).toBe(50);
     });
 
     test('default rules include ask rules for host_file_edit on skill source paths', () => {
@@ -940,14 +940,14 @@ describe('Trust Store', () => {
       expect(managed).toBeDefined();
       expect(managed!.tool).toBe('host_file_edit');
       expect(managed!.decision).toBe('ask');
-      expect(managed!.priority).toBe(1000);
+      expect(managed!.priority).toBe(50);
       expect(managed!.pattern).toContain('workspace/skills/**');
 
       const bundled = rules.find((r) => r.id === 'default:ask-host_file_edit-bundled-skills');
       expect(bundled).toBeDefined();
       expect(bundled!.tool).toBe('host_file_edit');
       expect(bundled!.decision).toBe('ask');
-      expect(bundled!.priority).toBe(1000);
+      expect(bundled!.priority).toBe(50);
     });
 
     test('no default ask rules exist for file_read on skill source paths', () => {

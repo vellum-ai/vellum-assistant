@@ -141,7 +141,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       pattern: `${tool}:${dir}/**`,
       scope: 'everywhere',
       decision: 'ask' as const,
-      priority: 1000,
+      priority: 50,
     })),
     ...HOST_SKILL_MUTATION_TOOLS.map((tool) => ({
       id: `default:ask-${tool}-${label}-skills`,
@@ -149,7 +149,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       pattern: `${tool}:${dir}/**`,
       scope: 'everywhere',
       decision: 'ask' as const,
-      priority: 1000,
+      priority: 50,
     })),
   ]);
 

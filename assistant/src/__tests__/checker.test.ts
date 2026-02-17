@@ -2141,6 +2141,49 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── user override of skill mutation default ask rules (priority fix) ──
+  // Regression tests: user-created allow rules (priority 100) must override
+  // the default ask rules for skill-source mutations (priority 50).
+
+  describe('user override of skill mutation default ask rules', () => {
+    function ensureSkillsDir(): void {
+      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+    }
+
+    test('user allowHighRisk rule at priority 100 overrides default ask for skill source writes', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+      // Simulate the rule the prompt UX creates: priority 100, allowHighRisk: true
+      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100, { allowHighRisk: true });
+      const result = await check('file_write', { path: skillPath }, '/tmp');
+      // The user's allow rule (priority 100) must win over the default ask (priority 50),
+      // and allowHighRisk must auto-allow the High-risk skill mutation.
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
+    });
+
+    test('user allow rule without allowHighRisk at priority 100 overrides default ask but high-risk still prompts', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+      // User allow rule without allowHighRisk — priority 100 still beats default ask at 50
+      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100);
+      const result = await check('file_write', { path: skillPath }, '/tmp');
+      // The user rule wins over default ask, but skill mutations are High risk,
+      // so the allow rule without allowHighRisk falls through to high-risk prompt.
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+
+    test('without user rule, default ask still prompts for skill source mutations', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+      // No user rule — the default ask rule (priority 50) is the only match
+      const result = await check('file_write', { path: skillPath }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+  });
+
   // ── canonical file command candidates (PR 27) ─────────────────
 
   describe('canonical file command candidates (PR 27)', () => {
