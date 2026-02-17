@@ -737,7 +737,6 @@ describe('mid-run skill tool activation (end-to-end)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Context-derived deactivation regression tests
 // ---------------------------------------------------------------------------
 
@@ -931,5 +930,83 @@ describe('context-derived deactivation regression', () => {
     const result3 = resolveTools(history3);
     expect(result3.allowedToolNames.has('deploy_run')).toBe(true);
     expect(result3.toolDefinitions.map((d) => d.name)).toContain('deploy_run');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slash preactivation tests
+// ---------------------------------------------------------------------------
+
+describe('slash preactivation through session processing', () => {
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('slash-known skill has its tools available on first projection (turn-0)', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run', 'deploy_status']) };
+
+    // Empty history — no loaded_skill markers yet. The skill is preactivated
+    // via slash resolution, so its tools should be available immediately.
+    const emptyHistory: Message[] = [];
+
+    const result = projectSkillTools(emptyHistory, {
+      preactivatedSkillIds: ['deploy'],
+    });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual([
+      'deploy_run',
+      'deploy_status',
+    ]);
+    expect(result.allowedToolNames).toEqual(
+      new Set(['deploy_run', 'deploy_status']),
+    );
+  });
+
+  test('preactivation is request-scoped — does not persist to unrelated runs', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    // First request: preactivated via slash command
+    const result1 = projectSkillTools([], {
+      preactivatedSkillIds: ['deploy'],
+    });
+    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(result1.allowedToolNames.has('deploy_run')).toBe(true);
+
+    // Second request: no preactivation, no history markers.
+    // Without preactivated IDs, the skill should not appear.
+    const result2 = projectSkillTools([]);
+
+    expect(result2.toolDefinitions).toHaveLength(0);
+    expect(result2.allowedToolNames.has('deploy_run')).toBe(false);
+  });
+
+  test('preactivated skill tools merge with history-derived skills on turn-0', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    // History has an oncall marker from a previous exchange
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+
+    // deploy is preactivated via slash, oncall is from history
+    const result = projectSkillTools(history, {
+      preactivatedSkillIds: ['deploy'],
+    });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.allowedToolNames).toEqual(
+      new Set(['deploy_run', 'oncall_page']),
+    );
   });
 });

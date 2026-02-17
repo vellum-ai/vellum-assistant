@@ -124,6 +124,8 @@ export class Session {
   sandboxOverride?: boolean;
   /** @internal — per-turn allowed tool set, read by the tool executor closure. */
   allowedToolNames?: Set<string>;
+  /** @internal — request-scoped skill IDs preactivated via slash resolution. */
+  preactivatedSkillIds?: string[];
   /** Core tool names (computed once in constructor), always allowed regardless of skill state. */
   private coreToolNames: Set<string>;
   /** @internal — exposed for session-usage.ts module functions. */
@@ -256,7 +258,9 @@ export class Session {
     // dynamically projected skill tools on each agent turn.
     const resolveTools = toolDefs.length > 0
       ? (history: Message[]) => {
-          const projection = projectSkillTools(history);
+          const projection = projectSkillTools(history, {
+            preactivatedSkillIds: this.preactivatedSkillIds,
+          });
           return [...toolDefs, ...projection.toolDefinitions];
         }
       : undefined;
@@ -738,7 +742,9 @@ export class Session {
 
       // Project skill tools for this turn and build the allowed tool set.
       // Core tools are always included so they're never gated.
-      const skillProjection = projectSkillTools(runMessages);
+      const skillProjection = projectSkillTools(runMessages, {
+        preactivatedSkillIds: this.preactivatedSkillIds,
+      });
       const turnAllowed = new Set(this.coreToolNames);
       for (const name of skillProjection.allowedToolNames) {
         turnAllowed.add(name);
@@ -1169,6 +1175,7 @@ export class Session {
       this.currentRequestId = undefined;
       this.currentActiveSurfaceId = undefined;
       this.allowedToolNames = undefined;
+      this.preactivatedSkillIds = undefined;
 
       // Consolidate consecutive assistant messages from this agent loop run
       if (userMessageId) {
