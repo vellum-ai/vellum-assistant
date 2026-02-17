@@ -110,9 +110,12 @@ export async function handleDiagnosticsExport(
     // Use the preceding user message timestamp as the range start,
     // or fall back to the anchor message timestamp if none found
     const rangeStart = precedingUserMessage?.createdAt ?? anchorMessage.createdAt;
-    // Add a 5-second buffer to capture usage events recorded after the
-    // assistant message is persisted (usage logging is async)
-    const rangeEnd = anchorMessage.createdAt + 5000;
+    const rangeEnd = anchorMessage.createdAt;
+    // Usage events are recorded asynchronously after the assistant message
+    // is persisted, so their createdAt can be slightly later. Use a separate
+    // extended bound for the usage query only to avoid pulling in unrelated
+    // messages or tool invocations from the next turn.
+    const usageRangeEnd = anchorMessage.createdAt + 5000;
 
     // 3. Query all messages in the range
     const rangeMessages = db
@@ -150,7 +153,7 @@ export async function handleDiagnosticsExport(
         and(
           eq(llmUsageEvents.conversationId, conversationId),
           gte(llmUsageEvents.createdAt, rangeStart),
-          lte(llmUsageEvents.createdAt, rangeEnd),
+          lte(llmUsageEvents.createdAt, usageRangeEnd),
         ),
       )
       .orderBy(llmUsageEvents.createdAt)
