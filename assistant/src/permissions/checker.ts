@@ -393,14 +393,6 @@ export async function check(
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
   }
 
-  // In strict mode skill_load must always have an explicit rule — never
-  // fall through to the low-risk auto-allow below. The check above
-  // already handles !matchedRule, so this guard covers defensive edge
-  // cases (e.g., a matched rule that was consumed but didn't return).
-  if (permissionsMode === 'strict' && toolName === 'skill_load' && !matchedRule) {
-    return { decision: 'prompt', reason: 'Strict mode: skill_load requires explicit approval' };
-  }
-
   if (risk === RiskLevel.High) {
     return { decision: 'prompt', reason: `High risk: always requires approval` };
   }
