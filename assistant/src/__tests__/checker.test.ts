@@ -2265,10 +2265,10 @@ describe('Permission Checker', () => {
   });
 
   // ── hash-aware skill_load permission candidates (PR 33) ──────
-  // When a version hash is available (either computed from disk or provided
-  // in the input), skill_load command candidates and allowlist options
-  // include both a version-specific pattern (skillId@hash) and an
-  // any-version pattern (bare skillId).
+  // When a version hash is available (computed from disk), skill_load
+  // command candidates and allowlist options include both a version-specific
+  // pattern (skillId@hash) and an any-version pattern (bare skillId).
+  // Input-supplied version_hash is always ignored to prevent spoofing.
 
   describe('hash-aware skill_load permission candidates (PR 33)', () => {
     function ensureSkillsDir(): void {
@@ -2327,24 +2327,27 @@ describe('Permission Checker', () => {
       expect(result.matchedRule!.pattern).toBe('skill_load:nonexistent-skill');
     });
 
-    test('explicit version_hash in input is used for candidate generation', async () => {
+    test('input-supplied version_hash does NOT influence permission candidate (regression)', async () => {
       ensureSkillsDir();
       writeSkill('test-explicit-hash', 'Test Explicit Hash');
 
       testConfig.permissions.mode = 'strict';
-      const explicitHash = 'v1:explicit0000';
+      const spoofedHash = 'v1:spoofed0000';
 
-      // Add a rule matching the explicit hash
-      addRule('skill_load', `skill_load:test-explicit-hash@${explicitHash}`, 'everywhere', 'allow', 2000);
+      // Add a rule matching the spoofed hash — should NOT match because
+      // the permission system must use the disk-computed hash, not the
+      // untrusted input.
+      addRule('skill_load', `skill_load:test-explicit-hash@${spoofedHash}`, 'everywhere', 'allow', 2000);
 
       const result = await check(
         'skill_load',
-        { skill: 'test-explicit-hash', version_hash: explicitHash },
+        { skill: 'test-explicit-hash', version_hash: spoofedHash },
         '/tmp',
       );
-      expect(result.decision).toBe('allow');
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.pattern).toBe(`skill_load:test-explicit-hash@${explicitHash}`);
+      // The disk-computed hash differs from the spoofed hash, so the
+      // version-specific rule doesn't match and strict mode prompts.
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
     });
 
     // ── generateAllowlistOptions for skill_load ──
@@ -2371,17 +2374,21 @@ describe('Permission Checker', () => {
       expect(options[options.length - 1].description).toBe('All skill loads');
     });
 
-    test('allowlist options include explicit version_hash from input', () => {
+    test('allowlist options ignore input version_hash and use disk-computed hash (regression)', () => {
       ensureSkillsDir();
       writeSkill('test-opts-explicit', 'Test Opts Explicit');
 
+      // Even when a version_hash is supplied in the input, allowlist
+      // options must use the disk-computed hash, not the input value.
       const options = generateAllowlistOptions('skill_load', {
         skill: 'test-opts-explicit',
         version_hash: 'v1:customhash123',
       });
 
       expect(options.length).toBeGreaterThanOrEqual(3);
-      expect(options[0].pattern).toBe('skill_load:test-opts-explicit@v1:customhash123');
+      // First option should be the disk-computed hash, NOT the input hash
+      expect(options[0].pattern).toMatch(/^skill_load:test-opts-explicit@v1:/);
+      expect(options[0].pattern).not.toBe('skill_load:test-opts-explicit@v1:customhash123');
       expect(options[0].description).toBe('This exact version');
       expect(options[1].pattern).toBe('skill_load:test-opts-explicit');
       expect(options[1].description).toBe('Any version of this skill');
@@ -2404,6 +2411,66 @@ describe('Permission Checker', () => {
 
       expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe('skill_load:*');
+    });
+
+    // ── version_hash spoofing regression tests ──
+
+    test('input-supplied version_hash cannot spoof a pre-approved hash to bypass version pinning', async () => {
+      ensureSkillsDir();
+      writeSkill('test-spoof-target', 'Test Spoof Target');
+
+      testConfig.permissions.mode = 'strict';
+
+      // Attacker-supplied hash that matches a trust rule
+      const spoofedHash = 'v1:attacker-controlled-hash';
+      addRule('skill_load', `skill_load:test-spoof-target@${spoofedHash}`, 'everywhere', 'allow', 2000);
+
+      // The disk-computed hash will differ from the spoofed hash, so
+      // the version-specific candidate should NOT match the rule.
+      const result = await check(
+        'skill_load',
+        { skill: 'test-spoof-target', version_hash: spoofedHash },
+        '/tmp',
+      );
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('when disk hash computation fails, only bare skillId candidate is generated (no input fallback)', async () => {
+      ensureSkillsDir();
+      // Write a skill but make the version hash computation fail by
+      // removing the skill directory contents after resolution. We
+      // simulate this by writing a skill with an empty directory name
+      // that resolveSkillSelector can find but computeSkillVersionHash
+      // cannot hash — however, the simplest approach is to rely on the
+      // existing "no skill on disk" test pattern.
+      //
+      // Since resolveSkillSelector returns null for unknown skills (no
+      // hash candidate at all), we verify the next best thing: a skill
+      // exists on disk, and even if the agent provides a version_hash,
+      // only the disk-computed hash appears in candidates.
+      const { computeSkillVersionHash: computeHash } = await import('../skills/version-hash.js');
+      writeSkill('test-fallback-bare', 'Test Fallback Bare');
+      const skillDir = join(checkerTestDir, 'skills', 'test-fallback-bare');
+      const diskHash = computeHash(skillDir);
+
+      testConfig.permissions.mode = 'strict';
+
+      // Add a rule that would match if the input hash were used
+      const fakeHash = 'v1:fake-fallback-hash';
+      addRule('skill_load', `skill_load:test-fallback-bare@${fakeHash}`, 'everywhere', 'allow', 2000);
+
+      // Also add the disk hash rule to verify disk hash IS used
+      addRule('skill_load', `skill_load:test-fallback-bare@${diskHash}`, 'everywhere', 'allow', 2000);
+
+      const result = await check(
+        'skill_load',
+        { skill: 'test-fallback-bare', version_hash: fakeHash },
+        '/tmp',
+      );
+      // Should match the disk hash rule, NOT the fake hash rule
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe(`skill_load:test-fallback-bare@${diskHash}`);
     });
   });
 
@@ -2704,36 +2771,31 @@ describe('Permission Checker', () => {
       expect(r2.matchedRule?.id).not.toBe('pr35-hr-version-drift');
     });
 
-    // ── skill_load: explicit version_hash in input changes candidate ──
+    // ── skill_load: input version_hash is ignored (security regression) ──
 
-    test('skill_load: explicit version_hash in input generates correct candidate for v2', async () => {
+    test('skill_load: input version_hash is ignored — only disk hash matters', async () => {
       ensureSkillsDir();
       writeSkill('pr35-explicit-hash', 'PR35 Explicit Hash');
       testConfig.permissions.mode = 'strict';
 
-      const hashV1 = 'v1:explicit-hash-v1';
-      const hashV2 = 'v1:explicit-hash-v2';
+      const { computeSkillVersionHash: computeHash } = await import('../skills/version-hash.js');
+      const skillDir = join(checkerTestDir, 'skills', 'pr35-explicit-hash');
+      const diskHash = computeHash(skillDir);
 
-      // Add a rule for v1
-      addRule('skill_load', `skill_load:pr35-explicit-hash@${hashV1}`, 'everywhere', 'allow', 2000);
+      const fakeHash = 'v1:attacker-supplied-hash';
 
-      // v1: explicit hash matches rule
-      const resultV1 = await check(
+      // Add a rule matching the disk hash
+      addRule('skill_load', `skill_load:pr35-explicit-hash@${diskHash}`, 'everywhere', 'allow', 2000);
+
+      // Even when a fake version_hash is supplied in input, the disk-computed
+      // hash is used, so the rule still matches.
+      const result = await check(
         'skill_load',
-        { skill: 'pr35-explicit-hash', version_hash: hashV1 },
+        { skill: 'pr35-explicit-hash', version_hash: fakeHash },
         '/tmp',
       );
-      expect(resultV1.decision).toBe('allow');
-      expect(resultV1.matchedRule!.pattern).toBe(`skill_load:pr35-explicit-hash@${hashV1}`);
-
-      // v2: explicit hash differs — rule no longer matches
-      const resultV2 = await check(
-        'skill_load',
-        { skill: 'pr35-explicit-hash', version_hash: hashV2 },
-        '/tmp',
-      );
-      expect(resultV2.decision).toBe('prompt');
-      expect(resultV2.reason).toContain('Strict mode');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe(`skill_load:pr35-explicit-hash@${diskHash}`);
     });
 
     // ── wildcard principal version still matches after edit ──

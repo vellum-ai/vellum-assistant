@@ -67,24 +67,17 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
 
 /**
  * Resolve a skill selector to its id and version hash. The version hash
- * lets trust rules differentiate between skill versions so an approval
- * for one version doesn't silently apply after the skill is updated.
+ * is always computed from disk so that untrusted input cannot spoof a
+ * pre-approved hash. If disk computation fails, only the bare id is returned.
  */
-function resolveSkillIdAndHash(selector: string, input: Record<string, unknown>): { id: string; versionHash?: string } | null {
+function resolveSkillIdAndHash(selector: string): { id: string; versionHash?: string } | null {
   const resolved = resolveSkillSelector(selector);
   if (!resolved.skill) return null;
 
-  // Always compute the hash from disk so a modified skill cannot be approved
-  // using a stale hash supplied by the agent. Only fall back to the explicit
-  // version_hash from input when disk computation fails.
   try {
     const hash = computeSkillVersionHash(resolved.skill.directoryPath);
     return { id: resolved.skill.id, versionHash: hash };
   } catch {
-    const explicitHash = getStringField(input, 'version_hash');
-    if (explicitHash) {
-      return { id: resolved.skill.id, versionHash: explicitHash };
-    }
     return { id: resolved.skill.id };
   }
 }
@@ -161,7 +154,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     if (!rawSelector) {
       targets.push('');
     } else {
-      const resolved = resolveSkillIdAndHash(rawSelector, input);
+      const resolved = resolveSkillIdAndHash(rawSelector);
       if (resolved) {
         // Version-specific candidate lets rules pin to an exact skill version
         if (resolved.versionHash) {
@@ -543,7 +536,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     const options: AllowlistOption[] = [];
 
     if (rawSelector) {
-      const resolved = resolveSkillIdAndHash(rawSelector, input);
+      const resolved = resolveSkillIdAndHash(rawSelector);
       if (resolved) {
         // Version-specific option: pin approval to an exact version
         if (resolved.versionHash) {

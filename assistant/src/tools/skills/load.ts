@@ -25,10 +25,6 @@ export class SkillLoadTool implements Tool {
             type: 'string',
             description: 'The skill id or skill name to load.',
           },
-          version_hash: {
-            type: 'string',
-            description: 'Optional pre-computed version hash for the skill. Used by the permission system to generate version-specific trust rules.',
-          },
         },
         required: ['skill'],
       },
