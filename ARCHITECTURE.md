@@ -1871,8 +1871,8 @@ sequenceDiagram
 | `assistant/src/integrations/gmail/client.ts` | Thin Gmail REST API wrapper (listMessages, getMessage, modify, send, etc.) |
 | `assistant/src/integrations/gmail/types.ts` | Gmail API response types |
 | `assistant/src/integrations/gmail/newsletter-analyzer.ts` | `groupBySender()` helper for email declutter flow |
-| `assistant/src/tools/gmail/definitions.ts` | Gmail tool definitions with risk levels and confidence scoring |
-| `assistant/src/tools/gmail/executors.ts` | Tool executors using `withValidToken` pattern |
+| `assistant/src/config/bundled-skills/gmail/TOOLS.json` | Gmail tool manifest (12 tools) loaded by skill-tool framework |
+| `assistant/src/config/bundled-skills/gmail/tools/` | Gmail skill scripts delegating to integration layer |
 
 ---
 
