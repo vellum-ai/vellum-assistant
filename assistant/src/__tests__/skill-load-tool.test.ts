@@ -222,6 +222,42 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('<loaded_skill');
   });
 
+  test('failed include validation (missing) emits no loaded_skill marker', async () => {
+    const skillDir = join(TEST_DIR, 'skills', 'marker-missing');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: "Marker Missing"\ndescription: "test"\nincludes: ["nonexistent"]\n---\n\nBody.\n',
+    );
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- marker-missing\n');
+
+    const result = await executeSkillLoad({ skill: 'marker-missing' });
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain('<loaded_skill');
+    expect(result.content).not.toMatch(/<loaded_skill\s/);
+  });
+
+  test('failed include validation (cycle) emits no loaded_skill marker', async () => {
+    const dirA = join(TEST_DIR, 'skills', 'cycle-a');
+    const dirB = join(TEST_DIR, 'skills', 'cycle-b');
+    mkdirSync(dirA, { recursive: true });
+    mkdirSync(dirB, { recursive: true });
+    writeFileSync(
+      join(dirA, 'SKILL.md'),
+      '---\nname: "Cycle A"\ndescription: "test"\nincludes: ["cycle-b"]\n---\n\nBody A.\n',
+    );
+    writeFileSync(
+      join(dirB, 'SKILL.md'),
+      '---\nname: "Cycle B"\ndescription: "test"\nincludes: ["cycle-a"]\n---\n\nBody B.\n',
+    );
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- cycle-a\n- cycle-b\n');
+
+    const result = await executeSkillLoad({ skill: 'cycle-a' });
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain('<loaded_skill');
+    expect(result.content).not.toMatch(/<loaded_skill\s/);
+  });
+
   test('succeeds when skill has no includes', async () => {
     writeSkill('no-includes', 'No Includes', 'Plain skill', 'Body');
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- no-includes\n');
