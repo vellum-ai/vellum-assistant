@@ -14,6 +14,10 @@ final class BrowserPiPManager: ObservableObject {
     @Published var currentFrame: NSImage?
     @Published var pages: [BrowserPage] = []
 
+    var activePage: BrowserPage? {
+        pages.first(where: { $0.active })
+    }
+
     private var panel: NSPanel?
     private var surfaceId: String?
     private var sessionId: String?
