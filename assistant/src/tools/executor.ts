@@ -565,20 +565,20 @@ function buildPolicyContext(tool: Tool): PolicyContext | undefined {
 }
 
 function resolveExecutionTarget(toolName: string): ExecutionTarget {
-  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
-    return 'host';
-  }
   const tool = getTool(toolName);
+  // Manifest-declared execution target is authoritative — check it first so
+  // skill tools with host_/computer_use_ prefixes aren't mis-classified.
+  if (tool?.executionTarget) {
+    return tool.executionTarget;
+  }
   // Check the tool's executionMode metadata — proxy tools run on the connected
   // client (host), not inside the sandbox.
   if (tool?.executionMode === 'proxy') {
     return 'host';
   }
-  // Skill tools carry an explicit execution target from their manifest entry.
-  // Trust the manifest value so lifecycle events accurately reflect where the
-  // tool script actually runs.
-  if (tool?.executionTarget) {
-    return tool.executionTarget;
+  // Prefix heuristics for core tools that don't declare an explicit target.
+  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
+    return 'host';
   }
   return 'sandbox';
 }

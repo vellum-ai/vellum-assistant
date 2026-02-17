@@ -87,6 +87,24 @@ mock.module('../tools/registry.js', () => ({
         },
       };
     }
+    // Skill tool whose name starts with host_ but manifest says sandbox —
+    // verifies manifest takes priority over prefix heuristics.
+    if (name === 'host_skill_sandboxed') {
+      return {
+        name,
+        description: 'skill tool with host_ prefix but sandbox target',
+        category: 'skill',
+        defaultRiskLevel: 'low',
+        origin: 'skill' as const,
+        ownerSkillId: 'test-skill',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({}),
+        execute: async () => {
+          if (toolThrow) throw toolThrow;
+          return fakeToolResult;
+        },
+      };
+    }
     return {
       name,
       description: 'test tool',
@@ -331,6 +349,21 @@ describe('ToolExecutor lifecycle events', () => {
     const executed = events[1];
     if (executed.type !== 'executed') throw new Error('Expected executed event');
     expect(executed.executionTarget).toBe('host');
+  });
+
+  test('manifest executionTarget takes priority over host_ prefix heuristic', async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute('host_skill_sandboxed', { query: 'test' }, makeContext(events));
+
+    expect(events.map((event) => event.type)).toEqual(['start', 'executed']);
+    const startEvent = events[0];
+    if (startEvent.type !== 'start') throw new Error('Expected start event');
+    expect(startEvent.executionTarget).toBe('sandbox');
+    const executed = events[1];
+    if (executed.type !== 'executed') throw new Error('Expected executed event');
+    expect(executed.executionTarget).toBe('sandbox');
   });
 
   test('skill tool with sandbox execution_target resolves to sandbox executionTarget', async () => {
