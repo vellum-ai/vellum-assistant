@@ -138,23 +138,23 @@ describe('runSkillToolScript — errors', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Runner options — expectedSkillVersionHash & skillDirHashResolver
+// Host skill runner hash guard
 // ---------------------------------------------------------------------------
 
-describe('runSkillToolScript — version hash options', () => {
-  test('accepts expectedSkillVersionHash option without affecting execution', async () => {
-    const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext(), {
-      expectedSkillVersionHash: 'v1:abc123',
-    });
+describe('runSkillToolScript — host hash guard', () => {
+  test('allows execution when no expectedSkillVersionHash is provided', async () => {
+    const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext());
 
     expect(result.isError).toBe(false);
     expect(result.content).toBe('hello from world');
   });
 
-  test('accepts skillDirHashResolver option without affecting execution', async () => {
-    const resolver = (_dir: string) => 'v1:custom-hash';
+  test('allows execution when hash matches', async () => {
+    const expectedHash = 'v1:matching-hash';
+    const resolver = (_dir: string) => expectedHash;
+
     const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext(), {
-      expectedSkillVersionHash: 'v1:abc123',
+      expectedSkillVersionHash: expectedHash,
       skillDirHashResolver: resolver,
     });
 
@@ -162,7 +162,67 @@ describe('runSkillToolScript — version hash options', () => {
     expect(result.content).toBe('hello from world');
   });
 
-  test('RunSkillToolScriptOptions type accepts all new fields', () => {
+  test('blocks execution when hash mismatches', async () => {
+    const expectedHash = 'v1:approved-hash';
+    const currentHash = 'v1:modified-hash';
+    const resolver = (_dir: string) => currentHash;
+
+    const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext(), {
+      expectedSkillVersionHash: expectedHash,
+      skillDirHashResolver: resolver,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Skill version mismatch');
+    expect(result.content).toContain(expectedHash);
+    expect(result.content).toContain(currentHash);
+    expect(result.content).toContain('Please reload the skill to re-approve');
+  });
+
+  test('mismatch error is non-throwing and user-readable', async () => {
+    const resolver = (_dir: string) => 'v1:different';
+
+    const result = await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: 'v1:original',
+      skillDirHashResolver: resolver,
+    });
+
+    // Should return a structured error result, not throw.
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError', true);
+    expect(result.content).toContain('modified since it was approved');
+  });
+
+  test('uses computeSkillVersionHash by default when no resolver is provided', async () => {
+    // When expectedSkillVersionHash is set but no resolver is given, the runner
+    // falls back to the real computeSkillVersionHash. Since the temp dir content
+    // almost certainly won't match a fabricated hash, this should block.
+    const result = await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: 'v1:definitely-not-a-real-hash',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Skill version mismatch');
+  });
+
+  test('passes the resolved skill directory to the hash resolver', async () => {
+    let receivedDir: string | undefined;
+    const resolver = (dir: string) => {
+      receivedDir = dir;
+      return 'v1:match';
+    };
+
+    await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: 'v1:match',
+      skillDirHashResolver: resolver,
+    });
+
+    // The resolver should receive the resolved skill directory with trailing slash.
+    expect(receivedDir).toBeDefined();
+    expect(receivedDir!.endsWith('/')).toBe(true);
+  });
+
+  test('RunSkillToolScriptOptions type accepts all fields', () => {
     const options: RunSkillToolScriptOptions = {
       target: 'host',
       timeoutMs: 5000,
