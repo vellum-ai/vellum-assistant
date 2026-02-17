@@ -123,8 +123,8 @@ The build script will detect and use your new certificate. Permissions will now 
 
 **Alternative: Use adhoc signing** (no setup, but permissions reset on every rebuild):
 ```bash
-# Create this file to skip certificate detection:
-touch .no-auto-cert
+# Override signing identity to force adhoc:
+SIGN_IDENTITY="-" ./build.sh
 ```
 
 ## Auto-Rebuild on Save (Watch Mode)
