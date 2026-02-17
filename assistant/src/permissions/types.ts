@@ -32,3 +32,23 @@ export interface ScopeOption {
   label: string;
   scope: string;
 }
+
+// ── Principal + policy context types (PR 3) ──────────────────
+
+/** Distinguishes whether a tool is a built-in core tool or provided by a skill. */
+export type ToolPrincipalKind = 'core' | 'skill';
+
+/** Identifies the security principal that owns a tool invocation. */
+export interface ToolPrincipal {
+  kind: ToolPrincipalKind;
+  /** Skill ID when kind is 'skill'. */
+  id?: string;
+  /** Content-hash of the skill source at the time of approval. */
+  version?: string;
+}
+
+/** Contextual information passed alongside a permission check for policy decisions. */
+export interface PolicyContext {
+  principal?: ToolPrincipal;
+  executionTarget?: string;
+}

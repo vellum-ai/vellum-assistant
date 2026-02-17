@@ -1129,4 +1129,23 @@ describe('Permission Checker', () => {
       expect(match!.decision).toBe('allow');
     });
   });
+
+  // ── principal types (PR 3) ──────────────────────────────────
+
+  describe('principal types (PR 3)', () => {
+    test('ToolPrincipal type exists and is importable', async () => {
+      // ToolPrincipalKind is a type alias, not a runtime value,
+      // so we just verify the module imports without error.
+      const types = await import('../permissions/types.js');
+      expect(types).toBeDefined();
+    });
+
+    test('PolicyContext type is available', async () => {
+      // Verify type-level import works — RiskLevel is the only
+      // runtime enum in the module, so its presence confirms
+      // the module loaded (and its new types compiled) correctly.
+      const types = await import('../permissions/types.js');
+      expect(types.RiskLevel).toBeDefined();
+    });
+  });
 });

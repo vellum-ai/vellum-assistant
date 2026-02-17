@@ -12,6 +12,12 @@ interface ToolLifecycleEventBase {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
+  /** Security principal kind (e.g. 'core' or 'skill'). */
+  principalKind?: string;
+  /** Security principal ID (skill ID when principalKind is 'skill'). */
+  principalId?: string;
+  /** Content-hash of the principal's source at invocation time. */
+  principalVersion?: string;
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
@@ -144,6 +150,8 @@ export interface Tool {
   origin?: 'core' | 'skill';
   /** If origin is 'skill', the ID of the owning skill. */
   ownerSkillId?: string;
+  /** Content-hash of the owning skill's source at registration time. */
+  ownerSkillVersionHash?: string;
   getDefinition(): ToolDefinition;
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
 }
