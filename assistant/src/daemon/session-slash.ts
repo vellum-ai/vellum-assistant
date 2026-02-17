@@ -11,7 +11,8 @@ import {
 import { getWorkspacePromptPath } from '../util/platform.js';
 
 export type SlashResolution =
-  | { kind: 'passthrough' | 'rewritten'; content: string }
+  | { kind: 'passthrough'; content: string }
+  | { kind: 'rewritten'; content: string; skillId: string }
   | { kind: 'unknown'; message: string };
 
 // ── /model command ───────────────────────────────────────────────────
@@ -137,6 +138,7 @@ export function resolveSlash(content: string): SlashResolution {
         skillName: skill?.name ?? resolution.skillId,
         trailingArgs: resolution.trailingArgs,
       }),
+      skillId: resolution.skillId,
     };
   }
 

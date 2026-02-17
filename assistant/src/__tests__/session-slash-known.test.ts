@@ -311,7 +311,7 @@ describe('Session slash command — known', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveSlash — direct characterization', () => {
-  test('known slash returns {kind: "rewritten"} with model-facing content', () => {
+  test('known slash returns {kind: "rewritten"} with model-facing content and skillId', () => {
     const result = resolveSlash('/start-the-day');
     expect(result.kind).toBe('rewritten');
     if (result.kind !== 'rewritten') throw new Error('unreachable');
@@ -322,20 +322,24 @@ describe('resolveSlash — direct characterization', () => {
     expect(result.content).toContain('ID: start-the-day');
     // It is NOT the raw user input
     expect(result.content).not.toBe('/start-the-day');
+    // The skillId matches the owning skill's canonical ID
+    expect(result.skillId).toBe('start-the-day');
   });
 
-  test('known slash with trailing args includes args in rewritten content', () => {
+  test('known slash with trailing args includes args in rewritten content and skillId', () => {
     const result = resolveSlash('/start-the-day check emails and calendar');
     expect(result.kind).toBe('rewritten');
     if (result.kind !== 'rewritten') throw new Error('unreachable');
     expect(result.content).toContain('User arguments: check emails and calendar');
+    expect(result.skillId).toBe('start-the-day');
   });
 
-  test('normal text returns {kind: "passthrough"} with content unchanged', () => {
+  test('normal text returns {kind: "passthrough"} with content unchanged and no skillId', () => {
     const result = resolveSlash('hello world');
     expect(result.kind).toBe('passthrough');
     if (result.kind !== 'passthrough') throw new Error('unreachable');
     expect(result.content).toBe('hello world');
+    expect('skillId' in result).toBe(false);
   });
 
   test('path-like input returns passthrough (not treated as slash)', () => {
@@ -345,18 +349,20 @@ describe('resolveSlash — direct characterization', () => {
     expect(result.content).toBe('/tmp/some-file.txt');
   });
 
-  test('unknown slash returns {kind: "unknown"} with message listing available commands', () => {
+  test('unknown slash returns {kind: "unknown"} with message and no skillId', () => {
     const result = resolveSlash('/does-not-exist');
     expect(result.kind).toBe('unknown');
     if (result.kind !== 'unknown') throw new Error('unreachable');
     expect(result.message).toContain('Unknown command `/does-not-exist`');
     expect(result.message).toContain('/start-the-day');
+    expect('skillId' in result).toBe(false);
   });
 
-  test('empty input returns passthrough', () => {
+  test('empty input returns passthrough with no skillId', () => {
     const result = resolveSlash('');
     expect(result.kind).toBe('passthrough');
     if (result.kind !== 'passthrough') throw new Error('unreachable');
     expect(result.content).toBe('');
+    expect('skillId' in result).toBe(false);
   });
 });
