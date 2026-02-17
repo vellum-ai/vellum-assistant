@@ -115,7 +115,11 @@ export interface SkillToolManifestMeta {
   toolCount: number;
   /** Tool names declared in the manifest (empty if invalid). */
   toolNames: string[];
-  /** Deterministic content hash of the skill directory (`v1:<hex-sha256>`). */
+  /**
+   * Deterministic content hash of the skill directory (`v1:<hex-sha256>`).
+   * Lazily computed on first access to avoid hashing every skill directory
+   * during catalog load.
+   */
   versionHash?: string;
 }
 
@@ -317,6 +321,34 @@ function isOutsideSkillsRoot(skillsDir: string, candidatePath: string): boolean 
 // ─── Tool manifest detection ─────────────────────────────────────────────────
 
 /**
+ * Create a SkillToolManifestMeta with a lazily-computed versionHash.
+ * The hash is only computed when first accessed, avoiding the cost of
+ * recursively hashing the skill directory during catalog load.
+ */
+function createManifestMeta(
+  base: Omit<SkillToolManifestMeta, 'versionHash'>,
+  directoryPath: string,
+): SkillToolManifestMeta {
+  let cached: string | undefined;
+  let computed = false;
+  return Object.defineProperty({ ...base }, 'versionHash', {
+    get() {
+      if (!computed) {
+        computed = true;
+        try {
+          cached = computeSkillVersionHash(directoryPath);
+        } catch (err) {
+          log.warn({ err, directoryPath }, 'Failed to compute skill version hash');
+        }
+      }
+      return cached;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+}
+
+/**
  * Detect and parse a TOOLS.json manifest in a skill directory.
  * Returns the manifest metadata if the file exists, or undefined if it doesn't.
  * On parse failure, returns a degraded metadata object (present but invalid).
@@ -327,31 +359,22 @@ function detectToolManifest(directoryPath: string): SkillToolManifestMeta | unde
     return undefined;
   }
 
-  let versionHash: string | undefined;
-  try {
-    versionHash = computeSkillVersionHash(directoryPath);
-  } catch (err) {
-    log.warn({ err, directoryPath }, 'Failed to compute skill version hash');
-  }
-
   try {
     const manifest = parseToolManifestFile(manifestPath);
-    return {
+    return createManifestMeta({
       present: true,
       valid: true,
       toolCount: manifest.tools.length,
       toolNames: manifest.tools.map((t) => t.name),
-      versionHash,
-    };
+    }, directoryPath);
   } catch (err) {
     log.warn({ err, manifestPath }, 'Failed to parse TOOLS.json manifest');
-    return {
+    return createManifestMeta({
       present: true,
       valid: false,
       toolCount: 0,
       toolNames: [],
-      versionHash,
-    };
+    }, directoryPath);
   }
 }
 
