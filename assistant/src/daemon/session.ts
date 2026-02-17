@@ -279,7 +279,7 @@ export class Session {
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      { maxTokens, thinking: config.thinking },
+      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,

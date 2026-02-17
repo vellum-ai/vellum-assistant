@@ -304,19 +304,6 @@ export class AgentLoop {
           toolResults = await toolExecutionPromise;
         }
 
-        // Emit tool_result events in deterministic tool_use order after all complete
-        for (const { toolUse, result } of toolResults) {
-          onEvent({
-            type: 'tool_result',
-            toolUseId: toolUse.id,
-            content: result.content,
-            isError: result.isError,
-            diff: result.diff,
-            status: result.status,
-            contentBlocks: result.contentBlocks,
-          });
-        }
-
         // Collect result blocks preserving tool_use order (Promise.all maintains order)
         const rawResultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
           type: 'tool_result' as const,
@@ -333,6 +320,27 @@ export class AgentLoop {
         );
         if (truncatedCount > 0) {
           log.warn(`Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`);
+        }
+
+        // Emit tool_result events AFTER truncation so downstream consumers
+        // (e.g. session persistence) receive the truncated content.
+        for (const { toolUse, result } of toolResults) {
+          // Look up the (possibly truncated) content from resultBlocks
+          const truncatedBlock = resultBlocks.find(
+            (b) => b.type === 'tool_result' && b.tool_use_id === toolUse.id,
+          );
+          const emitContent = (truncatedBlock && truncatedBlock.type === 'tool_result')
+            ? truncatedBlock.content
+            : result.content;
+          onEvent({
+            type: 'tool_result',
+            toolUseId: toolUse.id,
+            content: emitContent,
+            isError: result.isError,
+            diff: result.diff,
+            status: result.status,
+            contentBlocks: result.contentBlocks,
+          });
         }
 
         // If cancelled during execution, push completed results and stop

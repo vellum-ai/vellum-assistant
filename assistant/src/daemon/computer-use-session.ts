@@ -19,6 +19,7 @@ import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
+import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -437,11 +438,13 @@ export class ComputerUseSession {
       },
     };
 
+    const cuConfig = getConfig();
     const agentLoop = new AgentLoop(
       compactingProvider,
       systemPrompt,
       {
         maxTokens: 4096,
+        maxInputTokens: cuConfig.contextWindow.maxInputTokens,
         toolChoice: { type: 'any' },
         // Allow MAX_STEPS non-terminal actions plus one terminal turn
         // (computer_use_done/computer_use_respond), since AgentLoop caps tool turns globally.
