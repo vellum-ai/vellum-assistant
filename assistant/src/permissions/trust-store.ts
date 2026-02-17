@@ -342,7 +342,11 @@ export function removeRule(id: string): boolean {
 
 function matchesScope(ruleScope: string, workingDir: string): boolean {
   if (ruleScope === 'everywhere') return true;
-  return workingDir.startsWith(ruleScope.replace(/\*$/, ''));
+  // Strip optional trailing wildcard, then enforce a directory-boundary match
+  // so that a rule for "/path/project" does NOT match "/path/project-evil".
+  const prefix = ruleScope.replace(/\*$/, '').replace(/\/+$/, '');
+  const dir = workingDir.replace(/\/+$/, '');
+  return dir === prefix || dir.startsWith(prefix + '/');
 }
 
 function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny' | 'ask'): TrustRule | null {
