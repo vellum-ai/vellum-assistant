@@ -51,6 +51,8 @@ export interface SkillSummary {
   disableModelInvocation: boolean;
   source: SkillSource;
   metadata?: VellumMetadata;
+  /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
+  toolManifest?: SkillToolManifestMeta;
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -65,6 +67,52 @@ export interface SkillLookupResult {
 export interface SkillSelectorResult {
   skill?: SkillSummary;
   error?: string;
+}
+
+// ─── Skill Tool Manifest Types ────────────────────────────────────────────────
+
+/**
+ * Schema for a skill's TOOLS.json manifest file.
+ * Declares which tools a skill provides and how they should be executed.
+ */
+export interface SkillToolManifest {
+  version: 1;
+  tools: SkillToolEntry[];
+}
+
+/**
+ * A single tool entry within a skill's TOOLS.json manifest.
+ */
+export interface SkillToolEntry {
+  /** Unique tool name (must not collide with core tool names). */
+  name: string;
+  /** Human-readable description shown to the model. */
+  description: string;
+  /** Tool category for grouping/display. */
+  category: string;
+  /** Default risk level for permission checks. */
+  risk: 'low' | 'medium' | 'high';
+  /** JSON Schema for the tool's input parameters. */
+  input_schema: Record<string, unknown>;
+  /** Relative path to the executor script within the skill directory. */
+  executor: string;
+  /** Where the tool script runs. */
+  execution_target: 'host' | 'sandbox';
+}
+
+/**
+ * Lightweight metadata about a skill's tool manifest, attached to SkillSummary
+ * without loading the full manifest at catalog time.
+ */
+export interface SkillToolManifestMeta {
+  /** Whether the skill has a TOOLS.json file. */
+  present: boolean;
+  /** Whether the manifest parsed successfully. */
+  valid: boolean;
+  /** Number of tools declared in the manifest (0 if invalid). */
+  toolCount: number;
+  /** Tool names declared in the manifest (empty if invalid). */
+  toolNames: string[];
 }
 
 // ─── Requirements check ──────────────────────────────────────────────────────
