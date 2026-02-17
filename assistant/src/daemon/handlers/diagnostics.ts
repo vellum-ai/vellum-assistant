@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { mkdirSync, writeFileSync, rmSync, createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import archiver from 'archiver';
 import { getDb } from '../../memory/db.js';
@@ -109,7 +110,9 @@ export async function handleDiagnosticsExport(
     // Use the preceding user message timestamp as the range start,
     // or fall back to the anchor message timestamp if none found
     const rangeStart = precedingUserMessage?.createdAt ?? anchorMessage.createdAt;
-    const rangeEnd = anchorMessage.createdAt;
+    // Add a 5-second buffer to capture usage events recorded after the
+    // assistant message is persisted (usage logging is async)
+    const rangeEnd = anchorMessage.createdAt + 5000;
 
     // 3. Query all messages in the range
     const rangeMessages = db
@@ -154,7 +157,7 @@ export async function handleDiagnosticsExport(
       .all();
 
     // 6. Write export files to a temp directory
-    const exportId = `diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    const exportId = `diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}`;
     const tempDir = join(tmpdir(), exportId);
     mkdirSync(tempDir, { recursive: true });
 
@@ -226,7 +229,11 @@ export async function handleDiagnosticsExport(
         const archive = archiver('zip', { zlib: { level: 9 } });
 
         output.on('close', () => resolve());
+        output.on('error', (err: Error) => reject(err));
         archive.on('error', (err: Error) => reject(err));
+        archive.on('warning', (err: Error) => {
+          log.warn({ err }, 'Archiver warning during diagnostics export');
+        });
 
         archive.pipe(output);
         archive.directory(tempDir, false);
