@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -32,10 +32,11 @@ function collectFiles(dir: string, base: string): string[] {
     const full = join(dir, name);
     let stat;
     try {
-      stat = statSync(full);
+      stat = lstatSync(full);
     } catch {
       continue;
     }
+    if (stat.isSymbolicLink()) continue;
     if (stat.isDirectory()) {
       entries.push(...collectFiles(full, base));
     } else if (stat.isFile()) {

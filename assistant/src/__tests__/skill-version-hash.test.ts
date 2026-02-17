@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
@@ -110,5 +110,29 @@ describe('computeSkillVersionHash', () => {
     const dir = makeTempSkill();
     const hash = computeSkillVersionHash(dir);
     expect(hash).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  test('skips symlinked directories to avoid loops', () => {
+    const dir = makeTempSkill();
+    writeFileSync(join(dir, 'SKILL.md'), '# Skill\n');
+    const hash1 = computeSkillVersionHash(dir);
+
+    // Create a symlink that points back to the skill dir (would loop with statSync)
+    symlinkSync(dir, join(dir, 'loop'));
+    const hash2 = computeSkillVersionHash(dir);
+
+    expect(hash1).toBe(hash2);
+  });
+
+  test('skips symlinked files', () => {
+    const dir = makeTempSkill();
+    writeFileSync(join(dir, 'real.ts'), 'export {};');
+    const hash1 = computeSkillVersionHash(dir);
+
+    // Add a symlink to an existing file — should be ignored
+    symlinkSync(join(dir, 'real.ts'), join(dir, 'linked.ts'));
+    const hash2 = computeSkillVersionHash(dir);
+
+    expect(hash1).toBe(hash2);
   });
 });
