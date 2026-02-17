@@ -90,13 +90,11 @@ public final class AmbientAgent: ObservableObject {
             trigger: nil
         )
 
-        Task {
-            do {
-                try await UNUserNotificationCenter.current().add(request)
-                log.info("Posted ride shotgun invitation notification")
-            } catch {
-                log.error("Failed to post ride shotgun notification: \(error.localizedDescription)")
-            }
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            log.info("Posted ride shotgun invitation notification")
+        } catch {
+            log.error("Failed to post ride shotgun notification: \(error.localizedDescription)")
         }
     }
 
