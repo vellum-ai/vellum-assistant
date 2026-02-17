@@ -800,11 +800,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            if self?.authManager.isAuthenticated == true {
-                self?.proceedToApp()
-            } else {
-                self?.startAuthenticatedFlow()
-            }
+            // By this point the user has either entered an API key (steps 0→1→2)
+            // or authenticated via Vellum Account (WorkOS). Proceed directly —
+            // don't re-check auth, which would show the auth gate again.
+            self?.proceedToApp()
         }
         onboarding.show()
         onboardingWindow = onboarding
