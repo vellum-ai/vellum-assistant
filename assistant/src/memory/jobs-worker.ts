@@ -114,9 +114,10 @@ function classifyError(err: unknown): ErrorCategory {
   return 'fatal';
 }
 
-/** Exponential backoff delay: base * 2^(attempt-1), capped. */
+/** Exponential backoff with full jitter: uniform random in [0, cap]. */
 function retryDelayForAttempt(attempts: number): number {
-  return Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)), RETRY_MAX_DELAY_MS);
+  const cap = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1)), RETRY_MAX_DELAY_MS);
+  return Math.random() * cap;
 }
 
 const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
