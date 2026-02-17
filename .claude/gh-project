@@ -184,6 +184,14 @@ cmd_add_issue() {
 
   load_config
 
+  # Validate status before mutating project state
+  local var_name=""
+  local option_id=""
+  if [ -n "$status" ]; then
+    var_name=$(status_var_for "$status")
+    option_id="${!var_name}"
+  fi
+
   echo "==> Getting node ID for issue #$issue_number..."
   local node_id
   node_id=$(gh api "repos/vellum-ai/vellum-assistant/issues/$issue_number" --jq '.node_id')
@@ -200,9 +208,6 @@ cmd_add_issue() {
   echo "Added issue #$issue_number (item: $item_id)"
 
   if [ -n "$status" ]; then
-    local var_name
-    var_name=$(status_var_for "$status")
-    local option_id="${!var_name}"
     echo "==> Setting status to $status..."
     update_status "$item_id" "$option_id"
     echo "Status set to $status."
