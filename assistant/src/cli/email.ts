@@ -255,7 +255,7 @@ export function registerEmailCommand(program: Command): void {
   // =========================================================================
   // Inbound subcommands
   // =========================================================================
-  const inbound = email.command('inbound').description('View inbound messages');
+  const inbound = email.command('inbound').alias('inbox').description('View inbound messages');
 
   inbound
     .command('list')
