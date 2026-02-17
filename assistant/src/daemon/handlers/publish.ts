@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { deployHtmlToVercel, deleteVercelDeployment } from '../../services/vercel-deploy.js';
 import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId, updatePublishedPage } from '../../memory/published-pages-store.js';
 import { setSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { credentialBroker } from '../../tools/credentials/broker.js';
 import type {
   PublishPageRequest,
@@ -88,10 +88,19 @@ export async function handlePublishPage(
         return;
       }
 
-      // Store the credential
-      const storageKey = `credential:vercel:api_token`;
-      setSecureKey(storageKey, secretResult.value);
-      upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
+      if (secretResult.delivery === 'transient_send') {
+        // One-time send: inject for single use without persisting to keychain.
+        // Metadata must exist for broker policy checks.
+        if (!getCredentialMetadata('vercel', 'api_token')) {
+          upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
+        }
+        credentialBroker.injectTransient('vercel', 'api_token', secretResult.value);
+      } else {
+        // Default: persist to keychain
+        const storageKey = `credential:vercel:api_token`;
+        setSecureKey(storageKey, secretResult.value);
+        upsertCredentialMetadata('vercel', 'api_token', { allowedTools });
+      }
 
       // Retry with the newly stored credential
       useResult = await credentialBroker.serverUse({
