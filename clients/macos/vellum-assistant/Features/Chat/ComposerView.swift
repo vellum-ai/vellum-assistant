@@ -464,7 +464,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
         textView.textColor = NSColor(VColor.textPrimary)
         textView.insertionPointColor = NSColor(VColor.accent)
-        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.textContainerInset = NSSize(width: 0, height: 8)
         textView.string = text
 
         if let container = textView.textContainer {
@@ -702,7 +702,11 @@ private final class CenteringClipView: NSClipView {
            let layoutManager = textView.layoutManager,
            let textContainer = textView.textContainer {
             layoutManager.ensureLayout(for: textContainer)
-            let contentHeight = layoutManager.usedRect(for: textContainer).height
+            let usedHeight = layoutManager.usedRect(for: textContainer).height
+            // Include the textContainerInset in the total content height so
+            // centering accounts for the top/bottom padding the text view adds.
+            let insetHeight = textView.textContainerInset.height * 2
+            let contentHeight = usedHeight + insetHeight
             if contentHeight < bounds.height {
                 rect.origin.y = ceil((contentHeight - bounds.height) / 2)
             }
