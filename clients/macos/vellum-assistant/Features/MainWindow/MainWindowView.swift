@@ -371,10 +371,23 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
-        let isSelected = thread.id == threadManager.activeThreadId
+        let isSelected: Bool = {
+            switch windowState.selection {
+            case .thread(let id): return id == thread.id
+            case .appEditing(_, let threadId): return threadId == thread.id
+            default: return thread.id == threadManager.activeThreadId && windowState.selection == nil
+            }
+        }()
         Button(action: {
-            windowState.selection = .thread(thread.id)
-            threadManager.selectThread(id: thread.id)
+            if case .appEditing(let appId, _) = windowState.selection {
+                // Stay in editing mode, just switch the thread
+                windowState.selection = .appEditing(appId: appId, threadId: thread.id)
+                threadManager.selectThread(id: thread.id)
+            } else {
+                // Normal thread selection
+                windowState.selection = .thread(thread.id)
+                threadManager.selectThread(id: thread.id)
+            }
         }) {
             HStack(spacing: VSpacing.sm) {
                 if thread.isPinned {
@@ -589,12 +602,18 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected = windowState.activeAppId == app.id || (
-            windowState.isDynamicExpanded
-            && windowState.activeDynamicSurface?.surfaceId != nil
-            && isAppSurfaceActive(appId: app.id)
-        )
+        let isSelected: Bool = {
+            switch windowState.selection {
+            case .app(let id): return id == app.id
+            case .appEditing(let appId, _): return appId == app.id
+            default:
+                return windowState.isDynamicExpanded
+                    && windowState.activeDynamicSurface?.surfaceId != nil
+                    && isAppSurfaceActive(appId: app.id)
+            }
+        }()
         Button(action: {
+            // Clicking a different app exits edit mode; same app stays in .app mode
             windowState.selection = .app(app.id)
             openAppInWorkspace(app: app)
         }) {
@@ -1094,14 +1113,14 @@ struct MainWindowView: View {
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
                 onToggleChatDock: {
-                    if let appId = windowState.activeAppId,
-                       let threadId = threadManager.activeThreadId {
-                        if windowState.isChatDockOpen {
-                            // Close: transition from appEditing to app
-                            windowState.selection = .app(appId)
-                        } else {
-                            // Open: transition from app to appEditing
-                            windowState.setAppEditing(appId: appId, threadId: threadId)
+                    if case .appEditing(_, let threadId) = windowState.selection {
+                        // Toggle off: close app, keep thread visible
+                        windowState.selection = .thread(threadId)
+                    } else if case .app(let appId) = windowState.selection {
+                        // Toggle on: find most recent thread and enter editing mode
+                        if let thread = threadManager.visibleThreads.first {
+                            threadManager.selectThread(id: thread.id)
+                            windowState.setAppEditing(appId: appId, threadId: thread.id)
                         }
                     }
                 },
