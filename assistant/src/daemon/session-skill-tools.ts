@@ -12,7 +12,7 @@ import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { deriveActiveSkills } from '../skills/active-skill-tools.js';
-import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
+
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';

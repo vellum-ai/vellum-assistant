@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import type { ToolExecutionResult, Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -362,7 +363,7 @@ describe('ToolExecutor contextual rule creation', () => {
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
-    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    const [tool, pattern, scope, decision, _priority, options] = spy.mock.calls[0];
     expect(tool).toBe('skill_tool');
     expect(pattern).toBe('skill_tool:*');
     expect(scope).toBe('/tmp/project');
@@ -400,7 +401,7 @@ describe('ToolExecutor contextual rule creation', () => {
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
-    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    const [tool, pattern, scope, decision, _priority, options] = spy.mock.calls[0];
     expect(tool).toBe('risky_tool');
     expect(pattern).toBe('risky_tool:*');
     expect(scope).toBe('everywhere');
@@ -426,7 +427,7 @@ describe('ToolExecutor contextual rule creation', () => {
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
-    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    const [tool, pattern, scope, decision, _priority, options] = spy.mock.calls[0];
     expect(tool).toBe('bash');
     expect(pattern).toBe('git *');
     expect(scope).toBe('/tmp/project');
@@ -559,7 +560,7 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
-    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    const [tool, pattern, scope, decision, _priority, options] = spy.mock.calls[0];
     expect(tool).toBe('deploy_tool');
     expect(pattern).toBe('deploy_tool:*');
     expect(scope).toBe('everywhere');

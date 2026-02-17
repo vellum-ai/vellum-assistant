@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 // Stub the root dir before importing trust-store so it uses our temp directory
@@ -26,7 +26,6 @@ import {
   getStarterBundleRules,
   getAllRules,
   clearCache,
-  clearAllRules,
 } from '../permissions/trust-store.js';
 
 describe('Starter approval bundle', () => {

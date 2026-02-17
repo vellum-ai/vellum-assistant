@@ -459,7 +459,7 @@ describe('runSkillToolScript — hash change re-prompt regressions (PR 35)', () 
 
   test('no expectedSkillVersionHash skips guard entirely — edits have no effect', async () => {
     let currentDiskHash = 'v1:whatever';
-    const resolver = (_dir: string) => currentDiskHash;
+    const _resolver = (_dir: string) => currentDiskHash;
 
     // Without expectedSkillVersionHash, the guard is not active
     const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'unguarded' }, makeContext());

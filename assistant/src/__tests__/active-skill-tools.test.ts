@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { deriveActiveSkillIds, deriveActiveSkills } from '../skills/active-skill-tools.js';
-import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
+
 import type { Message } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------

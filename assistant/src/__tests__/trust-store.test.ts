@@ -1099,7 +1099,9 @@ describe('Trust Store', () => {
       expect(rule!.tool).toBe('bash');
       expect(rule!.pattern).toBe('git *');
       // Extra fields pass through because the migration does not strip them
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
       expect((rule as any).customField).toBe('should-survive');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
       expect((rule as any).nested).toEqual({ deep: true });
     });
 
