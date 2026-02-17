@@ -7,6 +7,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { redactSecrets } from '../../security/secret-scanner.js';
 import { formatShellOutput } from '../shared/shell-output.js';
 
 const log = getLogger('host-shell-tool');
@@ -100,7 +101,7 @@ class HostShellTool implements Tool {
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
-    log.info({ command, cwd: workingDir, timeoutSec, sessionId: context.sessionId }, 'Executing host shell command');
+    log.info({ command: redactSecrets(command), cwd: workingDir, timeoutSec, sessionId: context.sessionId }, 'Executing host shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
