@@ -669,6 +669,8 @@ private struct ChatBubble: View {
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
 
+    @State private var isRegenerateHovered = false
+
     private var isUser: Bool { message.role == .user }
 
     private var statusLabel: String? {
@@ -789,8 +791,31 @@ private struct ChatBubble: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Regenerate response")
-        .help("Regenerate response")
+        .accessibilityLabel("Try again")
+        .onHover { isRegenerateHovered = $0 }
+        .overlay(alignment: .top) {
+            if isRegenerateHovered {
+                Text("Try again")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(VColor.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .vShadow(VShadow.sm)
+                    .fixedSize()
+                    .offset(y: -28)
+                    .transition(.opacity)
+                    .animation(VAnimation.fast, value: isRegenerateHovered)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
