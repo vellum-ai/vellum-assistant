@@ -100,8 +100,8 @@ struct WakeUpStepView: View {
             }
         }
 
-        if showFooter, let state {
-            OnboardingFooter(currentStep: state.currentStep)
+        if showFooter {
+            OnboardingFooter(currentStep: state?.currentStep ?? 0)
                 .padding(.bottom, VSpacing.lg)
         }
     }
@@ -188,8 +188,7 @@ struct WakeUpStepView: View {
             WakeUpStepView(
                 title: "Sign in to continue",
                 subtitle: "Sign in with your Vellum account to get started.",
-                questionPrompt: "How would you like to start?",
-                showFooter: false
+                questionPrompt: "How would you like to start?"
             )
         }
     }
