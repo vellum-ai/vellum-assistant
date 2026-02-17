@@ -16,7 +16,15 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if [0, 2, 3, 4].contains(state.currentStep) {
+            if showVellumAuth {
+                AuthContainerView(authManager: authManager)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 12)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
+                    )
+            } else if [0, 2, 3, 4].contains(state.currentStep) {
                 // Steps 0–4: Shared layout with persistent icon + background.
                 // Only the content below the icon transitions between steps.
                 VStack(spacing: 0) {
@@ -175,10 +183,6 @@ struct OnboardingFlowView: View {
             if isAuthenticated && showVellumAuth {
                 onComplete()
             }
-        }
-        .sheet(isPresented: $showVellumAuth) {
-            AuthContainerView(authManager: authManager)
-                .frame(minWidth: 420, minHeight: 500)
         }
     }
 
