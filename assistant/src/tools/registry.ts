@@ -3,8 +3,12 @@ import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { registerComputerUseTools } from './computer-use/registry.js';
+import { allComputerUseTools } from './computer-use/definitions.js';
+import { requestComputerControlTool } from './computer-use/request-computer-control.js';
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
+import { allUiSurfaceTools } from './ui-surface/definitions.js';
 import { registerAppTools } from './apps/registry.js';
+import { allAppTools } from './apps/definitions.js';
 import { hostFileReadTool } from './host-filesystem/read.js';
 import { hostFileWriteTool } from './host-filesystem/write.js';
 import { hostFileEditTool } from './host-filesystem/edit.js';
@@ -240,6 +244,10 @@ export async function initializeTools(): Promise<void> {
       ...explicitTools.map((t: Tool) => t.name),
       ...lazyTools.map((t: LazyToolDescriptor) => t.name),
       ...hostTools.map((t: Tool) => t.name),
+      ...allComputerUseTools.map((t: Tool) => t.name),
+      requestComputerControlTool.name,
+      ...allUiSurfaceTools.map((t: Tool) => t.name),
+      ...allAppTools.map((t: Tool) => t.name),
     ]);
 
     coreToolsSnapshot = new Map<string, Tool>();
