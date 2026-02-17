@@ -164,7 +164,7 @@ describe('tool manifest', () => {
     const lazyNames = new Set(lazyTools.map((t) => t.name));
     expect(lazyNames.has('bash')).toBe(true);
     expect(lazyNames.has('evaluate_typescript_code')).toBe(true);
-    expect(lazyNames.has('claude_code')).toBe(true);
+    expect(lazyNames.has('claude_code')).toBe(false);
     expect(lazyNames.has('swarm_delegate')).toBe(true);
   });
 
@@ -218,15 +218,15 @@ describe('baseline characterization: hardcoded tool loading', () => {
     expect(eagerModules).toContain('./weather/get-weather.js');
   });
 
-  test('claude_code is registered via lazy descriptor after initializeTools()', async () => {
+  test('claude_code is NOT in global registry after initializeTools()', async () => {
     await initializeTools();
     const tool = getTool('claude_code');
-    expect(tool).toBeDefined();
+    expect(tool).toBeUndefined();
   });
 
-  test('claude_code lazy descriptor is in lazyTools manifest', () => {
+  test('claude_code is NOT in lazyTools manifest', () => {
     const lazyNames = lazyTools.map(t => t.name);
-    expect(lazyNames).toContain('claude_code');
+    expect(lazyNames).not.toContain('claude_code');
   });
 });
 

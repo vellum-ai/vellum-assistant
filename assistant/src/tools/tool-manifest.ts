@@ -131,47 +131,6 @@ export const lazyTools: LazyToolDescriptor[] = [
     },
   },
   {
-    name: 'claude_code',
-    description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
-    category: 'coding',
-    defaultRiskLevel: RiskLevel.Medium,
-    definition: {
-      name: 'claude_code',
-      description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          prompt: {
-            type: 'string',
-            description: 'The coding task or question for Claude Code to work on',
-          },
-          working_dir: {
-            type: 'string',
-            description: 'Working directory for Claude Code (defaults to session working directory)',
-          },
-          resume: {
-            type: 'string',
-            description: 'Claude Code session ID to resume a previous session',
-          },
-          model: {
-            type: 'string',
-            description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
-          },
-          profile: {
-            type: 'string',
-            enum: ['general', 'researcher', 'coder', 'reviewer'],
-            description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
-          },
-        },
-        required: ['prompt'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./claude-code/claude-code.js');
-      return mod.claudeCodeTool;
-    },
-  },
-  {
     name: 'swarm_delegate',
     description: 'Decompose a complex task into parallel specialist subtasks and execute them concurrently.',
     category: 'orchestration',
