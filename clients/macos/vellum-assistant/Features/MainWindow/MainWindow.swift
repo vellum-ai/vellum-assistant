@@ -8,7 +8,13 @@ import SwiftUI
 /// title bar becomes invisible and stops handling double-clicks. This
 /// subclass detects double-clicks in the title bar zone and performs the
 /// action configured in System Settings (zoom or minimize).
+///
+/// We manually track the pre-zoom frame because `NSWindow.isZoomed` can be
+/// unreliable with `fullSizeContentView`, causing `zoom(nil)` not to toggle
+/// back to the previous size.
 class TitleBarZoomableWindow: NSWindow {
+    private var preZoomFrame: NSRect?
+
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         guard event.clickCount == 2 else { return }
@@ -25,7 +31,15 @@ class TitleBarZoomableWindow: NSWindow {
         case "None":
             break
         default: // "Maximize"
-            zoom(nil)
+            if let savedFrame = preZoomFrame {
+                // Restore to pre-zoom frame
+                preZoomFrame = nil
+                setFrame(savedFrame, display: true, animate: true)
+            } else {
+                // Save current frame and zoom
+                preZoomFrame = frame
+                zoom(nil)
+            }
         }
     }
 }
