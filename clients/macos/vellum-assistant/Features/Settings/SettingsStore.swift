@@ -117,14 +117,17 @@ public final class SettingsStore: ObservableObject {
         maskedBraveKey = Self.maskKey(braveKey)
     }
 
-    /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x"
+    /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
+    /// For short keys, reduces visible prefix/suffix so at least 3 characters are always hidden.
     static func maskKey(_ key: String?) -> String {
         guard let key, !key.isEmpty else { return "" }
-        let prefixLen = min(10, key.count)
-        let suffixLen = min(4, max(0, key.count - prefixLen))
-        if key.count <= prefixLen + suffixLen {
-            return key
-        }
+
+        let minHidden = 3
+        let maxVisible = max(1, key.count - minHidden)
+
+        let prefixLen = min(10, maxVisible)
+        let suffixLen = min(4, max(0, maxVisible - prefixLen))
+
         return "\(key.prefix(prefixLen))...\(key.suffix(suffixLen))"
     }
 
