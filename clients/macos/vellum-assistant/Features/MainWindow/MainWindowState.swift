@@ -28,6 +28,7 @@ final class MainWindowState: ObservableObject {
     }
     @Published var activityMessageId: UUID?
     @Published var layoutConfig: LayoutConfig
+    @Published var toastInfo: ToastInfo?
 
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
@@ -81,6 +82,16 @@ final class MainWindowState: ObservableObject {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    /// Show a toast notification in the main window.
+    func showToast(message: String, style: ToastInfo.Style, primaryAction: VToastAction? = nil) {
+        toastInfo = ToastInfo(message: message, style: style, primaryAction: primaryAction)
+    }
+
+    /// Dismiss the currently displayed toast.
+    func dismissToast() {
+        toastInfo = nil
+    }
+
     /// Restore the last active panel from UserDefaults
     func restoreLastActivePanel() {
         // Dashboard-first mode should always bootstrap into Home Base rather than
@@ -94,4 +105,16 @@ final class MainWindowState: ObservableObject {
 
         activePanel = panel
     }
+}
+
+/// Data model for a toast notification displayed in the main window.
+struct ToastInfo {
+    enum Style {
+        case success
+        case error
+    }
+
+    let message: String
+    let style: Style
+    let primaryAction: VToastAction?
 }

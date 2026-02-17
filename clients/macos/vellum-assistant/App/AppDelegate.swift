@@ -247,6 +247,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.handleEscalationToComputerUse(routed: routed)
         }
 
+        // Handle diagnostics export response — show a toast in the main window
+        daemonClient.onDiagnosticsExportResponse = { [weak self] response in
+            guard let self else { return }
+            Task { @MainActor in
+                if response.success, let filePath = response.filePath {
+                    self.mainWindow?.windowState.showToast(
+                        message: "Report exported successfully.",
+                        style: .success,
+                        primaryAction: VToastAction(label: "Reveal in Finder") {
+                            NSWorkspace.shared.selectFile(filePath, inFileViewerRootedAtPath: "")
+                        }
+                    )
+                } else {
+                    let errorDetail = response.error ?? "Unknown error"
+                    self.mainWindow?.windowState.showToast(
+                        message: "Failed to export report: \(errorDetail)",
+                        style: .error
+                    )
+                }
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         daemonLauncher.onDaemonRestarted = { [weak self] in

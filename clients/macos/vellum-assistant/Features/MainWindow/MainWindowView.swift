@@ -251,6 +251,20 @@ struct MainWindowView: View {
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
+        .overlay(alignment: .bottom) {
+            if let toast = windowState.toastInfo {
+                VToast(
+                    message: toast.message,
+                    style: toast.style == .success ? .success : .error,
+                    primaryAction: toast.primaryAction,
+                    onDismiss: { windowState.dismissToast() }
+                )
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.bottom, VSpacing.xl)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(VAnimation.standard, value: windowState.toastInfo != nil)
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
@@ -928,6 +942,7 @@ struct MainWindowView: View {
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
+                daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 onMicrophoneToggle: onMicrophoneToggle
             )
@@ -1234,6 +1249,7 @@ private func openFilePicker(viewModel: ChatViewModel) {
 private struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
+    let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
     let onMicrophoneToggle: () -> Void
 
@@ -1291,7 +1307,21 @@ private struct ActiveChatViewWrapper: View {
             onOpenActivity: { messageId in
                 windowState.toggleActivityPanel(with: messageId)
             },
-            isActivityPanelOpen: windowState.activePanel == .activity
+            isActivityPanelOpen: windowState.activePanel == .activity,
+            onReportMessage: { messageId in
+                guard let sessionId = viewModel.sessionId else { return }
+                do {
+                    try daemonClient.sendDiagnosticsExportRequest(
+                        conversationId: sessionId,
+                        anchorMessageId: messageId.uuidString
+                    )
+                } catch {
+                    windowState.showToast(
+                        message: "Failed to request report export.",
+                        style: .error
+                    )
+                }
+            }
         )
     }
 }
