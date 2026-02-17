@@ -416,6 +416,7 @@ struct MainWindowView: View {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
+                        .rotationEffect(.degrees(90))
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -621,6 +622,7 @@ struct MainWindowView: View {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
+                        .rotationEffect(.degrees(90))
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
