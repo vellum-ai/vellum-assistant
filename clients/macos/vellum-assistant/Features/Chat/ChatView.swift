@@ -812,10 +812,10 @@ private struct ChatBubble: View {
                     .fixedSize()
                     .offset(y: -28)
                     .transition(.opacity)
-                    .animation(VAnimation.fast, value: isRegenerateHovered)
                     .allowsHitTesting(false)
             }
         }
+        .animation(VAnimation.fast, value: isRegenerateHovered)
     }
 
     /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
