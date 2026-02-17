@@ -120,4 +120,18 @@ describe('runSkillToolScript — errors', () => {
     expect(result.content).toContain('Failed to load skill tool script');
     expect(result.content).toContain('nonexistent.ts');
   });
+
+  test('rejects executor paths that escape the skill directory via ../', async () => {
+    const result = await runSkillToolScript(tempDir, '../../etc/passwd', {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('escapes the skill directory');
+  });
+
+  test('rejects executor paths that escape via intermediate ../ segments', async () => {
+    const result = await runSkillToolScript(tempDir, 'sub/../../outside.ts', {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('escapes the skill directory');
+  });
 });
