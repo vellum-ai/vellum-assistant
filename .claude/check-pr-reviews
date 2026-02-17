@@ -110,10 +110,10 @@ CODEX_RATE_LIMITED=$(jq '
 CODEX_REVIEW_COUNT=$(echo "$CODEX_REVIEWS" | jq 'length')
 CODEX_INLINE_COUNT=$(echo "$CODEX_INLINE" | jq 'length')
 
-if [ "$CODEX_RATE_LIMITED" = "true" ]; then
-  CODEX_STATUS="rate_limited"
-elif [ "$CODEX_PLUS_ONE" = "true" ]; then
+if [ "$CODEX_PLUS_ONE" = "true" ]; then
   CODEX_STATUS="approved"
+elif [ "$CODEX_RATE_LIMITED" = "true" ]; then
+  CODEX_STATUS="rate_limited"
 elif [ "$CODEX_REVIEW_COUNT" -gt 0 ] || [ "$CODEX_INLINE_COUNT" -gt 0 ]; then
   CODEX_STATUS="changes_requested"
 else
