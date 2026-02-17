@@ -14,6 +14,22 @@ public final class SettingsStore: ObservableObject {
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
 
+    // MARK: - Model Selection
+
+    @Published var selectedModel: String = "claude-opus-4-6"
+
+    static let availableModels: [String] = [
+        "claude-opus-4-6",
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001",
+    ]
+
+    static let modelDisplayNames: [String: String] = [
+        "claude-opus-4-6": "Claude Opus 4.6",
+        "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+    ]
+
     // MARK: - Settings Values
 
     @Published var maxSteps: Double {
@@ -73,8 +89,17 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up model info IPC response
+        daemonClient?.onModelInfo = { [weak self] response in
+            guard let self else { return }
+            self.selectedModel = response.model
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
+
+        // Fetch current model from daemon
+        try? daemonClient?.sendModelGet()
     }
 
     // MARK: - API Key Actions
@@ -143,5 +168,11 @@ public final class SettingsStore: ObservableObject {
 
     func refreshVercelKeyState() {
         try? daemonClient?.sendVercelApiConfig(action: "get")
+    }
+
+    // MARK: - Model Actions
+
+    func setModel(_ model: String) {
+        try? daemonClient?.sendModelSet(model: model)
     }
 }

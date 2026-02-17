@@ -77,6 +77,35 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
 
+                // MODEL section (only when API key is configured)
+                if store.hasKey {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("MODEL")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack {
+                            Text("Active Model")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            Picker("", selection: $store.selectedModel) {
+                                ForEach(SettingsStore.availableModels, id: \.self) { model in
+                                    Text(SettingsStore.modelDisplayNames[model] ?? model)
+                                        .tag(model)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 200)
+                        }
+                        .onChange(of: store.selectedModel) { _, newValue in
+                            store.setModel(newValue)
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: VColor.surfaceSubtle)
+                }
+
                 // BRAVE SEARCH section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("BRAVE SEARCH")

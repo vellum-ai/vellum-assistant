@@ -196,6 +196,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `model_info` message.
+    public var onModelInfo: ((ModelInfoMessage) -> Void)?
+
+    /// The currently active model ID, populated via `model_info` responses.
+    @Published public var currentModel: String?
+
     /// Called when the daemon sends a `publish_page_response` message.
     public var onPublishPageResponse: ((PublishPageResponseMessage) -> Void)?
 
@@ -849,6 +855,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
     }
 
+    // MARK: - Model Config
+
+    /// Request the current model/provider configuration from the daemon.
+    public func sendModelGet() throws {
+        try send(ModelGetRequestMessage())
+    }
+
+    /// Set the active model on the daemon.
+    public func sendModelSet(model: String) throws {
+        try send(ModelSetRequestMessage(model: model))
+    }
+
     // MARK: - Integrations
 
     /// Request the list of registered integrations and their connection status.
@@ -1119,6 +1137,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSlackWebhookConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .modelInfo(let msg):
+            currentModel = msg.model
+            onModelInfo?(msg)
         case .publishPageResponse(let msg):
             onPublishPageResponse?(msg)
         case .openUrl(let msg):

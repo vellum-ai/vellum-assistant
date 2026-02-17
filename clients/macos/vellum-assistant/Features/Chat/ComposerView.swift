@@ -617,6 +617,29 @@ private final class ComposerNativeTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
+        highlightSlashCommand()
+    }
+
+    private func highlightSlashCommand() {
+        guard let layoutManager = layoutManager, let textStorage = textStorage else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        guard fullRange.length > 0 else { return }
+
+        // Reset to default text color
+        layoutManager.addTemporaryAttributes(
+            [.foregroundColor: NSColor(VColor.textPrimary)],
+            forCharacterRange: fullRange
+        )
+
+        // Highlight slash command token (e.g. /model, /help)
+        let text = textStorage.string
+        if let match = text.range(of: #"^/\w+"#, options: .regularExpression) {
+            let nsRange = NSRange(match, in: text)
+            layoutManager.addTemporaryAttributes(
+                [.foregroundColor: NSColor(Indigo._500)],
+                forCharacterRange: nsRange
+            )
+        }
     }
 
     override func keyDown(with event: NSEvent) {

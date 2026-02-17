@@ -1456,6 +1456,32 @@ public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+// MARK: - Model Config Messages
+
+/// Request the current model/provider configuration.
+/// Backed by generated `IPCModelGetRequest`.
+public typealias ModelGetRequestMessage = IPCModelGetRequest
+
+extension IPCModelGetRequest {
+    public init() {
+        self.init(type: "model_get")
+    }
+}
+
+/// Set the active model.
+/// Backed by generated `IPCModelSetRequest`.
+public typealias ModelSetRequestMessage = IPCModelSetRequest
+
+extension IPCModelSetRequest {
+    public init(model: String) {
+        self.init(type: "model_set", model: model)
+    }
+}
+
+/// Response containing the current model/provider info.
+/// Backed by generated `IPCModelInfo`.
+public typealias ModelInfoMessage = IPCModelInfo
+
 // MARK: - Vercel API Config Messages
 
 /// Sent to get/set/delete the Vercel API token.
@@ -1538,6 +1564,7 @@ public enum ServerMessage: Decodable, Sendable {
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case modelInfo(ModelInfoMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
     case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
@@ -1734,6 +1761,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "model_info":
+            let message = try ModelInfoMessage(from: decoder)
+            self = .modelInfo(message)
         case "sign_bundle_payload":
             let message = try SignBundlePayloadMessage(from: decoder)
             self = .signBundlePayload(message)

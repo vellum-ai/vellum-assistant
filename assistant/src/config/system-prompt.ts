@@ -349,6 +349,7 @@ function buildConfigSection(): string {
 
   return [
     '## Configuration',
+    `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
     `${configPreamble} Key files you may read or edit include but are not limited to:`,
     '',
     '- `IDENTITY.md` — Your name, nature, vibe, and emoji. Updated during the first-run ritual.',

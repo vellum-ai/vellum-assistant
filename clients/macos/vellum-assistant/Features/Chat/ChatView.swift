@@ -1428,8 +1428,17 @@ private struct ChatBubble: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        let parsed = (try? AttributedString(markdown: trimmed, options: options))
+        var parsed = (try? AttributedString(markdown: trimmed, options: options))
             ?? AttributedString(trimmed)
+
+        // Highlight slash command token (e.g. /model) in blue
+        if let slashMatch = trimmed.range(of: #"^/\w+"#, options: .regularExpression) {
+            let offset = trimmed.distance(from: trimmed.startIndex, to: slashMatch.lowerBound)
+            let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
+            let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
+            let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
+            parsed[attrStart..<attrEnd].foregroundColor = Indigo._500
+        }
 
         // Store in cache (with size limit to prevent unbounded growth)
         if Self.markdownCache.count >= Self.maxCacheSize {

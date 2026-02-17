@@ -62,6 +62,20 @@ public struct SettingsView: View {
                 }
             }
 
+            if store.hasKey {
+                Section("Model") {
+                    Picker("Active model", selection: $store.selectedModel) {
+                        ForEach(SettingsStore.availableModels, id: \.self) { model in
+                            Text(SettingsStore.modelDisplayNames[model] ?? model)
+                                .tag(model)
+                        }
+                    }
+                    .onChange(of: store.selectedModel) { _, newValue in
+                        store.setModel(newValue)
+                    }
+                }
+            }
+
             Section("Brave Search API Key") {
                 if store.hasBraveKey {
                     HStack(spacing: 6) {
