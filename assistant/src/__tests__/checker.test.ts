@@ -2425,26 +2425,16 @@ describe('Permission Checker', () => {
 
     // ── generateAllowlistOptions for skill_load ──
 
-    test('allowlist options include version-specific and any-version choices when hash is available', () => {
+    test('allowlist options only include version-specific option when hash is available', () => {
       ensureSkillsDir();
       writeSkill('test-opts-skill', 'Test Options Skill');
 
       const options = generateAllowlistOptions('skill_load', { skill: 'test-opts-skill' });
 
-      // Should have: version-specific, any-version, wildcard
-      expect(options.length).toBeGreaterThanOrEqual(3);
-
-      // First option should be the version-specific pattern
+      // Should have only the version-specific option
+      expect(options).toHaveLength(1);
       expect(options[0].pattern).toMatch(/^skill_load:test-opts-skill@v1:/);
       expect(options[0].description).toBe('This exact version');
-
-      // Second option should be any-version
-      expect(options[1].pattern).toBe('skill_load:test-opts-skill');
-      expect(options[1].description).toBe('Any version of this skill');
-
-      // Last option should be wildcard
-      expect(options[options.length - 1].pattern).toBe('skill_load:*');
-      expect(options[options.length - 1].description).toBe('All skill loads');
     });
 
     test('allowlist options ignore input version_hash and use disk-computed hash (regression)', () => {
@@ -2458,13 +2448,11 @@ describe('Permission Checker', () => {
         version_hash: 'v1:customhash123',
       });
 
-      expect(options.length).toBeGreaterThanOrEqual(3);
-      // First option should be the disk-computed hash, NOT the input hash
+      expect(options).toHaveLength(1);
+      // Should be the disk-computed hash, NOT the input hash
       expect(options[0].pattern).toMatch(/^skill_load:test-opts-explicit@v1:/);
       expect(options[0].pattern).not.toBe('skill_load:test-opts-explicit@v1:customhash123');
       expect(options[0].description).toBe('This exact version');
-      expect(options[1].pattern).toBe('skill_load:test-opts-explicit');
-      expect(options[1].description).toBe('Any version of this skill');
     });
 
     test('allowlist options for unresolvable skill fall back to raw selector', () => {
@@ -2472,11 +2460,10 @@ describe('Permission Checker', () => {
 
       const options = generateAllowlistOptions('skill_load', { skill: 'no-such-skill' });
 
-      // Should have: raw selector, wildcard
-      expect(options).toHaveLength(2);
+      // Should have only the raw selector
+      expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe('skill_load:no-such-skill');
       expect(options[0].description).toBe('This skill');
-      expect(options[1].pattern).toBe('skill_load:*');
     });
 
     test('allowlist options for empty skill selector only has wildcard', () => {
