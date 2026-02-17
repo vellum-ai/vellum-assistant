@@ -47,6 +47,12 @@ export function truncateToolResultText(
   const sliceEnd =
     lastNewline >= threshold ? lastNewline : cutPoint;
 
+  // If sliceEnd covers the full text, nothing was actually removed — return
+  // the original text without appending the suffix.
+  if (sliceEnd >= text.length) {
+    return text;
+  }
+
   return text.slice(0, sliceEnd) + TRUNCATION_SUFFIX;
 }
 

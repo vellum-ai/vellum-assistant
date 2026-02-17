@@ -78,6 +78,27 @@ describe("truncateToolResultText", () => {
     const result = truncateToolResultText(text, 1_000);
     expect(result.endsWith(TRUNCATION_SUFFIX)).toBe(true);
   });
+
+  test("does not append suffix when text fits within effectiveMax (maxChars < MIN_KEEP_CHARS)", () => {
+    // When maxChars < MIN_KEEP_CHARS, effectiveMax becomes MIN_KEEP_CHARS.
+    // If the text is longer than maxChars but shorter than the cutPoint
+    // derived from effectiveMax, sliceEnd covers the full text and nothing
+    // is actually removed. The function should return the original text
+    // without appending the suffix.
+    const maxChars = 100;
+    const textLength = MIN_KEEP_CHARS - TRUNCATION_SUFFIX.length - 10;
+    const text = "a".repeat(textLength);
+
+    // Sanity: text exceeds maxChars but fits within the effective budget
+    expect(text.length).toBeGreaterThan(maxChars);
+    expect(text.length).toBeLessThan(MIN_KEEP_CHARS);
+
+    const result = truncateToolResultText(text, maxChars);
+
+    // Should return original text unchanged — no suffix appended
+    expect(result).toBe(text);
+    expect(result).not.toContain(TRUNCATION_SUFFIX);
+  });
 });
 
 // ---------------------------------------------------------------------------
