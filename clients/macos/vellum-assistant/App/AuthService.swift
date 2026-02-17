@@ -38,8 +38,48 @@ struct AllauthUser: Codable {
     }
 }
 
+struct AllauthFlow: Codable {
+    let id: String
+    let is_pending: Bool?
+}
+
 struct SessionData: Codable {
     let user: AllauthUser?
+    let flows: [AllauthFlow]?
+}
+
+struct ProviderConfig: Codable {
+    let id: String
+    let name: String?
+    let client_id: String?
+    let openid_configuration_url: String?
+    let flows: [String]?
+}
+
+struct SocialAccountConfig: Codable {
+    let providers: [ProviderConfig]?
+}
+
+struct AccountConfig: Codable {
+    let is_open_for_signup: Bool?
+    let login_methods: [String]?
+}
+
+struct ConfigData: Codable {
+    let account: AccountConfig?
+    let socialaccount: SocialAccountConfig?
+}
+
+struct OIDCDiscovery: Codable {
+    let authorization_endpoint: String?
+    let token_endpoint: String?
+}
+
+struct OIDCTokenResponse: Codable {
+    let id_token: String?
+    let access_token: String?
+    let error: String?
+    let error_description: String?
 }
 
 struct AllauthResponse<T: Codable>: Codable {
@@ -54,7 +94,9 @@ enum AuthServiceError: LocalizedError {
     case networkError(Error)
     case decodingError(Error)
     case serverError(Int, [AllauthError])
-    case authFailed(String)
+    case noSessionToken
+    case oidcDiscoveryFailed
+    case oidcTokenExchangeFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -63,7 +105,9 @@ enum AuthServiceError: LocalizedError {
         case .decodingError(let error): return "Failed to decode response: \(error.localizedDescription)"
         case .serverError(_, let errors):
             return errors.first?.message ?? "Server error"
-        case .authFailed(let msg): return msg
+        case .noSessionToken: return "No session token received"
+        case .oidcDiscoveryFailed: return "Unable to fetch OIDC discovery document"
+        case .oidcTokenExchangeFailed(let msg): return msg
         }
     }
 }
@@ -86,12 +130,78 @@ final class AuthService {
 
     private init() {}
 
+    func getConfig() async throws -> AllauthResponse<ConfigData> {
+        try await request(path: "config")
+    }
+
     func getSession() async throws -> AllauthResponse<SessionData> {
         try await request(path: "auth/session")
     }
 
     func logout() async throws -> AllauthResponse<EmptyData> {
         try await request(path: "auth/session", method: "DELETE")
+    }
+
+    func authenticateWithProviderToken(
+        provider: String,
+        process: String,
+        clientId: String,
+        idToken: String?,
+        accessToken: String?
+    ) async throws -> AllauthResponse<SessionData> {
+        var token: [String: String] = ["client_id": clientId]
+        if let idToken { token["id_token"] = idToken }
+        if let accessToken { token["access_token"] = accessToken }
+
+        let body: [String: Any] = [
+            "provider": provider,
+            "process": process,
+            "token": token,
+        ]
+        return try await request(path: "auth/provider/token", method: "POST", body: body)
+    }
+
+    func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
+        guard let requestURL = URL(string: url) else {
+            throw AuthServiceError.invalidURL
+        }
+        let (data, _) = try await URLSession.shared.data(from: requestURL)
+        return try JSONDecoder().decode(OIDCDiscovery.self, from: data)
+    }
+
+    func exchangeOIDCCode(
+        tokenEndpoint: String,
+        clientId: String,
+        code: String,
+        codeVerifier: String,
+        redirectURI: String
+    ) async throws -> OIDCTokenResponse {
+        guard let url = URL(string: tokenEndpoint) else {
+            throw AuthServiceError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let params = [
+            "grant_type": "authorization_code",
+            "client_id": clientId,
+            "code": code,
+            "code_verifier": codeVerifier,
+            "redirect_uri": redirectURI,
+        ]
+        request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .joined(separator: "&")
+            .data(using: .utf8)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(OIDCTokenResponse.self, from: data)
+
+        if let error = response.error {
+            throw AuthServiceError.oidcTokenExchangeFailed(response.error_description ?? error)
+        }
+        return response
     }
 
     private func request<T: Codable>(

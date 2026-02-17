@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import CryptoKit
 import Foundation
 import os
 
@@ -59,32 +60,72 @@ final class AuthManager {
         errorMessage = nil
 
         do {
-            let callbackURI = "\(Self.callbackScheme)://auth/callback"
-            let urlString = "\(authService.baseURL)/_allauth/browser/v1/auth/provider/redirect"
+            let config = try await authService.getConfig()
+            guard let provider = config.data?.socialaccount?.providers?.first(where: { $0.id == "workos-oidc" }),
+                  let clientId = provider.client_id,
+                  let discoveryURL = provider.openid_configuration_url else {
+                throw AuthServiceError.oidcDiscoveryFailed
+            }
 
-            guard var components = URLComponents(string: urlString) else {
+            let discovery = try await authService.fetchOIDCDiscovery(url: discoveryURL)
+            guard let authEndpoint = discovery.authorization_endpoint,
+                  let tokenEndpoint = discovery.token_endpoint else {
+                throw AuthServiceError.oidcDiscoveryFailed
+            }
+
+            let codeVerifier = generateCodeVerifier()
+            let codeChallenge = generateCodeChallenge(from: codeVerifier)
+            let stateParam = generateRandomString(length: 32)
+            let redirectURI = "\(Self.callbackScheme)://auth/callback"
+
+            guard var components = URLComponents(string: authEndpoint) else {
                 throw AuthServiceError.invalidURL
             }
             components.queryItems = [
-                URLQueryItem(name: "provider", value: "workos-oidc"),
-                URLQueryItem(name: "callback_url", value: callbackURI),
-                URLQueryItem(name: "process", value: "login"),
+                URLQueryItem(name: "response_type", value: "code"),
+                URLQueryItem(name: "client_id", value: clientId),
+                URLQueryItem(name: "redirect_uri", value: redirectURI),
+                URLQueryItem(name: "scope", value: "openid profile email"),
+                URLQueryItem(name: "state", value: stateParam),
+                URLQueryItem(name: "code_challenge_method", value: "S256"),
+                URLQueryItem(name: "code_challenge", value: codeChallenge),
             ]
 
             guard let authURL = components.url else {
                 throw AuthServiceError.invalidURL
             }
 
-            let resultURL = try await performWebAuth(url: authURL, callbackScheme: Self.callbackScheme)
+            let callbackURL = try await performWebAuth(url: authURL, callbackScheme: Self.callbackScheme)
 
-            if let urlComponents = URLComponents(url: resultURL, resolvingAgainstBaseURL: false),
-               let sessionToken = urlComponents.queryItems?.first(where: { $0.name == "session_token" })?.value {
-                await SessionTokenManager.setTokenAsync(sessionToken)
+            guard let urlComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let code = urlComponents.queryItems?.first(where: { $0.name == "code" })?.value,
+                  let returnedState = urlComponents.queryItems?.first(where: { $0.name == "state" })?.value else {
+                throw AuthServiceError.oidcTokenExchangeFailed("Missing authorization code in callback.")
             }
 
-            await checkSession()
+            guard returnedState == stateParam else {
+                throw AuthServiceError.oidcTokenExchangeFailed("Invalid state parameter.")
+            }
 
-            if !isAuthenticated {
+            let tokenResponse = try await authService.exchangeOIDCCode(
+                tokenEndpoint: tokenEndpoint,
+                clientId: clientId,
+                code: code,
+                codeVerifier: codeVerifier,
+                redirectURI: redirectURI
+            )
+
+            let response = try await authService.authenticateWithProviderToken(
+                provider: "workos-oidc",
+                process: "login",
+                clientId: clientId,
+                idToken: tokenResponse.id_token,
+                accessToken: tokenResponse.access_token
+            )
+
+            if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
+                state = .authenticated(user)
+            } else {
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -106,6 +147,24 @@ final class AuthManager {
         errorMessage = nil
     }
 
+    private func generateCodeVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 64)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64URLEncodedString()
+    }
+
+    private func generateCodeChallenge(from verifier: String) -> String {
+        let data = Data(verifier.utf8)
+        let hash = SHA256.hash(data: data)
+        return Data(hash).base64URLEncodedString()
+    }
+
+    private func generateRandomString(length: Int) -> String {
+        var bytes = [UInt8](repeating: 0, count: length)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64URLEncodedString()
+    }
+
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] callbackURL, error in
@@ -115,7 +174,7 @@ final class AuthManager {
                 } else if let callbackURL {
                     continuation.resume(returning: callbackURL)
                 } else {
-                    continuation.resume(throwing: AuthServiceError.authFailed("No callback URL received."))
+                    continuation.resume(throwing: AuthServiceError.oidcTokenExchangeFailed("No callback URL received."))
                 }
             }
             session.prefersEphemeralWebBrowserSession = false
@@ -131,5 +190,14 @@ final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentatio
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+    }
+}
+
+extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
