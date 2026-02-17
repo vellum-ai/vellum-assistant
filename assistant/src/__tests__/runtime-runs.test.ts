@@ -92,7 +92,7 @@ function makeFailingSession(errorMsg: string): Session {
 }
 
 /** Session whose agent loop emits a confirmation_request. */
-function makeConfirmationSession(toolName: string): Session {
+function makeConfirmationSession(toolName: string, principal?: { kind?: string; id?: string; version?: string }): Session {
   let clientHandler: (msg: ServerMessage) => void = () => {};
   return {
     isProcessing: () => false,
@@ -110,6 +110,9 @@ function makeConfirmationSession(toolName: string): Session {
         riskLevel: 'medium',
         allowlistOptions: [],
         scopeOptions: [],
+        principalKind: principal?.kind,
+        principalId: principal?.id,
+        principalVersion: principal?.version,
       });
       // Hang to simulate waiting for decision
       await new Promise<void>(() => {});
@@ -236,6 +239,27 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
     expect(orchestrator.getRun('nonexistent-id')).toBeNull();
+  });
+
+  test('principal context flows through to pending confirmation', async () => {
+    const conversation = createConversation('principal context test');
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => makeConfirmationSession('bash', {
+        kind: 'skill',
+        id: 'weather-skill',
+        version: 'sha256:abcdef1234567890',
+      }),
+      resolveAttachments: () => [],
+    });
+
+    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Run with principal');
+    await new Promise((r) => setTimeout(r, 50));
+
+    const stored = orchestrator.getRun(run.id);
+    expect(stored?.status).toBe('needs_confirmation');
+    expect(stored?.pendingConfirmation?.principalKind).toBe('skill');
+    expect(stored?.pendingConfirmation?.principalId).toBe('weather-skill');
+    expect(stored?.pendingConfirmation?.principalVersion).toBe('sha256:abcdef1234567890');
   });
 
   test('submitDecision returns run_not_found for unknown run', () => {

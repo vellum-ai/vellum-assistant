@@ -1127,6 +1127,43 @@ describe('IPC message snapshots', () => {
     });
   });
 
+  // Baseline assertions for principal context in confirmation_request.
+  describe('confirmation principal context baselines', () => {
+    test('confirmation_request includes principal context fields', () => {
+      const req = serverMessages.confirmation_request;
+      expect(req.principalKind).toBe('skill');
+      expect(req.principalId).toBe('my-skill');
+      expect(req.principalVersion).toBe('sha256:abcdef1234567890');
+    });
+
+    test('confirmation_request principal fields are optional (backward-compatible)', () => {
+      // Core tools omit principal fields — verify the contract allows it
+      const minimal: typeof serverMessages.confirmation_request = {
+        type: 'confirmation_request',
+        requestId: 'req-minimal',
+        toolName: 'bash',
+        input: { command: 'ls' },
+        riskLevel: 'low',
+        allowlistOptions: [],
+        scopeOptions: [],
+      };
+      const serialized = serialize(minimal);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed.principalKind).toBeUndefined();
+      expect(parsed.principalId).toBeUndefined();
+      expect(parsed.principalVersion).toBeUndefined();
+    });
+
+    test('confirmation_request round-trips with all principal fields', () => {
+      const req = serverMessages.confirmation_request;
+      const serialized = serialize(req);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed.principalKind).toBe('skill');
+      expect(parsed.principalId).toBe('my-skill');
+      expect(parsed.principalVersion).toBe('sha256:abcdef1234567890');
+    });
+  });
+
   // Baseline assertions for error-related message contracts.
   // These document the current shape before error handling modernization.
   describe('error message baselines', () => {
