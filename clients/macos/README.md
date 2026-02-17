@@ -108,6 +108,8 @@ Create certificate? [Y/n]:
 
 Press `Enter` or type `y` to create the certificate automatically. This ensures permissions (Accessibility, Screen Recording) persist across rebuilds.
 
+**For professional development:** If you have an [Apple Developer account](https://developer.apple.com/programs/) ($99/year), using official Apple Developer certificates is more secure than self-signed certificates. The build script will automatically detect and use them.
+
 **Manual setup:** You can also run `./create-dev-cert.sh` directly at any time.
 
 **Skip prompt:** To always use adhoc signing, create a `.no-auto-cert` file in this directory.
