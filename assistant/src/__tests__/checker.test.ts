@@ -2264,4 +2264,147 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
   });
+
+  // ── hash-aware skill_load permission candidates (PR 33) ──────
+  // When a version hash is available (either computed from disk or provided
+  // in the input), skill_load command candidates and allowlist options
+  // include both a version-specific pattern (skillId@hash) and an
+  // any-version pattern (bare skillId).
+
+  describe('hash-aware skill_load permission candidates (PR 33)', () => {
+    function ensureSkillsDir(): void {
+      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+    }
+
+    test('buildCommandCandidates includes hash-qualified candidate when skill exists on disk', async () => {
+      ensureSkillsDir();
+      writeSkill('test-hash-skill', 'Test Hash Skill');
+
+      // skill_load is Low risk, so with no trust rule in legacy mode it
+      // auto-allows. We set strict mode and add specific rules to verify
+      // the correct candidates are generated.
+      testConfig.permissions.mode = 'strict';
+
+      // Compute the expected hash from the skill directory
+      const { computeSkillVersionHash: computeHash } = await import('../skills/version-hash.js');
+      const skillDir = join(checkerTestDir, 'skills', 'test-hash-skill');
+      const expectedHash = computeHash(skillDir);
+
+      // Add a rule matching the hash-qualified candidate
+      addRule('skill_load', `skill_load:test-hash-skill@${expectedHash}`, 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'test-hash-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe(`skill_load:test-hash-skill@${expectedHash}`);
+    });
+
+    test('bare skillId candidate still matches any-version rules', async () => {
+      ensureSkillsDir();
+      writeSkill('test-anyver-skill', 'Test Any Version Skill');
+
+      testConfig.permissions.mode = 'strict';
+
+      // Add a rule matching the bare skill id (no hash)
+      addRule('skill_load', 'skill_load:test-anyver-skill', 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'test-anyver-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe('skill_load:test-anyver-skill');
+    });
+
+    test('when version hash is absent (no skill on disk), only bare skillId candidate is generated', async () => {
+      ensureSkillsDir();
+      // Do NOT write a skill — selector resolution will fail, so no hash
+      // candidate is generated. Only the raw selector candidate remains.
+      testConfig.permissions.mode = 'strict';
+
+      addRule('skill_load', 'skill_load:nonexistent-skill', 'everywhere', 'allow', 2000);
+
+      const result = await check('skill_load', { skill: 'nonexistent-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe('skill_load:nonexistent-skill');
+    });
+
+    test('explicit version_hash in input is used for candidate generation', async () => {
+      ensureSkillsDir();
+      writeSkill('test-explicit-hash', 'Test Explicit Hash');
+
+      testConfig.permissions.mode = 'strict';
+      const explicitHash = 'v1:explicit0000';
+
+      // Add a rule matching the explicit hash
+      addRule('skill_load', `skill_load:test-explicit-hash@${explicitHash}`, 'everywhere', 'allow', 2000);
+
+      const result = await check(
+        'skill_load',
+        { skill: 'test-explicit-hash', version_hash: explicitHash },
+        '/tmp',
+      );
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.pattern).toBe(`skill_load:test-explicit-hash@${explicitHash}`);
+    });
+
+    // ── generateAllowlistOptions for skill_load ──
+
+    test('allowlist options include version-specific and any-version choices when hash is available', () => {
+      ensureSkillsDir();
+      writeSkill('test-opts-skill', 'Test Options Skill');
+
+      const options = generateAllowlistOptions('skill_load', { skill: 'test-opts-skill' });
+
+      // Should have: version-specific, any-version, wildcard
+      expect(options.length).toBeGreaterThanOrEqual(3);
+
+      // First option should be the version-specific pattern
+      expect(options[0].pattern).toMatch(/^skill_load:test-opts-skill@v1:/);
+      expect(options[0].description).toBe('This exact version');
+
+      // Second option should be any-version
+      expect(options[1].pattern).toBe('skill_load:test-opts-skill');
+      expect(options[1].description).toBe('Any version of this skill');
+
+      // Last option should be wildcard
+      expect(options[options.length - 1].pattern).toBe('skill_load:*');
+      expect(options[options.length - 1].description).toBe('All skill loads');
+    });
+
+    test('allowlist options include explicit version_hash from input', () => {
+      ensureSkillsDir();
+      writeSkill('test-opts-explicit', 'Test Opts Explicit');
+
+      const options = generateAllowlistOptions('skill_load', {
+        skill: 'test-opts-explicit',
+        version_hash: 'v1:customhash123',
+      });
+
+      expect(options.length).toBeGreaterThanOrEqual(3);
+      expect(options[0].pattern).toBe('skill_load:test-opts-explicit@v1:customhash123');
+      expect(options[0].description).toBe('This exact version');
+      expect(options[1].pattern).toBe('skill_load:test-opts-explicit');
+      expect(options[1].description).toBe('Any version of this skill');
+    });
+
+    test('allowlist options for unresolvable skill fall back to raw selector', () => {
+      ensureSkillsDir();
+
+      const options = generateAllowlistOptions('skill_load', { skill: 'no-such-skill' });
+
+      // Should have: raw selector, wildcard
+      expect(options).toHaveLength(2);
+      expect(options[0].pattern).toBe('skill_load:no-such-skill');
+      expect(options[0].description).toBe('This skill');
+      expect(options[1].pattern).toBe('skill_load:*');
+    });
+
+    test('allowlist options for empty skill selector only has wildcard', () => {
+      const options = generateAllowlistOptions('skill_load', { skill: '' });
+
+      expect(options).toHaveLength(1);
+      expect(options[0].pattern).toBe('skill_load:*');
+    });
+  });
 });
