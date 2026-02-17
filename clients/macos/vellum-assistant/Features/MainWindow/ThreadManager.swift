@@ -3,6 +3,7 @@ import VellumAssistantShared
 import Foundation
 import UserNotifications
 import os
+import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
@@ -29,6 +30,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             } else {
                 lastActiveThreadIdString = nil
             }
+            // Subscribe to the new active view model's changes
+            subscribeToActiveViewModel()
         }
     }
 
@@ -38,6 +41,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let activityNotificationService: ActivityNotificationService?
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
+    /// Subscription to activeViewModel's objectWillChange publisher.
+    /// Forwards nested ObservableObject changes to ThreadManager's own objectWillChange.
+    private var activeViewModelCancellable: AnyCancellable?
 
     /// Threads that are not archived — used by the UI to populate the sidebar/tab bar.
     var visibleThreads: [ThreadModel] {
@@ -243,6 +249,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         chatViewModels[threadId] = vm
+        // Re-subscribe if this is the active view model
+        if threadId == activeThreadId {
+            subscribeToActiveViewModel()
+        }
     }
 
     func removeChatViewModel(for threadId: UUID) {
@@ -452,5 +462,23 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Clear the flag so future activeThreadId changes persist normally
         isRestoringThreads = false
+    }
+
+    /// Subscribe to the active ChatViewModel's objectWillChange publisher.
+    /// When a view reads properties from a nested ObservableObject, the parent
+    /// must subscribe to the child's objectWillChange and forward it so SwiftUI
+    /// can invalidate views that depend on nested properties.
+    private func subscribeToActiveViewModel() {
+        // Cancel previous subscription
+        activeViewModelCancellable?.cancel()
+        activeViewModelCancellable = nil
+
+        // Subscribe to the new active view model if one exists
+        guard let viewModel = activeViewModel else { return }
+
+        activeViewModelCancellable = viewModel.objectWillChange.sink { [weak self] _ in
+            // Forward nested ObservableObject changes to ThreadManager's objectWillChange
+            self?.objectWillChange.send()
+        }
     }
 }
