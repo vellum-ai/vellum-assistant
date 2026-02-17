@@ -3,7 +3,7 @@ import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { resetConversation, uploadAttachment } from "../../runtime/client.js";
+import { AttachmentValidationError, resetConversation, uploadAttachment } from "../../runtime/client.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply, sendTypingIndicator } from "../../telegram/send.js";
@@ -172,8 +172,11 @@ export function createTelegramWebhookHandler(
           return true;
         });
 
-        // Process with bounded concurrency, skipping individual failures
-        // so that an unsupported attachment doesn't drop the user's message.
+        // Process with bounded concurrency. Validation errors (unsupported
+        // MIME type, dangerous extension) are skipped so that a bad attachment
+        // doesn't drop the user's message. Transient errors (download timeout,
+        // upload 5xx, network failures) are propagated so that Telegram retries
+        // the webhook delivery.
         for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
           const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
           const results = await Promise.allSettled(
@@ -188,13 +191,19 @@ export function createTelegramWebhookHandler(
           for (const result of results) {
             if (result.status === 'fulfilled') {
               attachmentIds.push(result.value.id);
+            } else if (result.reason instanceof AttachmentValidationError) {
+              log.warn({ err: result.reason }, "Skipping attachment with validation error");
             } else {
-              log.warn({ err: result.reason }, "Skipping attachment that failed to upload");
+              // Transient failure — propagate so the webhook returns 500 and
+              // Telegram retries the update delivery.
+              throw result.reason;
             }
           }
         }
       } catch (err) {
-        log.error({ err }, "Failed to process attachments");
+        // Transient attachment failure — return 500 so Telegram retries.
+        log.error({ err }, "Attachment processing failed with transient error");
+        return respond({ error: "Attachment processing failed" }, 500);
       }
     }
 

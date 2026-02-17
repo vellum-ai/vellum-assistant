@@ -3,6 +3,18 @@ import { getLogger } from "../logger.js";
 
 const log = getLogger("runtime-client");
 
+/**
+ * Thrown when the assistant rejects an attachment for a non-retriable reason
+ * (e.g. unsupported MIME type, dangerous file extension). Callers can use
+ * this to distinguish validation failures from transient errors.
+ */
+export class AttachmentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AttachmentValidationError";
+  }
+}
+
 export type RuntimeInboundPayload = {
   sourceChannel: string;
   externalChatId: string;
@@ -175,6 +187,14 @@ export async function uploadAttachment(
 
   if (!response.ok) {
     const body = await response.text();
+    // 4xx = non-retriable validation rejection (unsupported MIME, dangerous
+    // extension, missing fields). Distinguish from transient 5xx/network errors
+    // so callers can decide whether to skip or propagate.
+    if (response.status >= 400 && response.status < 500) {
+      throw new AttachmentValidationError(
+        `Attachment rejected (${response.status}): ${body}`,
+      );
+    }
     throw new Error(`Attachment upload failed (${response.status}): ${body}`);
   }
 
