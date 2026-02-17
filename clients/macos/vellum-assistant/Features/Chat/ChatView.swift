@@ -969,9 +969,10 @@ private struct ChatBubble: View {
         if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
             let displayName = rawName.replacingOccurrences(of: "_", with: " ")
+            let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 RunningIndicator(
-                    label: Self.friendlyRunningLabel(displayName),
+                    label: Self.friendlyRunningLabel(displayName, buildingStatus: activeBuildingStatus),
                     onTap: { onOpenActivity(message.id) }
                 )
                 CodePreviewView(code: message.streamingCodePreview!)

@@ -570,10 +570,9 @@ extension ChatViewModel {
                 if let status = msg.input["status"]?.value as? String, !status.isEmpty {
                     return status
                 }
-                // Fallback status based on tool name
+                // Fallback status for file tools only; app_create/app_update
+                // rely on friendlyRunningLabel + progressive label cycling
                 switch msg.toolName {
-                case "app_create": return "Building your app"
-                case "app_update": return "Updating your app"
                 case "app_file_edit": return "Editing app files"
                 case "app_file_write": return "Writing app files"
                 default: return nil
