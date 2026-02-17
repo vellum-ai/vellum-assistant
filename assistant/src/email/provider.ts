@@ -15,7 +15,6 @@ import type {
   EmailWebhook,
   ProviderHealth,
   SendResult,
-  CreateDraftInput,
 } from './types.js';
 
 // ---------------------------------------------------------------------------
