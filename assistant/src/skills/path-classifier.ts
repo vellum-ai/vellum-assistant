@@ -28,8 +28,31 @@ export function getBundledSkillsRoot(): string {
  * Otherwise resolve() is used for pure lexical normalization.
  */
 export function normalizeDirPath(dirPath: string): string {
-  const resolved = existsSync(dirPath) ? realpathSync(dirPath) : resolve(dirPath);
-  const normalized = normalize(resolved);
+  // If the path exists, resolve symlinks directly
+  if (existsSync(dirPath)) {
+    const resolved = realpathSync(dirPath);
+    const normalized = normalize(resolved);
+    return normalized.endsWith(sep) ? normalized : normalized + sep;
+  }
+
+  // Walk up to find the nearest existing ancestor and resolve through it
+  // (mirrors normalizeFilePath behavior for consistency)
+  const absPath = resolve(dirPath);
+  const segments: string[] = [];
+  let current = absPath;
+  while (current !== dirname(current)) {
+    if (existsSync(current)) {
+      const realBase = realpathSync(current);
+      const tail = segments.reduceRight((acc, seg) => acc + sep + seg, '');
+      const full = normalize(realBase + tail);
+      return full.endsWith(sep) ? full : full + sep;
+    }
+    segments.push(basename(current));
+    current = dirname(current);
+  }
+
+  // Nothing on the path exists — fall back to pure lexical resolution
+  const normalized = normalize(absPath);
   return normalized.endsWith(sep) ? normalized : normalized + sep;
 }
 
