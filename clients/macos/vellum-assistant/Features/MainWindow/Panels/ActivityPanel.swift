@@ -44,6 +44,7 @@ struct ActivityStepView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Collapsed row — always visible, clickable to expand
             Button(action: {
+                guard hasExpandableContent else { return }
                 withAnimation(VAnimation.fast) {
                     isExpanded.toggle()
                 }
