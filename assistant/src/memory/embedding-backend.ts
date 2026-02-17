@@ -7,6 +7,22 @@ import { OpenAIEmbeddingBackend } from './embedding-openai.js';
 
 const log = getLogger('memory-embeddings');
 
+/** Global cache of embedding backend instances, keyed by "provider:model". */
+const backendCache = new Map<string, EmbeddingBackend>();
+
+function cacheKey(provider: string, model: string): string {
+  return `${provider}:${model}`;
+}
+
+function getCachedOrCreate<T extends EmbeddingBackend>(provider: string, model: string, create: () => T): T {
+  const key = cacheKey(provider, model);
+  const existing = backendCache.get(key);
+  if (existing) return existing as T;
+  const instance = create();
+  backendCache.set(key, instance);
+  return instance;
+}
+
 export type EmbeddingProviderName = 'local' | 'openai' | 'gemini' | 'ollama';
 
 export interface EmbeddingRequestOptions {
@@ -28,15 +44,17 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
   const requested = config.memory.embeddings.provider;
   if (requested === 'local') {
     return {
-      backend: new LocalEmbeddingBackend(config.memory.embeddings.localModel),
+      backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
+        () => new LocalEmbeddingBackend(config.memory.embeddings.localModel)),
       reason: null,
     };
   }
   if (requested === 'ollama') {
     return {
-      backend: new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-        apiKey: config.apiKeys.ollama,
-      }),
+      backend: getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
+        () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+          apiKey: config.apiKeys.ollama,
+        })),
       reason: null,
     };
   }
@@ -51,27 +69,31 @@ export function selectEmbeddingBackend(config: AssistantConfig): EmbeddingBacken
       case 'local':
         // Local embeddings are always available (model downloaded on first use)
         return {
-          backend: new LocalEmbeddingBackend(config.memory.embeddings.localModel),
+          backend: getCachedOrCreate('local', config.memory.embeddings.localModel,
+            () => new LocalEmbeddingBackend(config.memory.embeddings.localModel)),
           reason: null,
         };
       case 'openai':
         if (!config.apiKeys.openai) continue;
         return {
-          backend: new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel),
+          backend: getCachedOrCreate('openai', config.memory.embeddings.openaiModel,
+            () => new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel)),
           reason: null,
         };
       case 'gemini':
         if (!config.apiKeys.gemini) continue;
         return {
-          backend: new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel),
+          backend: getCachedOrCreate('gemini', config.memory.embeddings.geminiModel,
+            () => new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel)),
           reason: null,
         };
       case 'ollama':
         if (!isOllamaConfigured(config)) continue;
         return {
-          backend: new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-            apiKey: config.apiKeys.ollama,
-          }),
+          backend: getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
+            () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+              apiKey: config.apiKeys.ollama,
+            })),
           reason: null,
         };
     }
@@ -172,19 +194,22 @@ function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProvi
     switch (provider) {
       case 'openai':
         if (config.apiKeys.openai) {
-          backends.push(new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel));
+          backends.push(getCachedOrCreate('openai', config.memory.embeddings.openaiModel,
+            () => new OpenAIEmbeddingBackend(config.apiKeys.openai, config.memory.embeddings.openaiModel)));
         }
         break;
       case 'gemini':
         if (config.apiKeys.gemini) {
-          backends.push(new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel));
+          backends.push(getCachedOrCreate('gemini', config.memory.embeddings.geminiModel,
+            () => new GeminiEmbeddingBackend(config.apiKeys.gemini, config.memory.embeddings.geminiModel)));
         }
         break;
       case 'ollama':
         if (isOllamaConfigured(config)) {
-          backends.push(new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
-            apiKey: config.apiKeys.ollama,
-          }));
+          backends.push(getCachedOrCreate('ollama', config.memory.embeddings.ollamaModel,
+            () => new OllamaEmbeddingBackend(config.memory.embeddings.ollamaModel, {
+              apiKey: config.apiKeys.ollama,
+            })));
         }
         break;
     }
