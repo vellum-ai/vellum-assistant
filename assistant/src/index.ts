@@ -23,6 +23,7 @@ import {
   type ServerMessage,
 } from './daemon/ipc-protocol.js';
 import { IpcError } from './util/errors.js';
+import { getCliLogger } from './util/logger.js';
 import { timeAgo } from './util/time.js';
 import { shouldAutoStartDaemon, hasSocketOverride } from './daemon/connection-policy.js';
 import {
@@ -125,6 +126,8 @@ function sendOneMessage(
   });
 }
 
+const log = getCliLogger('cli');
+
 const program = new Command();
 
 program
@@ -146,9 +149,9 @@ daemon
   .action(async () => {
     const result = await startDaemon();
     if (result.alreadyRunning) {
-      console.log(`Daemon already running (pid ${result.pid})`);
+      log.info(`Daemon already running (pid ${result.pid})`);
     } else {
-      console.log(`Daemon started (pid ${result.pid})`);
+      log.info(`Daemon started (pid ${result.pid})`);
     }
   });
 
@@ -158,9 +161,9 @@ daemon
   .action(async () => {
     const result = await stopDaemon();
     if (result.stopped) {
-      console.log('Daemon stopped');
+      log.info('Daemon stopped');
     } else {
-      console.log('Daemon is not running');
+      log.info('Daemon is not running');
     }
   });
 
@@ -170,10 +173,10 @@ daemon
   .action(async () => {
     const stopResult = await stopDaemon();
     if (stopResult.stopped) {
-      console.log('Daemon stopped');
+      log.info('Daemon stopped');
     }
     const startResult = await startDaemon();
-    console.log(`Daemon started (pid ${startResult.pid})`);
+    log.info(`Daemon started (pid ${startResult.pid})`);
   });
 
 daemon
@@ -182,12 +185,12 @@ daemon
   .action(() => {
     const status = getDaemonStatus();
     if (status.running) {
-      console.log(`Daemon is running (pid ${status.pid})`);
+      log.info(`Daemon is running (pid ${status.pid})`);
     } else {
-      console.log('Daemon is not running');
+      log.info('Daemon is not running');
     }
-    console.log(`Socket path: ${getSocketPath()}${hasSocketOverride() ? ' (override)' : ''}`);
-    console.log(`Autostart: ${shouldAutoStartDaemon() ? 'enabled' : 'disabled'}`);
+    log.info(`Socket path: ${getSocketPath()}${hasSocketOverride() ? ' (override)' : ''}`);
+    log.info(`Autostart: ${shouldAutoStartDaemon() ? 'enabled' : 'disabled'}`);
   });
 
 // --- Dev command ---
@@ -198,13 +201,13 @@ program
     // Stop any existing daemon first
     const status = getDaemonStatus();
     if (status.running) {
-      console.log('Stopping existing daemon...');
+      log.info('Stopping existing daemon...');
       await stopDaemon();
     }
 
     const mainPath = `${import.meta.dirname}/daemon/main.ts`;
 
-    console.log('Starting daemon in dev mode (Ctrl+C to stop)');
+    log.info('Starting daemon in dev mode (Ctrl+C to stop)');
 
     const child = spawn('bun', ['--watch', 'run', mainPath], {
       stdio: 'inherit',
@@ -236,14 +239,14 @@ sessions
     const response = await sendOneMessage({ type: 'session_list' });
     if (response.type === 'session_list_response') {
       if (response.sessions.length === 0) {
-        console.log('No sessions');
+        log.info('No sessions');
       } else {
         for (const s of response.sessions) {
-          console.log(`  ${s.id}  ${s.title}  ${timeAgo(s.updatedAt)}`);
+          log.info(`  ${s.id}  ${s.title}  ${timeAgo(s.updatedAt)}`);
         }
       }
     } else if (response.type === 'error') {
-      console.error(`Error: ${response.message}`);
+      log.error(`Error: ${response.message}`);
     }
   });
 
@@ -257,9 +260,9 @@ sessions
       title,
     });
     if (response.type === 'session_info') {
-      console.log(`Created session: ${response.title} (${response.sessionId})`);
+      log.info(`Created session: ${response.title} (${response.sessionId})`);
     } else if (response.type === 'error') {
-      console.error(`Error: ${response.message}`);
+      log.error(`Error: ${response.message}`);
     }
   });
 
@@ -272,7 +275,7 @@ sessions
     initializeDb();
     const format = opts?.format ?? 'md';
     if (format !== 'md' && format !== 'json') {
-      console.error('Error: format must be "md" or "json"');
+      log.error('Error: format must be "md" or "json"');
       process.exit(1);
     }
 
@@ -281,7 +284,7 @@ sessions
     if (!id) {
       const all = listConversations(1);
       if (all.length === 0) {
-        console.error('No sessions found');
+        log.error('No sessions found');
         process.exit(1);
       }
       id = all[0].id;
@@ -295,7 +298,7 @@ sessions
       if (match) {
         conversation = match;
       } else {
-        console.error(`Session not found: ${id}`);
+        log.error(`Session not found: ${id}`);
         process.exit(1);
       }
     }
@@ -317,7 +320,7 @@ sessions
     if (opts?.output) {
       const { writeFileSync } = await import('node:fs');
       writeFileSync(opts.output, output);
-      console.error(`Exported to ${opts.output}`);
+      log.info(`Exported to ${opts.output}`);
     } else {
       process.stdout.write(output);
     }
@@ -327,7 +330,7 @@ sessions
   .command('clear')
   .description('Clear all conversations, messages, and vector data (dev only)')
   .action(async () => {
-    console.log('This will permanently delete all conversations, messages, and vector data.');
+    log.info('This will permanently delete all conversations, messages, and vector data.');
 
     const readline = await import('node:readline');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -336,13 +339,13 @@ sessions
     });
     rl.close();
     if (answer.toLowerCase() !== 'y') {
-      console.log('Cancelled');
+      log.info('Cancelled');
       return;
     }
 
     initializeDb();
     const result = clearAllConversations();
-    console.log(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
+    log.info(`Cleared ${result.conversations} conversations, ${result.messages} messages`);
 
     // Notify a running daemon to drop its in-memory sessions so it
     // doesn't keep serving stale history from deleted conversation rows.
@@ -363,12 +366,12 @@ sessions
     });
     const deleted = await qdrant.deleteCollection();
     if (deleted) {
-      console.log(`Deleted Qdrant collection "${config.memory.qdrant.collection}"`);
+      log.info(`Deleted Qdrant collection "${config.memory.qdrant.collection}"`);
     } else {
-      console.log('Qdrant collection not found or not reachable (skipped)');
+      log.info('Qdrant collection not found or not reachable (skipped)');
     }
 
-    console.log('Done.');
+    log.info('Done.');
   });
 
 // --- Config commands ---
@@ -388,7 +391,7 @@ config
     }
     setNestedValue(raw, key, parsed);
     saveRawConfig(raw);
-    console.log(`Set ${key} = ${JSON.stringify(parsed)}`);
+    log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
   });
 
 config
@@ -398,9 +401,9 @@ config
     const raw = loadRawConfig();
     const value = getNestedValue(raw, key);
     if (value === undefined) {
-      console.log(`(not set)`);
+      log.info(`(not set)`);
     } else {
-      console.log(typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
+      log.info(typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value));
     }
   });
 
@@ -410,9 +413,9 @@ config
   .action(() => {
     const raw = loadRawConfig();
     if (Object.keys(raw).length === 0) {
-      console.log('No configuration set');
+      log.info('No configuration set');
     } else {
-      console.log(JSON.stringify(raw, null, 2));
+      log.info(JSON.stringify(raw, null, 2));
     }
   });
 
@@ -429,10 +432,10 @@ keys
       if (value) stored.push(provider);
     }
     if (stored.length === 0) {
-      console.log('No API keys stored');
+      log.info('No API keys stored');
     } else {
       for (const name of stored) {
-        console.log(`  ${name}`);
+        log.info(`  ${name}`);
       }
     }
   });
@@ -442,9 +445,9 @@ keys
   .description('Store an API key (e.g. vellum keys set anthropic sk-ant-...)')
   .action((provider: string, key: string) => {
     if (setSecureKey(provider, key)) {
-      console.log(`Stored API key for "${provider}"`);
+      log.info(`Stored API key for "${provider}"`);
     } else {
-      console.error(`Failed to store API key for "${provider}"`);
+      log.error(`Failed to store API key for "${provider}"`);
       process.exit(1);
     }
   });
@@ -454,9 +457,9 @@ keys
   .description('Delete a stored API key')
   .action((provider: string) => {
     if (deleteSecureKey(provider)) {
-      console.log(`Deleted API key for "${provider}"`);
+      log.info(`Deleted API key for "${provider}"`);
     } else {
-      console.error(`No API key found for "${provider}"`);
+      log.error(`No API key found for "${provider}"`);
       process.exit(1);
     }
   });
@@ -470,7 +473,7 @@ trust
   .action(() => {
     const rules = getAllRules();
     if (rules.length === 0) {
-      console.log('No trust rules');
+      log.info('No trust rules');
       return;
     }
     // Table header
@@ -480,7 +483,7 @@ trust
     const scopeW = 20;
     const decW = 6;
     const priW = 4;
-    console.log(
+    log.info(
       'ID'.padEnd(idW) +
       'Tool'.padEnd(toolW) +
       'Pattern'.padEnd(patternW) +
@@ -489,11 +492,11 @@ trust
       'Pri'.padEnd(priW) +
       'Created',
     );
-    console.log('-'.repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
+    log.info('-'.repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
     for (const r of rules) {
       const id = r.id.slice(0, 8);
       const created = new Date(r.createdAt).toISOString().slice(0, 10);
-      console.log(
+      log.info(
         id.padEnd(idW) +
         r.tool.padEnd(toolW) +
         r.pattern.slice(0, patternW - 2).padEnd(patternW) +
@@ -513,16 +516,16 @@ trust
     const rules = getAllRules();
     const match = rules.find((r) => r.id.startsWith(id));
     if (!match) {
-      console.error(`No rule found matching "${id}"`);
+      log.error(`No rule found matching "${id}"`);
       process.exit(1);
     }
     try {
       removeRule(match.id);
     } catch (err) {
-      console.error(err instanceof Error ? err.message : String(err));
+      log.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     }
-    console.log(`Removed rule ${match.id.slice(0, 8)} (${match.tool}: ${match.pattern})`);
+    log.info(`Removed rule ${match.id.slice(0, 8)} (${match.tool}: ${match.pattern})`);
   });
 
 trust
@@ -531,7 +534,7 @@ trust
   .action(async () => {
     const rules = getAllRules();
     if (rules.length === 0) {
-      console.log('No trust rules to clear');
+      log.info('No trust rules to clear');
       return;
     }
     // Confirmation prompt
@@ -543,9 +546,9 @@ trust
     rl.close();
     if (answer.toLowerCase() === 'y') {
       clearAllRules();
-      console.log(`Cleared ${rules.length} trust rules`);
+      log.info(`Cleared ${rules.length} trust rules`);
     } else {
-      console.log('Cancelled');
+      log.info('Cancelled');
     }
   });
 
@@ -558,33 +561,33 @@ memory
   .action(() => {
     initializeDb();
     const status = getMemorySystemStatus();
-    console.log(`Memory enabled: ${status.enabled ? 'yes' : 'no'}`);
-    console.log(`Memory degraded: ${status.degraded ? 'yes' : 'no'}`);
-    if (status.reason) console.log(`Reason: ${status.reason}`);
+    log.info(`Memory enabled: ${status.enabled ? 'yes' : 'no'}`);
+    log.info(`Memory degraded: ${status.degraded ? 'yes' : 'no'}`);
+    if (status.reason) log.info(`Reason: ${status.reason}`);
     if (status.provider && status.model) {
-      console.log(`Embedding backend: ${status.provider}/${status.model}`);
+      log.info(`Embedding backend: ${status.provider}/${status.model}`);
     } else {
-      console.log('Embedding backend: none');
+      log.info('Embedding backend: none');
     }
-    console.log(`Segments: ${status.counts.segments.toLocaleString()}`);
-    console.log(`Items: ${status.counts.items.toLocaleString()}`);
-    console.log(`Summaries: ${status.counts.summaries.toLocaleString()}`);
-    console.log(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
-    console.log(`Pending conflicts: ${status.conflicts.pending.toLocaleString()}`);
-    console.log(`Resolved conflicts: ${status.conflicts.resolved.toLocaleString()}`);
+    log.info(`Segments: ${status.counts.segments.toLocaleString()}`);
+    log.info(`Items: ${status.counts.items.toLocaleString()}`);
+    log.info(`Summaries: ${status.counts.summaries.toLocaleString()}`);
+    log.info(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
+    log.info(`Pending conflicts: ${status.conflicts.pending.toLocaleString()}`);
+    log.info(`Resolved conflicts: ${status.conflicts.resolved.toLocaleString()}`);
     if (status.conflicts.oldestPendingAgeMs !== null) {
       const oldestMinutes = Math.floor(status.conflicts.oldestPendingAgeMs / 60_000);
-      console.log(`Oldest pending conflict age: ${oldestMinutes} min`);
+      log.info(`Oldest pending conflict age: ${oldestMinutes} min`);
     } else {
-      console.log('Oldest pending conflict age: n/a');
+      log.info('Oldest pending conflict age: n/a');
     }
-    console.log(`Cleanup backlog (resolved conflicts): ${status.cleanup.resolvedBacklog.toLocaleString()}`);
-    console.log(`Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`);
-    console.log(`Cleanup throughput 24h (resolved conflicts): ${status.cleanup.resolvedCompleted24h.toLocaleString()}`);
-    console.log(`Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`);
-    console.log('Jobs:');
+    log.info(`Cleanup backlog (resolved conflicts): ${status.cleanup.resolvedBacklog.toLocaleString()}`);
+    log.info(`Cleanup backlog (superseded items): ${status.cleanup.supersededBacklog.toLocaleString()}`);
+    log.info(`Cleanup throughput 24h (resolved conflicts): ${status.cleanup.resolvedCompleted24h.toLocaleString()}`);
+    log.info(`Cleanup throughput 24h (superseded items): ${status.cleanup.supersededCompleted24h.toLocaleString()}`);
+    log.info('Jobs:');
     for (const [key, value] of Object.entries(status.jobs)) {
-      console.log(`  ${key}: ${value}`);
+      log.info(`  ${key}: ${value}`);
     }
   });
 
@@ -595,7 +598,7 @@ memory
   .action((opts: { force?: boolean }) => {
     initializeDb();
     const jobId = requestMemoryBackfill(Boolean(opts?.force));
-    console.log(`Queued backfill job: ${jobId}`);
+    log.info(`Queued backfill job: ${jobId}`);
   });
 
 memory
@@ -606,8 +609,8 @@ memory
     initializeDb();
     const retentionMs = opts.retentionMs ? Number.parseInt(opts.retentionMs, 10) : undefined;
     const jobs = requestMemoryCleanup(Number.isFinite(retentionMs) ? retentionMs : undefined);
-    console.log(`Queued cleanup_resolved_conflicts job: ${jobs.resolvedConflictsJobId}`);
-    console.log(`Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`);
+    log.info(`Queued cleanup_resolved_conflicts job: ${jobs.resolvedConflictsJobId}`);
+    log.info(`Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`);
   });
 
 memory
@@ -623,19 +626,19 @@ memory
     }
     const result = await queryMemory(text, sessionId ?? '');
     if (result.degraded) {
-      console.log(`Memory degraded: ${result.reason ?? 'unknown reason'}`);
+      log.info(`Memory degraded: ${result.reason ?? 'unknown reason'}`);
     }
-    console.log(`Lexical hits: ${result.lexicalHits}`);
-    console.log(`Semantic hits: ${result.semanticHits}`);
-    console.log(`Recency hits: ${result.recencyHits}`);
-    console.log(`Entity hits: ${result.entityHits}`);
-    console.log(`Injected tokens: ${result.injectedTokens}`);
-    console.log(`Latency: ${result.latencyMs}ms`);
+    log.info(`Lexical hits: ${result.lexicalHits}`);
+    log.info(`Semantic hits: ${result.semanticHits}`);
+    log.info(`Recency hits: ${result.recencyHits}`);
+    log.info(`Entity hits: ${result.entityHits}`);
+    log.info(`Injected tokens: ${result.injectedTokens}`);
+    log.info(`Latency: ${result.latencyMs}ms`);
     if (result.injectedText.length > 0) {
-      console.log('');
-      console.log(result.injectedText);
+      log.info('');
+      log.info(result.injectedText);
     } else {
-      console.log('No memory injected.');
+      log.info('No memory injected.');
     }
   });
 
@@ -645,7 +648,7 @@ memory
   .action(() => {
     initializeDb();
     const jobId = requestMemoryRebuildIndex();
-    console.log(`Queued rebuild-index job: ${jobId}`);
+    log.info(`Queued rebuild-index job: ${jobId}`);
   });
 
 // --- Audit command ---
@@ -657,7 +660,7 @@ program
     const limit = parseInt(opts.limit, 10) || 20;
     const rows = getRecentInvocations(limit);
     if (rows.length === 0) {
-      console.log('No tool invocations recorded');
+      log.info('No tool invocations recorded');
       return;
     }
     const tsW = 20;
@@ -666,7 +669,7 @@ program
     const decW = 8;
     const riskW = 8;
     const durW = 8;
-    console.log(
+    log.info(
       'Timestamp'.padEnd(tsW) +
       'Tool'.padEnd(toolW) +
       'Input'.padEnd(inputW) +
@@ -674,7 +677,7 @@ program
       'Risk'.padEnd(riskW) +
       'Duration',
     );
-    console.log('-'.repeat(tsW + toolW + inputW + decW + riskW + durW));
+    log.info('-'.repeat(tsW + toolW + inputW + decW + riskW + durW));
     for (const r of rows) {
       const ts = new Date(r.createdAt).toISOString().slice(0, 19).replace('T', ' ');
       // Summarize input: take first meaningful chunk
@@ -691,7 +694,7 @@ program
         inputSummary = inputSummary.slice(0, inputW - 4) + '..';
       }
       const dur = r.durationMs < 1000 ? `${r.durationMs}ms` : `${(r.durationMs / 1000).toFixed(1)}s`;
-      console.log(
+      log.info(
         ts.padEnd(tsW) +
         r.toolName.padEnd(toolW) +
         inputSummary.padEnd(inputW) +
@@ -707,18 +710,18 @@ program
   .command('doctor')
   .description('Run diagnostic checks')
   .action(async () => {
-    const pass = (label: string) => console.log(`  \u2713 ${label}`);
+    const pass = (label: string) => log.info(`  \u2713 ${label}`);
     const fail = (label: string, detail?: string) =>
-      console.log(`  \u2717 ${label}${detail ? ` — ${detail}` : ''}`);
+      log.info(`  \u2717 ${label}${detail ? ` — ${detail}` : ''}`);
 
-    console.log('Vellum Doctor\n');
+    log.info('Vellum Doctor\n');
 
     // 0. Connection policy info
     const socketPath = getSocketPath();
     const isOverride = hasSocketOverride();
     const autostart = shouldAutoStartDaemon();
-    console.log(`  Socket:    ${socketPath}${isOverride ? ' (override via VELLUM_DAEMON_SOCKET)' : ''}`);
-    console.log(`  Autostart: ${autostart ? 'enabled' : 'disabled'}\n`);
+    log.info(`  Socket:    ${socketPath}${isOverride ? ' (override via VELLUM_DAEMON_SOCKET)' : ''}`);
+    log.info(`  Autostart: ${autostart ? 'enabled' : 'disabled'}\n`);
 
     // 1. Bun installed
     try {
@@ -957,13 +960,13 @@ program
     // 13. Sandbox backend diagnostics
     const { runSandboxDiagnostics } = await import('./tools/terminal/sandbox-diagnostics.js');
     const sandbox = runSandboxDiagnostics();
-    console.log(`\n  Sandbox:   ${sandbox.config.enabled ? 'enabled' : 'disabled'}`);
-    console.log(`  Backend:   ${sandbox.config.backend}`);
-    console.log(`  Reason:    ${sandbox.activeBackendReason}`);
+    log.info(`\n  Sandbox:   ${sandbox.config.enabled ? 'enabled' : 'disabled'}`);
+    log.info(`  Backend:   ${sandbox.config.backend}`);
+    log.info(`  Reason:    ${sandbox.activeBackendReason}`);
     if (sandbox.config.backend === 'docker') {
-      console.log(`  Image:     ${sandbox.config.dockerImage}`);
+      log.info(`  Image:     ${sandbox.config.dockerImage}`);
     }
-    console.log('');
+    log.info('');
     for (const check of sandbox.checks) {
       if (check.ok) {
         pass(check.label);
@@ -1007,7 +1010,7 @@ program
         process.stdout.write(generateFishCompletion(topLevel, subcommands));
         break;
       default:
-        console.error(`Unknown shell: ${shell}. Supported shells: bash, zsh, fish`);
+        log.error(`Unknown shell: ${shell}. Supported shells: bash, zsh, fish`);
         process.exit(1);
     }
   });

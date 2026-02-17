@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
 import { getLogPath } from './platform.js';
@@ -175,6 +176,57 @@ export function getLogger(name: string): pino.Logger {
       const val = Reflect.get(child, prop, receiver);
       if (typeof val === 'function') {
         return val.bind(child);
+      }
+      return val;
+    },
+  };
+  return new Proxy({} as pino.Logger, handler);
+}
+
+/**
+ * Pino destination that extracts the message text from JSON log entries
+ * and writes it as plain text. Routes info/warn to stdout and error/fatal
+ * to stderr, matching console.log/console.error behavior.
+ */
+function cliDestination(fd: number, maxLevel?: number): Writable {
+  const output = fd === 2 ? process.stderr : process.stdout;
+  return new Writable({
+    write(chunk, _encoding, callback) {
+      try {
+        const obj = JSON.parse(chunk.toString());
+        if (maxLevel !== undefined && obj.level > maxLevel) {
+          callback();
+          return;
+        }
+        output.write((obj.msg ?? '') + '\n', callback);
+      } catch {
+        output.write(chunk, callback);
+      }
+    },
+  });
+}
+
+/**
+ * Logger for CLI commands. Outputs plain message text to stdout (info/warn)
+ * and stderr (error/fatal) while providing structured log levels through pino.
+ * Uses lazy initialization to avoid issues with fast-exit paths like --help.
+ */
+export function getCliLogger(name: string): pino.Logger {
+  let logger: pino.Logger | null = null;
+  const handler: ProxyHandler<pino.Logger> = {
+    get(_target, prop, receiver) {
+      if (!logger) {
+        logger = pino(
+          { name, level: 'trace' },
+          pino.multistream([
+            { stream: cliDestination(1, 49), level: 'trace' as const },
+            { stream: cliDestination(2), level: 'error' as const },
+          ]),
+        );
+      }
+      const val = Reflect.get(logger, prop, receiver);
+      if (typeof val === 'function') {
+        return val.bind(logger);
       }
       return val;
     },

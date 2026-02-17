@@ -3,7 +3,10 @@ import { existsSync, cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { discoverHooks, isValidInstallManifest } from './discovery.js';
 import { setHookEnabled, ensureHookInConfig, removeHook } from './config.js';
+import { getCliLogger } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
+
+const log = getCliLogger('hooks');
 
 export function registerHooksCommand(program: Command): void {
   const hooks = program.command('hooks').description('Manage hooks');
@@ -14,27 +17,27 @@ export function registerHooksCommand(program: Command): void {
     .action(() => {
       const discovered = discoverHooks();
       if (discovered.length === 0) {
-        console.log('No hooks installed');
+        log.info('No hooks installed');
         return;
       }
 
       const nameW = 24;
       const eventsW = 24;
       const enabledW = 10;
-      console.log(
+      log.info(
         'Name'.padEnd(nameW) +
         'Events'.padEnd(eventsW) +
         'Enabled'.padEnd(enabledW) +
         'Version',
       );
-      console.log('-'.repeat(nameW + eventsW + enabledW + 10));
+      log.info('-'.repeat(nameW + eventsW + enabledW + 10));
 
       for (const hook of discovered) {
         const events = hook.manifest.events.join(', ');
         const eventsTrunc = events.length > eventsW - 2
           ? events.slice(0, eventsW - 4) + '..'
           : events;
-        console.log(
+        log.info(
           hook.name.slice(0, nameW - 2).padEnd(nameW) +
           eventsTrunc.padEnd(eventsW) +
           (hook.enabled ? 'yes' : 'no').padEnd(enabledW) +
@@ -50,11 +53,11 @@ export function registerHooksCommand(program: Command): void {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);
       if (!hook) {
-        console.error(`Hook not found: ${name}`);
+        log.error(`Hook not found: ${name}`);
         process.exit(1);
       }
       setHookEnabled(name, true);
-      console.log(`Enabled hook: ${name}`);
+      log.info(`Enabled hook: ${name}`);
     });
 
   hooks
@@ -64,11 +67,11 @@ export function registerHooksCommand(program: Command): void {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);
       if (!hook) {
-        console.error(`Hook not found: ${name}`);
+        log.error(`Hook not found: ${name}`);
         process.exit(1);
       }
       setHookEnabled(name, false);
-      console.log(`Disabled hook: ${name}`);
+      log.info(`Disabled hook: ${name}`);
     });
 
   hooks
@@ -77,13 +80,13 @@ export function registerHooksCommand(program: Command): void {
     .action((hookPath: string) => {
       const srcDir = resolve(hookPath);
       if (!existsSync(srcDir)) {
-        console.error(`Directory not found: ${srcDir}`);
+        log.error(`Directory not found: ${srcDir}`);
         process.exit(1);
       }
 
       const manifestPath = join(srcDir, 'hook.json');
       if (!existsSync(manifestPath)) {
-        console.error(`No hook.json found in ${srcDir}`);
+        log.error(`No hook.json found in ${srcDir}`);
         process.exit(1);
       }
 
@@ -91,12 +94,12 @@ export function registerHooksCommand(program: Command): void {
       try {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
       } catch {
-        console.error(`Failed to parse hook.json in ${srcDir}`);
+        log.error(`Failed to parse hook.json in ${srcDir}`);
         process.exit(1);
       }
 
       if (!isValidInstallManifest(manifest)) {
-        console.error('Invalid hook.json: must have a non-empty name, script, description (string), version (string), and at least one valid event');
+        log.error('Invalid hook.json: must have a non-empty name, script, description (string), version (string), and at least one valid event');
         process.exit(1);
       }
 
@@ -104,18 +107,18 @@ export function registerHooksCommand(program: Command): void {
       const resolvedHooksDir = resolve(hooksDir);
       const targetDir = resolve(join(hooksDir, manifest.name));
       if (!targetDir.startsWith(resolvedHooksDir + sep)) {
-        console.error(`Invalid hook name: "${manifest.name}" would escape the hooks directory`);
+        log.error(`Invalid hook name: "${manifest.name}" would escape the hooks directory`);
         process.exit(1);
       }
 
       const scriptPath = resolve(join(targetDir, manifest.script));
       if (!scriptPath.startsWith(targetDir + sep)) {
-        console.error(`Invalid hook script: "${manifest.script}" would escape the hook directory`);
+        log.error(`Invalid hook script: "${manifest.script}" would escape the hook directory`);
         process.exit(1);
       }
 
       if (existsSync(targetDir)) {
-        console.error(`Hook already installed: ${manifest.name}`);
+        log.error(`Hook already installed: ${manifest.name}`);
         process.exit(1);
       }
 
@@ -127,7 +130,7 @@ export function registerHooksCommand(program: Command): void {
       }
 
       ensureHookInConfig(manifest.name, { enabled: false });
-      console.log(`Installed hook: ${manifest.name} (disabled by default)`);
+      log.info(`Installed hook: ${manifest.name} (disabled by default)`);
     });
 
   hooks
@@ -137,7 +140,7 @@ export function registerHooksCommand(program: Command): void {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);
       if (!hook) {
-        console.error(`Hook not found: ${name}`);
+        log.error(`Hook not found: ${name}`);
         process.exit(1);
       }
 
@@ -149,12 +152,12 @@ export function registerHooksCommand(program: Command): void {
       rl.close();
 
       if (answer.toLowerCase() !== 'y') {
-        console.log('Cancelled');
+        log.info('Cancelled');
         return;
       }
 
       rmSync(hook.dir, { recursive: true, force: true });
       removeHook(name);
-      console.log(`Removed hook: ${name}`);
+      log.info(`Removed hook: ${name}`);
     });
 }
