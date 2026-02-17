@@ -63,8 +63,8 @@ export async function handleWatchObservation(
       'Observation added to session',
     );
 
-    // 4. Every 3 observations: call Haiku for live commentary
-    if (session.observations.length % 3 === 0) {
+    // 4. Every 3 observations: call Haiku for live commentary (chat-initiated watch only)
+    if (!session.isRideShotgun && session.observations.length % 3 === 0) {
       log.debug(
         { watchId: msg.watchId, observationCount: session.observations.length },
         'Triggering commentary generation (every 3rd observation)',
@@ -85,7 +85,6 @@ export async function handleWatchObservation(
 
 async function generateCommentary(session: WatchSession): Promise<void> {
   try {
-    log.debug({ watchId: session.watchId, sessionId: session.sessionId }, 'generateCommentary starting — calling Haiku');
     const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       log.warn({ watchId: session.watchId }, 'No Anthropic API key available for commentary generation');
@@ -93,7 +92,6 @@ async function generateCommentary(session: WatchSession): Promise<void> {
     }
     const client = new Anthropic({ apiKey });
     const lastThree = session.observations.slice(-3);
-
     const previousCommentary = lastCommentaryBySession.get(session.sessionId);
 
     const userContent = [
@@ -122,11 +120,6 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       '- If they seem to be context-switching a lot, gently note it.',
       '- Do NOT repeat your previous commentary. Say something new or say nothing.',
       '- If nothing interesting or meaningfully different has happened since the last observations, respond with exactly "SKIP" (no quotes, no extra text).',
-      '',
-      'Example style:',
-      '"I see you\'ve been bouncing between Slack and your doc — looks like you\'re getting pulled into side conversations."',
-      '"You\'ve been heads-down in VS Code for a while now, nice focused stretch."',
-      '"Looks like you just switched to the browser to look something up mid-task."',
     ].join('\n');
 
     const response = await client.messages.create({
@@ -136,34 +129,28 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       messages: [{ role: 'user', content: userContent }],
     });
 
-    log.debug({ watchId: session.watchId }, 'Haiku API call completed successfully');
-
     const textBlock = response.content.find((b) => b.type === 'text');
     const commentaryText =
       textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
-
-    log.debug(
-      { watchId: session.watchId, commentaryLength: commentaryText.length, isSkip: commentaryText === 'SKIP' },
-      'Commentary result from Haiku',
-    );
 
     if (commentaryText && commentaryText !== 'SKIP') {
       lastCommentaryBySession.set(session.sessionId, commentaryText);
       fireWatchCommentaryNotifier(session.sessionId, session);
       session.commentaryCount++;
-      log.debug(
-        { watchId: session.watchId, commentaryCount: session.commentaryCount },
-        'Commentary notifier fired',
-      );
-    } else {
-      log.debug({ watchId: session.watchId }, 'Commentary skipped (empty or SKIP)');
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch commentary — API call failed');
+    log.error({ err, watchId: session.watchId }, 'Error generating watch commentary');
   }
 }
 
 export async function generateSummary(session: WatchSession): Promise<void> {
+  // Guard against concurrent calls (timeout + last observation race)
+  if (session.summaryInFlight) {
+    log.debug({ watchId: session.watchId }, 'generateSummary already in flight — skipping duplicate call');
+    return;
+  }
+  session.summaryInFlight = true;
+
   try {
     log.debug(
       { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
@@ -172,6 +159,8 @@ export async function generateSummary(session: WatchSession): Promise<void> {
     const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       log.warn({ watchId: session.watchId }, 'No Anthropic API key available for summary generation');
+      lastSummaryBySession.set(session.sessionId, '[error] No Anthropic API key configured. Check your settings.');
+      fireWatchCompletionNotifier(session.sessionId, session);
       return;
     }
     const client = new Anthropic({ apiKey });
@@ -272,9 +261,14 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       log.debug({ watchId: session.watchId, sessionId: session.sessionId }, 'Firing completion notifier with summary');
       fireWatchCompletionNotifier(session.sessionId, session);
     } else {
-      log.warn({ watchId: session.watchId }, 'Summary was empty — completion notifier NOT fired');
+      log.warn({ watchId: session.watchId }, 'Summary was empty from API response');
+      lastSummaryBySession.set(session.sessionId, '[error] The API returned an empty summary. This may indicate a service issue.');
+      fireWatchCompletionNotifier(session.sessionId, session);
     }
   } catch (err) {
     log.error({ err, watchId: session.watchId }, 'Error generating watch summary — Sonnet API call failed');
+    const message = err instanceof Error ? err.message : String(err);
+    lastSummaryBySession.set(session.sessionId, `[error] Summary generation failed: ${message}`);
+    fireWatchCompletionNotifier(session.sessionId, session);
   }
 }

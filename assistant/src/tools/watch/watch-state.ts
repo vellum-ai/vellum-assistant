@@ -22,6 +22,10 @@ export interface WatchSession {
   status: 'active' | 'completing' | 'completed' | 'cancelled';
   startedAt: number;
   timeoutHandle?: ReturnType<typeof setTimeout>;
+  /** Guards against concurrent generateSummary calls */
+  summaryInFlight?: boolean;
+  /** Whether this session was started via ride shotgun (no live commentary) */
+  isRideShotgun?: boolean;
 }
 
 /** Module-level map of watch sessions keyed by watchId. */

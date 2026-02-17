@@ -7,7 +7,6 @@ import {
   registerWatchCompletionNotifier,
   unregisterWatchCompletionNotifier,
   fireWatchStartNotifier,
-  fireWatchCompletionNotifier,
 } from '../tools/watch/watch-state.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import { lastSummaryBySession, generateSummary } from './watch-handler.js';
@@ -34,6 +33,7 @@ export async function handleRideShotgunStart(
     commentaryCount: 0,
     status: 'active',
     startedAt: Date.now(),
+    isRideShotgun: true,
   };
 
   watchSessions.set(watchId, session);
@@ -53,18 +53,9 @@ export async function handleRideShotgunStart(
     await generateSummary(session);
     session.status = 'completed';
     log.debug(
-      { watchId, sessionId, hasSummary: lastSummaryBySession.has(sessionId) },
-      'generateSummary returned — checking if completion notifier needs fallback fire',
+      { watchId, sessionId },
+      'generateSummary returned — completion notifier should have fired',
     );
-    // Fallback: if generateSummary failed or returned empty, fire notifier
-    // anyway so the client always receives a response
-    if (!lastSummaryBySession.has(sessionId)) {
-      log.warn(
-        { watchId, sessionId },
-        'No summary in map — firing completion notifier as fallback (will send empty summary)',
-      );
-      fireWatchCompletionNotifier(sessionId, session);
-    }
   }, durationSeconds * 1000);
 
   // Register completion notifier to send summary back to client

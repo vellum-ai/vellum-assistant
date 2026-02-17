@@ -68,8 +68,8 @@ public final class AmbientAgent: ObservableObject {
         // Check notification authorization; fall back to starting session directly
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus == .authorized else {
-            log.warning("Notifications not authorized; falling back to direct ride shotgun session")
-            startRideShotgun(durationSeconds: 60)
+            log.warning("Notifications not authorized; falling back to direct ride shotgun session (default 3 min)")
+            startRideShotgun(durationSeconds: 180)
             return
         }
 
@@ -142,9 +142,14 @@ public final class AmbientAgent: ObservableObject {
             let hasSession = currentSession != nil
             let summary = currentSession?.summary ?? ""
             log.debug("Session complete: hasSession=\(hasSession) summaryLength=\(summary.count)")
-            showSummary(summary.isEmpty
-                ? "I watched your screen but wasn't able to generate a report. This can happen if the analysis timed out or there was an API error."
-                : summary)
+            if summary.isEmpty {
+                showSummary("I watched your screen but wasn't able to generate a report. No response was received from the daemon.")
+            } else if summary.hasPrefix("[error]") {
+                let errorDetail = String(summary.dropFirst("[error] ".count))
+                showSummary("Something went wrong during analysis:\n\n\(errorDetail)")
+            } else {
+                showSummary(summary)
+            }
             rideShotgunTrigger.recordCompleted()
             sessionCancellable?.cancel()
             sessionCancellable = nil
