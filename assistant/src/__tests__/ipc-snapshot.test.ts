@@ -352,6 +352,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'integration_disconnect',
     integrationId: 'gmail',
   },
+  accept_starter_bundle: {
+    type: 'accept_starter_bundle',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1015,6 +1018,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   app_files_changed: {
     type: 'app_files_changed',
     appId: 'app-001',
+  },
+  accept_starter_bundle_response: {
+    type: 'accept_starter_bundle_response',
+    accepted: true,
+    rulesAdded: 5,
+    alreadyAccepted: false,
   },
 };
 
