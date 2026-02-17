@@ -1545,3 +1545,18 @@ exports[`IPC message snapshots ServerMessage types home_base_get_response serial
   "type": "home_base_get_response",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types user_message_echo serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "text": "Check the weather for me",
+  "type": "user_message_echo",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_files_changed serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_files_changed",
+}
+`;

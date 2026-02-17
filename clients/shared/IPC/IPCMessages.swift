@@ -1388,8 +1388,8 @@ extension IPCOpenBundleResponseManifest {
 public typealias PublishPageRequestMessage = IPCPublishPageRequest
 
 extension IPCPublishPageRequest {
-    public init(html: String, title: String? = nil) {
-        self.init(type: "publish_page", html: html, title: title)
+    public init(html: String, title: String? = nil, appId: String? = nil) {
+        self.init(type: "publish_page", html: html, title: title, appId: appId)
     }
 }
 
