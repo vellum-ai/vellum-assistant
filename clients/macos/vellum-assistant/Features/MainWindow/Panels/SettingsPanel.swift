@@ -300,8 +300,6 @@ struct SettingsPanel: View {
                             startPermissionPolling()
                         }
                     )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
 
                     permissionRow(
                         emoji: "\u{1F355}",
@@ -313,8 +311,6 @@ struct SettingsPanel: View {
                             startPermissionPolling()
                         }
                     )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
@@ -419,9 +415,12 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
         }
+        .task {
+            // Refresh permission status when the view appears
+            refreshPermissionStatus()
+        }
         .onAppear {
             store.refreshAPIKeyState()
-            refreshPermissionStatus()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -561,10 +560,12 @@ struct SettingsPanel: View {
                     .font(.system(size: 16))
                     .foregroundColor(granted ? VColor.success : VColor.error)
             }
+            .padding(VSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .vCard(background: VColor.surfaceSubtle)
         .onHover { hovering in
             if hovering {
                 NSCursor.pointingHand.push()
@@ -583,7 +584,7 @@ struct SettingsPanel: View {
 
     private func startPermissionPolling() {
         // Poll permission status after user clicks to request permission
-        // Checks every 0.5s for up to 15 seconds to detect when permission is granted
+        // Checks every 0.5s for up to 30 seconds to detect when permission is granted
         permissionCheckTimer?.invalidate()
         pollCount = 0
 
@@ -591,7 +592,10 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 self.refreshPermissionStatus()
                 self.pollCount += 1
-                if self.pollCount >= 30 {  // Stop after 15 seconds
+
+                // Stop polling if both permissions are granted or after 30 seconds
+                let bothGranted = self.accessibilityGranted && self.screenRecordingGranted
+                if bothGranted || self.pollCount >= 60 {
                     self.permissionCheckTimer?.invalidate()
                     self.permissionCheckTimer = nil
                 }
