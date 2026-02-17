@@ -83,7 +83,7 @@ export async function handleChannelInbound(
   const trimmedContent = typeof content === 'string' ? content.trim() : '';
   const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
-  if (trimmedContent.length === 0 && !hasAttachments) {
+  if (trimmedContent.length === 0 && !hasAttachments && !isEdit) {
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
 
