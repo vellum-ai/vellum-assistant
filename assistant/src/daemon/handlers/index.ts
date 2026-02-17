@@ -4,7 +4,7 @@ import type { IntegrationConnectRequest, IntegrationDisconnectRequest } from '..
 import { handleRideShotgunStart } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, pendingSignBundlePayload, pendingSigningIdentity, type HandlerContext } from './shared.js';
 
 import {
   handleUserMessage,
@@ -171,15 +171,25 @@ const handlers: DispatchMap = {
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
   fork_shared_app: handleForkSharedApp,
-  sign_bundle_payload_response: (_msg, _socket, _ctx) => {
-    // TODO(signing): Route to pending promise resolution once the daemon-driven
-    // IPC signing orchestration is wired up. Currently a no-op placeholder to
-    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
+  sign_bundle_payload_response: (msg, socket) => {
+    const pending = pendingSignBundlePayload.get(socket);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingSignBundlePayload.delete(socket);
+      pending.resolve({ signature: msg.signature, keyId: msg.keyId, publicKey: msg.publicKey });
+    } else {
+      log.warn('Received sign_bundle_payload_response with no pending request');
+    }
   },
-  get_signing_identity_response: (_msg, _socket, _ctx) => {
-    // TODO(signing): Route to pending promise resolution once the daemon-driven
-    // IPC signing orchestration is wired up. Currently a no-op placeholder to
-    // satisfy the exhaustive dispatch map; signing is invoked via SigningCallback.
+  get_signing_identity_response: (msg, socket) => {
+    const pending = pendingSigningIdentity.get(socket);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingSigningIdentity.delete(socket);
+      pending.resolve({ keyId: msg.keyId, publicKey: msg.publicKey });
+    } else {
+      log.warn('Received get_signing_identity_response with no pending request');
+    }
   },
   gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
   gallery_install: handleGalleryInstall,
