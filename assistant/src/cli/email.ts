@@ -20,14 +20,13 @@ function output(data: unknown, json: boolean): void {
   );
 }
 
-function exitError(message: string, code = 1): never {
-  output({ ok: false, error: message }, true);
-  process.exit(code);
+function outputError(data: unknown, code: number): void {
+  output(data, true);
+  process.exitCode = code;
 }
 
-function exitGuardrail(err: GuardrailError): never {
-  output({ ok: false, error: err.code, ...err.details }, true);
-  process.exit(2);
+function exitError(message: string, code = 1): void {
+  outputError({ ok: false, error: message }, code);
 }
 
 function getJson(cmd: Command): boolean {
@@ -44,8 +43,11 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
     const result = await fn();
     output({ ok: true, ...result as Record<string, unknown> }, getJson(cmd));
   } catch (err) {
-    if (err instanceof GuardrailError) exitGuardrail(err);
-    exitError(err instanceof Error ? err.message : String(err));
+    if (err instanceof GuardrailError) {
+      outputError({ ok: false, error: err.code, ...err.details }, 2);
+      return;
+    }
+    outputError({ ok: false, error: err instanceof Error ? err.message : String(err) }, 1);
   }
 }
 
@@ -79,6 +81,7 @@ export function registerEmailCommand(program: Command): void {
     .action((name: string, _opts: unknown, cmd: Command) => {
       if (!SUPPORTED_PROVIDERS.includes(name as SupportedProvider)) {
         exitError(`Unknown provider: ${name}. Supported: ${SUPPORTED_PROVIDERS.join(', ')}`);
+        return;
       }
       svc.setProvider(name as SupportedProvider);
       output({ ok: true, provider: name }, getJson(cmd));
@@ -217,6 +220,7 @@ export function registerEmailCommand(program: Command): void {
     .action(async (opts: { draftId: string; inbox?: string; confirm: boolean }, cmd: Command) => {
       if (!opts.confirm) {
         exitError('The --confirm flag is required for approve-send');
+        return;
       }
       await run(cmd, async () => {
         const result = await svc.approveSend(opts.draftId, opts.inbox);
@@ -323,7 +327,10 @@ export function registerEmailCommand(program: Command): void {
       }
       if (opts.dailyCap !== undefined) {
         const n = parseInt(opts.dailyCap, 10);
-        if (isNaN(n) || n < 0) exitError('daily-cap must be a non-negative integer');
+        if (isNaN(n) || n < 0) {
+          exitError('daily-cap must be a non-negative integer');
+          return;
+        }
         updates.dailyCap = n;
       }
       const result = svc.setGuardrails(updates);
