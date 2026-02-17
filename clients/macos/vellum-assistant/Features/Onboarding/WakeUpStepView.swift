@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 struct WakeUpStepView: View {
     @Bindable var state: OnboardingState
+    var onContinueWithVellum: () -> Void = {}
 
     @State private var showTitle = false
     @State private var showSubtext = false
@@ -49,8 +50,8 @@ struct WakeUpStepView: View {
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
 
-            Button(action: {}) {
-                Text("Continue with Google")
+            Button(action: { onContinueWithVellum() }) {
+                Text("Continue with Vellum")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(VColor.textPrimary)
                     .frame(maxWidth: .infinity)
@@ -63,6 +64,7 @@ struct WakeUpStepView: View {
             .buttonStyle(.plain)
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
             }
         }
         .padding(.horizontal, VSpacing.xxl)

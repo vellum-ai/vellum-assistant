@@ -42,7 +42,7 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            WakeUpStepView(state: state)
+                            WakeUpStepView(state: state, onContinueWithVellum: onComplete)
                         case 2:
                             APIKeyStepView(state: state)
                         case 3:
