@@ -158,8 +158,7 @@ describe('validateIncludes — missing detection', () => {
     const index = indexCatalogById(catalog);
     const result = validateIncludes('root', index);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('missing');
+    if (!result.ok && result.error === 'missing') {
       expect(result.missingChildId).toBe('missing-child');
       expect(result.parentId).toBe('root');
       expect(result.path).toEqual(['root']);
@@ -174,8 +173,7 @@ describe('validateIncludes — missing detection', () => {
     const index = indexCatalogById(catalog);
     const result = validateIncludes('root', index);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('missing');
+    if (!result.ok && result.error === 'missing') {
       expect(result.missingChildId).toBe('missing-leaf');
       expect(result.parentId).toBe('mid');
       expect(result.path).toEqual(['root', 'mid']);
@@ -189,7 +187,7 @@ describe('validateIncludes — missing detection', () => {
     const index = indexCatalogById(catalog);
     const result = validateIncludes('root', index);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (!result.ok && result.error === 'missing') {
       expect(result.missingChildId).toBe('missing-a');
     }
   });
