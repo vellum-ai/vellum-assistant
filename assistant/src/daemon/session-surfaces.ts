@@ -61,6 +61,74 @@ export interface SurfaceSessionContext {
   ): Promise<string>;
 }
 
+/**
+ * Handle content_changed action from document editor.
+ * Auto-saves the document content to the app store.
+ */
+function handleDocumentContentChanged(
+  ctx: SurfaceSessionContext,
+  surfaceId: string,
+  data?: Record<string, unknown>,
+): void {
+  if (!data) {
+    log.warn({ surfaceId }, 'content_changed action missing data');
+    return;
+  }
+
+  const { title, content, wordCount } = data as { title?: string; content?: string; wordCount?: number };
+
+  if (!title && !content) {
+    log.warn({ surfaceId }, 'content_changed action missing title or content');
+    return;
+  }
+
+  // Find the app ID from the surface state
+  const surfaceState = ctx.surfaceState.get(surfaceId);
+  if (!surfaceState || surfaceState.surfaceType !== 'dynamic_page') {
+    log.warn({ surfaceId }, 'Surface not found or not a dynamic page');
+    return;
+  }
+
+  const dynamicPageData = surfaceState.data as DynamicPageSurfaceData;
+  const appId = dynamicPageData.appId;
+
+  if (!appId || !appId.startsWith('doc-')) {
+    // Not a document app, ignore
+    log.debug({ surfaceId, appId }, 'Not a document app, skipping auto-save');
+    return;
+  }
+
+  try {
+    const app = getApp(appId);
+    if (!app) {
+      log.warn({ appId }, 'Document app not found');
+      return;
+    }
+
+    // Regenerate the editor HTML with updated content
+    // We need to import the editor template dynamically
+    import('../tools/document/editor-template.js').then(({ generateEditorHTML }) => {
+      const updatedHtml = generateEditorHTML(
+        title || app.name,
+        content || '',
+      );
+
+      updateApp(appId, {
+        name: title || app.name,
+        description: `Document with ${wordCount ?? 0} words`,
+        preview: content?.slice(0, 200),
+        htmlDefinition: updatedHtml,
+      });
+
+      log.info({ appId, wordCount }, 'Document auto-saved');
+    }).catch((err) => {
+      log.error({ err, appId }, 'Failed to import editor template for auto-save');
+    });
+  } catch (err) {
+    log.error({ err, appId }, 'Failed to auto-save document');
+  }
+}
+
 export function pushUndoState(
   surfaceUndoStacks: Map<string, string[]>,
   surfaceId: string,
@@ -178,6 +246,13 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
   // pending entry or send a message.
   if (actionId === 'selection_changed') {
     log.debug({ surfaceId, data }, 'Selection changed (non-terminal, not forwarding)');
+    return;
+  }
+
+  // content_changed is a non-terminal state update for document auto-save
+  // Save the document content and don't forward to the session
+  if (actionId === 'content_changed') {
+    handleDocumentContentChanged(ctx, surfaceId, data);
     return;
   }
   ctx.lastSurfaceAction.set(surfaceId, { actionId, data });
