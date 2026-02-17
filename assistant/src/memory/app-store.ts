@@ -21,7 +21,7 @@ import {
   statSync,
   realpathSync,
 } from 'node:fs';
-import { join, resolve, relative, isAbsolute } from 'node:path';
+import { join, resolve, relative, isAbsolute, dirname, basename } from 'node:path';
 import { getDataDir } from '../util/platform.js';
 import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
 import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
@@ -112,14 +112,30 @@ function validateFilePath(appId: string, path: string): string {
     throw new Error(`Invalid file path: resolves outside app directory`);
   }
   // Follow symlinks to the real path so a symlink inside the app directory
-  // cannot escape the boundary. Only check when the target already exists;
-  // writes to new (non-existent) paths are fine — resolve() already handled them.
+  // cannot escape the boundary. For non-existent paths, walk up to the
+  // nearest existing ancestor and resolve it, then re-append trailing
+  // components — catches symlinked parent directories on new file writes.
+  let realResolved: string;
   if (existsSync(resolved)) {
-    const real = realpathSync(resolved);
-    const realAppDir = realpathSync(appDir);
-    if (!real.startsWith(realAppDir + '/') && real !== realAppDir) {
-      throw new Error(`Invalid file path: symlink resolves outside app directory`);
+    realResolved = realpathSync(resolved);
+  } else {
+    let current = resolved;
+    const trailing: string[] = [];
+    realResolved = resolved;
+    while (current !== dirname(current)) {
+      try {
+        const real = realpathSync(current);
+        realResolved = trailing.length > 0 ? join(real, ...trailing) : real;
+        break;
+      } catch {
+        trailing.unshift(basename(current));
+        current = dirname(current);
+      }
     }
+  }
+  const realAppDir = realpathSync(appDir);
+  if (!realResolved.startsWith(realAppDir + '/') && realResolved !== realAppDir) {
+    throw new Error(`Invalid file path: symlink resolves outside app directory`);
   }
   return resolved;
 }
