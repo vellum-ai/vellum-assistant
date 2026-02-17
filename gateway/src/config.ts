@@ -134,7 +134,7 @@ export function loadConfig(): GatewayConfig {
     process.env.RUNTIME_BEARER_TOKEN || undefined;
 
   const runtimeProxyBearerToken =
-    readHttpTokenFile() ?? process.env.RUNTIME_PROXY_BEARER_TOKEN ?? undefined;
+    process.env.RUNTIME_PROXY_BEARER_TOKEN || readHttpTokenFile() || undefined;
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 

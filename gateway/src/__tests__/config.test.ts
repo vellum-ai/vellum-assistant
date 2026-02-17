@@ -175,8 +175,8 @@ describe("config: runtime proxy flags", () => {
     );
   });
 
-  test("http-token file takes precedence over env var", () => {
-    /** Verifies that the http-token file is preferred over the env var. */
+  test("env var takes precedence over http-token file", () => {
+    /** Verifies that the env var is preferred over the http-token file. */
     withEnv(
       {
         GATEWAY_RUNTIME_PROXY_ENABLED: "true",
@@ -190,8 +190,8 @@ describe("config: runtime proxy flags", () => {
         // WHEN we load the config
         const config = loadConfig();
 
-        // THEN the file-based token takes precedence
-        expect(config.runtimeProxyBearerToken).toBe("file-token");
+        // THEN the env var token takes precedence
+        expect(config.runtimeProxyBearerToken).toBe("env-token");
 
         // AND cleanup
         unlinkSync("/tmp/test-http-token-priority");

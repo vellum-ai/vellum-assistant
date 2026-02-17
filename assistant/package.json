@@ -1,6 +1,6 @@
 {
   "name": "vellum-assistant",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
