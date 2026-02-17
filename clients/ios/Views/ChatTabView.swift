@@ -109,7 +109,10 @@ struct ChatTabView: View {
                 isGenerating: viewModel.isSending || viewModel.isThinking,
                 isCancelling: viewModel.isCancelling,
                 onSend: viewModel.sendMessage,
-                onStop: viewModel.stopGenerating
+                onStop: viewModel.stopGenerating,
+                onVoiceResult: { _ in
+                    viewModel.pendingVoiceMessage = true
+                }
             )
         }
         .background(VColor.background)
