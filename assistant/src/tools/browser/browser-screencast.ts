@@ -152,13 +152,12 @@ export async function getElementBounds(
       })()
     `) as { x: number; y: number; w: number; h: number; vw: number; vh: number } | null;
     if (!result) return null;
-    const scaleX = 800 / result.vw;
-    const scaleY = 600 / result.vh;
+    const scale = Math.min(800 / result.vw, 600 / result.vh);
     return {
-      x: result.x * scaleX,
-      y: result.y * scaleY,
-      w: result.w * scaleX,
-      h: result.h * scaleY,
+      x: result.x * scale,
+      y: result.y * scale,
+      w: result.w * scale,
+      h: result.h * scale,
     };
   } catch {
     return null;
