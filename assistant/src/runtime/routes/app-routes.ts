@@ -69,15 +69,14 @@ ${app.htmlDefinition}
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
 export async function handleShareApp(req: Request): Promise<Response> {
-  const contentLength = Number(req.headers.get('content-length'));
-  if (contentLength > MAX_SHARE_BODY_BYTES) {
+  const rawBody = await req.arrayBuffer();
+  if (rawBody.byteLength > MAX_SHARE_BODY_BYTES) {
     return Response.json(
       { error: `Request body too large (limit: ${MAX_SHARE_BODY_BYTES} bytes)` },
       { status: 413 },
     );
   }
 
-  const rawBody = await req.arrayBuffer();
   const bundleData = Buffer.from(rawBody);
 
   if (bundleData.length === 0) {
