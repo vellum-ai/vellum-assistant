@@ -1288,4 +1288,129 @@ describe('Permission Checker', () => {
       expect(result.matchedRule).toBeDefined();
     });
   });
+
+  // ── version-bound approval semantics (PR 19) ─────────────────
+
+  describe('version-bound approval semantics (PR 19)', () => {
+    // Helper to write a trust rule with principal version constraints
+    // directly to the trust file, since addRule() doesn't expose
+    // principal fields.
+    async function addVersionBoundRule(opts: {
+      id: string;
+      tool: string;
+      pattern: string;
+      scope: string;
+      decision: 'allow' | 'deny' | 'ask';
+      priority: number;
+      principalKind: string;
+      principalId: string;
+      principalVersion?: string;
+    }): Promise<void> {
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { readFileSync, writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      let currentRules: any[] = [];
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        currentRules = JSON.parse(raw).rules ?? [];
+      } catch { /* first run */ }
+
+      // Remove any previous rule with the same id to avoid conflicts
+      currentRules = currentRules.filter((r: any) => r.id !== opts.id);
+      currentRules.push({
+        ...opts,
+        createdAt: Date.now(),
+      });
+
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules: currentRules }, null, 2));
+      clearCache();
+    }
+
+    test('same skill same hash matches allow rule', async () => {
+      await addVersionBoundRule({
+        id: 'test-version-same-hash',
+        tool: 'skill_test_tool',
+        pattern: 'skill_test_tool:*',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        principalKind: 'skill',
+        principalId: 'my-skill',
+        principalVersion: 'v1:abc123',
+      });
+
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill', version: 'v1:abc123' },
+      };
+      const result = await check('skill_test_tool', {}, '/tmp', ctx);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('test-version-same-hash');
+    });
+
+    test('same skill different hash does NOT match allow rule', async () => {
+      await addVersionBoundRule({
+        id: 'test-version-diff-hash',
+        tool: 'skill_test_tool',
+        pattern: 'skill_test_tool:*',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        principalKind: 'skill',
+        principalId: 'my-skill',
+        principalVersion: 'v1:abc123',
+      });
+
+      // The context has a different version hash — the rule should NOT match,
+      // and the skill tool default-ask policy should kick in (prompt).
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill', version: 'v2:def456' },
+      };
+      const result = await check('skill_test_tool', {}, '/tmp', ctx);
+      expect(result.decision).toBe('prompt');
+      expect(result.matchedRule?.id).not.toBe('test-version-diff-hash');
+    });
+
+    test('wildcard principal version rule matches all versions', async () => {
+      // A rule without principalVersion acts as a wildcard — it should
+      // match regardless of which version the context provides.
+      await addVersionBoundRule({
+        id: 'test-version-wildcard',
+        tool: 'skill_test_tool',
+        pattern: 'skill_test_tool:*',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 2000,
+        principalKind: 'skill',
+        principalId: 'my-skill',
+        // principalVersion intentionally omitted → wildcard
+      });
+
+      const ctxV1: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill', version: 'v1:abc123' },
+      };
+      const resultV1 = await check('skill_test_tool', {}, '/tmp', ctxV1);
+      expect(resultV1.decision).toBe('allow');
+      expect(resultV1.matchedRule?.id).toBe('test-version-wildcard');
+
+      const ctxV2: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill', version: 'v2:def456' },
+      };
+      const resultV2 = await check('skill_test_tool', {}, '/tmp', ctxV2);
+      expect(resultV2.decision).toBe('allow');
+      expect(resultV2.matchedRule?.id).toBe('test-version-wildcard');
+
+      // Also matches when no version is provided at all
+      const ctxNoVersion: PolicyContext = {
+        principal: { kind: 'skill', id: 'my-skill' },
+      };
+      const resultNoVersion = await check('skill_test_tool', {}, '/tmp', ctxNoVersion);
+      expect(resultNoVersion.decision).toBe('allow');
+      expect(resultNoVersion.matchedRule?.id).toBe('test-version-wildcard');
+    });
+  });
 });
