@@ -3,17 +3,38 @@ import SwiftUI
 
 @MainActor
 struct WakeUpStepView: View {
-    @Bindable var state: OnboardingState
+    // MARK: - Configuration
+
+    /// Optional onboarding state. When nil the view works standalone (e.g. auth gate).
+    var state: OnboardingState?
+
+    /// Optional auth manager for showing loading/error state on the Vellum card.
+    var authManager: AuthManager?
+
+    // Configurable text
+    var title: String = "Create your Velly"
+    var subtitle: String = "The safest way to create your personal assistant."
+    var questionPrompt: String = "How would you like to start?"
+
+    // Callbacks
+    var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
+
+    /// Whether to show the onboarding footer with progress dots.
+    var showFooter: Bool = true
+
+    // MARK: - Private State
 
     @State private var showTitle = false
     @State private var showSubtext = false
     @State private var showButtons = false
     @State private var isAdvancing = false
 
+    // MARK: - Body
+
     var body: some View {
         // Title
-        Text("Create your Velly")
+        Text(title)
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)
@@ -21,7 +42,7 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.md)
 
         // Subtitle
-        Text("The safest way to create your personal assistant.")
+        Text(subtitle)
             .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
@@ -29,7 +50,7 @@ struct WakeUpStepView: View {
             .offset(y: showSubtext ? 0 : 8)
 
         // Question prompt
-        Text("How would you like to start?")
+        Text(questionPrompt)
             .font(.system(size: 16, weight: .medium, design: .monospaced))
             .foregroundColor(VColor.textPrimary)
             .opacity(showSubtext ? 1 : 0)
@@ -43,24 +64,32 @@ struct WakeUpStepView: View {
                 optionCard(
                     title: "Own API Key",
                     description: "When you already have a subscription to a model.",
-                    action: { advanceStep() }
+                    action: { onStartWithAPIKey() }
                 )
 
                 // Card 2: Vellum Account
                 optionCard(
                     title: "Vellum Account",
                     description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
+                    isLoading: authManager?.isSubmitting == true,
                     action: { onContinueWithVellum() }
                 )
             }
             .padding(.top, VSpacing.xl)
 
+            // Auth error message
+            if let error = authManager?.errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
-        .disabled(isAdvancing)
+        .disabled(isAdvancing || authManager?.isSubmitting == true)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -73,8 +102,10 @@ struct WakeUpStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep)
-            .padding(.bottom, VSpacing.lg)
+        if showFooter, let state {
+            OnboardingFooter(currentStep: state.currentStep)
+                .padding(.bottom, VSpacing.lg)
+        }
     }
 
     // MARK: - Option Card
@@ -83,6 +114,7 @@ struct WakeUpStepView: View {
     private func optionCard(
         title: String,
         description: String,
+        isLoading: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: VSpacing.md) {
@@ -98,7 +130,18 @@ struct WakeUpStepView: View {
 
             Spacer()
 
-            VButton(label: "Start", action: action)
+            if isLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Signing in...")
+                        .font(VFont.monoMedium)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else {
+                VButton(label: "Start", action: action)
+            }
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xl)
@@ -112,20 +155,11 @@ struct WakeUpStepView: View {
                 .strokeBorder(Slate._800, lineWidth: 1)
         )
     }
-
-    // MARK: - Advance
-
-    private func advanceStep() {
-        guard !isAdvancing else { return }
-        isAdvancing = true
-        state.hasHatched = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            state.advance()
-        }
-    }
 }
 
-#Preview {
+// MARK: - Previews
+
+#Preview("Onboarding context") {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 0) {
@@ -137,6 +171,28 @@ struct WakeUpStepView: View {
                 .frame(width: 128, height: 128)
                 .padding(.bottom, VSpacing.xxl)
             WakeUpStepView(state: OnboardingState())
+        }
+    }
+    .frame(width: 520, height: 580)
+}
+
+#Preview("Auth gate context") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 0) {
+            Spacer()
+            Image("VellyLogo")
+                .resizable()
+                .interpolation(.none)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 128, height: 128)
+                .padding(.bottom, VSpacing.xxl)
+            WakeUpStepView(
+                title: "Sign in to continue",
+                subtitle: "Sign in with your Vellum account to get started.",
+                questionPrompt: "How would you like to start?",
+                showFooter: false
+            )
         }
     }
     .frame(width: 520, height: 580)

@@ -43,11 +43,21 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            WakeUpStepView(state: state, onContinueWithVellum: {
-                                Task {
-                                    await authManager.startWorkOSLogin()
+                            WakeUpStepView(
+                                state: state,
+                                authManager: authManager,
+                                onStartWithAPIKey: {
+                                    state.hasHatched = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        state.advance()
+                                    }
+                                },
+                                onContinueWithVellum: {
+                                    Task {
+                                        await authManager.startWorkOSLogin()
+                                    }
                                 }
-                            })
+                            )
                         case 1:
                             APIKeyStepView(state: state)
                         case 2:
