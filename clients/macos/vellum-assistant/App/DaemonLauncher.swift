@@ -8,6 +8,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// In release builds the daemon is embedded at `Contents/MacOS/vellum-daemon`
 /// inside the app bundle. In local dev (binary absent) we skip launching and
 /// assume the developer runs the daemon externally.
+///
+/// Includes a health monitor that periodically checks whether the daemon
+/// process is still alive and restarts it automatically if it has exited.
+/// Consecutive rapid crashes trigger exponential backoff (up to 30 s) and
+/// after `maxConsecutiveCrashes` failures the monitor gives up.
 @MainActor
 final class DaemonLauncher {
 
@@ -27,6 +32,34 @@ final class DaemonLauncher {
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
 
+    // MARK: - Health Monitor State
+
+    /// Called after the daemon is restarted by the health monitor so the
+    /// app layer can trigger an immediate reconnect.
+    var onDaemonRestarted: (() -> Void)?
+
+    private var healthCheckTask: Task<Void, Never>?
+
+    /// Set to `true` during an intentional stop to prevent the health monitor
+    /// from restarting the daemon.
+    private var isStopping = false
+
+    private var consecutiveCrashes = 0
+    private var lastLaunchTime: Date?
+
+    /// If the daemon exits within this many seconds of being launched it
+    /// counts as a crash for backoff purposes.
+    private static let crashThreshold: TimeInterval = 10.0
+
+    /// Give up restarting after this many consecutive rapid crashes.
+    private static let maxConsecutiveCrashes = 5
+
+    /// How often the health monitor checks whether the daemon is alive.
+    private static let healthCheckIntervalNanos: UInt64 = 5_000_000_000 // 5 s
+
+    /// Maximum backoff delay between restart attempts.
+    private static let maxBackoffSeconds: Double = 30.0
+
     // MARK: - Public API
 
     /// Launch the bundled daemon if it isn't already running.
@@ -44,10 +77,40 @@ final class DaemonLauncher {
 
         try launch(binaryURL: binaryURL)
         try await waitForSocket()
+        lastLaunchTime = Date()
+    }
+
+    /// Start a periodic health check that restarts the daemon if it dies.
+    /// No-op in dev mode (no bundled binary).
+    func startMonitoring() {
+        guard daemonBinaryURL != nil else { return }
+        isStopping = false
+        stopMonitoring()
+
+        healthCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.healthCheckIntervalNanos)
+                guard let self, !Task.isCancelled, !self.isStopping else { return }
+
+                if !self.isDaemonAlive() {
+                    log.warning("Daemon process not running — attempting restart")
+                    await self.restartDaemon()
+                }
+            }
+        }
+    }
+
+    /// Stop the health monitor.
+    func stopMonitoring() {
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
     }
 
     /// Gracefully stop the daemon (SIGTERM → wait → SIGKILL).
     func stop() {
+        isStopping = true
+        stopMonitoring()
+
         guard let proc = process, proc.isRunning else {
             cleanupPIDFile()
             return
@@ -74,6 +137,13 @@ final class DaemonLauncher {
 
     // MARK: - Private
 
+    /// Returns `true` if the daemon process is alive — either the managed
+    /// `Process` object or the PID recorded in the PID file.
+    private func isDaemonAlive() -> Bool {
+        if let proc = process, proc.isRunning { return true }
+        return isAlreadyRunning()
+    }
+
     private func isAlreadyRunning() -> Bool {
         guard let pidData = try? Data(contentsOf: pidFileURL),
               let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -82,6 +152,45 @@ final class DaemonLauncher {
         }
         // kill(pid, 0) returns 0 if the process exists and we can signal it
         return kill(pid, 0) == 0
+    }
+
+    private func restartDaemon() async {
+        guard let binaryURL = daemonBinaryURL else { return }
+
+        // Track consecutive rapid crashes for backoff
+        if let lastLaunch = lastLaunchTime,
+           Date().timeIntervalSince(lastLaunch) < Self.crashThreshold {
+            consecutiveCrashes += 1
+        } else {
+            consecutiveCrashes = 0
+        }
+
+        if consecutiveCrashes >= Self.maxConsecutiveCrashes {
+            log.error("Daemon crashed \(Self.maxConsecutiveCrashes) times in quick succession — giving up automatic restart")
+            return
+        }
+
+        // Exponential backoff: 1 s, 2 s, 4 s, …
+        if consecutiveCrashes > 0 {
+            let backoff = min(pow(2.0, Double(consecutiveCrashes - 1)), Self.maxBackoffSeconds)
+            log.info("Backoff \(backoff)s before restart attempt (consecutive crash #\(self.consecutiveCrashes))")
+            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+            guard !isStopping, !Task.isCancelled else { return }
+        }
+
+        // Clean up stale state before relaunching
+        cleanupPIDFile()
+        process = nil
+
+        do {
+            try launch(binaryURL: binaryURL)
+            try await waitForSocket()
+            lastLaunchTime = Date()
+            log.info("Daemon restarted successfully")
+            onDaemonRestarted?()
+        } catch {
+            log.error("Failed to restart daemon: \(error.localizedDescription)")
+        }
     }
 
     private func launch(binaryURL: URL) throws {

@@ -243,9 +243,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.handleEscalationToComputerUse(routed: routed)
         }
 
+        // Restart DaemonClient connection when the health monitor relaunches
+        // the daemon process so we don't wait for the backoff timer to expire.
+        daemonLauncher.onDaemonRestarted = { [weak self] in
+            guard let self else { return }
+            Task {
+                try? await self.daemonClient.connect()
+                if self.daemonClient.isConnected {
+                    self.setupAmbientAgent()
+                    self.refreshSkillsCache()
+                }
+            }
+        }
+
         Task {
             // Launch the bundled daemon if present (release builds)
             try? await daemonLauncher.launchIfNeeded()
+            daemonLauncher.startMonitoring()
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
