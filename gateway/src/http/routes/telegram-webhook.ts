@@ -12,6 +12,7 @@ import { verifyWebhookSecret } from "../../telegram/verify.js";
 const log = getLogger("telegram-webhook");
 
 const MAX_TYPING_DURATION_MS = 60_000;
+const MAX_TYPING_FAILURES = 3;
 export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
   "chat-first-medium",
   "channel-safe-onboarding",
@@ -189,6 +190,7 @@ export function createTelegramWebhookHandler(
 
     // Start typing indicator only for routable chats.
     // A safety timeout ensures the interval is cleared even if handleInbound hangs.
+    // Cancel early if the Telegram API fails repeatedly (MAX_TYPING_FAILURES consecutive).
     let typingInterval: ReturnType<typeof setInterval> | undefined;
     let typingTimeout: ReturnType<typeof setTimeout> | undefined;
     const clearTyping = () => {
@@ -196,8 +198,22 @@ export function createTelegramWebhookHandler(
       clearTimeout(typingTimeout);
     };
     if (routable) {
-      sendTypingIndicator(config, chatId);
-      typingInterval = setInterval(() => sendTypingIndicator(config, chatId), 5000);
+      let consecutiveFailures = 0;
+      sendTypingIndicator(config, chatId).then((ok) => {
+        if (!ok) consecutiveFailures++;
+      });
+      typingInterval = setInterval(async () => {
+        const ok = await sendTypingIndicator(config, chatId);
+        if (ok) {
+          consecutiveFailures = 0;
+        } else {
+          consecutiveFailures++;
+          if (consecutiveFailures >= MAX_TYPING_FAILURES) {
+            log.warn({ chatId, consecutiveFailures }, "Typing indicator cancelled after repeated failures");
+            clearTyping();
+          }
+        }
+      }, 5000);
       typingTimeout = setTimeout(clearTyping, MAX_TYPING_DURATION_MS);
     }
 

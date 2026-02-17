@@ -94,11 +94,13 @@ export async function sendTelegramAttachments(
   }
 }
 
-export async function sendTypingIndicator(config: GatewayConfig, chatId: string): Promise<void> {
+export async function sendTypingIndicator(config: GatewayConfig, chatId: string): Promise<boolean> {
   try {
     await callTelegramApi(config, "sendChatAction", { chat_id: chatId, action: "typing" });
+    return true;
   } catch (err) {
     log.debug({ err, chatId }, "Failed to send typing indicator");
+    return false;
   }
 }
 
