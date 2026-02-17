@@ -4,6 +4,20 @@ import VellumAssistantShared
 import AppKit
 #endif
 
+struct SlashCommand {
+    let name: String
+    let description: String
+    let icon: String
+
+    static let all: [SlashCommand] = [
+        SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
+    ]
+}
+
+enum SlashNavigation {
+    case up, down, select, dismiss
+}
+
 struct ComposerView: View {
     private let composerCompactHeight: CGFloat = 34
     private let composerMaxHeight: CGFloat = 200
@@ -38,6 +52,8 @@ struct ComposerView: View {
     /// Exposed to ChatView so composerReservedHeight stays in sync with the
     /// sticky expansion state (set true when text wraps, reset when text clears).
     @Binding var isComposerExpanded: Bool
+    var onSelectModel: ((String) -> Void)?
+    var selectedModel: String = ""
 
     @State private var composerFocusRequestID: Int = 0
     @State private var isStopHovered = false
@@ -47,6 +63,12 @@ struct ComposerView: View {
     @State private var isComposerFocused = false
     @State private var isEditorOverflowing = false
     @FocusState private var focusedComposerAction: ComposerActionFocus?
+
+    @State private var showSlashMenu = false
+    @State private var slashFilter = ""
+    @State private var slashSelectedIndex = 0
+    @State private var showModelSubmenu = false
+    @State private var modelSelectedIndex = 0
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -64,59 +86,84 @@ struct ComposerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !pendingAttachments.isEmpty {
-                attachmentStrip
+        VStack(spacing: VSpacing.sm) {
+            // Slash command popup (above the composer)
+            if showModelSubmenu {
+                ModelSubmenuPopup(
+                    models: SettingsStore.availableModels.map { id in
+                        (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
+                    },
+                    selectedModelId: selectedModel,
+                    highlightedIndex: modelSelectedIndex,
+                    onSelect: { modelId in selectModel(modelId) }
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if showSlashMenu {
+                SlashCommandPopup(
+                    commands: filteredSlashCommands(slashFilter),
+                    selectedIndex: slashSelectedIndex,
+                    onSelect: { command in selectSlashCommand(command) }
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if isComposerExpanded {
-                // Expanded: text area on top, buttons on bottom row
-                composerTextField
-                    .frame(height: clampedComposerHeight)
-
-                HStack(spacing: VSpacing.md) {
-                    Spacer()
-                    composerActionButtons
+            // Composer box
+            VStack(spacing: 0) {
+                if !pendingAttachments.isEmpty {
+                    attachmentStrip
                 }
-                .padding(.top, VSpacing.xs)
-            } else {
-                // Compact: text and buttons on the same row
-                HStack(alignment: .center, spacing: VSpacing.md) {
+
+                if isComposerExpanded {
+                    // Expanded: text area on top, buttons on bottom row
                     composerTextField
                         .frame(height: clampedComposerHeight)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                    composerActionButtons
-                        .frame(maxHeight: .infinity, alignment: .center)
-                        .offset(y: compactActionOpticalYOffset)
+
+                    HStack(spacing: VSpacing.md) {
+                        Spacer()
+                        composerActionButtons
+                    }
+                    .padding(.top, VSpacing.xs)
+                } else {
+                    // Compact: text and buttons on the same row
+                    HStack(alignment: .center, spacing: VSpacing.md) {
+                        composerTextField
+                            .frame(height: clampedComposerHeight)
+                            .frame(maxHeight: .infinity, alignment: .center)
+                        composerActionButtons
+                            .frame(maxHeight: .infinity, alignment: .center)
+                            .offset(y: compactActionOpticalYOffset)
+                    }
+                    .frame(height: compactRowHeight, alignment: .center)
                 }
-                .frame(height: compactRowHeight, alignment: .center)
             }
+            .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
+            .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
+            .padding(.leading, VSpacing.lg)
+            .padding(.trailing, VSpacing.lg)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(VColor.surfaceSubtle.opacity(0.4))
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(
+                        isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
+                        lineWidth: isComposerFocused ? 1.5 : 1
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
+            )
+            .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
         }
-        .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
-        .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
-        .padding(.leading, VSpacing.lg)
-        .padding(.trailing, VSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceSubtle.opacity(0.4))
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(
-                    isComposerFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.95),
-                    lineWidth: isComposerFocused ? 1.5 : 1
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
-        )
-        .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
+        .animation(VAnimation.fast, value: showSlashMenu)
+        .animation(VAnimation.fast, value: showModelSubmenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .padding(.bottom, VSpacing.md)
@@ -131,6 +178,12 @@ struct ComposerView: View {
     // isComposerExpanded is a @Binding — sticky latch set true when text
     // wraps past a single line, reset when text clears. Prevents layout
     // oscillation and keeps ChatView.composerReservedHeight in sync.
+
+    /// How far above the composer's top edge the slash popup should float.
+    /// Uses a small gap so the popup sits just above the composer box.
+    private var slashPopupOffset: CGFloat {
+        VSpacing.md
+    }
 
     private var clampedComposerHeight: CGFloat {
         min(max(editorContentHeight, composerCompactHeight), composerMaxHeight)
@@ -165,7 +218,9 @@ struct ComposerView: View {
                 if canSend { onSend() }
             },
             onAcceptSuggestion: onAcceptSuggestion,
-            onPaste: onPaste
+            onPaste: onPaste,
+            isSlashMenuOpen: showSlashMenu || showModelSubmenu,
+            onSlashNavigate: handleSlashNavigation
         )
         .accessibilityLabel("Message")
         .overlay(alignment: .leading) {
@@ -186,6 +241,12 @@ struct ComposerView: View {
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }
+                withAnimation(VAnimation.fast) {
+                    showSlashMenu = false
+                    showModelSubmenu = false
+                }
+            } else {
+                updateSlashState()
             }
         }
         .onChange(of: editorContentHeight) {
@@ -419,6 +480,98 @@ struct ComposerView: View {
     var canSend: Bool {
         hasAPIKey && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
+
+    // MARK: - Slash Command Logic
+
+    private func filteredSlashCommands(_ filter: String) -> [SlashCommand] {
+        SlashCommand.all.filter {
+            filter.isEmpty || $0.name.lowercased().hasPrefix(filter.lowercased())
+        }
+    }
+
+    private func updateSlashState() {
+        let text = inputText
+
+        if showModelSubmenu {
+            if text != "/model" {
+                withAnimation(VAnimation.fast) {
+                    showModelSubmenu = false
+                    modelSelectedIndex = 0
+                }
+            } else {
+                return
+            }
+        }
+
+        if text.hasPrefix("/") && !text.contains(" ") {
+            let filter = String(text.dropFirst())
+            let filtered = filteredSlashCommands(filter)
+            if !filtered.isEmpty {
+                withAnimation(VAnimation.fast) { showSlashMenu = true }
+                slashFilter = filter
+                slashSelectedIndex = min(slashSelectedIndex, max(filtered.count - 1, 0))
+            } else {
+                withAnimation(VAnimation.fast) { showSlashMenu = false }
+            }
+        } else {
+            withAnimation(VAnimation.fast) { showSlashMenu = false }
+        }
+    }
+
+    private func selectSlashCommand(_ command: SlashCommand) {
+        withAnimation(VAnimation.fast) { showSlashMenu = false }
+        slashSelectedIndex = 0
+        if command.name == "model" {
+            inputText = "/\(command.name)"
+            withAnimation(VAnimation.fast) {
+                showModelSubmenu = true
+                modelSelectedIndex = 0
+            }
+        }
+    }
+
+    private func selectModel(_ modelId: String) {
+        onSelectModel?(modelId)
+        withAnimation(VAnimation.fast) {
+            showModelSubmenu = false
+            modelSelectedIndex = 0
+        }
+        inputText = ""
+    }
+
+    private func handleSlashNavigation(_ action: SlashNavigation) {
+        if showModelSubmenu {
+            let count = SettingsStore.availableModels.count
+            switch action {
+            case .up:
+                modelSelectedIndex = (modelSelectedIndex - 1 + count) % count
+            case .down:
+                modelSelectedIndex = (modelSelectedIndex + 1) % count
+            case .select:
+                selectModel(SettingsStore.availableModels[modelSelectedIndex])
+            case .dismiss:
+                withAnimation(VAnimation.fast) {
+                    showModelSubmenu = false
+                    showSlashMenu = false
+                }
+                inputText = ""
+            }
+        } else if showSlashMenu {
+            let filtered = filteredSlashCommands(slashFilter)
+            guard !filtered.isEmpty else { return }
+            switch action {
+            case .up:
+                slashSelectedIndex = (slashSelectedIndex - 1 + filtered.count) % filtered.count
+            case .down:
+                slashSelectedIndex = (slashSelectedIndex + 1) % filtered.count
+            case .select:
+                selectSlashCommand(filtered[slashSelectedIndex])
+            case .dismiss:
+                withAnimation(VAnimation.fast) { showSlashMenu = false }
+                inputText = ""
+            }
+        }
+    }
 }
 
 private struct ComposerTextView: NSViewRepresentable {
@@ -435,6 +588,8 @@ private struct ComposerTextView: NSViewRepresentable {
     let onSubmit: () -> Void
     let onAcceptSuggestion: () -> Void
     let onPaste: () -> Void
+    var isSlashMenuOpen = false
+    var onSlashNavigate: ((SlashNavigation) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -499,6 +654,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.placeholderText = placeholder
         textView.placeholderColor = NSColor(VColor.textSecondary).withAlphaComponent(0.92)
         textView.hasGhostSuffix = hasGhostSuffix
+        textView.isSlashMenuOpen = isSlashMenuOpen
 
         // Force redraw when placeholder or ghost suffix state changes so stale text doesn't persist
         if oldPlaceholder != placeholder || oldGhostSuffix != hasGhostSuffix {
@@ -551,6 +707,9 @@ private struct ComposerTextView: NSViewRepresentable {
             textView.onFocusChange = { [weak self] focused in
                 self?.parent.onFocusChange(focused)
             }
+            textView.onSlashNavigate = { [weak self] action in
+                self?.parent.onSlashNavigate?(action)
+            }
         }
 
         func textDidChange(_ notification: Notification) {
@@ -588,6 +747,8 @@ private final class ComposerNativeTextView: NSTextView {
     var onAcceptSuggestion: (() -> Void)?
     var onPaste: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
+    var onSlashNavigate: ((SlashNavigation) -> Void)?
+    var isSlashMenuOpen = false
     var placeholderText: String?
     var placeholderColor: NSColor = .placeholderTextColor
     var hasGhostSuffix = false
@@ -656,6 +817,23 @@ private final class ComposerNativeTextView: NSTextView {
             return
         }
 
+        // Slash menu navigation (arrow keys, escape)
+        if isSlashMenuOpen && modifiers.isEmpty {
+            switch event.keyCode {
+            case 126: // Up arrow
+                onSlashNavigate?(.up)
+                return
+            case 125: // Down arrow
+                onSlashNavigate?(.down)
+                return
+            case 53: // Escape
+                onSlashNavigate?(.dismiss)
+                return
+            default:
+                break
+            }
+        }
+
         // Enter sends; Shift+Enter inserts newline.
         // If ghost suggestion is visible, accept it first then send.
         if event.keyCode == 36 || event.keyCode == 76 {
@@ -666,8 +844,11 @@ private final class ComposerNativeTextView: NSTextView {
             if modifiers.isEmpty {
                 if hasGhostSuffix {
                     onAcceptSuggestion?()
+                } else if isSlashMenuOpen {
+                    onSlashNavigate?(.select)
+                } else {
+                    onSubmit?()
                 }
-                onSubmit?()
                 return
             }
             return
@@ -793,5 +974,125 @@ private struct ComposerActionButtonStyle: ButtonStyle {
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
             .animation(VAnimation.fast, value: isFocused)
+    }
+}
+
+// MARK: - Slash Command Popup
+
+private struct SlashCommandPopup: View {
+    let commands: [SlashCommand]
+    let selectedIndex: Int
+    let onSelect: (SlashCommand) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(commands.enumerated()), id: \.element.name) { index, command in
+                SlashCommandRow(
+                    command: command,
+                    isSelected: index == selectedIndex,
+                    onSelect: { onSelect(command) }
+                )
+            }
+        }
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+    }
+}
+
+private struct SlashCommandRow: View {
+    let command: SlashCommand
+    let isSelected: Bool
+    let onSelect: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("/\(command.name)")
+                    .font(VFont.bodyBold)
+                    .foregroundColor(VColor.textPrimary)
+                Text(command.description)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected || isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+// MARK: - Model Submenu Popup
+
+private struct ModelSubmenuPopup: View {
+    let models: [(id: String, name: String)]
+    let selectedModelId: String
+    let highlightedIndex: Int
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+                ModelSubmenuRow(
+                    name: model.name,
+                    isCurrentModel: model.id == selectedModelId,
+                    isHighlighted: index == highlightedIndex,
+                    onSelect: { onSelect(model.id) }
+                )
+            }
+        }
+        .padding(.vertical, VSpacing.xs)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
+    }
+}
+
+private struct ModelSubmenuRow: View {
+    let name: String
+    let isCurrentModel: Bool
+    let isHighlighted: Bool
+    let onSelect: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: isCurrentModel ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isCurrentModel ? VColor.accent : (isHighlighted || isHovered ? VColor.textPrimary : VColor.textSecondary))
+                    .frame(width: 18)
+                Text(name)
+                    .font(isCurrentModel ? VFont.bodyBold : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHighlighted || isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }

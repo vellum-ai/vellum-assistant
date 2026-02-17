@@ -73,6 +73,8 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    var onSelectModel: ((String) -> Void)?
+    var selectedModel: String = ""
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAddTrustRule: (String, String, String, String) -> Bool
@@ -232,7 +234,9 @@ struct ChatView: View {
                 onMicrophoneToggle: onMicrophoneToggle,
                 placeholderText: emptyStatePlaceholder,
                 editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
+                isComposerExpanded: $isComposerExpanded,
+                onSelectModel: onSelectModel,
+                selectedModel: selectedModel
             )
             .opacity(emptyStateVisible ? 1 : 0)
             .offset(y: emptyStateVisible ? 0 : 10)
@@ -312,7 +316,9 @@ struct ChatView: View {
                 onMicrophoneToggle: onMicrophoneToggle,
                 placeholderText: "What would you like to do?",
                 editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
+                isComposerExpanded: $isComposerExpanded,
+                onSelectModel: onSelectModel,
+                selectedModel: selectedModel
             )
         }
         .background(

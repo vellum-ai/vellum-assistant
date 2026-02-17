@@ -1046,6 +1046,7 @@ struct MainWindowView: View {
                 windowState: windowState,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
+                settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle
             )
             .overlay(alignment: .bottomTrailing) {
@@ -1377,6 +1378,7 @@ private struct ActiveChatViewWrapper: View {
     @ObservedObject var windowState: MainWindowState
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
+    @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
 
     var body: some View {
@@ -1419,6 +1421,11 @@ private struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
+            onSelectModel: { modelId in
+                settingsStore.selectedModel = modelId
+                settingsStore.setModel(modelId)
+            },
+            selectedModel: settingsStore.selectedModel,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
