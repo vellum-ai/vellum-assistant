@@ -368,8 +368,10 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: isHoveredThread) { _, newValue in
-            // Cancel pending archive when hover leaves the row
-            if let pending = threadPendingDeletion, newValue != pending {
+            // Cancel pending archive when the user hovers a *different* thread.
+            // Skip clearing when newValue is nil (e.g. menu dismissal triggers
+            // a momentary hover-leave) so the Confirm button stays visible.
+            if let pending = threadPendingDeletion, let newValue, newValue != pending {
                 threadPendingDeletion = nil
             }
         }
