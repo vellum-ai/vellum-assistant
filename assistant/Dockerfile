@@ -91,10 +91,9 @@ USER assistant
 
 EXPOSE 3001
 
-ENV BASE_DATA_DIR=/data
-ENV DEBUG_STDOUT_LOGS=1
 ENV RUNTIME_HTTP_PORT=3001
 ENV VELLUM_DAEMON_SOCKET=/home/assistant/.vellum/vellum.sock
+ENV BASE_DATA_DIR=/data
 
 # Run the daemon + http server
 CMD ["bun", "run", "src/daemon/main.ts"]
