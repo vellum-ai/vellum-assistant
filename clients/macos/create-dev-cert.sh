@@ -23,7 +23,7 @@ if security find-identity -v -p codesigning | grep -q "$CERT_NAME"; then
 fi
 
 # Create the certificate
-cat > $TMP_DIR/cert-config.txt <<EOF
+cat > "$TMP_DIR/cert-config.txt" <<EOF
 [ req ]
 default_bits = 2048
 distinguished_name = req_distinguished_name
@@ -40,29 +40,29 @@ EOF
 
 # Generate key and certificate
 openssl req -new -newkey rsa:2048 -nodes \
-    -keyout $TMP_DIR/dev-cert.key \
-    -out $TMP_DIR/dev-cert.csr \
-    -config $TMP_DIR/cert-config.txt
+    -keyout "$TMP_DIR/dev-cert.key" \
+    -out "$TMP_DIR/dev-cert.csr" \
+    -config "$TMP_DIR/cert-config.txt"
 
 openssl x509 -req -days 3650 \
-    -in $TMP_DIR/dev-cert.csr \
-    -signkey $TMP_DIR/dev-cert.key \
-    -out $TMP_DIR/dev-cert.crt \
-    -extfile $TMP_DIR/cert-config.txt \
+    -in "$TMP_DIR/dev-cert.csr" \
+    -signkey "$TMP_DIR/dev-cert.key" \
+    -out "$TMP_DIR/dev-cert.crt" \
+    -extfile "$TMP_DIR/cert-config.txt" \
     -extensions v3_req
 
 # Convert to p12 for importing
 openssl pkcs12 -export \
-    -out $TMP_DIR/dev-cert.p12 \
-    -inkey $TMP_DIR/dev-cert.key \
-    -in $TMP_DIR/dev-cert.crt \
+    -out "$TMP_DIR/dev-cert.p12" \
+    -inkey "$TMP_DIR/dev-cert.key" \
+    -in "$TMP_DIR/dev-cert.crt" \
     -passout pass:
 
 # Import into keychain
-security import $TMP_DIR/dev-cert.p12 -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+security import "$TMP_DIR/dev-cert.p12" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
 
 # Trust the certificate for code signing
-security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db $TMP_DIR/dev-cert.crt
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db "$TMP_DIR/dev-cert.crt"
 
 echo
 echo "✓ Certificate created and installed successfully!"
