@@ -19,6 +19,7 @@ import {
   unlinkSync,
   rmSync,
   statSync,
+  realpathSync,
 } from 'node:fs';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { getDataDir } from '../util/platform.js';
@@ -109,6 +110,16 @@ function validateFilePath(appId: string, path: string): string {
   // Ensure the resolved path is still within the app directory
   if (!resolved.startsWith(appDir + '/') && resolved !== appDir) {
     throw new Error(`Invalid file path: resolves outside app directory`);
+  }
+  // Follow symlinks to the real path so a symlink inside the app directory
+  // cannot escape the boundary. Only check when the target already exists;
+  // writes to new (non-existent) paths are fine — resolve() already handled them.
+  if (existsSync(resolved)) {
+    const real = realpathSync(resolved);
+    const realAppDir = realpathSync(appDir);
+    if (!real.startsWith(realAppDir + '/') && real !== realAppDir) {
+      throw new Error(`Invalid file path: symlink resolves outside app directory`);
+    }
   }
   return resolved;
 }
