@@ -1277,11 +1277,11 @@ private struct ChatBubble: View {
             }
 
             if hasText {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    let segments = parseMarkdownSegments(message.text)
-                    let hasTable = segments.contains(where: {
-                        if case .table = $0 { return true }; return false
-                    })
+                let segments = parseMarkdownSegments(message.text)
+                let hasTable = segments.contains(where: {
+                    if case .table = $0 { return true }; return false
+                })
+                VStack(alignment: .leading, spacing: hasTable ? VSpacing.lg : VSpacing.xs) {
 
                     if hasTable {
                         ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
@@ -1500,10 +1500,20 @@ private func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []
     var i = 0
+    var inCodeFence = false
 
     while i < lines.count {
+        // Track fenced code blocks so we don't parse tables inside them
+        if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            inCodeFence.toggle()
+            currentText.append(lines[i])
+            i += 1
+            continue
+        }
+
         // Check for table: need header row + separator row + at least one data row
-        if i + 2 < lines.count,
+        if !inCodeFence,
+           i + 2 < lines.count,
            isTableRow(lines[i]),
            isTableSeparator(lines[i + 1]),
            isTableRow(lines[i + 2]) {
