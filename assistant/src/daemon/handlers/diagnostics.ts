@@ -170,7 +170,7 @@ export async function handleDiagnosticsExport(
         version: '1.0',
         exportedAt: new Date().toISOString(),
         conversationId,
-        anchorMessageId: anchorMessage.id,
+        messageId: anchorMessage.id,
       };
       writeFileSync(join(tempDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
