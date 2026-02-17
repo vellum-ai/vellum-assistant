@@ -299,7 +299,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
             guard let self else { return }
-            self.browserPiPManager.dismissPanel()
+            self.browserPiPManager.dismissIfMatching(surfaceId: msg.surfaceId)
             self.surfaceManager.dismissSurface(msg)
         }
 
