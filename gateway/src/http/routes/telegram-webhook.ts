@@ -208,9 +208,9 @@ export function createTelegramWebhookHandler(
     };
     if (routable && !isEdit) {
       let consecutiveFailures = 0;
-      sendTypingIndicator(config, chatId).then((ok) => {
-        if (!ok) consecutiveFailures++;
-      });
+      // Fire-and-forget: don't track the initial call's result to avoid
+      // race conditions with the interval's consecutiveFailures counter.
+      sendTypingIndicator(config, chatId);
       typingInterval = setInterval(async () => {
         const ok = await sendTypingIndicator(config, chatId);
         if (ok) {
