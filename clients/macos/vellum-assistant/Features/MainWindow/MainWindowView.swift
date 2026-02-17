@@ -154,11 +154,15 @@ struct MainWindowView: View {
         coreLayoutView
             .onChange(of: windowState.isDynamicExpanded) { _, expanded in
                 threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+                threadManager.activeViewModel?.isChatDockedToSide = expanded && windowState.isChatDockOpen
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
                 if windowState.isDynamicExpanded {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
+            }
+            .onChange(of: windowState.isChatDockOpen) { _, docked in
+                threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && docked
             }
             .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Close activity panel if the referenced message no longer exists
@@ -298,6 +302,7 @@ struct MainWindowView: View {
                 threadManager.clearActiveSurface(threadId: oldId)
             }
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
         }
         .onChange(of: windowState.activePanel) { _, newPanel in
             // Close the left sidebar when the activity panel opens to avoid crowding
