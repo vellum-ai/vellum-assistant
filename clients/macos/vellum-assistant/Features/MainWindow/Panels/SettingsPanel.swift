@@ -18,6 +18,9 @@ struct SettingsPanel: View {
     @State private var integrationError: (id: String, message: String)?
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
+    @State private var accessibilityGranted: Bool = false
+    @State private var screenRecordingGranted: Bool = false
+    @State private var permissionCheckTask: Task<Void, Never>?
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -288,18 +291,24 @@ struct SettingsPanel: View {
                     permissionRow(
                         emoji: "\u{1F47B}",
                         label: "Accessibility",
-                        granted: PermissionManager.accessibilityStatus() == .granted
+                        granted: accessibilityGranted,
+                        action: {
+                            // Request accessibility permission (opens System Settings)
+                            _ = PermissionManager.accessibilityStatus(prompt: true)
+                            startPermissionPolling()
+                        }
                     )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
 
                     permissionRow(
                         emoji: "\u{1F355}",
                         label: "Screen Recording",
-                        granted: PermissionManager.screenRecordingStatus() == .granted
+                        granted: screenRecordingGranted,
+                        action: {
+                            // Request screen recording permission (opens System Settings)
+                            PermissionManager.requestScreenRecordingAccess()
+                            startPermissionPolling()
+                        }
                     )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
@@ -404,6 +413,10 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
         }
+        .task {
+            // Refresh permission status when the view appears
+            refreshPermissionStatus()
+        }
         .onAppear {
             store.refreshAPIKeyState()
             setupIntegrationCallbacks()
@@ -412,6 +425,15 @@ struct SettingsPanel: View {
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
+            permissionCheckTask?.cancel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Primary mechanism: Check permissions when app becomes active.
+            // This handles the common case where the user grants permission in
+            // System Settings and returns to the app via Cmd+Tab or clicking.
+            // Uses NSApplication notification instead of scenePhase because this
+            // view is hosted in an NSHostingController, not a SwiftUI Scene.
+            refreshPermissionStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -520,22 +542,70 @@ struct SettingsPanel: View {
 
     // MARK: - Permission Row
 
-    private func permissionRow(emoji: String, label: String, granted: Bool) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Text(emoji)
-                .font(.system(size: 14))
-                .frame(width: 20)
-                .accessibilityLabel(label)
+    private func permissionRow(emoji: String, label: String, granted: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Text(emoji)
+                    .font(.system(size: 14))
+                    .frame(width: 20)
+                    .accessibilityLabel(label)
 
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
 
-            Spacer()
+                Spacer()
 
-            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(granted ? VColor.success : VColor.error)
+                Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(granted ? VColor.success : VColor.error)
+            }
+            .padding(VSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .vCard(background: VColor.surfaceSubtle)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+
+    // MARK: - Permission Helpers
+
+    private func refreshPermissionStatus() {
+        accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
+        screenRecordingGranted = PermissionManager.screenRecordingStatus() == .granted
+    }
+
+    private func startPermissionPolling() {
+        // Hybrid permission checking approach:
+        // 1. Primary: NSApplication.didBecomeActiveNotification detects when user
+        //    returns from System Settings
+        // 2. Fallback: Poll every 1 second for 15 seconds to catch edge cases where
+        //    the notification doesn't fire (e.g., user grants permission while app
+        //    stays focused)
+        //
+        // Polling stops early if both permissions are granted, minimizing overhead.
+        permissionCheckTask?.cancel()
+
+        permissionCheckTask = Task { @MainActor in
+            // Poll for up to 15 seconds (typical time for user to navigate System Settings)
+            for _ in 0..<15 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+
+                guard !Task.isCancelled else { return }
+                refreshPermissionStatus()
+
+                // Stop polling if both permissions are granted
+                if accessibilityGranted && screenRecordingGranted {
+                    return
+                }
+            }
         }
     }
 
