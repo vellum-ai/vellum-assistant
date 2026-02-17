@@ -380,6 +380,23 @@ if [ "$CMD" = "run" ]; then
     fi
     pkill -x "vellum-assistant" 2>/dev/null || true
     sleep 0.3
+    # Load VELLUM_FLAG_* vars from repo root .env via launchctl setenv
+    # so the app inherits them when launched via `open` (which doesn't
+    # pass shell environment to the child process).
+    ENV_FILE="$SCRIPT_DIR/../../.env"
+    if [ -f "$ENV_FILE" ]; then
+        while IFS='=' read -r key value || [ -n "$key" ]; do
+            key="$(echo "$key" | xargs)"
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            value="${value%%#*}"
+            value="$(echo "$value" | xargs)"
+            if [[ "$key" == VELLUM_FLAG_* ]]; then
+                launchctl setenv "$key" "$value"
+            fi
+        done < "$ENV_FILE"
+        echo "Loaded feature flags from .env"
+    fi
+
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
     # bundle ID and show it in System Settings > Privacy & Security.
