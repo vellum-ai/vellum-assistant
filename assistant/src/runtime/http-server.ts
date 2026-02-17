@@ -403,7 +403,11 @@ export class RuntimeHttpServer {
       return Response.json({ error: 'Interface not found' }, { status: 404 });
     }
     const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (!fullPath.startsWith(this.interfacesDir) || !existsSync(fullPath)) {
+    // Enforce directory boundary so prefix-sibling paths (e.g. "interfaces-other/") are rejected
+    if (
+      (fullPath !== this.interfacesDir && !fullPath.startsWith(this.interfacesDir + '/')) ||
+      !existsSync(fullPath)
+    ) {
       return Response.json({ error: 'Interface not found' }, { status: 404 });
     }
     const source = readFileSync(fullPath, 'utf-8');
