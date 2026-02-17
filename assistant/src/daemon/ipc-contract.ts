@@ -610,6 +610,12 @@ export interface IntegrationConnectResult {
   success: boolean;
   accountInfo?: string;
   error?: string;
+  /** When true, the integration requires setup before connecting (e.g. missing clientId). */
+  setupRequired?: boolean;
+  /** Skill ID that can automate the setup process. */
+  setupSkillId?: string;
+  /** Human-readable hint for resolving the setup requirement. */
+  setupHint?: string;
 }
 
 export interface PublishPageRequest {
