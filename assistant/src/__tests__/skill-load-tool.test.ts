@@ -5,18 +5,40 @@ import { tmpdir } from 'node:os';
 
 const TEST_DIR = join(tmpdir(), `vellum-skill-load-tool-test-${crypto.randomUUID()}`);
 
-mock.module('../util/platform.js', () => ({
+// Build a mock that covers every export from platform.ts — any function not
+// explicitly mapped returns a no-op stub so that transitive imports don't fail.
+const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
+  getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, 'vellum.sock'),
   getPidPath: () => join(TEST_DIR, 'vellum.pid'),
   getDbPath: () => join(TEST_DIR, 'data', 'assistant.db'),
   getLogPath: () => join(TEST_DIR, 'logs', 'vellum.log'),
+  getWorkspaceDir: () => join(TEST_DIR, 'workspace'),
+  getWorkspaceSkillsDir: () => join(TEST_DIR, 'skills'),
+  getWorkspaceConfigPath: () => join(TEST_DIR, 'workspace', 'config.json'),
+  getWorkspaceHooksDir: () => join(TEST_DIR, 'workspace', 'hooks'),
+  getWorkspacePromptPath: (f: unknown) => join(TEST_DIR, 'workspace', String(f)),
+  getInterfacesDir: () => join(TEST_DIR, 'interfaces'),
+  getHooksDir: () => join(TEST_DIR, 'hooks'),
+  getIpcBlobDir: () => join(TEST_DIR, 'blobs'),
+  getSandboxRootDir: () => join(TEST_DIR, 'sandbox'),
+  getSandboxWorkingDir: () => join(TEST_DIR, 'sandbox', 'work'),
+  getHistoryPath: () => join(TEST_DIR, 'history'),
+  getSessionTokenPath: () => join(TEST_DIR, 'session-token'),
+  readSessionToken: () => null,
+  getClipboardCommand: () => null,
   isMacOS: () => process.platform === 'darwin',
   isLinux: () => process.platform === 'linux',
   isWindows: () => process.platform === 'win32',
   getPlatformName: () => process.platform,
-}));
+  migratePath: () => {},
+  migrateToWorkspaceLayout: () => {},
+  migrateToDataLayout: () => {},
+  removeSocketFile: () => {},
+};
+mock.module('../util/platform.js', () => platformOverrides);
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -69,6 +91,7 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('ID: release-checklist');
     expect(result.content).toContain('1. Run tests');
     expect(result.content).not.toContain('name: "Release Checklist"');
+    expect(result.content).toContain('<loaded_skill id="release-checklist" />');
   });
 
   test('loads a skill by exact name (case-insensitive)', async () => {
@@ -79,6 +102,7 @@ describe('skill_load tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Skill: Oncall Runbook');
     expect(result.content).toContain('Page primary responder');
+    expect(result.content).toContain('<loaded_skill id="oncall" />');
   });
 
   test('loads a skill by unique id prefix', async () => {
@@ -89,6 +113,7 @@ describe('skill_load tool', () => {
     const result = await executeSkillLoad({ skill: 'incident' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('ID: incident-response');
+    expect(result.content).toContain('<loaded_skill id="incident-response" />');
   });
 
   test('returns an error when name resolution is ambiguous', async () => {
@@ -99,6 +124,7 @@ describe('skill_load tool', () => {
     const result = await executeSkillLoad({ skill: 'Shared Name' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Ambiguous skill name');
+    expect(result.content).not.toContain('<loaded_skill');
   });
 
   test('returns an error when skill is missing', async () => {
@@ -108,5 +134,6 @@ describe('skill_load tool', () => {
     const result = await executeSkillLoad({ skill: 'does-not-exist' });
     expect(result.isError).toBe(true);
     expect(result.content).toContain('No skill matched');
+    expect(result.content).not.toContain('<loaded_skill');
   });
 });

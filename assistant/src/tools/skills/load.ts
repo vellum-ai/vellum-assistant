@@ -48,6 +48,8 @@ export class SkillLoadTool implements Tool {
         `Path: ${skill.skillFilePath}`,
         '',
         body,
+        '',
+        `<loaded_skill id="${skill.id}" />`,
       ].join('\n'),
       isError: false,
     };
