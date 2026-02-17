@@ -516,13 +516,13 @@ struct MainWindowView: View {
             NewConversationButton(action: { windowState.selection = nil; threadManager.createThread() })
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.sm)
+                .padding(.bottom, VSpacing.lg)
 
             ScrollView {
                 VStack(spacing: VSpacing.xl) {
                     // MARK: Threads Section
                     VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Threads", icon: "text.bubble")
+                        SidebarSectionHeader(title: "Threads")
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
@@ -552,7 +552,7 @@ struct MainWindowView: View {
                     // MARK: Apps Section
                     if !appListManager.apps.isEmpty {
                         VStack(spacing: VSpacing.xs) {
-                            SidebarSectionHeader(title: "Apps", icon: "square.grid.2x2")
+                            SidebarSectionHeader(title: "Apps")
 
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
@@ -1165,59 +1165,23 @@ private struct ZoomIndicatorView: View {
 
 private struct SidebarSectionHeader: View {
     let title: String
-    var icon: String? = nil
 
     var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-            }
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(VColor.textMuted)
-                .textCase(.uppercase)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, VSpacing.lg)
-        .padding(.bottom, VSpacing.xs)
+        Text(title)
+            .font(VFont.headline)
+            .foregroundColor(VColor.textSecondary)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, VSpacing.lg)
+            .padding(.bottom, VSpacing.xs)
     }
 }
 
 private struct NewConversationButton: View {
     let action: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.md) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textMuted)
-                    .frame(width: 22, height: 22)
-                    .overlay(
-                        Circle()
-                            .stroke(isHovered ? VColor.textMuted : VColor.textMuted.opacity(0.5), lineWidth: 1)
-                    )
-                Text("New conversation")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .foregroundColor(VColor.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(VAnimation.fast) {
-                isHovered = hovering
-            }
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
+        VButton(label: "New conversation", icon: "plus", style: .primary, isFullWidth: true, action: action)
     }
 }
 

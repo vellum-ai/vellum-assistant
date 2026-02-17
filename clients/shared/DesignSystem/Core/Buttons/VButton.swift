@@ -7,6 +7,7 @@ public struct VButton: View {
     public enum Style: Hashable { case primary, ghost, danger }
 
     public let label: String
+    public var icon: String? = nil
     public var style: Style = .primary
     public var isFullWidth: Bool = false
     public var isDisabled: Bool = false
@@ -14,8 +15,9 @@ public struct VButton: View {
 
     @State private var isHovered = false
 
-    public init(label: String, style: Style = .primary, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, style: Style = .primary, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
         self.label = label
+        self.icon = icon
         self.style = style
         self.isFullWidth = isFullWidth
         self.isDisabled = isDisabled
@@ -24,8 +26,14 @@ public struct VButton: View {
 
     public var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(VFont.monoMedium)
+            HStack(spacing: VSpacing.sm) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                Text(label)
+                    .font(VFont.monoMedium)
+            }
         }
         .buttonStyle(VButtonStyle(style: style, isHovered: isHovered, isFullWidth: isFullWidth))
         #if os(macOS)
