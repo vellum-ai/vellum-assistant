@@ -333,6 +333,9 @@ export class DaemonServer {
     if (fingerprint === this.lastConfigFingerprint) {
       return false;
     }
+    // Default trust rules depend on config (e.g. skills.load.extraDirs),
+    // so clear the trust cache so rules are regenerated from fresh config.
+    clearTrustCache();
     clearEmbeddingBackendCache();
     const isFirstInit = this.lastConfigFingerprint === '';
     initializeProviders(config);
