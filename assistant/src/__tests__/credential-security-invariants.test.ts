@@ -183,6 +183,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'daemon/handlers/config.ts',     // Vercel API token + integration OAuth (split handler)
       'integrations/registry.ts',      // integration connection status check
       'integrations/token-manager.ts', // OAuth token refresh flow
+      'email/providers/index.ts',      // email provider API key lookup
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
