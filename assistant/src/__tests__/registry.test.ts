@@ -15,6 +15,7 @@ import {
   registerSkillTools,
   unregisterSkillTools,
   getSkillToolNames,
+  getSkillRefCount,
 } from '../tools/registry.js';
 import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
@@ -358,5 +359,44 @@ describe('dynamic skill tool registry', () => {
     expect(() => registerSkillTools(tools)).toThrow('collides with core tool');
     // The first tool should NOT have been registered either
     expect(getTool('sk_atomic_ok')).toBeUndefined();
+  });
+});
+
+describe('skill tool reference counting', () => {
+  test('ref count increments on each registerSkillTools call', () => {
+    registerSkillTools([makeSkillTool('rc_a', 'rc-skill')]);
+    expect(getSkillRefCount('rc-skill')).toBe(1);
+
+    // Second session registers the same skill (same ownerSkillId allows replacement)
+    registerSkillTools([makeSkillTool('rc_a', 'rc-skill')]);
+    expect(getSkillRefCount('rc-skill')).toBe(2);
+  });
+
+  test('unregister decrements ref count but keeps tools when count > 0', () => {
+    registerSkillTools([makeSkillTool('rc_keep', 'rc-multi')]);
+    registerSkillTools([makeSkillTool('rc_keep', 'rc-multi')]);
+    expect(getSkillRefCount('rc-multi')).toBe(2);
+
+    unregisterSkillTools('rc-multi');
+    expect(getSkillRefCount('rc-multi')).toBe(1);
+    // Tools still present
+    expect(getTool('rc_keep')).toBeDefined();
+  });
+
+  test('tools are removed only when last reference is unregistered', () => {
+    registerSkillTools([makeSkillTool('rc_last', 'rc-final')]);
+    registerSkillTools([makeSkillTool('rc_last', 'rc-final')]);
+
+    unregisterSkillTools('rc-final');
+    expect(getTool('rc_last')).toBeDefined();
+
+    unregisterSkillTools('rc-final');
+    expect(getTool('rc_last')).toBeUndefined();
+    expect(getSkillRefCount('rc-final')).toBe(0);
+  });
+
+  test('unregister with no prior registration is a no-op', () => {
+    unregisterSkillTools('nonexistent-skill');
+    expect(getSkillRefCount('nonexistent-skill')).toBe(0);
   });
 });

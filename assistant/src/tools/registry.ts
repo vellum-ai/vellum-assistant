@@ -14,6 +14,10 @@ const log = getLogger('tool-registry');
 
 const tools = new Map<string, Tool>();
 
+// Tracks how many sessions are currently using each skill's tools.
+// Tools are only removed from the global registry when this drops to 0.
+const skillRefCount = new Map<string, number>();
+
 export interface LazyToolDescriptor {
   name: string;
   description: string;
@@ -120,16 +124,33 @@ export function registerSkillTools(newTools: Tool[]): void {
     }
   }
 
+  // Collect unique skill IDs from the batch to bump ref counts
+  const skillIds = new Set<string>();
   for (const tool of newTools) {
     tools.set(tool.name, tool);
+    if (tool.ownerSkillId) skillIds.add(tool.ownerSkillId);
     log.info({ name: tool.name, ownerSkillId: tool.ownerSkillId }, 'Skill tool registered');
+  }
+
+  for (const id of skillIds) {
+    skillRefCount.set(id, (skillRefCount.get(id) ?? 0) + 1);
   }
 }
 
 /**
- * Remove all tools owned by the given skill.
+ * Decrement the reference count for a skill and remove its tools only when
+ * no more sessions reference them.
  */
 export function unregisterSkillTools(skillId: string): void {
+  const current = skillRefCount.get(skillId) ?? 0;
+  if (current > 1) {
+    skillRefCount.set(skillId, current - 1);
+    log.info({ skillId, remaining: current - 1 }, 'Decremented skill ref count, tools kept');
+    return;
+  }
+
+  // Last reference — actually remove the tools
+  skillRefCount.delete(skillId);
   for (const [name, tool] of tools) {
     if (tool.origin === 'skill' && tool.ownerSkillId === skillId) {
       tools.delete(name);
@@ -145,6 +166,13 @@ export function getSkillToolNames(): string[] {
   return Array.from(tools.values())
     .filter((t) => t.origin === 'skill')
     .map((t) => t.name);
+}
+
+/**
+ * Return the current reference count for a skill's tools. Exposed for testing.
+ */
+export function getSkillRefCount(skillId: string): number {
+  return skillRefCount.get(skillId) ?? 0;
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
