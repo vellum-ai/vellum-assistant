@@ -146,12 +146,12 @@ describe('Permission Checker', () => {
         expect(risk).toBe(RiskLevel.Low);
       });
 
-      test('web_fetch with allow_private_network is medium risk', async () => {
+      test('web_fetch with allow_private_network is high risk', async () => {
         const risk = await classifyRisk('web_fetch', {
           url: 'http://localhost:3000',
           allow_private_network: true,
         });
-        expect(risk).toBe(RiskLevel.Medium);
+        expect(risk).toBe(RiskLevel.High);
       });
     });
 
@@ -551,8 +551,18 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('allow');
     });
 
-    test('web_fetch allow rule can approve medium-risk private-network fetches', async () => {
+    test('web_fetch allow rule does not auto-approve high-risk private-network fetches', async () => {
       addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp');
+      const result = await check(
+        'web_fetch',
+        { url: 'http://localhost:3000/health', allow_private_network: true },
+        '/tmp',
+      );
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('web_fetch allowHighRisk rule can approve private-network fetches', async () => {
+      addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp', 'allow', 100, { allowHighRisk: true });
       const result = await check(
         'web_fetch',
         { url: 'http://localhost:3000/health', allow_private_network: true },
@@ -567,7 +577,7 @@ describe('Permission Checker', () => {
 
       const allowed = await check(
         'web_fetch',
-        { url: 'https://example.com/search?q=test', allow_private_network: true },
+        { url: 'https://example.com/search?q=test' },
         '/tmp',
       );
       expect(allowed.decision).toBe('allow');

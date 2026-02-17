@@ -242,10 +242,12 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   }
   if (toolName === 'web_search') return RiskLevel.Low;
   if (toolName === 'web_fetch') {
-    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+    // Private-network fetches are High risk so that blanket allow rules
+    // (including the starter bundle) cannot silently bypass the prompt.
+    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
   }
   if (toolName === 'browser_navigate') {
-    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
