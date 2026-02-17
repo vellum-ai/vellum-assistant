@@ -890,7 +890,9 @@ private struct ChatBubble: View {
     /// When `inputSummary` is provided, produces contextual labels like "Read config.json".
     private static func friendlyToolLabel(_ toolName: String, inputSummary: String = "") -> String {
         let name = toolName.lowercased()
-        let summary = inputSummary.trimmingCharacters(in: .whitespaces)
+        let summary = inputSummary
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
 
         // Extract just the filename from a file path.
         let fileName: String? = {
