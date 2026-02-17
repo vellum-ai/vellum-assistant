@@ -25,6 +25,7 @@ import { handleMessage, type HandlerContext, type SessionCreateOptions } from '.
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
+import { SessionEvictor } from './session-evictor.js';
 
 const log = getLogger('server');
 
@@ -57,6 +58,7 @@ export class DaemonServer {
   private blobSweepTimer: ReturnType<typeof setInterval> | null = null;
   private static readonly CONFIG_REFRESH_INTERVAL_MS = 30_000;
   private static readonly MAX_CONNECTIONS = 50;
+  private evictor: SessionEvictor;
 
   private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
     const transport = options?.transport;
@@ -69,6 +71,7 @@ export class DaemonServer {
 
   constructor() {
     this.socketPath = getSocketPath();
+    this.evictor = new SessionEvictor(this.sessions);
   }
 
   async start(): Promise<void> {
@@ -87,6 +90,8 @@ export class DaemonServer {
     } catch (err) {
       log.warn({ err }, 'Failed to bootstrap Home Base app link at daemon startup');
     }
+
+    this.evictor.start();
 
     ensureBlobDir();
     this.blobSweepTimer = setInterval(() => {
@@ -125,6 +130,7 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    this.evictor.stop();
     if (this.blobSweepTimer) {
       clearInterval(this.blobSweepTimer);
       this.blobSweepTimer = null;
@@ -264,6 +270,9 @@ export class DaemonServer {
    */
   clearAllSessions(): number {
     const count = this.sessions.size;
+    for (const id of this.sessions.keys()) {
+      this.evictor.remove(id);
+    }
     for (const session of this.sessions.values()) {
       session.dispose();
     }
@@ -277,6 +286,7 @@ export class DaemonServer {
       if (!session.isProcessing()) {
         session.dispose();
         this.sessions.delete(id);
+        this.evictor.remove(id);
       } else {
         session.markStale();
       }
@@ -643,10 +653,12 @@ export class DaemonServer {
       } finally {
         this.sessionCreating.delete(conversationId);
       }
+      this.evictor.touch(conversationId);
     } else {
       // Rebind to the new socket so IPC goes to the current client.
       maybeBindClient(session);
       this.applyTransportMetadata(session, options);
+      this.evictor.touch(conversationId);
     }
     return session;
   }
