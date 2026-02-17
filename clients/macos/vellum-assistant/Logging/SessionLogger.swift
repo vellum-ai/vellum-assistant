@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(
+private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
     category: "SessionLogger"
 )
@@ -98,7 +98,7 @@ final class SessionLogger {
             let data = try encoder.encode(sessionLog)
             try data.write(to: fileURL)
         } catch {
-            log.error("Failed to save session log: \(error.localizedDescription)")
+            logger.error("Failed to save session log: \(error.localizedDescription)")
         }
     }
 }
