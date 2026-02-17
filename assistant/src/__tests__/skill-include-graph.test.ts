@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import type { SkillSummary } from '../config/skills.js';
-import { indexCatalogById, getImmediateChildren, traverseIncludes } from '../skills/include-graph.js';
+import { indexCatalogById, getImmediateChildren, traverseIncludes, validateIncludes } from '../skills/include-graph.js';
 
 function makeSkill(id: string, includes?: string[]): SkillSummary {
   return {
@@ -134,5 +134,80 @@ describe('traverseIncludes', () => {
     const index = indexCatalogById([]);
     const result = traverseIncludes('unknown', index);
     expect(result.visited).toEqual(['unknown']);
+  });
+});
+
+describe('validateIncludes — missing detection', () => {
+  test('valid graph with no missing children returns success', () => {
+    const catalog = [
+      makeSkill('root', ['child']),
+      makeSkill('child'),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.visited).toEqual(['root', 'child']);
+    }
+  });
+
+  test('detects immediate missing child', () => {
+    const catalog = [
+      makeSkill('root', ['missing-child']),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('missing');
+      expect(result.missingChildId).toBe('missing-child');
+      expect(result.parentId).toBe('root');
+      expect(result.path).toEqual(['root']);
+    }
+  });
+
+  test('detects deeply nested missing child', () => {
+    const catalog = [
+      makeSkill('root', ['mid']),
+      makeSkill('mid', ['missing-leaf']),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('missing');
+      expect(result.missingChildId).toBe('missing-leaf');
+      expect(result.parentId).toBe('mid');
+      expect(result.path).toEqual(['root', 'mid']);
+    }
+  });
+
+  test('first missing child is reported when multiple are missing', () => {
+    const catalog = [
+      makeSkill('root', ['missing-a', 'missing-b']),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.missingChildId).toBe('missing-a');
+    }
+  });
+
+  test('succeeds when skill has no includes', () => {
+    const catalog = [makeSkill('root')];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(true);
+  });
+
+  test('root skill itself missing still returns success (just the root ID visited)', () => {
+    const index = indexCatalogById([]);
+    const result = validateIncludes('unknown-root', index);
+    // Root doesn't need to be in catalog — it has no includes, so nothing to validate
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.visited).toEqual(['unknown-root']);
+    }
   });
 });
