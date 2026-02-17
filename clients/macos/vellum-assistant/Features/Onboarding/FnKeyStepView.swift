@@ -171,7 +171,7 @@ struct FnKeyStepView: View {
                     Button(action: {
                         stopPolling()
                         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-                            state.currentStep = 2
+                            state.currentStep = 3
                         }
                     }) {
                         Text("Back")

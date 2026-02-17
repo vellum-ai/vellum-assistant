@@ -26,7 +26,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 4
+    private static let currentFlowVersion = 5
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -62,11 +62,12 @@ final class OnboardingState {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.20
         case 2: return 0.30
-        case 3: return 0.40
-        case 4: return speechGranted ? 0.55 : 0.45
-        case 5: return accessibilityGranted ? 0.75 : 0.60
-        case 6: return screenGranted ? 0.95 : 0.80
-        case 7: return 1.0
+        case 3: return 0.45
+        case 4: return 0.60
+        case 5: return speechGranted ? 0.70 : 0.65
+        case 6: return accessibilityGranted ? 0.80 : 0.70
+        case 7: return screenGranted ? 0.95 : 0.85
+        case 8: return 1.0
         default: return 1.0
         }
     }
@@ -108,7 +109,7 @@ final class OnboardingState {
         // Default onboarding now exits immediately after the first post-hatch
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 3
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : 4
         if currentStep > maxStep {
             currentStep = maxStep
         }
