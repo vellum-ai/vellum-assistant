@@ -3,11 +3,11 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ContentView: View {
-    @EnvironmentObject var daemonClient: DaemonClient
+    @EnvironmentObject var clientProvider: ClientProvider
 
     var body: some View {
         TabView {
-            ThreadListView(daemonClient: daemonClient)
+            ThreadListView(daemonClient: clientProvider.client)
                 .tabItem {
                     Label("Chats", systemImage: "message")
                 }
@@ -22,6 +22,6 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .environmentObject(DaemonClient(config: .default))
+        .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
 }
 #endif

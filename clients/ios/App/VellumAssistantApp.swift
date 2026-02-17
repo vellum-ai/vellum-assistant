@@ -11,7 +11,7 @@ struct VellumAssistantApp: App {
         WindowGroup {
             if onboardingCompleted {
                 ContentView()
-                    .environmentObject(appDelegate.daemonClient)
+                    .environmentObject(appDelegate.clientProvider)
             } else {
                 OnboardingView(isCompleted: $onboardingCompleted)
             }
