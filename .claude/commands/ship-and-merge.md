@@ -26,7 +26,7 @@ Always create a fresh branch from main so the PR only contains the uncommitted c
 ```bash
 git stash --include-untracked
 git checkout main && git pull
-git checkout -B <slug-from-title>
+git checkout -B <user>/<slug-from-title>
 git stash pop
 ```
 
@@ -121,6 +121,13 @@ Verify the merge:
 
 ```bash
 gh pr view <number> --json state,mergedAt
+```
+
+Track the merged PR for review triage:
+
+```bash
+mkdir -p .private
+echo "<pr-url>" >> .private/UNREVIEWED_PRS.md
 ```
 
 ## Phase 6: Clean up
