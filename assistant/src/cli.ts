@@ -62,6 +62,7 @@ export async function startCli(): Promise<void> {
   let socket: net.Socket;
   let parser = createMessageParser();
   let sessionId = '';
+  let pendingUserContent: string | null = null;
   let generating = false;
   let lastResponse = '';
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
@@ -370,7 +371,20 @@ export async function startCli(): Promise<void> {
         process.stdout.write(
           `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
         );
-        prompt();
+        if (pendingUserContent) {
+          const content = pendingUserContent;
+          pendingUserContent = null;
+          lastResponse = '';
+          if (send({ type: 'user_message', sessionId, content })) {
+            generating = true;
+            spinner.start('Thinking...');
+          } else {
+            process.stdout.write('[Not connected — message not sent]\n');
+            prompt();
+          }
+        } else {
+          prompt();
+        }
         break;
 
       case 'assistant_text_delta':
@@ -870,6 +884,12 @@ export async function startCli(): Promise<void> {
       process.stdout.write('  /help             Show this help\n');
       process.stdout.write('\n');
       prompt();
+      return;
+    }
+
+    if (!sessionId) {
+      pendingUserContent = content;
+      spinner.start('Waiting for session...');
       return;
     }
 
