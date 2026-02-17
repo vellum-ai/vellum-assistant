@@ -68,6 +68,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       reqHeaders.delete("authorization");
     }
 
+    // Add the runtime's bearer token so the upstream accepts the request
+    if (config.runtimeBearerToken) {
+      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
+    }
+
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
     // cleared so streaming responses (SSE, chunked) can run indefinitely.

@@ -12,6 +12,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
+    runtimeBearerToken: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: false,
     runtimeProxyBearerToken: undefined,

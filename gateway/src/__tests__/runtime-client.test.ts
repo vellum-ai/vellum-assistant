@@ -12,6 +12,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   defaultAssistantId: undefined,
   unmappedPolicy: "reject",
   port: 7830,
+  runtimeBearerToken: undefined,
   runtimeProxyEnabled: false,
   runtimeProxyRequireAuth: true,
   runtimeProxyBearerToken: undefined,
@@ -146,6 +147,36 @@ describe("forwardToRuntime", () => {
     expect(attachments[0].mimeType).toBe("image/png");
     expect(attachments[0].sizeBytes).toBe(1024);
     expect(attachments[0].kind).toBe("generated_image");
+  });
+
+  test("sends Authorization header when runtimeBearerToken is configured", async () => {
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(successBody), { status: 200 }),
+      ),
+    );
+
+    const config = makeConfig({ runtimeBearerToken: "my-secret-token" });
+    await forwardToRuntime(config, "assistant-a", payload);
+
+    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    const headers = calledInit.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer my-secret-token");
+  });
+
+  test("omits Authorization header when runtimeBearerToken is undefined", async () => {
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(successBody), { status: 200 }),
+      ),
+    );
+
+    const config = makeConfig();
+    await forwardToRuntime(config, "assistant-a", payload);
+
+    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    const headers = calledInit.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBeUndefined();
   });
 });
 

@@ -17,6 +17,8 @@ export type GatewayConfig = {
   maxWebhookPayloadBytes: number;
   port: number;
   routingEntries: RoutingEntry[];
+  /** Bearer token sent to the assistant runtime on gateway-to-runtime calls. */
+  runtimeBearerToken: string | undefined;
   runtimeInitialBackoffMs: number;
   runtimeMaxRetries: number;
   runtimeProxyBearerToken: string | undefined;
@@ -114,6 +116,9 @@ export function loadConfig(): GatewayConfig {
     );
   }
   const runtimeProxyRequireAuth = proxyRequireAuthRaw !== "false";
+
+  const runtimeBearerToken =
+    process.env.RUNTIME_BEARER_TOKEN || undefined;
 
   const runtimeProxyBearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
@@ -217,6 +222,7 @@ export function loadConfig(): GatewayConfig {
     maxWebhookPayloadBytes,
     port,
     routingEntries,
+    runtimeBearerToken,
     runtimeInitialBackoffMs,
     runtimeMaxRetries,
     runtimeProxyBearerToken,

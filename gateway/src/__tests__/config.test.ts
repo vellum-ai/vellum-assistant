@@ -14,6 +14,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     ...Object.keys(overrides),
     "GATEWAY_RUNTIME_PROXY_ENABLED",
     "GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH",
+    "RUNTIME_BEARER_TOKEN",
     "RUNTIME_PROXY_BEARER_TOKEN",
     "GATEWAY_ASSISTANT_ROUTING_JSON",
     "GATEWAY_DEFAULT_ASSISTANT_ID",
@@ -143,5 +144,21 @@ describe("config: runtime proxy flags", () => {
         expect(config.runtimeProxyRequireAuth).toBe(true);
       },
     );
+  });
+});
+
+describe("config: runtime bearer token", () => {
+  test("runtimeBearerToken is undefined when RUNTIME_BEARER_TOKEN is unset", () => {
+    withEnv({}, () => {
+      const config = loadConfig();
+      expect(config.runtimeBearerToken).toBeUndefined();
+    });
+  });
+
+  test("runtimeBearerToken is set from RUNTIME_BEARER_TOKEN env var", () => {
+    withEnv({ RUNTIME_BEARER_TOKEN: "rt-secret" }, () => {
+      const config = loadConfig();
+      expect(config.runtimeBearerToken).toBe("rt-secret");
+    });
   });
 });
