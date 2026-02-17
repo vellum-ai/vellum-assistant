@@ -230,6 +230,41 @@ interface ParsedFrontmatter {
   includes?: string[];
 }
 
+function parseIncludes(raw: string | undefined, skillFilePath: string): string[] | undefined {
+  if (!raw) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    log.warn({ err, skillFilePath }, 'Failed to parse includes JSON in frontmatter');
+    return undefined;
+  }
+
+  if (!Array.isArray(parsed)) {
+    log.warn({ skillFilePath }, 'includes must be a JSON array');
+    return undefined;
+  }
+
+  if (!parsed.every((item: unknown) => typeof item === 'string')) {
+    log.warn({ skillFilePath }, 'includes must be an array of strings');
+    return undefined;
+  }
+
+  // Normalize: trim, remove empty strings, deduplicate preserving first-seen order
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of parsed as string[]) {
+    const trimmed = item.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result.length > 0 ? result : undefined;
+}
+
 function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontmatter | null {
   const match = content.match(FRONTMATTER_REGEX);
   if (!match) {
@@ -295,6 +330,8 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     }
   }
 
+  const includes = parseIncludes(fields.includes, skillFilePath);
+
   return {
     name,
     description,
@@ -303,6 +340,7 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     userInvocable,
     disableModelInvocation,
     metadata,
+    includes,
   };
 }
 
@@ -425,6 +463,7 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string, source
       source,
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
+      includes: parsed.includes,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read skill file');
@@ -465,6 +504,7 @@ function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition |
       source: 'bundled',
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
+      includes: parsed.includes,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
@@ -518,6 +558,7 @@ function loadBundledSkills(): SkillSummary[] {
       source: 'bundled',
       metadata: skill.metadata,
       toolManifest: skill.toolManifest,
+      includes: skill.includes,
     });
   }
 
@@ -637,6 +678,7 @@ function skillSummaryFromDefinition(skill: SkillDefinition, source: SkillSource)
     source,
     metadata: skill.metadata,
     toolManifest: skill.toolManifest,
+    includes: skill.includes,
   };
 }
 
@@ -681,6 +723,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
             source: 'extra',
             metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
+            includes: parsed.includes,
           });
         } catch (err) {
           log.warn({ err, directory }, 'Failed to read skill from extraDirs');
@@ -762,6 +805,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
           source: 'workspace',
           metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),
+          includes: parsed.includes,
         };
 
         if (seenIds.has(id)) {

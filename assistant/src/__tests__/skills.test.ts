@@ -380,3 +380,97 @@ describe('tool manifest detection', () => {
     expect(skill!.toolManifest).toBeUndefined();
   });
 });
+
+describe('includes frontmatter parsing', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  function writeSkillWithIncludes(skillId: string, includes: string): void {
+    const skillDir = join(TEST_DIR, 'skills', skillId);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---\nname: "${skillId}"\ndescription: "test"\nincludes: ${includes}\n---\n\nBody.\n`,
+    );
+  }
+
+  test('parses valid includes array', () => {
+    writeSkillWithIncludes('parent', '["child-a", "child-b"]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill).toBeDefined();
+    expect(skill!.includes).toEqual(['child-a', 'child-b']);
+  });
+
+  test('trims whitespace in includes entries', () => {
+    writeSkillWithIncludes('parent', '["  child-a  ", " child-b "]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toEqual(['child-a', 'child-b']);
+  });
+
+  test('removes empty strings from includes', () => {
+    writeSkillWithIncludes('parent', '["child-a", "", "  ", "child-b"]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toEqual(['child-a', 'child-b']);
+  });
+
+  test('deduplicates includes preserving first-seen order', () => {
+    writeSkillWithIncludes('parent', '["child-a", "child-b", "child-a"]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toEqual(['child-a', 'child-b']);
+  });
+
+  test('returns undefined for invalid JSON', () => {
+    writeSkillWithIncludes('parent', 'not-json');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toBeUndefined();
+  });
+
+  test('returns undefined for non-array JSON', () => {
+    writeSkillWithIncludes('parent', '"just-a-string"');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toBeUndefined();
+  });
+
+  test('returns undefined for array with non-string elements', () => {
+    writeSkillWithIncludes('parent', '[123, true]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toBeUndefined();
+  });
+
+  test('returns undefined for empty array', () => {
+    writeSkillWithIncludes('parent', '[]');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'parent');
+    expect(skill!.includes).toBeUndefined();
+  });
+
+  test('skill without includes has undefined includes', () => {
+    writeSkill('no-includes', 'No Includes', 'Test');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- no-includes\n');
+    const catalog = loadUserSkillCatalog();
+    const skill = catalog.find(s => s.id === 'no-includes');
+    expect(skill!.includes).toBeUndefined();
+  });
+});
