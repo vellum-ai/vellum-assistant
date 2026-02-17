@@ -209,8 +209,12 @@ export async function handleSkillsInstall(
     // Reload skill catalog so the newly installed skill is picked up
     loadSkillCatalog();
 
-    // Auto-enable the newly installed skill so it's immediately usable
-    const skillId = result.skillName ?? msg.slug;
+    // Auto-enable the newly installed skill so it's immediately usable.
+    // Use basename of slug to match the catalog ID (directory basename), since
+    // install slugs can be namespaced (e.g. "org/name") but skill state keys use
+    // the bare directory name.
+    const rawId = result.skillName ?? msg.slug;
+    const skillId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
     try {
       const raw = loadRawConfig();
       ensureSkillEntry(raw, skillId).enabled = true;
