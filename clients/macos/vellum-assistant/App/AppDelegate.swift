@@ -218,7 +218,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 420, height: 580)
-        window.center()
+
+        let startWidth: CGFloat = 460
+        let startHeight: CGFloat = 620
+        if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+            let x = visibleFrame.midX - startWidth / 2
+            let y = visibleFrame.midY - startHeight / 2
+            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+        } else {
+            window.setContentSize(NSSize(width: startWidth, height: startHeight))
+            window.center()
+        }
 
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
