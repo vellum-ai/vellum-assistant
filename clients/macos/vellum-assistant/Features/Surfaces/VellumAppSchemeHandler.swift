@@ -48,26 +48,45 @@ final class VellumAppSchemeHandler: NSObject, WKURLSchemeHandler {
             let filePath = resourcePath.isEmpty
                 ? appDir
                 : appDir.appendingPathComponent(resourcePath)
-            let resolvedPath = filePath.standardizedFileURL.path
-            let appDirPath = appDir.standardizedFileURL.path
-            // Security: ensure the resolved path is within the app directory.
-            guard resolvedPath == appDirPath || resolvedPath.hasPrefix(appDirPath + "/") else {
+
+            // Lexical check first (catches ../ traversal before hitting disk)
+            let standardPath = filePath.standardizedFileURL.path
+            let standardAppDir = appDir.standardizedFileURL.path
+            guard standardPath == standardAppDir || standardPath.hasPrefix(standardAppDir + "/") else {
                 return nil
             }
-            guard FileManager.default.fileExists(atPath: resolvedPath) else {
+
+            // Resolve symlinks via realpath for defense-in-depth
+            let realPath = filePath.resolvingSymlinksInPath().path
+            let realAppDir = appDir.resolvingSymlinksInPath().path
+            guard realPath == realAppDir || realPath.hasPrefix(realAppDir + "/") else {
                 return nil
             }
-            return (resolvedPath, appDirPath)
+
+            // Must be a regular file (not a symlink, device, pipe, etc.)
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: realPath, isDirectory: &isDir), !isDir.boolValue else {
+                return nil
+            }
+
+            return (realPath, realAppDir)
         }
 
         guard let resolved = candidateDirs.lazy.compactMap({ resolveFile(in: $0) }).first else {
-            // Check if any candidate had a path traversal issue
+            // Check if any candidate had a path traversal issue (lexical or symlink)
             for appDir in candidateDirs {
                 let filePath = resourcePath.isEmpty ? appDir : appDir.appendingPathComponent(resourcePath)
-                let resolvedPath = filePath.standardizedFileURL.path
-                let appDirPath = appDir.standardizedFileURL.path
-                if resolvedPath != appDirPath && !resolvedPath.hasPrefix(appDirPath + "/") {
-                    log.error("Path traversal attempt: \(resolvedPath) outside \(appDirPath)")
+
+                let stdPath = filePath.standardizedFileURL.path
+                let stdDir = appDir.standardizedFileURL.path
+                let lexicalEscape = stdPath != stdDir && !stdPath.hasPrefix(stdDir + "/")
+
+                let realPath = filePath.resolvingSymlinksInPath().path
+                let realDir = appDir.resolvingSymlinksInPath().path
+                let symlinkEscape = realPath != realDir && !realPath.hasPrefix(realDir + "/")
+
+                if lexicalEscape || symlinkEscape {
+                    log.error("Path traversal attempt: \(realPath) outside \(realDir)")
                     fail(urlSchemeTask, statusCode: 403, message: "Access denied")
                     return
                 }
