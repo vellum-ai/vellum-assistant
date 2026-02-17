@@ -38,6 +38,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   workingDir: string;
   sandboxOverride?: boolean;
   abortController: AbortController | null;
+  /** When set, only tools in this set may execute during the current turn. */
+  allowedToolNames?: Set<string>;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -82,6 +84,7 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
+      allowedToolNames: ctx.allowedToolNames,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       requestSecret: async (params) => {

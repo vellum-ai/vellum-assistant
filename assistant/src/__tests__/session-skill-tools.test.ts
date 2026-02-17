@@ -437,3 +437,113 @@ describe('resolveTools callback (session wiring)', () => {
     expect(names).toContain('oncall_ack');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests — allowed tool set merging with core tools
+// ---------------------------------------------------------------------------
+
+describe('allowed tool set merging', () => {
+  const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  /**
+   * Simulates the merging logic from session.ts:
+   * union of core tool names + projected skill tool names.
+   */
+  function buildAllowedSet(projection: { allowedToolNames: Set<string> }): Set<string> {
+    const merged = new Set(CORE_TOOL_NAMES);
+    for (const name of projection.allowedToolNames) {
+      merged.add(name);
+    }
+    return merged;
+  }
+
+  test('core tools are always included even with no active skills', () => {
+    const projection = projectSkillTools([]);
+    const allowed = buildAllowedSet(projection);
+
+    for (const core of CORE_TOOL_NAMES) {
+      expect(allowed.has(core)).toBe(true);
+    }
+  });
+
+  test('active skill tools are included alongside core tools', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run', 'deploy_status']) };
+
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+
+    const projection = projectSkillTools(history);
+    const allowed = buildAllowedSet(projection);
+
+    // Core tools present
+    for (const core of CORE_TOOL_NAMES) {
+      expect(allowed.has(core)).toBe(true);
+    }
+    // Active skill tools present
+    expect(allowed.has('deploy_run')).toBe(true);
+    expect(allowed.has('deploy_status')).toBe(true);
+  });
+
+  test('inactive skill tools are NOT in the allowed set', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    // Only deploy is active
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+
+    const projection = projectSkillTools(history);
+    const allowed = buildAllowedSet(projection);
+
+    expect(allowed.has('deploy_run')).toBe(true);
+    // oncall_page is not active — not in projection, not in allowed set
+    expect(allowed.has('oncall_page')).toBe(false);
+  });
+
+  test('allowed set updates when skills activate and deactivate', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    // Turn 1: both active
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    const projection1 = projectSkillTools(history1);
+    const allowed1 = buildAllowedSet(projection1);
+
+    expect(allowed1.has('deploy_run')).toBe(true);
+    expect(allowed1.has('oncall_page')).toBe(true);
+
+    // Turn 2: only deploy remains
+    const history2: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+    const projection2 = projectSkillTools(history2);
+    const allowed2 = buildAllowedSet(projection2);
+
+    expect(allowed2.has('deploy_run')).toBe(true);
+    expect(allowed2.has('oncall_page')).toBe(false);
+    // Core tools still present
+    for (const core of CORE_TOOL_NAMES) {
+      expect(allowed2.has(core)).toBe(true);
+    }
+  });
+});

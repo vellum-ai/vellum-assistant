@@ -122,6 +122,10 @@ export class Session {
   workingDir: string;
   /** @internal — exposed for session-tool-setup.ts module functions. */
   sandboxOverride?: boolean;
+  /** @internal — per-turn allowed tool set, read by the tool executor closure. */
+  allowedToolNames?: Set<string>;
+  /** Core tool names (computed once in constructor), always allowed regardless of skill state. */
+  private coreToolNames: Set<string>;
   /** @internal — exposed for session-usage.ts module functions. */
   usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
@@ -237,6 +241,7 @@ export class Session {
     };
 
     const toolDefs = buildToolDefinitions();
+    this.coreToolNames = new Set(toolDefs.map((d) => d.name));
     const toolExecutor = createToolExecutor(
       this.executor,
       this.prompter,
@@ -731,6 +736,15 @@ export class Session {
         workspaceTopLevelContext: this.workspaceTopLevelContext,
       });
 
+      // Project skill tools for this turn and build the allowed tool set.
+      // Core tools are always included so they're never gated.
+      const skillProjection = projectSkillTools(runMessages);
+      const turnAllowed = new Set(this.coreToolNames);
+      for (const name of skillProjection.allowedToolNames) {
+        turnAllowed.add(name);
+      }
+      this.allowedToolNames = turnAllowed;
+
       // Pre-run repair: fix any message ordering issues before sending to provider.
       // Keep a reference to the original (un-repaired) messages so we can
       // reconstruct this.messages after the agent loop without leaking synthetic
@@ -1154,6 +1168,7 @@ export class Session {
       this.processing = false;
       this.currentRequestId = undefined;
       this.currentActiveSurfaceId = undefined;
+      this.allowedToolNames = undefined;
 
       // Consolidate consecutive assistant messages from this agent loop run
       if (userMessageId) {
