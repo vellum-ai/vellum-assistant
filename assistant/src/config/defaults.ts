@@ -155,7 +155,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     allowOneTimeSend: false,
   },
   permissions: {
-    mode: 'legacy',
+    mode: 'strict',
   },
   auditLog: {
     retentionDays: 0,
