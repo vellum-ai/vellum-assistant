@@ -984,6 +984,20 @@ private struct SlashCommandPopup: View {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (SlashCommand) -> Void
+    private let avatarSeed: String
+    private let avatarPalette: DinoFaceView.Palette
+    private let avatarOutfit: DinoFaceView.Outfit
+
+    init(commands: [SlashCommand], selectedIndex: Int, onSelect: @escaping (SlashCommand) -> Void) {
+        self.commands = commands
+        self.selectedIndex = selectedIndex
+        self.onSelect = onSelect
+        let identity = IdentityInfo.load()
+        self.avatarSeed = identity?.name ?? "default"
+        let appearance = AvatarAppearanceManager.shared
+        self.avatarPalette = appearance.palette
+        self.avatarOutfit = appearance.outfit
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -991,7 +1005,10 @@ private struct SlashCommandPopup: View {
                 SlashCommandRow(
                     command: command,
                     isSelected: index == selectedIndex,
-                    onSelect: { onSelect(command) }
+                    onSelect: { onSelect(command) },
+                    avatarSeed: avatarSeed,
+                    avatarPalette: avatarPalette,
+                    avatarOutfit: avatarOutfit
                 )
             }
         }
@@ -1010,14 +1027,15 @@ private struct SlashCommandRow: View {
     let command: SlashCommand
     let isSelected: Bool
     let onSelect: () -> Void
+    let avatarSeed: String
+    let avatarPalette: DinoFaceView.Palette
+    let avatarOutfit: DinoFaceView.Outfit
     @State private var isHovered = false
-    private let identity = IdentityInfo.load()
-    private let appearance = AvatarAppearanceManager.shared
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: VSpacing.md) {
-                DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                DinoFaceView(seed: avatarSeed, palette: avatarPalette, outfit: avatarOutfit)
                     .frame(width: 28, height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .allowsHitTesting(false)
