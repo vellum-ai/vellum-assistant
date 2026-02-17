@@ -7,12 +7,10 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            NavigationStack {
-                ChatTabView(daemonClient: daemonClient)
-            }
-            .tabItem {
-                Label("Chat", systemImage: "message")
-            }
+            ThreadListView(daemonClient: daemonClient)
+                .tabItem {
+                    Label("Chats", systemImage: "message")
+                }
 
             SettingsView()
                 .tabItem {
