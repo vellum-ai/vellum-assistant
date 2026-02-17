@@ -35,7 +35,9 @@ public final class AmbientAgent: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] shouldShow in
                 if shouldShow {
-                    self?.showInvitation()
+                    Task { @MainActor in
+                        await self?.showInvitation()
+                    }
                 }
             }
         rideShotgunTrigger.start()
@@ -62,7 +64,15 @@ public final class AmbientAgent: ObservableObject {
 
     // MARK: - Ride Shotgun Flow
 
-    func showInvitation() {
+    func showInvitation() async {
+        // Check notification authorization; fall back to starting session directly
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus == .authorized else {
+            log.warning("Notifications not authorized; falling back to direct ride shotgun session")
+            startRideShotgun(durationSeconds: 60)
+            return
+        }
+
         let content = UNMutableNotificationContent()
         content.title = "Ride Shotgun"
         content.body = """

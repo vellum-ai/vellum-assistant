@@ -669,7 +669,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showRideShotgunInvitation() {
-        ambientAgent.showInvitation()
+        Task { @MainActor in
+            await ambientAgent.showInvitation()
+        }
     }
 
     @objc private func toggleSkill(_ sender: NSMenuItem) {
