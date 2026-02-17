@@ -56,8 +56,9 @@ struct SignupView: View {
 
                 VStack(spacing: VSpacing.sm) {
                     ForEach(authManager.providers, id: \.id) { provider in
+                        let isActiveProvider = authManager.submittingProviderId == provider.id
                         VButton(
-                            label: authManager.isSubmitting ? "Redirecting..." : "Continue with \(provider.name ?? provider.id)",
+                            label: isActiveProvider ? "Redirecting..." : "Continue with \(provider.name ?? provider.id)",
                             style: .ghost,
                             isFullWidth: true,
                             isDisabled: authManager.isSubmitting

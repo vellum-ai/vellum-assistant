@@ -26,6 +26,7 @@ final class AuthManager {
     var state: AuthState = .loading
     var currentFlow: AuthFlow = .login
     var isSubmitting = false
+    var submittingProviderId: String?
     var errorMessage: String?
     var providers: [ProviderConfig] = []
 
@@ -148,6 +149,7 @@ final class AuthManager {
 
     private func startProviderRedirectLogin(provider: ProviderConfig) async {
         isSubmitting = true
+        submittingProviderId = provider.id
         errorMessage = nil
 
         do {
@@ -185,6 +187,7 @@ final class AuthManager {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false
+        submittingProviderId = nil
     }
 
     private func startOIDCLogin(provider: ProviderConfig) async {
@@ -195,6 +198,7 @@ final class AuthManager {
         }
 
         isSubmitting = true
+        submittingProviderId = provider.id
         errorMessage = nil
 
         do {
@@ -261,6 +265,7 @@ final class AuthManager {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false
+        submittingProviderId = nil
     }
 
     func logout() async {
