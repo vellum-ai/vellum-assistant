@@ -170,13 +170,13 @@ describe('skill_load tool', () => {
     expect(result.content).not.toContain('<loaded_skill');
   });
 
-  test('successful skill_load output has no child metadata section', async () => {
+  test('successful skill_load output shows "none" for skills without includes', async () => {
     writeSkill('standalone', 'Standalone Skill', 'A skill with no children', 'Do the thing');
     writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- standalone\n');
 
     const result = await executeSkillLoad({ skill: 'standalone' });
     expect(result.isError).toBe(false);
-    expect(result.content).not.toContain('Included Skills');
+    expect(result.content).toContain('Included Skills (immediate): none');
   });
 
   test('successful skill_load emits exactly one loaded_skill marker', async () => {
@@ -265,5 +265,31 @@ describe('skill_load tool', () => {
     const result = await executeSkillLoad({ skill: 'no-includes' });
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Skill: No Includes');
+  });
+
+  test('skill_load output includes immediate child metadata', async () => {
+    writeSkill('child-skill', 'Child Skill', 'A child skill', 'Child body');
+    const parentDir = join(TEST_DIR, 'skills', 'parent-with-children');
+    mkdirSync(parentDir, { recursive: true });
+    writeFileSync(
+      join(parentDir, 'SKILL.md'),
+      '---\nname: "Parent"\ndescription: "Has children"\nincludes: ["child-skill"]\n---\n\nParent body.\n',
+    );
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- parent-with-children\n- child-skill\n');
+
+    const result = await executeSkillLoad({ skill: 'parent-with-children' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Included Skills (immediate):');
+    expect(result.content).toContain('child-skill: Child Skill');
+    expect(result.content).toContain('<loaded_skill');
+  });
+
+  test('skill_load output shows "none" when no includes', async () => {
+    writeSkill('solo-skill', 'Solo', 'No children', 'Body');
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- solo-skill\n');
+
+    const result = await executeSkillLoad({ skill: 'solo-skill' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Included Skills (immediate): none');
   });
 });
