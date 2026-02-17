@@ -1,0 +1,772 @@
+import Foundation
+import os
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#else
+#error("Unsupported platform")
+#endif
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel+MessageHandling")
+
+// MARK: - Message Handling
+
+extension ChatViewModel {
+
+    /// Returns true if the given session ID belongs to this chat session.
+    /// Messages with a nil sessionId are always accepted; messages whose
+    /// sessionId doesn't match the current session are silently ignored
+    /// to prevent cross-session contamination (e.g. from a popover text_qa flow).
+    func belongsToSession(_ messageSessionId: String?) -> Bool {
+        guard let messageSessionId else { return true }
+        guard let sessionId else {
+            // No session established yet — accept all messages
+            return true
+        }
+        return messageSessionId == sessionId
+    }
+
+    /// Priority list of input keys whose values are most useful as a tool call summary.
+    static let toolInputPriorityKeys = [
+        "command", "file_path", "path", "query", "url", "pattern", "glob"
+    ]
+
+    /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
+    func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
+        // Pick the first matching priority key, falling back to the first sorted key.
+        let value: AnyCodable
+        if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
+           let v = input[match] {
+            value = v
+        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
+            value = v
+        } else {
+            return ""
+        }
+        let str: String
+        if let s = value.value as? String {
+            str = s
+        } else if let encoder = try? JSONEncoder().encode(value),
+                  let json = String(data: encoder, encoding: .utf8) {
+            str = json
+        } else {
+            str = String(describing: value.value ?? "")
+        }
+        return str.count > 80 ? String(str.prefix(77)) + "..." : str
+    }
+
+    func toolDisplayName(_ name: String) -> String {
+        switch name {
+        case "file_write": return "Write File"
+        case "file_edit": return "Edit File"
+        case "bash": return "Run Command"
+        case "web_fetch": return "Fetch URL"
+        case "file_read": return "Read File"
+        case "glob": return "Find Files"
+        case "grep": return "Search Files"
+        default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    /// Extract a code preview from accumulated tool input JSON.
+    /// Shows the HTML code as it streams during app_create/app_update.
+    static func extractCodePreview(from accumulatedJson: String, toolName: String) -> String? {
+        guard !accumulatedJson.isEmpty else { return nil }
+        let isAppTool = toolName == "app_create" || toolName == "app_update"
+        guard isAppTool else { return nil }
+
+        // Show the HTML code as it streams in
+        let markers = ["\"html\": \"", "\"html\":\""]
+        for marker in markers {
+            if let range = accumulatedJson.range(of: marker) {
+                var html = String(accumulatedJson[range.upperBound...])
+                if html.hasSuffix("\"}") {
+                    html = String(html.dropLast(2))
+                } else if html.hasSuffix("\"") {
+                    html = String(html.dropLast(1))
+                }
+                html = html
+                    .replacingOccurrences(of: "\\n", with: "\n")
+                    .replacingOccurrences(of: "\\t", with: "\t")
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                    .replacingOccurrences(of: "\\\\", with: "\\")
+                return html.isEmpty ? nil : html
+            }
+        }
+
+        return nil
+    }
+
+    /// Map IPC attachment DTOs to ChatAttachment values, generating thumbnails for images.
+    func mapIPCAttachments(_ ipcAttachments: [IPCUserMessageAttachment]) -> [ChatAttachment] {
+        ipcAttachments.compactMap { ipc in
+            let id = ipc.id ?? UUID().uuidString
+            let base64 = ipc.data
+            let dataLength = base64.count
+
+            var thumbnailData: Data?
+            #if os(macOS)
+            var thumbnailImage: NSImage?
+            #elseif os(iOS)
+            var thumbnailImage: UIImage?
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            if ipc.mimeType.hasPrefix("image/"), let rawData = Data(base64Encoded: base64) {
+                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
+                #if os(macOS)
+                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
+                #elseif os(iOS)
+                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
+                #endif
+            }
+
+            return ChatAttachment(
+                id: id,
+                filename: ipc.filename,
+                mimeType: ipc.mimeType,
+                data: base64,
+                thumbnailData: thumbnailData,
+                dataLength: dataLength,
+                thumbnailImage: thumbnailImage
+            )
+        }
+    }
+
+    /// Ingest attachments from a completion/handoff event into the current or new assistant message.
+    func ingestAssistantAttachments(_ ipcAttachments: [IPCUserMessageAttachment]?) {
+        guard let ipcAttachments, !ipcAttachments.isEmpty else { return }
+        let chatAttachments = mapIPCAttachments(ipcAttachments)
+        guard !chatAttachments.isEmpty else { return }
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            messages[index].attachments.append(contentsOf: chatAttachments)
+        } else {
+            let msg = ChatMessage(role: .assistant, text: "", attachments: chatAttachments)
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
+    public func handleServerMessage(_ message: ServerMessage) {
+        switch message {
+        case .sessionInfo(let info):
+            // Only claim this session_info if:
+            // 1. We don't have a session yet, AND
+            // 2. The correlation ID matches our bootstrap request (if we sent one).
+            //    Session info without a correlation ID is accepted when we have no
+            //    bootstrap correlation (backwards compatibility with older daemons).
+            if sessionId == nil {
+                if let expected = bootstrapCorrelationId {
+                    guard info.correlationId == expected else {
+                        // This session_info belongs to a different ChatViewModel's request.
+                        break
+                    }
+                }
+
+                sessionId = info.sessionId
+                bootstrapCorrelationId = nil
+                onSessionCreated?(info.sessionId)
+                log.info("Chat session created: \(info.sessionId)")
+
+                // Send the queued user message
+                if let pending = pendingUserMessage {
+                    let attachments = pendingUserAttachments
+                    pendingUserMessage = nil
+                    pendingUserAttachments = nil
+                    do {
+                        try daemonClient.send(UserMessageMessage(
+                            sessionId: info.sessionId,
+                            content: pending,
+                            attachments: attachments,
+                            activeSurfaceId: activeSurfaceId,
+                            currentPage: activeSurfaceId != nil ? currentPage : nil
+                        ))
+                    } catch {
+                        log.error("Failed to send queued user_message: \(error.localizedDescription)")
+                        isSending = false
+                        isThinking = false
+                        errorText = "Failed to send message."
+                    }
+                }
+            }
+
+        case .userMessageEcho(let echo):
+            guard belongsToSession(echo.sessionId) else { return }
+            let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
+            messages.append(userMsg)
+            isSending = true
+            isThinking = true
+
+        case .assistantThinkingDelta:
+            // Stay in thinking state
+            break
+
+        case .assistantTextDelta(let delta):
+            guard belongsToSession(delta.sessionId) else { return }
+            guard !isCancelling else { return }
+            if isWorkspaceRefinementInFlight {
+                refinementTextBuffer += delta.text
+                refinementStreamingText = refinementTextBuffer
+                return
+            }
+            isThinking = false
+            currentAssistantHasText = true
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                if lastContentWasToolCall || messages[index].textSegments.isEmpty {
+                    // Start a new text segment (first text or after a tool call)
+                    let segIdx = messages[index].textSegments.count
+                    messages[index].textSegments.append(delta.text)
+                    messages[index].contentOrder.append(.text(segIdx))
+                    lastContentWasToolCall = false
+                } else {
+                    // Append to the current (last) text segment
+                    messages[index].textSegments[messages[index].textSegments.count - 1] += delta.text
+                }
+            } else {
+                // Create new assistant message
+                let msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
+                currentAssistantMessageId = msg.id
+                messages.append(msg)
+                lastContentWasToolCall = false
+            }
+
+        case .suggestionResponse(let resp):
+            // Only accept if this response matches our current request
+            guard resp.requestId == pendingSuggestionRequestId else { return }
+            pendingSuggestionRequestId = nil
+            suggestion = resp.suggestion
+
+        case .messageComplete(let complete):
+            guard belongsToSession(complete.sessionId) else { return }
+            let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
+            isWorkspaceRefinementInFlight = false
+            cancelledDuringRefinement = false
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
+            isCancelling = false
+            isThinking = false
+            // Only clear isSending if no messages are still queued
+            if pendingQueuedCount == 0 {
+                isSending = false
+            }
+            // Surface the AI's text response when a refinement produced no update
+            if wasRefinement {
+                if refinementReceivedSurfaceUpdate {
+                    // Surface updated — auto-dismiss the activity feed after 2s
+                    refinementFailureDismissTask?.cancel()
+                    refinementFailureDismissTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard let self, !Task.isCancelled else { return }
+                        self.refinementMessagePreview = nil
+                        self.refinementStreamingText = nil
+                    }
+                } else if !refinementTextBuffer.isEmpty {
+                    let text = refinementTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        refinementStreamingText = text
+                        refinementFailureText = text
+                    } else {
+                        // Buffer was only whitespace — clean up
+                        refinementMessagePreview = nil
+                        refinementStreamingText = nil
+                    }
+                } else {
+                    // No surface update and no text — clean up
+                    refinementMessagePreview = nil
+                    refinementStreamingText = nil
+                }
+                refinementTextBuffer = ""
+                refinementReceivedSurfaceUpdate = false
+            }
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
+            if !wasRefinement {
+                ingestAssistantAttachments(complete.attachments)
+            }
+            var completedToolCalls: [ToolCallData]?
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+                // Delay clearing the code preview so users can see the HTML being written
+                let hadCodePreview = messages[index].streamingCodePreview != nil
+                if hadCodePreview {
+                    let msgId = existingId
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                        guard let self,
+                              let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
+                        self.messages[idx].streamingCodePreview = nil
+                        self.messages[idx].streamingCodeToolName = nil
+                    }
+                } else {
+                    messages[index].streamingCodePreview = nil
+                    messages[index].streamingCodeToolName = nil
+                }
+                // Check if this message has completed tool calls
+                let toolCalls = messages[index].toolCalls
+                if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
+                    completedToolCalls = toolCalls
+                }
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            // Skip follow-up suggestions for workspace refinements
+            if !isSending && !wasRefinement {
+                fetchSuggestion()
+            }
+            // Notify about completed tool calls
+            if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
+                callback(toolCalls)
+            }
+
+        case .undoComplete(let undoMsg):
+            guard belongsToSession(undoMsg.sessionId) else { return }
+            // Remove all messages after the last user message (the assistant
+            // exchange that was regenerated). The daemon will immediately start
+            // streaming a new response.
+            if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) {
+                messages.removeSubrange((lastUserIndex + 1)...)
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+
+        case .generationCancelled(let cancelled):
+            guard belongsToSession(cancelled.sessionId) else { return }
+            isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
+            cancelledDuringRefinement = false
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
+            let wasCancelling = isCancelling
+            isCancelling = false
+            isThinking = false
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                isSending = false
+            }
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+
+        case .messageQueued(let queued):
+            guard belongsToSession(queued.sessionId) else { return }
+            pendingQueuedCount += 1
+            // Associate this requestId with the oldest pending user message
+            if let messageId = pendingMessageIds.first {
+                pendingMessageIds.removeFirst()
+                requestIdToMessageId[queued.requestId] = messageId
+                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                    messages[index].status = .queued(position: queued.position)
+                }
+            }
+
+        case .messageDequeued(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            pendingQueuedCount = max(0, pendingQueuedCount - 1)
+            // Mark the associated user message as processing
+            if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
+               let index = messages.firstIndex(where: { $0.id == messageId }) {
+                messages[index].status = .processing
+            }
+            // Recompute positions for remaining queued messages
+            for i in messages.indices {
+                if case .queued(let position) = messages[i].status, position > 0 {
+                    messages[i].status = .queued(position: position - 1)
+                }
+            }
+            // The dequeued message is now being processed
+            isThinking = true
+            isSending = true
+
+        case .generationHandoff(let handoff):
+            guard belongsToSession(handoff.sessionId) else { return }
+            isThinking = false
+            // Must run before currentAssistantMessageId is cleared so attachments land on the right message
+            ingestAssistantAttachments(handoff.attachments)
+            // Keep isSending = true — daemon is handing off to next queued message
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+
+        case .error(let err):
+            log.error("Server error: \(err.message)")
+            isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
+            cancelledDuringRefinement = false
+            isThinking = false
+            let wasCancelling = isCancelling
+            isCancelling = false
+            // Mark current assistant message as no longer streaming
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+            if !wasCancelling {
+                errorText = err.message
+            }
+            // Reset processing messages to sent
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            // When a cancellation-related generic error arrives while we are
+            // in cancel mode, force-clear queue bookkeeping because queued
+            // messages will not be processed and no message_dequeued events
+            // are expected for them.
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // The daemon drains queued work after a non-cancellation
+                // error, so preserve queue bookkeeping when messages are
+                // still queued. Only clear everything when the queue is
+                // empty.
+                isSending = false
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+            }
+
+        case .confirmationRequest(let msg):
+            // Route using sessionId when available (daemon >= v1.x includes
+            // the conversationId). Fall back to the timestamp-based heuristic
+            // via shouldAcceptConfirmation for older daemons that omit sessionId.
+            if let msgSessionId = msg.sessionId {
+                guard sessionId != nil, belongsToSession(msgSessionId) else { return }
+            } else {
+                guard sessionId != nil,
+                      lastToolUseReceivedAt != nil,
+                      shouldAcceptConfirmation?() ?? false else { return }
+            }
+            isThinking = false
+            let confirmation = ToolConfirmationData(
+                requestId: msg.requestId,
+                toolName: msg.toolName,
+                input: msg.input,
+                riskLevel: msg.riskLevel,
+                diff: msg.diff,
+                allowlistOptions: msg.allowlistOptions,
+                scopeOptions: msg.scopeOptions,
+                executionTarget: msg.executionTarget
+            )
+            let confirmMsg = ChatMessage(
+                role: .assistant,
+                text: "",
+                confirmation: confirmation
+            )
+            // Insert after the current streaming assistant message so the
+            // assistant's text appears above the confirmation buttons.
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+                messages.insert(confirmMsg, at: index + 1)
+            } else {
+                messages.append(confirmMsg)
+            }
+
+        case .toolUseStart(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
+            lastToolUseReceivedAt = Date()
+            // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
+            if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
+                break
+            }
+            let toolCall = ToolCallData(
+                toolName: toolDisplayName(msg.toolName),
+                inputSummary: summarizeToolInput(msg.input),
+                arrivedBeforeText: !currentAssistantHasText,
+                startedAt: Date()
+            )
+            // Add to existing assistant message or create one
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                let tcIdx = messages[index].toolCalls.count
+                messages[index].toolCalls.append(toolCall)
+                messages[index].contentOrder.append(.toolCall(tcIdx))
+            } else {
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                newMsg.contentOrder = [.toolCall(0)]
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+            lastContentWasToolCall = true
+
+        case .toolInputDelta(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            let preview = Self.extractCodePreview(from: msg.content, toolName: msg.toolName)
+            if let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[msgIndex].streamingCodePreview = preview
+                messages[msgIndex].streamingCodeToolName = msg.toolName
+            } else {
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true)
+                newMsg.streamingCodePreview = preview
+                newMsg.streamingCodeToolName = msg.toolName
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+
+        case .toolOutputChunk:
+            // Streaming output — ignore for now, we show the final result
+            break
+
+        case .toolResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            guard !isCancelling else { return }
+            guard !isWorkspaceRefinementInFlight else { return }
+            // Find the most recent pending (incomplete) tool call and mark it complete
+            if let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete }) {
+                let truncatedResult = msg.result.count > 2000 ? String(msg.result.prefix(2000)) + "...[truncated]" : msg.result
+                messages[msgIndex].toolCalls[tcIndex].result = truncatedResult
+                messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
+                messages[msgIndex].toolCalls[tcIndex].isComplete = true
+                messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
+                messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
+                messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
+            }
+
+        case .uiSurfaceShow(let msg):
+            log.info("Received ui_surface_show: surfaceId=\(msg.surfaceId), messageId=\(msg.messageId ?? "nil"), display=\(msg.display ?? "nil")")
+            log.info("Current messages count: \(self.messages.count), IDs: \(self.messages.map { $0.id.uuidString }.joined(separator: ", "))")
+            guard belongsToSession(msg.sessionId) else {
+                log.info("Skipping surface - wrong session")
+                return
+            }
+            guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else {
+                log.info("Skipping surface - display mode is '\(msg.display ?? "nil")'")
+                break
+            }
+            guard let surface = Surface.from(msg) else {
+                log.info("Skipping surface - failed to create Surface from message")
+                break
+            }
+
+            // On macOS, dynamic pages with no explicit display mode (or "panel")
+            // are routed to the workspace by SurfaceManager. If the dynamic page
+            // has a preview, also render a compact preview card inline in chat.
+            // On iOS there is no workspace, so dynamic pages always render inline.
+            #if os(macOS)
+            if case .dynamicPage(let dpData) = surface.data, msg.display == nil || msg.display == "panel" {
+                isThinking = false
+                // Only render inline preview if the dynamic page has preview metadata
+                guard dpData.preview != nil else {
+                    log.info("Skipping inline surface - no preview metadata")
+                    break
+                }
+            }
+            #endif
+
+            isThinking = false
+            let inlineSurface = InlineSurfaceData(
+                id: surface.id,
+                surfaceType: surface.type,
+                title: surface.title,
+                data: surface.data,
+                actions: surface.actions,
+                surfaceMessage: msg
+            )
+
+            // If messageId is provided, attach to that specific message (rarely used now that
+            // surfaces come directly in history_response, but kept for backwards compatibility)
+            if let messageId = msg.messageId,
+               let messageUUID = UUID(uuidString: messageId),
+               let index = messages.firstIndex(where: { $0.id == messageUUID }) {
+                log.info("Attaching surface to message by messageId: \(messageId)")
+                let surfIdx = messages[index].inlineSurfaces.count
+                messages[index].inlineSurfaces.append(inlineSurface)
+                messages[index].contentOrder.append(.surface(surfIdx))
+            } else if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                log.info("Attaching surface to currentAssistantMessage: \(existingId)")
+                let surfIdx = messages[index].inlineSurfaces.count
+                messages[index].inlineSurfaces.append(inlineSurface)
+                messages[index].contentOrder.append(.surface(surfIdx))
+                lastContentWasToolCall = true
+            } else if let lastUserIndex = messages.lastIndex(where: { $0.role == .user }),
+                      let idx = messages[lastUserIndex...].lastIndex(where: { $0.role == .assistant }) {
+                // Scope to the current turn so we never attach to an assistant message
+                // from a previous conversation turn.
+                log.info("Attaching surface to last assistant message in current turn")
+                let surfIdx = messages[idx].inlineSurfaces.count
+                messages[idx].inlineSurfaces.append(inlineSurface)
+                messages[idx].contentOrder.append(.surface(surfIdx))
+                lastContentWasToolCall = true
+            } else {
+                log.info("Creating new assistant message for surface")
+                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, inlineSurfaces: [inlineSurface])
+                newMsg.contentOrder = [.surface(0)]
+                currentAssistantMessageId = newMsg.id
+                messages.append(newMsg)
+            }
+
+        case .uiSurfaceUndoResult(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            surfaceUndoCount = msg.remainingUndos
+
+        case .uiSurfaceUpdate(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            if isWorkspaceRefinementInFlight {
+                refinementReceivedSurfaceUpdate = true
+            }
+            if msg.surfaceId == activeSurfaceId {
+                surfaceUndoCount += 1
+            }
+            // Find the inline surface across all messages and update its data
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    let existing = messages[msgIndex].inlineSurfaces[surfaceIndex]
+                    let tempSurface = Surface(id: existing.id, sessionId: msg.sessionId, type: existing.surfaceType, title: existing.title, data: existing.data, actions: existing.actions)
+                    if let updated = tempSurface.updated(with: msg) {
+                        messages[msgIndex].inlineSurfaces[surfaceIndex] = InlineSurfaceData(
+                            id: updated.id,
+                            surfaceType: updated.type,
+                            title: updated.title,
+                            data: updated.data,
+                            actions: updated.actions,
+                            surfaceMessage: existing.surfaceMessage
+                        )
+                    }
+                    return
+                }
+            }
+
+        case .uiSurfaceDismiss(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find and remove the inline surface across all messages
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    messages[msgIndex].inlineSurfaces.remove(at: surfaceIndex)
+                    return
+                }
+            }
+
+        case .uiSurfaceComplete(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            // Find the inline surface across all messages and set its completionState
+            for msgIndex in messages.indices {
+                if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
+                    messages[msgIndex].inlineSurfaces[surfaceIndex].completionState = SurfaceCompletionState(
+                        summary: msg.summary,
+                        submittedData: msg.submittedData
+                    )
+                    return
+                }
+            }
+
+        case .sessionError(let msg):
+            guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
+            log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
+            isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
+            cancelledDuringRefinement = false
+            isThinking = false
+            let wasCancelling = isCancelling
+            isCancelling = false
+            if let existingId = currentAssistantMessageId,
+               let index = messages.firstIndex(where: { $0.id == existingId }) {
+                messages[index].isStreaming = false
+            }
+            currentAssistantMessageId = nil
+            currentAssistantHasText = false
+            lastContentWasToolCall = false
+            // When the user intentionally cancelled, suppress both the typed
+            // session error and the errorText so no toast appears.
+            if !wasCancelling {
+                let typedError = SessionError(from: msg)
+                sessionError = typedError
+                errorText = msg.userMessage
+            }
+            for i in messages.indices {
+                if messages[i].role == .user && messages[i].status == .processing {
+                    messages[i].status = .sent
+                }
+            }
+            if wasCancelling {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                isSending = false
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+            }
+
+        case .watchStarted(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            isWatchSessionActive = true
+            onWatchStarted?(msg, daemonClient)
+
+        case .watchCompleteRequest(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            isWatchSessionActive = false
+            onWatchCompleteRequest?(msg)
+
+        default:
+            break
+        }
+    }
+}

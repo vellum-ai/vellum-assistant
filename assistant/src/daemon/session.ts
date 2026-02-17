@@ -9,14 +9,7 @@ import { createUserMessage, createAssistantMessage } from '../agent/message-type
 import * as conversationStore from '../memory/conversation-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
-import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateScopeOptions } from '../permissions/checker.js';
 import { ToolExecutor } from '../tools/executor.js';
-import type { ToolLifecycleEventHandler } from '../tools/types.js';
-import { getAllToolDefinitions } from '../tools/registry.js';
-import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { allAppTools } from '../tools/apps/definitions.js';
-import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -71,11 +64,8 @@ import {
 import {
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
-  refreshSurfacesForApp,
-  surfaceProxyResolver,
 } from './session-surfaces.js';
 import { prepareMemoryContext } from './session-memory.js';
-import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import {
   approveHostAttachmentRead,
   formatAttachmentWarnings,
@@ -88,9 +78,19 @@ import {
   type HistorySessionContext,
 } from './session-history.js';
 import { recordUsage, generateTitle } from './session-usage.js';
-import { resolveSlash, isProviderOrderingError } from './session-slash.js';
+import { isProviderOrderingError } from './session-slash.js';
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
 import type { UsageActor } from '../usage/actors.js';
+import {
+  drainQueue as drainQueueImpl,
+  processMessage as processMessageImpl,
+  type ProcessSessionContext,
+} from './session-process.js';
+import {
+  buildToolDefinitions,
+  createToolExecutor,
+  type ToolSetupContext,
+} from './session-tool-setup.js';
 
 const log = getLogger('session');
 
@@ -119,7 +119,8 @@ export class Session {
   private eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal — exposed for session-workspace.ts module functions. */
   workingDir: string;
-  private sandboxOverride?: boolean;
+  /** @internal — exposed for session-tool-setup.ts module functions. */
+  sandboxOverride?: boolean;
   /** @internal — exposed for session-usage.ts module functions. */
   usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
@@ -132,9 +133,12 @@ export class Session {
   assistantId: string | null = null;
   private conflictGate = new ConflictGate();
   private hasNoClient = false;
-  private readonly queue = new MessageQueue();
-  private currentActiveSurfaceId?: string;
-  private currentPage?: string;
+  /** @internal — exposed for session-process.ts module functions. */
+  readonly queue = new MessageQueue();
+  /** @internal — exposed for session-process.ts module functions. */
+  currentActiveSurfaceId?: string;
+  /** @internal — exposed for session-process.ts module functions. */
+  currentPage?: string;
   /** @internal — exposed for session-surfaces.ts module functions. */
   pendingSurfaceActions = new Map<string, {
     surfaceType: SurfaceType;
@@ -226,98 +230,20 @@ export class Session {
     registerToolProfilingListener(this.eventBus, this.profiler);
     const auditToolLifecycleEvent = createToolAuditListener();
     const publishToolDomainEvent = createToolDomainEventPublisher(this.eventBus);
-    const handleToolLifecycleEvent: ToolLifecycleEventHandler = (event) => {
+    const handleToolLifecycleEvent = (event: import('../tools/types.js').ToolLifecycleEvent) => {
       auditToolLifecycleEvent(event);
       return publishToolDomainEvent(event);
     };
 
-    const toolDefs = [
-      ...getAllToolDefinitions(),
-      ...allUiSurfaceTools.map((t) => t.getDefinition()),
-      ...allAppTools.filter((t) => t.executionMode === 'proxy').map((t) => t.getDefinition()),
-      // Escalation tool: allows text_qa sessions to hand off to computer use
-      requestComputerControlTool.getDefinition(),
-    ];
-    const toolExecutor = async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
-      const result = await this.executor.execute(name, input, {
-        workingDir: this.workingDir,
-        sessionId: this.conversationId,
-        conversationId: this.conversationId,
-        requestId: this.currentRequestId,
-        onOutput,
-        signal: this.abortController?.signal,
-        sandboxOverride: this.sandboxOverride,
-        onToolLifecycleEvent: handleToolLifecycleEvent,
-        proxyToolResolver: (toolName: string, input: Record<string, unknown>) => surfaceProxyResolver(this, toolName, input),
-        requestSecret: async (params) => {
-          return this.secretPrompter.prompt(
-            params.service, params.field, params.label,
-            params.description, params.placeholder,
-            this.conversationId,
-            params.purpose, params.allowedTools, params.allowedDomains,
-          );
-        },
-        requestConfirmation: async (req) => {
-          // Check trust store before prompting
-          const existingRule = findHighestPriorityRule(
-            'cc:' + req.toolName,
-            [req.toolName, `cc:${req.toolName}`, 'cc:*'],
-            this.workingDir,
-          );
-          if (existingRule && existingRule.decision !== 'ask') {
-            return {
-              decision: existingRule.decision === 'allow' ? 'allow' as const : 'deny' as const,
-            };
-          }
-          const allowlistOptions = [
-            { label: `cc:${req.toolName}`, description: `Claude Code ${req.toolName}`, pattern: `cc:${req.toolName}` },
-            { label: 'cc:*', description: 'All Claude Code sub-tools', pattern: 'cc:*' },
-          ];
-          const scopeOptions = generateScopeOptions(this.workingDir);
-          const response = await this.prompter.prompt(
-            `cc:${req.toolName}`,
-            req.input,
-            req.riskLevel,
-            allowlistOptions,
-            scopeOptions,
-            undefined, undefined,
-            this.conversationId,
-          );
-          if (response.decision === 'always_allow' && response.selectedPattern && response.selectedScope) {
-            addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope);
-          }
-          if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
-            addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
-          }
-          return {
-            decision: (response.decision === 'allow' || response.decision === 'always_allow') ? 'allow' as const : 'deny' as const,
-          };
-        },
-      });
-
-      // Auto-refresh workspace surfaces when a persisted app is updated
-      if (name === 'app_update' && !result.isError) {
-        const appId = input.app_id as string | undefined;
-        if (appId) {
-          refreshSurfacesForApp(this, appId);
-          this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
-          void updatePublishedAppDeployment(appId);
-        }
-      }
-
-      // Auto-refresh workspace surfaces when app files are edited
-      if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
-        const appId = input.app_id as string | undefined;
-        const status = input.status as string | undefined;
-        if (appId) {
-          refreshSurfacesForApp(this, appId, { fileChange: true, status });
-          this.broadcastToAllClients?.({ type: 'app_files_changed', appId });
-          void updatePublishedAppDeployment(appId);
-        }
-      }
-
-      return result;
-    };
+    const toolDefs = buildToolDefinitions();
+    const toolExecutor = createToolExecutor(
+      this.executor,
+      this.prompter,
+      this.secretPrompter,
+      this as ToolSetupContext,
+      handleToolLifecycleEvent,
+      broadcastToAllClients,
+    );
 
     const config = getConfig();
     this.agentLoop = new AgentLoop(
@@ -1232,118 +1158,10 @@ export class Session {
     consolidateAssistantMessages(this.conversationId, userMessageId);
   }
 
-  /**
-   * Process the next message in the queue, if any.
-   * Called from the `runAgentLoop` finally block after processing completes.
-   *
-   * When a dequeued message fails to persist (e.g. empty content, DB error),
-   * `processMessage` catches the error and resolves without calling
-   * `runAgentLoop`. Since the drain chain depends on `runAgentLoop`'s `finally`
-   * block, we must explicitly continue draining on failure — otherwise
-   * remaining queued messages would be stranded.
-   */
   private drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
-    const next = this.queue.shift();
-    if (!next) return;
-
-    log.info({ conversationId: this.conversationId, requestId: next.requestId, reason }, 'Dequeuing message');
-    this.traceEmitter.emit('request_dequeued', `Message dequeued (${reason})`, {
-      requestId: next.requestId,
-      status: 'info',
-      attributes: { reason },
-    });
-    next.onEvent({
-      type: 'message_dequeued',
-      sessionId: this.conversationId,
-      requestId: next.requestId,
-    });
-
-    // Resolve slash commands for queued messages
-    const slashResult = resolveSlash(next.content);
-
-    // Unknown slash — persist the exchange and continue draining.
-    // Persist each message before pushing to this.messages so that a
-    // failed write never leaves an unpersisted message in memory.
-    if (slashResult.kind === 'unknown') {
-      try {
-        const userMsg = createUserMessage(next.content, next.attachments);
-        conversationStore.addMessage(
-          this.conversationId,
-          'user',
-          JSON.stringify(userMsg.content),
-        );
-        this.messages.push(userMsg);
-
-        const assistantMsg = createAssistantMessage(slashResult.message);
-        conversationStore.addMessage(
-          this.conversationId,
-          'assistant',
-          JSON.stringify(assistantMsg.content),
-        );
-        this.messages.push(assistantMsg);
-
-        next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
-        this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
-          requestId: next.requestId,
-          status: 'success',
-        });
-        next.onEvent({ type: 'message_complete', sessionId: this.conversationId });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist unknown-slash exchange');
-        this.traceEmitter.emit('request_error', `Unknown-slash persist failed: ${message}`, {
-          requestId: next.requestId,
-          status: 'error',
-          attributes: { reason: 'persist_failure' },
-        });
-        next.onEvent({ type: 'error', message });
-      }
-      // Continue draining regardless of success/failure
-      this.drainQueue();
-      return;
-    }
-
-    const resolvedContent = slashResult.content;
-
-    // Try to persist and run the dequeued message. If persistUserMessage
-    // succeeds, runAgentLoop is called and its finally block will drain
-    // the next message. If persistUserMessage fails, processMessage
-    // resolves early (no runAgentLoop call), so we must continue draining.
-    let userMessageId: string;
-    try {
-      userMessageId = this.persistUserMessage(resolvedContent, next.attachments, next.requestId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Failed to persist queued message');
-      this.traceEmitter.emit('request_error', `Queued message persist failed: ${message}`, {
-        requestId: next.requestId,
-        status: 'error',
-        attributes: { reason: 'persist_failure' },
-      });
-      next.onEvent({ type: 'error', message });
-      // Continue draining — don't strand remaining messages
-      this.drainQueue();
-      return;
-    }
-
-    // Set the active surface for the dequeued message so runAgentLoop can inject context
-    this.currentActiveSurfaceId = next.activeSurfaceId;
-    this.currentPage = next.currentPage;
-
-    // Fire-and-forget: persistUserMessage set this.processing = true
-    // so subsequent messages will still be enqueued. runAgentLoop's
-    // finally block will call drainQueue when this run completes.
-    this.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, conversationId: this.conversationId, requestId: next.requestId }, 'Error processing queued message');
-      next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
-    });
+    drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
-  /**
-   * Convenience method that persists a user message and runs the agent loop
-   * in a single call. Used by the IPC path where blocking is expected.
-   */
   async processMessage(
     content: string,
     attachments: UserMessageAttachment[],
@@ -1352,54 +1170,7 @@ export class Session {
     activeSurfaceId?: string,
     currentPage?: string,
   ): Promise<string> {
-    this.currentActiveSurfaceId = activeSurfaceId;
-    this.currentPage = currentPage;
-
-    // Resolve slash commands before persistence
-    const slashResult = resolveSlash(content);
-
-    // Unknown slash command — persist the exchange (user + assistant) so the
-    // messageId is real.  Persist each message before pushing to this.messages
-    // so that a failed write never leaves an unpersisted message in memory.
-    if (slashResult.kind === 'unknown') {
-      const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
-        this.conversationId,
-        'user',
-        JSON.stringify(userMsg.content),
-      );
-      this.messages.push(userMsg);
-
-      const assistantMsg = createAssistantMessage(slashResult.message);
-      conversationStore.addMessage(
-        this.conversationId,
-        'assistant',
-        JSON.stringify(assistantMsg.content),
-      );
-      this.messages.push(assistantMsg);
-
-      onEvent({ type: 'assistant_text_delta', text: slashResult.message });
-      this.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
-        requestId,
-        status: 'success',
-      });
-      onEvent({ type: 'message_complete', sessionId: this.conversationId });
-      return persisted.id;
-    }
-
-    const resolvedContent = slashResult.content;
-
-    let userMessageId: string;
-    try {
-      userMessageId = this.persistUserMessage(resolvedContent, attachments, requestId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      onEvent({ type: 'error', message });
-      return '';
-    }
-
-    await this.runAgentLoop(resolvedContent, userMessageId, onEvent);
-    return userMessageId;
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
