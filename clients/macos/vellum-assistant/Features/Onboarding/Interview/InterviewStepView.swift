@@ -83,6 +83,9 @@ struct InterviewStepView: View {
                 .transition(.opacity)
                 .padding(.vertical, VSpacing.md)
             }
+
+            OnboardingFooter(currentStep: 8)
+                .padding(.bottom, VSpacing.lg)
         }
         .onAppear {
             viewModel.startInterview()
