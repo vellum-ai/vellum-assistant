@@ -175,6 +175,11 @@ export class ToolExecutor {
           sandboxed,
           context.conversationId,
           executionTarget,
+          policyContext?.principal ? {
+            kind: policyContext.principal.kind,
+            id: policyContext.principal.id,
+            version: policyContext.principal.version,
+          } : undefined,
         );
 
         decision = response.decision;

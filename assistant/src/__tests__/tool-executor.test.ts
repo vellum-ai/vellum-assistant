@@ -516,6 +516,85 @@ describe('ToolExecutor contextual rule creation', () => {
   });
 });
 
+describe('ToolExecutor prompter principal arg (PR fix3)', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  test('passes principal context (kind, id, version) to prompter for skill-origin tools', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'skill tool',
+        category: 'skill',
+        defaultRiskLevel: RiskLevel.Low,
+        origin: 'skill' as const,
+        ownerSkillId: 'prompt-skill-42',
+        ownerSkillVersionHash: 'sha256-prompt-v1',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    let capturedPrincipal: unknown;
+    const prompter = {
+      prompt: async (
+        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
+        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
+        _sessionId: any, _executionTarget: any, principal: any,
+      ) => {
+        capturedPrincipal = principal;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('skill_tool', { action: 'run' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(capturedPrincipal).toEqual({
+      kind: 'skill',
+      id: 'prompt-skill-42',
+      version: 'sha256-prompt-v1',
+    });
+  });
+
+  test('passes undefined principal to prompter for core tools', async () => {
+    // Default getTool returns core tools with no origin field
+    getToolOverride = undefined;
+
+    let capturedPrincipal: unknown = 'NOT_CALLED';
+    const prompter = {
+      prompt: async (
+        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
+        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
+        _sessionId: any, _executionTarget: any, principal: any,
+      ) => {
+        capturedPrincipal = principal;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(capturedPrincipal).toBeUndefined();
+  });
+});
+
 describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
   beforeEach(() => {
     fakeToolResult = { content: 'ok', isError: false };
