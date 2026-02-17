@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
+    @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
     @ObservedObject var traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
@@ -16,10 +17,12 @@ struct MainWindowView: View {
     @State private var publishedUrl: String?
     @State private var publishError: String?
     @State private var isHoveredThread: UUID?
+    @State private var isHoveredApp: String?
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
+    @State private var showAllThreads: Bool = false
+    @State private var showAllApps: Bool = false
 
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = true
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -36,8 +39,9 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
+        self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
@@ -187,60 +191,42 @@ struct MainWindowView: View {
     private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
-                if useThreadDrawer {
-                    // Drawer mode: Full-height sidebar + chat
-                    HStack(spacing: 0) {
-                        // Left: Full-height sidebar (always rendered, width collapses to 0)
-                        threadDrawerView
-                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
-                            .clipped()
-                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
-                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
-                            .animation(nil, value: threadDrawerWidth)
+                // Sidebar + main content
+                HStack(spacing: 0) {
+                    // Left: Full-height sidebar (always rendered, width collapses to 0)
+                    sidebarView
+                        .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
+                        .clipped()
+                        .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
+                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
+                        .animation(nil, value: threadDrawerWidth)
 
-                        if sidebarOpen && windowState.layoutConfig.left.visible {
-                            drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
-                        }
+                    if sidebarOpen && windowState.layoutConfig.left.visible {
+                        drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                    }
 
-                        // Right: Chat content
-                        chatContentView(geometry: geometry)
-                            .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
-                            .overlay(alignment: .topLeading) {
-                                // Toggle button when sidebar is hidden
-                                if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
-                                    HStack(spacing: 0) {
-                                        VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                                sidebarOpen = true
-                                            }
+                    // Right: Main content
+                    chatContentView(geometry: geometry)
+                        .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
+                        .overlay(alignment: .topLeading) {
+                            // Toggle button when sidebar is hidden
+                            if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
+                                HStack(spacing: 0) {
+                                    VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: false, iconOnly: true) {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            sidebarOpen = true
                                         }
-                                        Spacer()
                                     }
-                                    .padding(.leading, trafficLightPadding)
-                                    .padding(.trailing, VSpacing.lg)
-                                    .frame(height: 36)
-                                    .transition(.opacity)
+                                    Spacer()
                                 }
+                                .padding(.leading, trafficLightPadding)
+                                .padding(.trailing, VSpacing.lg)
+                                .frame(height: 36)
+                                .transition(.opacity)
                             }
-                    }
-                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
-                } else {
-                    // Tab mode: Traditional layout
-                    VStack(spacing: 0) {
-                        // Row 1 — thread tab bar
-                        ThreadTabBar(
-                            threads: threadManager.visibleThreads,
-                            activeThreadId: threadManager.activeThreadId,
-                            onSelect: { threadManager.selectThread(id: $0) },
-                            onClose: { threadPendingDeletion = $0 },
-                            onCreate: { threadManager.createThread() },
-                            activePanel: $windowState.activePanel
-                        )
-
-                        // Row 2 — chat content with optional side panel
-                        chatContentView(geometry: geometry)
-                    }
+                        }
                 }
+                .coordinateSpace(name: drawerDragCoordinateSpaceName)
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
@@ -420,13 +406,23 @@ struct MainWindowView: View {
         }
     }
 
+    private var displayedThreads: [ThreadModel] {
+        let visible = threadManager.visibleThreads
+        return showAllThreads ? visible : Array(visible.prefix(5))
+    }
+
+    private var displayedApps: [AppListManager.AppItem] {
+        let all = appListManager.displayApps
+        return showAllApps ? all : Array(all.prefix(5))
+    }
+
     @ViewBuilder
-    private var threadDrawerView: some View {
+    private var sidebarView: some View {
         VStack(spacing: 0) {
             // Header with toggle (sits alongside traffic lights)
             HStack(spacing: 0) {
                 Spacer()
-                VIconButton(label: "Threads", icon: "sidebar.left", isActive: true, iconOnly: true) {
+                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: true, iconOnly: true) {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         sidebarOpen = false
                     }
@@ -440,27 +436,57 @@ struct MainWindowView: View {
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)
 
-            IdentityDrawerButton(
-                isActive: windowState.activePanel == .identity,
-                isDisabled: isBootstrapOnboardingActive,
-                action: { windowState.togglePanel(.identity) }
-            )
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.bottom, VSpacing.xl)
-
-            Text("Recents")
-                .font(.system(size: 11))
-                .foregroundColor(VColor.textMuted)
-                .padding(.bottom, VSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, VSpacing.lg)
-
             ScrollView {
-                VStack(spacing: VSpacing.xs) {
-                    ForEach(threadManager.visibleThreads) { thread in
-                        threadItem(thread)
+                VStack(spacing: VSpacing.xl) {
+                    // MARK: Threads Section
+                    VStack(spacing: VSpacing.xs) {
+                        SidebarSectionHeader(title: "Threads")
+
+                        ForEach(displayedThreads) { thread in
+                            threadItem(thread)
+                        }
+
+                        if threadManager.visibleThreads.count > 5 {
+                            Button {
+                                withAnimation(VAnimation.standard) { showAllThreads.toggle() }
+                            } label: {
+                                Text(showAllThreads ? "Show less" : "Show more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, VSpacing.lg)
+                                    .padding(.vertical, VSpacing.xs)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // MARK: Apps Section
+                    if !appListManager.apps.isEmpty {
+                        VStack(spacing: VSpacing.xs) {
+                            SidebarSectionHeader(title: "Apps")
+
+                            ForEach(displayedApps) { app in
+                                sidebarAppItem(app)
+                            }
+
+                            if appListManager.displayApps.count > 5 {
+                                Button {
+                                    withAnimation(VAnimation.standard) { showAllApps.toggle() }
+                                } label: {
+                                    Text(showAllApps ? "Show less" : "Show more")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.leading, VSpacing.lg)
+                                        .padding(.vertical, VSpacing.xs)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                 }
+                .padding(.top, VSpacing.sm)
             }
             .scrollClipDisabled()
             .clipped()
@@ -484,6 +510,62 @@ struct MainWindowView: View {
         }
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
+    }
+
+    @ViewBuilder
+    private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
+        let isSelected = false // App selection will be wired in M5
+        HStack(spacing: VSpacing.sm) {
+            Button(action: {
+                // Open the app via daemon
+                try? daemonClient.sendAppOpen(appId: app.id)
+            }) {
+                HStack(spacing: VSpacing.sm) {
+                    if let icon = app.icon, !icon.isEmpty {
+                        Text(icon)
+                            .font(.system(size: 14))
+                            .frame(width: 22, height: 22)
+                    } else {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 22, height: 22)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(app.name)
+                            .font(.system(size: 13))
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let appType = app.appType {
+                            Text(appType)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .padding(.horizontal, VSpacing.sm)
+        .onHover { hovering in
+            if hovering {
+                isHoveredApp = app.id
+                NSCursor.pointingHand.push()
+            } else {
+                if isHoveredApp == app.id {
+                    isHoveredApp = nil
+                }
+                NSCursor.pop()
+            }
+        }
     }
 
     // MARK: - Drawer Drag Helpers
@@ -627,7 +709,7 @@ struct MainWindowView: View {
                 }
             )
         case .threadList:
-            threadDrawerView
+            sidebarView
         case .identity:
             IdentityPanel(onClose: { windowState.activePanel = nil }, daemonClient: daemonClient)
         }
@@ -836,6 +918,20 @@ private struct ZoomIndicatorView: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
+    }
+}
+
+private struct SidebarSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(VColor.textMuted)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, VSpacing.lg)
+            .padding(.bottom, VSpacing.xs)
     }
 }
 
@@ -1418,7 +1514,7 @@ private struct DynamicWorkspaceWrapper: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }
