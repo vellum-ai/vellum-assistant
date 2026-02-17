@@ -150,61 +150,29 @@ struct MainWindowView: View {
     }
 
     var body: some View {
+        coreBodyView
+            .applyBodyModifiers(
+                windowState: windowState,
+                threadManager: threadManager,
+                daemonClient: daemonClient,
+                zoomManager: zoomManager,
+                selectedThreadId: $selectedThreadId,
+                showSharePicker: $showSharePicker,
+                requestedHomeBaseAtLaunch: $requestedHomeBaseAtLaunch,
+                systemIsDark: $systemIsDark,
+                themePreference: themePreference,
+                requestHomeBaseDashboardIfNeeded: requestHomeBaseDashboardIfNeeded
+            )
+    }
+
+    @ViewBuilder
+    private var coreBodyView: some View {
         GeometryReader { geometry in
             Group {
                 if useThreadDrawer {
-                    // Drawer mode: Full-height sidebar + chat
-                    HStack(spacing: 0) {
-                        // Left: Full-height sidebar (always rendered, width collapses to 0)
-                        threadDrawerView
-                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
-                            .clipped()
-                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
-                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
-                            .animation(nil, value: threadDrawerWidth)
-
-                        if sidebarOpen && windowState.layoutConfig.left.visible {
-                            drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
-                        }
-
-                        // Right: Chat content
-                        chatContentView(geometry: geometry)
-                            .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
-                            .overlay(alignment: .topLeading) {
-                                // Toggle button when sidebar is hidden
-                                if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
-                                    HStack(spacing: 0) {
-                                        VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                                sidebarOpen = true
-                                            }
-                                        }
-                                        Spacer()
-                                    }
-                                    .padding(.leading, trafficLightPadding)
-                                    .padding(.trailing, VSpacing.lg)
-                                    .frame(height: 36)
-                                    .transition(.opacity)
-                                }
-                            }
-                    }
-                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
+                    drawerModeLayout(geometry: geometry)
                 } else {
-                    // Tab mode: Traditional layout
-                    VStack(spacing: 0) {
-                        // Row 1 — thread tab bar
-                        ThreadTabBar(
-                            threads: threadManager.visibleThreads,
-                            activeThreadId: threadManager.activeThreadId,
-                            onSelect: { threadManager.selectThread(id: $0) },
-                            onClose: { threadManager.archiveThread(id: $0) },
-                            onCreate: { threadManager.createThread() },
-                            activePanel: $windowState.activePanel
-                        )
-
-                        // Row 2 — chat content with optional side panel
-                        chatContentView(geometry: geometry)
-                    }
+                    tabModeLayout(geometry: geometry)
                 }
             }
             .ignoresSafeArea(edges: .top)
@@ -224,109 +192,56 @@ struct MainWindowView: View {
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
-        .onAppear {
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            selectedThreadId = threadManager.activeThreadId
-            requestHomeBaseDashboardIfNeeded()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-        }
-        .onReceive(daemonClient.$isConnected) { _ in
-            windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
-            requestHomeBaseDashboardIfNeeded()
-        }
-        .onChange(of: windowState.activePanel) { _, newPanel in
-            // Reset expanded state and active surface when navigating away from the
-            // Dynamic panel via toolbar or tab bar buttons, which only modify activePanel.
-            if newPanel != .generated {
-                showSharePicker = false
-                windowState.isDynamicExpanded = false
-                windowState.activeDynamicSurface = nil
-                windowState.activeDynamicParsedSurface = nil
+    }
+
+    @ViewBuilder
+    private func drawerModeLayout(geometry: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            threadDrawerView
+                .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? (windowState.layoutConfig.left.width ?? threadDrawerWidth) : 0, alignment: .leading)
+                .clipped()
+                .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
+                .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
+                .animation(nil, value: threadDrawerWidth)
+
+            if sidebarOpen && windowState.layoutConfig.left.visible {
+                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
             }
-        }
-        .onChange(of: selectedThreadId) { _, newId in
-            if let newId = newId {
-                threadManager.selectThread(id: newId)
-            }
-        }
-        .onChange(of: threadManager.activeThreadId) { oldId, newId in
-            // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
-            selectedThreadId = newId
-            // Close the activity panel when switching threads — the stored messageId
-            // belongs to the previous thread and won't exist in the new one.
-            if windowState.activePanel == .activity {
-                windowState.activePanel = nil
-                windowState.activityMessageId = nil
-            }
-            // Clear stale activeSurfaceId on the old thread and sync the new one
-            if let oldId {
-                threadManager.clearActiveSurface(threadId: oldId)
-            }
-            threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
-            if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
-                windowState.activeDynamicSurface = msg
-                windowState.activeDynamicParsedSurface = Surface.from(msg)
-                windowState.activePanel = .generated
-                windowState.isDynamicExpanded = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
-            if let updated = notification.userInfo?["surface"] as? Surface,
-               updated.id == windowState.activeDynamicSurface?.surfaceId {
-                windowState.activeDynamicParsedSurface = updated
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
-            // If a specific surfaceId was dismissed, only clear if it matches.
-            if let surfaceId = notification.userInfo?["surfaceId"] as? String {
-                if windowState.activeDynamicSurface?.surfaceId == surfaceId {
-                    showSharePicker = false
-                    if windowState.activePanel == .generated {
-                        windowState.activePanel = nil
+
+            chatContentView(geometry: geometry)
+                .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
+                .overlay(alignment: .topLeading) {
+                    if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
+                        HStack(spacing: 0) {
+                            VIconButton(label: "Threads", icon: "sidebar.left", isActive: false, iconOnly: true) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    sidebarOpen = true
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.leading, trafficLightPadding)
+                        .padding(.trailing, VSpacing.lg)
+                        .frame(height: 36)
+                        .transition(.opacity)
                     }
-                    windowState.isDynamicExpanded = false
-                    windowState.activeDynamicSurface = nil
-                    windowState.activeDynamicParsedSurface = nil
                 }
-            } else {
-                // Bulk dismiss (dismissAll)
-                showSharePicker = false
-                if windowState.activePanel == .generated {
-                    windowState.activePanel = nil
-                }
-                windowState.isDynamicExpanded = false
-                windowState.activeDynamicSurface = nil
-                windowState.activeDynamicParsedSurface = nil
-            }
         }
-        .onChange(of: windowState.isDynamicExpanded) { _, expanded in
-            threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
-        }
-        .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
-            if windowState.isDynamicExpanded {
-                threadManager.activeViewModel?.activeSurfaceId = surfaceId
-            }
-        }
-        .onChange(of: threadManager.activeViewModel?.messages) { _, _ in
-            // Close activity panel if the referenced message no longer exists
-            // (e.g., after regenerate, undo, or message rebuild flows)
-            if let messageId = windowState.activityMessageId,
-               windowState.activePanel == .activity,
-               let viewModel = threadManager.activeViewModel {
-                let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
-                if !messageExists {
-                    windowState.activePanel = nil
-                    windowState.activityMessageId = nil
-                }
-            }
-        }
-        .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
-        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
-            systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        .coordinateSpace(name: drawerDragCoordinateSpaceName)
+    }
+
+    @ViewBuilder
+    private func tabModeLayout(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            ThreadTabBar(
+                threads: threadManager.visibleThreads,
+                activeThreadId: threadManager.activeThreadId,
+                onSelect: { threadManager.selectThread(id: $0) },
+                onClose: { threadManager.archiveThread(id: $0) },
+                onCreate: { threadManager.createThread() },
+                activePanel: $windowState.activePanel
+            )
+            chatContentView(geometry: geometry)
         }
     }
 
@@ -1304,6 +1219,155 @@ private struct DynamicWorkspaceWrapper: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Body Modifiers (extracted to help type-checker)
+
+private extension View {
+    func applyBodyModifiers(
+        windowState: MainWindowState,
+        threadManager: ThreadManager,
+        daemonClient: DaemonClient,
+        zoomManager: ZoomManager,
+        selectedThreadId: Binding<UUID?>,
+        showSharePicker: Binding<Bool>,
+        requestedHomeBaseAtLaunch: Binding<Bool>,
+        systemIsDark: Binding<Bool>,
+        themePreference: String,
+        requestHomeBaseDashboardIfNeeded: @escaping () -> Void
+    ) -> some View {
+        self
+            .applyLifecycleModifiers(
+                windowState: windowState,
+                threadManager: threadManager,
+                daemonClient: daemonClient,
+                selectedThreadId: selectedThreadId,
+                showSharePicker: showSharePicker,
+                requestHomeBaseDashboardIfNeeded: requestHomeBaseDashboardIfNeeded
+            )
+            .applyNotificationModifiers(
+                windowState: windowState,
+                threadManager: threadManager,
+                showSharePicker: showSharePicker,
+                systemIsDark: systemIsDark,
+                themePreference: themePreference
+            )
+    }
+
+    func applyLifecycleModifiers(
+        windowState: MainWindowState,
+        threadManager: ThreadManager,
+        daemonClient: DaemonClient,
+        selectedThreadId: Binding<UUID?>,
+        showSharePicker: Binding<Bool>,
+        requestHomeBaseDashboardIfNeeded: @escaping () -> Void
+    ) -> some View {
+        self
+            .onAppear {
+                windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+                selectedThreadId.wrappedValue = threadManager.activeThreadId
+                requestHomeBaseDashboardIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
+                windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+            }
+            .onReceive(daemonClient.$isConnected) { _ in
+                windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
+                requestHomeBaseDashboardIfNeeded()
+            }
+            .onChange(of: windowState.activePanel) { _, newPanel in
+                if newPanel != .generated {
+                    showSharePicker.wrappedValue = false
+                    windowState.isDynamicExpanded = false
+                    windowState.activeDynamicSurface = nil
+                    windowState.activeDynamicParsedSurface = nil
+                }
+            }
+            .onChange(of: selectedThreadId.wrappedValue) { _, newId in
+                if let newId = newId {
+                    threadManager.selectThread(id: newId)
+                }
+            }
+            .onChange(of: threadManager.activeThreadId) { oldId, newId in
+                selectedThreadId.wrappedValue = newId
+                if windowState.activePanel == .activity {
+                    windowState.activePanel = nil
+                    windowState.activityMessageId = nil
+                }
+                if let oldId {
+                    threadManager.clearActiveSurface(threadId: oldId)
+                }
+                threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            }
+    }
+
+    func applyNotificationModifiers(
+        windowState: MainWindowState,
+        threadManager: ThreadManager,
+        showSharePicker: Binding<Bool>,
+        systemIsDark: Binding<Bool>,
+        themePreference: String
+    ) -> some View {
+        self
+            .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
+                if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                    windowState.activeDynamicSurface = msg
+                    windowState.activeDynamicParsedSurface = Surface.from(msg)
+                    windowState.activePanel = .generated
+                    windowState.isDynamicExpanded = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
+                if let updated = notification.userInfo?["surface"] as? Surface,
+                   updated.id == windowState.activeDynamicSurface?.surfaceId {
+                    windowState.activeDynamicParsedSurface = updated
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
+                if let surfaceId = notification.userInfo?["surfaceId"] as? String {
+                    if windowState.activeDynamicSurface?.surfaceId == surfaceId {
+                        showSharePicker.wrappedValue = false
+                        if windowState.activePanel == .generated {
+                            windowState.activePanel = nil
+                        }
+                        windowState.isDynamicExpanded = false
+                        windowState.activeDynamicSurface = nil
+                        windowState.activeDynamicParsedSurface = nil
+                    }
+                } else {
+                    showSharePicker.wrappedValue = false
+                    if windowState.activePanel == .generated {
+                        windowState.activePanel = nil
+                    }
+                    windowState.isDynamicExpanded = false
+                    windowState.activeDynamicSurface = nil
+                    windowState.activeDynamicParsedSurface = nil
+                }
+            }
+            .onChange(of: windowState.isDynamicExpanded) { _, expanded in
+                threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            }
+            .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
+                if windowState.isDynamicExpanded {
+                    threadManager.activeViewModel?.activeSurfaceId = surfaceId
+                }
+            }
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
+                if let messageId = windowState.activityMessageId,
+                   windowState.activePanel == .activity,
+                   let viewModel = threadManager.activeViewModel {
+                    let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
+                    if !messageExists {
+                        windowState.activePanel = nil
+                        windowState.activityMessageId = nil
+                    }
+                }
+            }
+            .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark.wrappedValue ? .dark : .light)
+            .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
+                systemIsDark.wrappedValue = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            }
     }
 }
 
