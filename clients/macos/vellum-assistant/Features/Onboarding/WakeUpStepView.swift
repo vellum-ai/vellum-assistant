@@ -16,6 +16,9 @@ struct WakeUpStepView: View {
     var subtitle: String = "The safest way to create your personal assistant."
     var questionPrompt: String = "How would you like to start?"
 
+    /// When true, disables all option cards (e.g. during 0.3s advance delay).
+    var isAdvancing: Bool = false
+
     // Callbacks
     var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
@@ -87,7 +90,7 @@ struct WakeUpStepView: View {
         .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
-        .disabled(authManager?.isSubmitting == true)
+        .disabled(isAdvancing || authManager?.isSubmitting == true)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
