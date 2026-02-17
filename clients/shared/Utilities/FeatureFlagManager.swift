@@ -4,6 +4,7 @@ private let flagPrefix = "VELLUM_FLAG_"
 
 public enum FeatureFlag: String {
     case demo
+    case monitoringExport
 }
 
 public final class FeatureFlagManager: @unchecked Sendable {
@@ -16,7 +17,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
         let env = environment ?? ProcessInfo.processInfo.environment
         var loaded: [String: Bool] = [:]
         for (key, value) in env where key.hasPrefix(flagPrefix) {
-            let name = String(key.dropFirst(flagPrefix.count)).lowercased()
+            let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
             guard !name.isEmpty else { continue }
             loaded[name] = Self.parseBool(value)
         }
@@ -26,7 +27,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
     public func isEnabled(_ flag: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return flags[flag.lowercased()] ?? false
+        return flags[Self.normalize(flag)] ?? false
     }
 
     public func isEnabled(_ flag: FeatureFlag) -> Bool {
@@ -42,7 +43,7 @@ public final class FeatureFlagManager: @unchecked Sendable {
     public func setOverride(_ flag: String, enabled: Bool) {
         lock.lock()
         defer { lock.unlock() }
-        flags[flag.lowercased()] = enabled
+        flags[Self.normalize(flag)] = enabled
     }
 
     public func setOverride(_ flag: FeatureFlag, enabled: Bool) {
@@ -52,11 +53,15 @@ public final class FeatureFlagManager: @unchecked Sendable {
     public func removeOverride(_ flag: String) {
         lock.lock()
         defer { lock.unlock() }
-        flags.removeValue(forKey: flag.lowercased())
+        flags.removeValue(forKey: Self.normalize(flag))
     }
 
     public func removeOverride(_ flag: FeatureFlag) {
         removeOverride(flag.rawValue)
+    }
+
+    private static func normalize(_ name: String) -> String {
+        name.lowercased().replacingOccurrences(of: "_", with: "")
     }
 
     private static func parseBool(_ value: String) -> Bool {
