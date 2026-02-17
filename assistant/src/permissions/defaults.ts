@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { getRootDir } from '../util/platform.js';
 import { getBundledSkillsDir } from '../config/skills.js';
+import { getConfig } from '../config/loader.js';
 
 export interface DefaultRuleTemplate {
   id: string;
@@ -129,10 +130,17 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   const bundledSkillsDir = getBundledSkillsDir().replaceAll('\\', '/');
   const SKILL_MUTATION_TOOLS = ['file_write', 'file_edit'] as const;
   const HOST_SKILL_MUTATION_TOOLS = ['host_file_write', 'host_file_edit'] as const;
-  const skillDirs = [
+  const skillDirs: { dir: string; label: string }[] = [
     { dir: managedSkillsDir, label: 'managed' },
     { dir: bundledSkillsDir, label: 'bundled' },
   ];
+
+  // Append any user-configured extra skill directories so they get the
+  // same default ask rules as managed and bundled dirs.
+  const extraDirs = getConfig().skills.load.extraDirs;
+  for (let i = 0; i < extraDirs.length; i++) {
+    skillDirs.push({ dir: extraDirs[i].replaceAll('\\', '/'), label: `extra-${i}` });
+  }
 
   const skillSourceMutationRules = skillDirs.flatMap(({ dir, label }) => [
     ...SKILL_MUTATION_TOOLS.map((tool) => ({
