@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,6 +51,7 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 }));
 
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
+import type { RunSkillToolScriptOptions } from '../tools/skills/skill-script-runner.js';
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -216,5 +217,133 @@ describe('runSkillToolScript routing', () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toBe('sandbox hello from explicit');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandbox skill runner hash guard
+// ---------------------------------------------------------------------------
+
+describe('runSkillToolScript sandbox — hash guard', () => {
+  test('allows execution when no expectedSkillVersionHash is provided', async () => {
+    const result = await runSkillToolScript(
+      tempDir, 'success.ts', { name: 'world' }, makeContext(), { target: 'sandbox' },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('sandbox hello from world');
+  }, 15_000);
+
+  test('allows execution when hash matches', async () => {
+    const expectedHash = 'v1:matching-hash';
+    const resolver = (_dir: string) => expectedHash;
+
+    const result = await runSkillToolScript(
+      tempDir, 'success.ts', { name: 'world' }, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: expectedHash,
+        skillDirHashResolver: resolver,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('sandbox hello from world');
+  }, 15_000);
+
+  test('blocks execution when hash mismatches', async () => {
+    const expectedHash = 'v1:approved-hash';
+    const currentHash = 'v1:modified-hash';
+    const resolver = (_dir: string) => currentHash;
+
+    const result = await runSkillToolScript(
+      tempDir, 'success.ts', { name: 'world' }, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: expectedHash,
+        skillDirHashResolver: resolver,
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Skill version mismatch');
+    expect(result.content).toContain(expectedHash);
+    expect(result.content).toContain(currentHash);
+    expect(result.content).toContain('Please reload the skill to re-approve');
+  });
+
+  test('mismatch error is non-throwing and user-readable', async () => {
+    const resolver = (_dir: string) => 'v1:different';
+
+    const result = await runSkillToolScript(
+      tempDir, 'success.ts', {}, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: 'v1:original',
+        skillDirHashResolver: resolver,
+      },
+    );
+
+    // Should return a structured error result, not throw.
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError', true);
+    expect(result.content).toContain('modified since it was approved');
+  });
+
+  test('uses computeSkillVersionHash by default when no resolver is provided', async () => {
+    // When expectedSkillVersionHash is set but no resolver is given, the runner
+    // falls back to the real computeSkillVersionHash. Since the temp dir content
+    // almost certainly won't match a fabricated hash, this should block.
+    const result = await runSkillToolScript(
+      tempDir, 'success.ts', {}, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: 'v1:definitely-not-a-real-hash',
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Skill version mismatch');
+  });
+
+  test('passes the resolved skill directory to the hash resolver', async () => {
+    let receivedDir: string | undefined;
+    const resolver = (dir: string) => {
+      receivedDir = dir;
+      return 'v1:match';
+    };
+
+    await runSkillToolScript(
+      tempDir, 'success.ts', {}, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: 'v1:match',
+        skillDirHashResolver: resolver,
+      },
+    );
+
+    // The resolver should receive the resolved skill directory with trailing slash.
+    expect(receivedDir).toBeDefined();
+    expect(receivedDir!.endsWith('/')).toBe(true);
+  });
+
+  test('hash mismatch prevents subprocess spawn', async () => {
+    // Verify that on mismatch, no subprocess is spawned — the function returns
+    // immediately with the error result. We can confirm this by checking that
+    // the result does not contain any sandbox-specific markers (like timeout
+    // status) and returns near-instantly.
+    const start = Date.now();
+    const resolver = (_dir: string) => 'v1:current';
+
+    const result = await runSkillToolScript(
+      tempDir, 'hang.ts', {}, makeContext(), {
+        target: 'sandbox',
+        expectedSkillVersionHash: 'v1:expected',
+        skillDirHashResolver: resolver,
+      },
+    );
+
+    const elapsed = Date.now() - start;
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Skill version mismatch');
+    // Should return almost instantly — well under even a 1-second threshold,
+    // confirming no subprocess was spawned (hang.ts sleeps for 120s).
+    expect(elapsed).toBeLessThan(1_000);
   });
 });

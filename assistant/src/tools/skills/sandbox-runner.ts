@@ -6,6 +6,7 @@ import type { ToolExecutionResult, ToolContext } from '../types.js';
 import { getConfig } from '../../config/loader.js';
 import { wrapCommand } from '../terminal/sandbox.js';
 import { buildSanitizedEnv } from '../terminal/safe-env.js';
+import { computeSkillVersionHash } from '../../skills/version-hash.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 50_000;
@@ -62,12 +63,28 @@ export async function runSkillToolScriptSandbox(
   executorPath: string,
   input: Record<string, unknown>,
   context: ToolContext,
-  options?: { timeoutMs?: number },
+  options?: {
+    timeoutMs?: number;
+    expectedSkillVersionHash?: string;
+    skillDirHashResolver?: (skillDir: string) => string;
+  },
 ): Promise<ToolExecutionResult> {
   const scriptPath = resolve(join(skillDir, executorPath));
   const resolvedSkillDir = resolve(skillDir) + '/';
   if (!scriptPath.startsWith(resolvedSkillDir)) {
     return { content: `Skill tool script path "${executorPath}" escapes the skill directory`, isError: true };
+  }
+
+  // Block execution if the skill has been modified since approval.
+  if (options?.expectedSkillVersionHash) {
+    const resolver = options.skillDirHashResolver ?? computeSkillVersionHash;
+    const currentHash = resolver(resolvedSkillDir);
+    if (currentHash !== options.expectedSkillVersionHash) {
+      return {
+        content: `Skill version mismatch: expected ${options.expectedSkillVersionHash} but current is ${currentHash}. The skill has been modified since it was approved. Please reload the skill to re-approve.`,
+        isError: true,
+      };
+    }
   }
 
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;

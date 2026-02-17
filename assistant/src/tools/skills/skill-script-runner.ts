@@ -33,6 +33,8 @@ export async function runSkillToolScript(
   if (options?.target === 'sandbox') {
     return runSkillToolScriptSandbox(skillDir, executorPath, input, context, {
       timeoutMs: options.timeoutMs,
+      expectedSkillVersionHash: options.expectedSkillVersionHash,
+      skillDirHashResolver: options.skillDirHashResolver,
     });
   }
 
