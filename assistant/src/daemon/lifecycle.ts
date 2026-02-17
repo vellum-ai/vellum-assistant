@@ -378,6 +378,7 @@ export async function runDaemon(): Promise<void> {
     memoryWorker.stop();
     await qdrantManager.stop();
     await Sentry.flush(2000);
+    clearTimeout(forceTimer);
     cleanupPidFile();
     process.exit(0);
   };

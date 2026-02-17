@@ -441,7 +441,7 @@ export class DaemonServer {
   private handleConnection(socket: net.Socket): void {
     if (this.connectedSockets.size >= DaemonServer.MAX_CONNECTIONS) {
       log.warn({ current: this.connectedSockets.size, max: DaemonServer.MAX_CONNECTIONS }, 'Connection limit reached, rejecting client');
-      socket.on('error', (err) => {
+      socket.once('error', (err) => {
         log.error({ err }, 'Socket error while rejecting connection');
       });
       socket.write(serialize({ type: 'error', message: `Connection limit reached (max ${DaemonServer.MAX_CONNECTIONS})` }));

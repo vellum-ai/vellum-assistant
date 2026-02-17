@@ -66,6 +66,7 @@ function getProfileDir(): string {
 class BrowserManager {
   private context: BrowserContext | null = null;
   private contextCreating: Promise<BrowserContext> | null = null;
+  private contextCloseHandler: ((...args: unknown[]) => void) | null = null;
   private pages = new Map<string, Page>();
   private snapshotMaps = new Map<string, Map<string, string>>();
 
@@ -121,14 +122,19 @@ class BrowserManager {
 
       // Listen for browser disconnection so we can reset state
       // instead of leaving a stale context reference.
-      const rawCtx = this.context as unknown as { on?: (event: string, handler: (...args: unknown[]) => void) => void };
+      const rawCtx = this.context as unknown as {
+        on?: (event: string, handler: (...args: unknown[]) => void) => void;
+        off?: (event: string, handler: (...args: unknown[]) => void) => void;
+      };
       if (typeof rawCtx.on === 'function') {
-        rawCtx.on('close', () => {
+        this.contextCloseHandler = () => {
           log.warn('Browser context closed unexpectedly, resetting state');
           this.context = null;
+          this.contextCloseHandler = null;
           this.pages.clear();
           this.snapshotMaps.clear();
-        });
+        };
+        rawCtx.on('close', this.contextCloseHandler);
       }
 
       return this.context;
@@ -178,6 +184,15 @@ class BrowserManager {
     this.snapshotMaps.clear();
 
     if (this.context) {
+      // Remove the close listener before intentional close to avoid
+      // the handler firing and clearing state we're already cleaning up.
+      if (this.contextCloseHandler) {
+        const rawCtx = this.context as unknown as { off?: (event: string, handler: (...args: unknown[]) => void) => void };
+        if (typeof rawCtx.off === 'function') {
+          rawCtx.off('close', this.contextCloseHandler);
+        }
+        this.contextCloseHandler = null;
+      }
       try {
         await this.context.close();
       } catch (err) {
