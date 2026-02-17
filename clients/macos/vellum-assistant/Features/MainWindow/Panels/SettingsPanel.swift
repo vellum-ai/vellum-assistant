@@ -21,6 +21,7 @@ struct SettingsPanel: View {
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTimer: Timer?
+    @State private var pollCount: Int = 0
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -304,35 +305,35 @@ struct SettingsPanel: View {
                     Text("PERMISSIONS")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.top, VSpacing.lg)
 
-                    permissionRow(
-                        emoji: "\u{1F47B}",
-                        label: "Accessibility",
-                        granted: accessibilityGranted,
-                        action: {
-                            // Request accessibility permission (opens System Settings)
-                            _ = PermissionManager.accessibilityStatus(prompt: true)
-                            startPermissionPolling()
-                        }
-                    )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
+                    VStack(spacing: VSpacing.md) {
+                        permissionRow(
+                            emoji: "\u{1F47B}",
+                            label: "Accessibility",
+                            granted: accessibilityGranted,
+                            action: {
+                                // Request accessibility permission (opens System Settings)
+                                _ = PermissionManager.accessibilityStatus(prompt: true)
+                                startPermissionPolling()
+                            }
+                        )
 
-                    permissionRow(
-                        emoji: "\u{1F355}",
-                        label: "Screen Recording",
-                        granted: screenRecordingGranted,
-                        action: {
-                            // Request screen recording permission (opens System Settings)
-                            PermissionManager.requestScreenRecordingAccess()
-                            startPermissionPolling()
-                        }
-                    )
-                    .padding(VSpacing.md)
-                    .vCard(background: VColor.surfaceSubtle)
+                        permissionRow(
+                            emoji: "\u{1F355}",
+                            label: "Screen Recording",
+                            granted: screenRecordingGranted,
+                            action: {
+                                // Request screen recording permission (opens System Settings)
+                                PermissionManager.requestScreenRecordingAccess()
+                                startPermissionPolling()
+                            }
+                        )
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.lg)
                 }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
 
                 // SCHEDULED TASKS section
                 if daemonClient != nil {
@@ -570,10 +571,19 @@ struct SettingsPanel: View {
                     .font(.system(size: 16))
                     .foregroundColor(granted ? VColor.success : VColor.error)
             }
+            .padding(VSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .vHover()
+        .vCard(background: VColor.surfaceSubtle)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 
     // MARK: - Permission Helpers
@@ -587,12 +597,16 @@ struct SettingsPanel: View {
         // Poll permission status for a few seconds after user clicks
         // to detect when they grant permission in System Settings
         permissionCheckTimer?.invalidate()
-        var pollCount = 0
-        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
-            refreshPermissionStatus()
-            pollCount += 1
-            if pollCount >= 20 {  // Stop after 10 seconds
-                timer.invalidate()
+        pollCount = 0
+
+        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
+            Task { @MainActor in
+                self.refreshPermissionStatus()
+                self.pollCount += 1
+                if self.pollCount >= 30 {  // Stop after 15 seconds
+                    self.permissionCheckTimer?.invalidate()
+                    self.permissionCheckTimer = nil
+                }
             }
         }
     }
