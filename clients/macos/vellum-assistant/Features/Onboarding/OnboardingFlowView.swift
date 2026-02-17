@@ -162,6 +162,9 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
+            if newStep == 0 {
+                isAdvancingFromWakeUp = false
+            }
             // Trimmed flow ends after step 2 (ModelSelection).
             // Previous threshold was > 4 (after FnKey step).
             if newStep > 2 {
