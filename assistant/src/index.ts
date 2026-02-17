@@ -58,6 +58,7 @@ import {
   requestMemoryRebuildIndex,
 } from './memory/admin.js';
 import { registerHooksCommand } from './hooks/cli.js';
+import { registerEmailCommand } from './cli/email.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -984,6 +985,9 @@ program
 
 // --- Hooks commands ---
 registerHooksCommand(program);
+
+// --- Email commands ---
+registerEmailCommand(program);
 
 // --- Completions command ---
 program
