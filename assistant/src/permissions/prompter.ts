@@ -70,6 +70,10 @@ export class PermissionPrompter {
     });
   }
 
+  hasPendingRequest(requestId: string): boolean {
+    return this.pending.has(requestId);
+  }
+
   resolveConfirmation(
     requestId: string,
     decision: UserDecision,

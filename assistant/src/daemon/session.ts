@@ -499,6 +499,14 @@ export class Session {
     return this.processing && this.hasQueuedMessages();
   }
 
+  hasPendingConfirmation(requestId: string): boolean {
+    return this.prompter.hasPendingRequest(requestId);
+  }
+
+  hasPendingSecret(requestId: string): boolean {
+    return this.secretPrompter.hasPendingRequest(requestId);
+  }
+
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,
