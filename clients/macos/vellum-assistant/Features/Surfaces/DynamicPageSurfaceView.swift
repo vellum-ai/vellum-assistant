@@ -626,6 +626,14 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.warning("open_link: invalid URL")
                     return
                 }
+                // Sandbox: only allow the Vellum branding domain.
+                if sandboxMode {
+                    let host = url.host?.lowercased() ?? ""
+                    guard host == "vellum.ai" || host.hasSuffix(".vellum.ai") else {
+                        log.warning("open_link: blocked in sandbox mode (host=\(host, privacy: .public))")
+                        return
+                    }
+                }
                 let metadata = body["metadata"] as? [String: Any]
                 onLinkOpen?(urlString, metadata)
                 return
