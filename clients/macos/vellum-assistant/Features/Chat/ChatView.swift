@@ -881,6 +881,9 @@ private struct ChatBubble: View {
                         .foregroundColor(VColor.textMuted)
                 }
             }
+            // Prevent LazyVStack from compressing the bubble height, which causes the
+            // trailing tool-chip to overlap long text content.
+            .fixedSize(horizontal: false, vertical: true)
 
             if !isUser { Spacer(minLength: 0) }
         }
