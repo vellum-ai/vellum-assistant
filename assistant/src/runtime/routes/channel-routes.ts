@@ -277,7 +277,7 @@ export async function handleReplayDeadLetters(assistantId: string, req: Request)
     return Response.json({ error: 'eventIds array is required' }, { status: 400 });
   }
 
-  const replayed = channelDeliveryStore.replayDeadLetters(eventIds);
+  const replayed = channelDeliveryStore.replayDeadLetters(assistantId, eventIds);
   return Response.json({ replayed });
 }
 
