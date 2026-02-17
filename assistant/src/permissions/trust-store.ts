@@ -119,9 +119,12 @@ function loadFromDisk(): TrustRule[] {
       const raw = readFileSync(path, 'utf-8');
       const data = JSON.parse(raw) as TrustFile;
 
+      // Guard: ensure rules is an array (protects against hand-edited files)
+      const rawRules = Array.isArray(data.rules) ? data.rules : [];
+
       if (data.version === 1) {
         // Migration: v1 → v2. All existing rules are user-created → priority 100.
-        rules = (data.rules ?? []).map((r) => ({
+        rules = rawRules.map((r) => ({
           ...r,
           priority: 100,
         }));
@@ -134,12 +137,12 @@ function loadFromDisk(): TrustRule[] {
         // Migration: v2 → v3. Existing rules have no principal fields,
         // which is correct — missing principal fields act as wildcards.
         if (data.version === 2) {
-          rules = data.rules ?? [];
+          rules = rawRules;
         }
         needsSave = true;
         log.info({ ruleCount: rules.length }, 'Migrated v2 trust rules to v3 (principal fields)');
       } else if (data.version === TRUST_FILE_VERSION) {
-        rules = data.rules ?? [];
+        rules = rawRules;
       } else if (data.version !== 1) {
         log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
         // Apply default deny rules in-memory so the assistant is still
