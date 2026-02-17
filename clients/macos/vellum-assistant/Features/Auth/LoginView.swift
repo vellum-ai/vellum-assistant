@@ -63,7 +63,7 @@ struct LoginView: View {
                     ForEach(authManager.providers, id: \.id) { provider in
                         let isActiveProvider = authManager.submittingProviderId == provider.id
                         VButton(
-                            label: isActiveProvider ? "Redirecting..." : "Continue with \(provider.name ?? provider.id)",
+                            label: isActiveProvider ? "Redirecting..." : "Continue with SSO",
                             style: .ghost,
                             isFullWidth: true,
                             isDisabled: authManager.isSubmitting
