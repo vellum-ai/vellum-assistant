@@ -5,6 +5,7 @@ export type {
   DockerConfig,
   RateLimitConfig,
   SecretDetectionConfig,
+  PermissionsConfig,
   AuditLogConfig,
   LogFileConfig,
   ThinkingConfig,

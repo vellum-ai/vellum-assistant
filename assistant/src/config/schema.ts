@@ -6,6 +6,7 @@ const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
+const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -108,6 +109,14 @@ export const SecretDetectionConfigSchema = z.object({
   allowOneTimeSend: z
     .boolean({ error: 'secretDetection.allowOneTimeSend must be a boolean' })
     .default(false),
+});
+
+export const PermissionsConfigSchema = z.object({
+  mode: z
+    .enum(VALID_PERMISSIONS_MODES, {
+      error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(', ')}`,
+    })
+    .default('legacy'),
 });
 
 export const AuditLogConfigSchema = z.object({
@@ -903,6 +912,9 @@ export const AssistantConfigSchema = z.object({
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
   }),
+  permissions: PermissionsConfigSchema.default({
+    mode: 'legacy',
+  }),
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,
   }),
@@ -959,6 +971,7 @@ export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;
 export type DockerConfig = z.infer<typeof DockerConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
+export type PermissionsConfig = z.infer<typeof PermissionsConfigSchema>;
 export type AuditLogConfig = z.infer<typeof AuditLogConfigSchema>;
 export type LogFileConfig = z.infer<typeof LogFileConfigSchema>;
 export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;

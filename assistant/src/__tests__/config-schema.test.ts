@@ -465,6 +465,36 @@ describe('AssistantConfigSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test('defaults permissions.mode to legacy', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.permissions).toEqual({ mode: 'legacy' });
+  });
+
+  test('accepts explicit permissions.mode strict', () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: 'strict' },
+    });
+    expect(result.permissions.mode).toBe('strict');
+  });
+
+  test('accepts explicit permissions.mode legacy', () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: 'legacy' },
+    });
+    expect(result.permissions.mode).toBe('legacy');
+  });
+
+  test('rejects invalid permissions.mode', () => {
+    const result = AssistantConfigSchema.safeParse({
+      permissions: { mode: 'permissive' },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map(i => i.message);
+      expect(msgs.some(m => m.includes('permissions.mode'))).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -642,6 +672,24 @@ describe('loadConfig with schema validation', () => {
     writeConfig({ auditLog: { retentionDays: -7 } });
     const config = loadConfig();
     expect(config.auditLog.retentionDays).toBe(0);
+  });
+
+  test('defaults permissions.mode to legacy when not specified', () => {
+    writeConfig({});
+    const config = loadConfig();
+    expect(config.permissions).toEqual({ mode: 'legacy' });
+  });
+
+  test('loads explicit permissions.mode strict', () => {
+    writeConfig({ permissions: { mode: 'strict' } });
+    const config = loadConfig();
+    expect(config.permissions.mode).toBe('strict');
+  });
+
+  test('falls back for invalid permissions.mode', () => {
+    writeConfig({ permissions: { mode: 'yolo' } });
+    const config = loadConfig();
+    expect(config.permissions.mode).toBe('legacy');
   });
 
   test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {

@@ -154,6 +154,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
   },
+  permissions: {
+    mode: 'legacy',
+  },
   auditLog: {
     retentionDays: 0,
   },
