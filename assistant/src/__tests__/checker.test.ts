@@ -663,6 +663,56 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('allow');
       expect(result.reason).toContain('Low risk');
     });
+
+    // Regression: trust rules properly override the default-ask policy
+    test('skill tool with allow rule → auto-allowed (non-high-risk)', async () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 2000);
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.decision).toBe('allow');
+    });
+
+    test('skill tool with deny rule → blocked', async () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'deny', 2000);
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.decision).toBe('deny');
+    });
+
+    test('skill tool with ask rule → prompts', async () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'ask', 2000);
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('ask rule');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.decision).toBe('ask');
+    });
+
+    test('skill tool with allow rule but High risk → still prompts', async () => {
+      // Register a high-risk skill tool
+      const highRiskSkillTool: Tool = {
+        name: 'skill_high_risk_tool',
+        description: 'A high-risk skill tool',
+        category: 'skill',
+        defaultRiskLevel: RiskLevel.High,
+        origin: 'skill',
+        ownerSkillId: 'test-skill',
+        getDefinition: () => ({
+          name: 'skill_high_risk_tool',
+          description: 'A high-risk skill tool',
+          input_schema: { type: 'object' as const, properties: {} },
+        }),
+        execute: async () => ({ content: 'ok', isError: false }),
+      };
+      registerTool(highRiskSkillTool);
+      addRule('skill_high_risk_tool', 'skill_high_risk_tool:*', '/tmp', 'allow', 2000);
+      const result = await check('skill_high_risk_tool', {}, '/tmp');
+      // High-risk tools always prompt even with allow rules
+      expect(result.decision).toBe('prompt');
+    });
   });
 
   // ── default protected directory ask rules ─────────────────────
