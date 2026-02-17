@@ -47,11 +47,80 @@ BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing identity (overridable via env for CI)
 if [ -z "${SIGN_IDENTITY:-}" ]; then
+    # Try Developer ID Application first (for distribution)
     SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
         | grep "Developer ID Application" \
         | head -1 \
         | sed 's/.*"\(.*\)"/\1/' || true)
+
+    # Fall back to Apple Development certificate (for local dev)
     if [ -z "$SIGN_IDENTITY" ]; then
+        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+            | grep -E "(Apple Development|Mac Developer)" \
+            | head -1 \
+            | sed 's/.*"\(.*\)"/\1/' || true)
+    fi
+
+    # Check for self-signed Vellum Development certificate
+    if [ -z "$SIGN_IDENTITY" ]; then
+        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+            | grep "Vellum Development" \
+            | head -1 \
+            | sed 's/.*"\(.*\)"/\1/' || true)
+    fi
+
+    # If still no certificate and not explicitly opted out, offer to create one
+    if [ -z "$SIGN_IDENTITY" ] && [ ! -f "$SCRIPT_DIR/.no-auto-cert" ]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "⚠️  No code signing certificate found"
+        echo ""
+        echo "Without a certificate, TCC permissions (Accessibility, Screen"
+        echo "Recording) won't persist across rebuilds. You'll need to re-grant"
+        echo "them every time you rebuild."
+        echo ""
+        echo "Would you like to create a self-signed development certificate?"
+        echo "(No Apple Developer account required - takes ~5 seconds)"
+        echo ""
+        echo -n "Create certificate? [Y/n]: "
+
+        # Only prompt if running interactively (not in CI)
+        if [ -t 0 ]; then
+            read -r response
+            case "$response" in
+                [nN]|[nN][oO])
+                    echo ""
+                    echo "Skipping certificate creation. Using adhoc signature."
+                    echo "To create one later, run: ./create-dev-cert.sh"
+                    echo "To stop seeing this prompt, run: touch .no-auto-cert"
+                    SIGN_IDENTITY="-"
+                    ;;
+                *)
+                    echo ""
+                    if [ -f "$SCRIPT_DIR/create-dev-cert.sh" ]; then
+                        "$SCRIPT_DIR/create-dev-cert.sh"
+                        # Re-check for the certificate we just created
+                        SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+                            | grep "Vellum Development" \
+                            | head -1 \
+                            | sed 's/.*"\(.*\)"/\1/' || true)
+                        if [ -z "$SIGN_IDENTITY" ]; then
+                            echo "⚠️  Certificate creation may have failed. Using adhoc signature."
+                            SIGN_IDENTITY="-"
+                        fi
+                    else
+                        echo "⚠️  create-dev-cert.sh not found. Using adhoc signature."
+                        SIGN_IDENTITY="-"
+                    fi
+                    ;;
+            esac
+        else
+            # Non-interactive (CI environment)
+            SIGN_IDENTITY="-"
+        fi
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+    elif [ -z "$SIGN_IDENTITY" ]; then
+        # User has opted out (.no-auto-cert exists)
         SIGN_IDENTITY="-"
     fi
 fi

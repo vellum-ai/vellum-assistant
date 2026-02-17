@@ -95,6 +95,23 @@ The build script uses incremental compilation and caching:
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 
+### First-Time Setup: Development Certificate (Automatic)
+
+On first run, `./build.sh` will detect if you have a code signing certificate and offer to create one:
+
+```
+⚠️  No code signing certificate found
+Would you like to create a self-signed development certificate?
+(No Apple Developer account required - takes ~5 seconds)
+Create certificate? [Y/n]:
+```
+
+Press `Enter` or type `y` to create the certificate automatically. This ensures permissions (Accessibility, Screen Recording) persist across rebuilds.
+
+**Manual setup:** You can also run `./create-dev-cert.sh` directly at any time.
+
+**Skip prompt:** To always use adhoc signing, create a `.no-auto-cert` file in this directory.
+
 ## Auto-Rebuild on Save (Watch Mode)
 
 `./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:
