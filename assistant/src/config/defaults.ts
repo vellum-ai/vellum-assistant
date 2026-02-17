@@ -153,6 +153,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     action: 'block',
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
+    blockIngress: true,
   },
   permissions: {
     mode: 'strict',

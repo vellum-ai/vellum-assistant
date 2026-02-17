@@ -127,6 +127,7 @@ describe('Invariant 1: secrets never enter LLM context', () => {
         secretDetection: {
           enabled: true,
           action: 'block',
+          blockIngress: true,
         },
       }),
     }));
@@ -414,5 +415,11 @@ describe('One-time send override', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.action).toBe('block');
+  });
+
+  test('default secretDetection.blockIngress is true', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DEFAULT_CONFIG } = require('../config/defaults.js');
+    expect(DEFAULT_CONFIG.secretDetection.blockIngress).toBe(true);
   });
 });

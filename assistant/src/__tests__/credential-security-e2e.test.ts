@@ -10,6 +10,7 @@ const mockConfig = {
     action: 'block' as 'redact' | 'warn' | 'block',
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
+    blockIngress: true,
   },
   timeouts: { permissionTimeoutSec: 300 },
 };
@@ -162,11 +163,19 @@ describe('E2E: secret ingress blocking', () => {
     expect(check.blocked).toBe(false);
   });
 
-  test('bypasses when action is warn (not block)', () => {
-    mockConfig.secretDetection.action = 'warn';
+  test('bypasses when blockIngress is false', () => {
+    mockConfig.secretDetection.blockIngress = false;
     const awsKey = ['AKIA', 'IOSFODNN7', 'REALKEY'].join('');
     const check = checkIngressForSecrets(awsKey);
     expect(check.blocked).toBe(false);
+  });
+
+  test('still blocks when action is warn but blockIngress is true', () => {
+    mockConfig.secretDetection.action = 'warn';
+    mockConfig.secretDetection.blockIngress = true;
+    const awsKey = ['AKIA', 'IOSFODNN7', 'REALKEY'].join('');
+    const check = checkIngressForSecrets(awsKey);
+    expect(check.blocked).toBe(true);
   });
 });
 

@@ -109,6 +109,9 @@ export const SecretDetectionConfigSchema = z.object({
   allowOneTimeSend: z
     .boolean({ error: 'secretDetection.allowOneTimeSend must be a boolean' })
     .default(false),
+  blockIngress: z
+    .boolean({ error: 'secretDetection.blockIngress must be a boolean' })
+    .default(true),
 });
 
 export const PermissionsConfigSchema = z.object({
@@ -911,6 +914,7 @@ export const AssistantConfigSchema = z.object({
     action: 'block',
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
+    blockIngress: true,
   }),
   permissions: PermissionsConfigSchema.default({
     mode: 'strict',

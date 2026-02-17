@@ -98,7 +98,7 @@ describe('AssistantConfigSchema', () => {
       },
     });
     expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
-    expect(result.secretDetection).toEqual({ enabled: true, action: 'block', entropyThreshold: 4.0, allowOneTimeSend: false });
+    expect(result.secretDetection).toEqual({ enabled: true, action: 'block', entropyThreshold: 4.0, allowOneTimeSend: false, blockIngress: true });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
