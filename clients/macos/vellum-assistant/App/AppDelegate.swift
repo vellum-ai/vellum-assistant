@@ -204,9 +204,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
-            onOpenSettings: {},
-            wakeUpTitle: "Sign in to continue",
-            wakeUpSubtitle: "Sign in with your Vellum account to get started."
+            onOpenSettings: {}
         )
 
         let hostingController = NSHostingController(rootView: authView)
