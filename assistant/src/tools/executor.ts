@@ -47,6 +47,14 @@ export class ToolExecutor {
       startedAtMs: startTime,
     });
 
+    // Gate tools not active for the current turn
+    if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
+      return {
+        content: `Tool "${name}" is not currently active. Load the skill that provides this tool first.`,
+        isError: true,
+      };
+    }
+
     const tool = getTool(name);
     if (!tool) {
       const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');

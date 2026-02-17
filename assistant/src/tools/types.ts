@@ -94,6 +94,8 @@ export interface ToolContext {
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools — delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
+  /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
+  allowedToolNames?: Set<string>;
   /** Request user confirmation for a sub-tool operation (used by claude_code tool). */
   requestConfirmation?: (req: {
     toolName: string;
