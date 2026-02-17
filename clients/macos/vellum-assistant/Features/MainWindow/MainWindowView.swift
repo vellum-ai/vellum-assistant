@@ -841,9 +841,8 @@ private struct ControlCenterMenuButton: View {
             }
         } label: {
             HStack(spacing: VSpacing.md) {
-                Image("OwlIcon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 16))
                     .foregroundColor(VColor.textSecondary)
                     .frame(width: 20, height: 20)
 
