@@ -69,6 +69,9 @@ struct ComposerView: View {
     @State private var slashSelectedIndex = 0
     @State private var showModelSubmenu = false
     @State private var modelSelectedIndex = 0
+    @State private var avatarSeed: String = "default"
+    @State private var avatarPalette: DinoPalette = .violet
+    @State private var avatarOutfit: DinoOutfit = .none
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -102,7 +105,10 @@ struct ComposerView: View {
                 SlashCommandPopup(
                     commands: filteredSlashCommands(slashFilter),
                     selectedIndex: slashSelectedIndex,
-                    onSelect: { command in selectSlashCommand(command) }
+                    onSelect: { command in selectSlashCommand(command) },
+                    avatarSeed: avatarSeed,
+                    avatarPalette: avatarPalette,
+                    avatarOutfit: avatarOutfit
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -172,7 +178,14 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: editorContentHeight)
         .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
-        .onAppear { composerFocusRequestID += 1 }
+        .onAppear {
+            composerFocusRequestID += 1
+            let identity = IdentityInfo.load()
+            avatarSeed = identity?.name ?? "default"
+            let appearance = AvatarAppearanceManager.shared
+            avatarPalette = appearance.palette
+            avatarOutfit = appearance.outfit
+        }
     }
 
     // isComposerExpanded is a @Binding — sticky latch set true when text
@@ -984,20 +997,9 @@ private struct SlashCommandPopup: View {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (SlashCommand) -> Void
-    private let avatarSeed: String
-    private let avatarPalette: DinoPalette
-    private let avatarOutfit: DinoOutfit
-
-    init(commands: [SlashCommand], selectedIndex: Int, onSelect: @escaping (SlashCommand) -> Void) {
-        self.commands = commands
-        self.selectedIndex = selectedIndex
-        self.onSelect = onSelect
-        let identity = IdentityInfo.load()
-        self.avatarSeed = identity?.name ?? "default"
-        let appearance = AvatarAppearanceManager.shared
-        self.avatarPalette = appearance.palette
-        self.avatarOutfit = appearance.outfit
-    }
+    let avatarSeed: String
+    let avatarPalette: DinoPalette
+    let avatarOutfit: DinoOutfit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
