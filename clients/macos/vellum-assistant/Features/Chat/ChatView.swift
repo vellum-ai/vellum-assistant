@@ -128,6 +128,8 @@ struct ChatView: View {
         messages.isEmpty && !isThinking
     }
 
+    private let composerMinHeight: CGFloat = 34
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
@@ -182,6 +184,12 @@ struct ChatView: View {
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
+        }
+        .onChange(of: inputText) {
+            // Reset composer height when input is cleared
+            if inputText.isEmpty {
+                editorContentHeight = composerMinHeight
+            }
         }
     }
 
