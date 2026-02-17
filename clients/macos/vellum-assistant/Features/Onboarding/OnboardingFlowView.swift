@@ -34,7 +34,17 @@ struct OnboardingFlowView: View {
                     )
                     .id(state.currentStep)
             } else if state.currentStep == 3 {
-                // Step 3: Full-window voice activation screen
+                // Step 3: Full-window model selection screen
+                ModelSelectionStepView(state: state)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 12)),
+                            removal: .opacity.combined(with: .offset(y: -8))
+                        )
+                    )
+                    .id(state.currentStep)
+            } else if state.currentStep == 4 {
+                // Step 4: Full-window voice activation screen
                 FnKeyStepView(state: state)
                     .transition(
                         .asymmetric(
@@ -111,7 +121,7 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
-            if newStep > 3 {
+            if newStep > 4 {
                 onComplete()
             }
         }
