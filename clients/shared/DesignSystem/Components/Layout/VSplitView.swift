@@ -36,7 +36,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         .frame(width: panelWidth)
                         .animation(nil, value: panelWidth)  // Disable animation on width changes
                         .background(VColor.backgroundSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg))
                         .padding([.bottom, .trailing], VSpacing.xs)
                         .transition(.move(edge: .trailing))
                 }
