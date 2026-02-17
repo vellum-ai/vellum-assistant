@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { getSocketPath, getHistoryPath, readSessionToken } from './util/platform.js';
+import { hasSocketOverride } from './daemon/connection-policy.js';
 import {
   serialize,
   createMessageParser,
@@ -666,6 +667,15 @@ export async function startCli(): Promise<void> {
         // accept any other messages.
         const token = readSessionToken();
         if (!token) {
+          if (hasSocketOverride()) {
+            // SSH-forwarded socket: the token file lives on the remote
+            // host, not locally. Connect without auth and let the server
+            // decide whether to accept the unauthenticated connection.
+            authenticated = true;
+            startHeartbeat();
+            resolve();
+            return;
+          }
           reject(new Error('Session token not found — is the daemon running?'));
           newSocket.destroy();
           return;

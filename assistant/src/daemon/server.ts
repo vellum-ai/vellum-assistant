@@ -609,7 +609,7 @@ export class DaemonServer {
   }
 
   broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
-    for (const socket of this.connectedSockets) {
+    for (const socket of this.authenticatedSockets) {
       if (socket === excludeSocket) continue;
       this.send(socket, msg);
     }
