@@ -326,14 +326,6 @@ struct ChatView: View {
 
                         if let confirmation = message.confirmation {
                             if confirmation.state == .pending {
-                                // Check if the preceding assistant message has text
-                                let prevHasText: Bool = {
-                                    guard index > 0 else { return false }
-                                    let prev = messages[index - 1]
-                                    return prev.role == .assistant
-                                        && !prev.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                }()
-
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,

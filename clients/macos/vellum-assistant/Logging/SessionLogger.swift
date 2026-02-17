@@ -69,7 +69,7 @@ final class SessionLogger {
     }
 
     func finishSession(result: String) {
-        let log = SessionLog(
+        let sessionLog = SessionLog(
             task: task,
             startTime: startTime,
             endTime: Date(),
@@ -95,7 +95,7 @@ final class SessionLogger {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(log)
+            let data = try encoder.encode(sessionLog)
             try data.write(to: fileURL)
         } catch {
             log.error("Failed to save session log: \(error.localizedDescription)")
