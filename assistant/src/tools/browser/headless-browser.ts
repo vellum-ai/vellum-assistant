@@ -197,7 +197,7 @@ class BrowserNavigateTool implements Tool {
   name = 'browser_navigate';
   description = 'Navigate a headless browser to a URL and return the page title and status. Use this to load web pages for inspection or interaction.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
@@ -438,7 +438,7 @@ class BrowserCloseTool implements Tool {
   name = 'browser_close';
   description = 'Close the browser page for the current session, or all pages if close_all_pages is true.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
@@ -514,7 +514,7 @@ class BrowserClickTool implements Tool {
   name = 'browser_click';
   description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
@@ -594,7 +594,7 @@ class BrowserTypeTool implements Tool {
   name = 'browser_type';
   description = 'Type text into an input element. Target by element_id (from browser_snapshot) or CSS selector.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
@@ -675,7 +675,7 @@ class BrowserPressKeyTool implements Tool {
   name = 'browser_press_key';
   description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
@@ -975,7 +975,7 @@ class BrowserFillCredentialTool implements Tool {
   name = 'browser_fill_credential';
   description = 'Fill a stored credential into a form field without exposing the value. Target by element_id (from browser_snapshot) or CSS selector.';
   category = 'browser';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {

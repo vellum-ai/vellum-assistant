@@ -196,18 +196,11 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   if (toolName === 'file_write') return RiskLevel.Medium;
   if (toolName === 'file_edit') return RiskLevel.Medium;
   if (toolName === 'web_search') return RiskLevel.Low;
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
+  if (toolName === 'web_fetch') {
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
   }
-  if (toolName === 'browser_snapshot') return RiskLevel.Low;
-  if (toolName === 'browser_close') {
-    return input.close_all_pages === true ? RiskLevel.High : RiskLevel.Medium;
-  }
-  if (toolName === 'browser_click') return RiskLevel.Medium;
-  if (toolName === 'browser_type') return RiskLevel.Medium;
-  if (toolName === 'browser_press_key') return RiskLevel.Medium;
-  if (toolName === 'browser_wait_for') return RiskLevel.Low;
-  if (toolName === 'browser_extract') return RiskLevel.Low;
+  // All browser tools are low risk — the browser is sandboxed and user-visible.
+  if (toolName.startsWith('browser_')) return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   if (toolName === 'bash' || toolName === 'host_bash') {
