@@ -146,7 +146,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
-            await authManager.loadConfig()
             if authManager.isAuthenticated {
                 proceedToApp()
             } else {
@@ -191,7 +190,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let authView = AuthContainerView(authManager: authManager)
+        let authView = AuthWindowView(authManager: authManager)
             .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
                 if isAuthenticated {
                     Task { @MainActor [weak self] in
@@ -202,7 +201,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -260,6 +259,93 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
+        }
+    }
+
+    /// Standalone auth window shown when user needs to sign in outside of onboarding.
+    /// Displays a simple "Continue with Vellum" button that triggers WorkOS AuthKit.
+    @MainActor
+    struct AuthWindowView: View {
+        @Bindable var authManager: AuthManager
+
+        var body: some View {
+            ZStack {
+                VColor.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    Spacer()
+
+                    Group {
+                        if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            Image("VellyLogo")
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        }
+                    }
+                    .frame(width: 128, height: 128)
+                    .padding(.bottom, VSpacing.xxl)
+
+                    Text("Sign in to continue")
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.bottom, VSpacing.md)
+
+                    Text("Sign in with your Vellum account to get started.")
+                        .font(.system(size: 16))
+                        .foregroundColor(VColor.textSecondary)
+
+                    Spacer()
+
+                    VStack(spacing: VSpacing.md) {
+                        Button(action: {
+                            Task { await authManager.startWorkOSLogin() }
+                        }) {
+                            HStack(spacing: VSpacing.sm) {
+                                if authManager.isSubmitting {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .progressViewStyle(.circular)
+                                }
+                                Text(authManager.isSubmitting ? "Signing in..." : "Continue with Vellum")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.lg)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .fill(adaptiveColor(
+                                        light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                        dark: Violet._600
+                                    ))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authManager.isSubmitting)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+
+                        if let error = authManager.errorMessage {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.xxl)
+                    .padding(.bottom, VSpacing.xxl)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 

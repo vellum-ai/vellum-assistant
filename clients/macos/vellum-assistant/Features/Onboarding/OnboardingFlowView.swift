@@ -9,26 +9,12 @@ struct OnboardingFlowView: View {
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
-    @State private var showVellumAuth = false
-
     var body: some View {
         GeometryReader { geometry in
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if showVellumAuth {
-                AuthContainerView(authManager: authManager, onBack: {
-                    withAnimation(VAnimation.standard) {
-                        showVellumAuth = false
-                    }
-                })
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 12)),
-                            removal: .opacity.combined(with: .offset(y: -8))
-                        )
-                    )
-            } else if [0, 2, 3, 4].contains(state.currentStep) {
+            if [0, 2, 3, 4].contains(state.currentStep) {
                 // Steps 0–4: Shared layout with persistent icon + background.
                 // Only the content below the icon transitions between steps.
                 VStack(spacing: 0) {
@@ -59,10 +45,7 @@ struct OnboardingFlowView: View {
                         case 0:
                             WakeUpStepView(state: state, onContinueWithVellum: {
                                 Task {
-                                    await authManager.loadConfig()
-                                }
-                                withAnimation(VAnimation.standard) {
-                                    showVellumAuth = true
+                                    await authManager.startWorkOSLogin()
                                 }
                             })
                         case 2:
@@ -184,7 +167,7 @@ struct OnboardingFlowView: View {
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated && showVellumAuth {
+            if isAuthenticated {
                 onComplete()
             }
         }
