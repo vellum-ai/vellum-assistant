@@ -3,6 +3,8 @@ import os
 import SwiftUI
 import Speech
 import AVFoundation
+import PhotosUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
@@ -18,61 +20,146 @@ struct InputBarView: View {
     let onSend: () -> Void
     let onStop: () -> Void
     var onVoiceResult: ((String) -> Void)?
+    @ObservedObject var viewModel: ChatViewModel
 
     @State private var isRecording = false
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var audioEngine = AVAudioEngine()
+    @State private var showPhotosPicker = false
+    @State private var showDocumentPicker = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
 
     var body: some View {
-        HStack(spacing: VSpacing.md) {
-            // Text field
-            TextField("Message...", text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .focused(isInputFocused)
+        VStack(spacing: 0) {
+            // Attachment strip (shown only when there are pending attachments)
+            AttachmentStripView(viewModel: viewModel)
 
-            // Stop button (shown while generating but not yet cancelling)
-            if isGenerating && !isCancelling {
-                Button(action: onStop) {
-                    ZStack {
-                        Circle()
-                            .fill(VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(VColor.background)
-                            .frame(width: 11, height: 11)
+            HStack(spacing: VSpacing.md) {
+                // Attachment button
+                Button(action: {}) {
+                    Image(systemName: "paperclip")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .contextMenu {
+                    Button {
+                        showPhotosPicker = true
+                    } label: {
+                        Label("Photo Library", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        showDocumentPicker = true
+                    } label: {
+                        Label("Files", systemImage: "folder")
                     }
                 }
-                .accessibilityLabel("Stop generation")
-            } else {
-                // Mic button
-                Button(action: toggleVoiceInput) {
-                    Image(systemName: isRecording ? "mic.fill" : "mic")
-                        .font(.system(size: 22))
-                        .foregroundColor(isRecording ? .red : VColor.textMuted)
+                .photosPicker(
+                    isPresented: $showPhotosPicker,
+                    selection: $selectedPhotoItems,
+                    maxSelectionCount: ChatViewModel.maxAttachments,
+                    matching: .images
+                )
+                .fileImporter(
+                    isPresented: $showDocumentPicker,
+                    allowedContentTypes: [.item],
+                    allowsMultipleSelection: true
+                ) { result in
+                    handleFileImportResult(result)
                 }
-                .buttonStyle(.plain)
+                .onChange(of: selectedPhotoItems) { _, newItems in
+                    handlePhotoSelection(newItems)
+                }
 
-                // Send button
-                Button(action: onSend) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                // Text field
+                TextField("Message...", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .focused(isInputFocused)
+
+                // Stop button (shown while generating but not yet cancelling)
+                if isGenerating && !isCancelling {
+                    Button(action: onStop) {
+                        ZStack {
+                            Circle()
+                                .fill(VColor.textPrimary)
+                                .frame(width: 32, height: 32)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(VColor.background)
+                                .frame(width: 11, height: 11)
+                        }
+                    }
+                    .accessibilityLabel("Stop generation")
+                } else {
+                    // Mic button
+                    Button(action: toggleVoiceInput) {
+                        Image(systemName: isRecording ? "mic.fill" : "mic")
+                            .font(.system(size: 22))
+                            .foregroundColor(isRecording ? .red : VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+
+                    // Send button
+                    Button(action: onSend) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                    }
+                    .disabled(!canSend)
                 }
-                .disabled(!canSend)
             }
+            .padding(VSpacing.md)
+            .background(VColor.backgroundSubtle)
         }
-        .padding(VSpacing.md)
-        .background(VColor.backgroundSubtle)
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
+        let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasAttachments = !viewModel.pendingAttachments.isEmpty
+        return (hasText || hasAttachments) && !isGenerating
+    }
+
+    private func handlePhotoSelection(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        // Clear selection state so the same photos can be re-selected later
+        selectedPhotoItems = []
+        for item in items {
+            item.loadTransferable(type: Data.self) { result in
+                switch result {
+                case .success(let data):
+                    guard let data else { return }
+                    Task { @MainActor in
+                        viewModel.addAttachment(imageData: data, filename: "Photo.jpeg")
+                    }
+                case .failure(let error):
+                    log.error("Failed to load photo: \(error.localizedDescription)")
+                    Task { @MainActor in
+                        viewModel.errorText = "Could not load photo."
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                // Security-scoped resource access is required for files from the Files app
+                let didStartAccessing = url.startAccessingSecurityScopedResource()
+                defer {
+                    if didStartAccessing { url.stopAccessingSecurityScopedResource() }
+                }
+                viewModel.addAttachment(url: url)
+            }
+        case .failure(let error):
+            log.error("File import failed: \(error.localizedDescription)")
+            viewModel.errorText = "Could not import file."
+        }
     }
 
     // MARK: - Voice Input
@@ -201,7 +288,8 @@ struct InputBarView_Previews: PreviewProvider {
                     isGenerating: false,
                     isCancelling: false,
                     onSend: { log.debug("Send tapped") },
-                    onStop: { log.debug("Stop tapped") }
+                    onStop: { log.debug("Stop tapped") },
+                    viewModel: ChatViewModel(daemonClient: DaemonClient(config: .default))
                 )
             }
             .background(VColor.background)

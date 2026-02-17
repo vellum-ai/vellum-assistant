@@ -112,7 +112,8 @@ struct ChatTabView: View {
                 onStop: viewModel.stopGenerating,
                 onVoiceResult: { _ in
                     viewModel.pendingVoiceMessage = true
-                }
+                },
+                viewModel: viewModel
             )
         }
         .background(VColor.background)
