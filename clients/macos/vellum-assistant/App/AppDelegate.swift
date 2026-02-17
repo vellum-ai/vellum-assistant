@@ -101,6 +101,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
 
     private var onboardingWindow: OnboardingWindow?
+    private var authWindow: NSWindow?
+    let authManager = AuthManager()
     var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
@@ -138,6 +140,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        startAuthenticatedFlow()
+    }
+
+    private func startAuthenticatedFlow() {
+        Task {
+            await authManager.checkSession()
+            await authManager.loadConfig()
+            if authManager.isAuthenticated {
+                proceedToApp()
+            } else {
+                showAuthWindow()
+            }
+        }
+    }
+
+    private var hasSetupApp = false
+
+    private func proceedToApp() {
+        authWindow?.close()
+        authWindow = nil
+
+        guard !hasSetupApp else {
+            showMainWindow()
+            return
+        }
+        hasSetupApp = true
+
         setupDaemonClient()
         setupMenuBar()
         setupViewMenu()
@@ -152,6 +181,65 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow()
+    }
+
+    private func showAuthWindow() {
+        if let existing = authWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let authView = AuthContainerView(authManager: authManager)
+            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    Task { @MainActor [weak self] in
+                        self?.proceedToApp()
+                    }
+                }
+            }
+
+        let hostingController = NSHostingController(rootView: authView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 700),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        authWindow = window
+    }
+
+    @objc func performLogout() {
+        Task {
+            await authManager.logout()
+
+            mainWindow?.close()
+            mainWindow = nil
+            settingsWindow?.close()
+            settingsWindow = nil
+
+            hotKey = nil
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+            voiceInput = nil
+            ambientAgent.stop()
+
+            hasSetupApp = false
+            showAuthWindow()
+        }
     }
 
     /// Applies the user's theme preference to the app appearance.
@@ -447,7 +535,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Don't show the main window while onboarding is active — the app
         // isn't fully initialized yet and showing it would let users bypass
         // the onboarding flow with partially initialized state.
-        guard onboardingWindow == nil else { return true }
+        guard onboardingWindow == nil, authWindow == nil else { return true }
 
         // Always show the main window on reopen (e.g. Spotlight, Dock click).
         // Even when hasVisibleWindows is true, the window may be behind other apps
@@ -623,20 +711,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            self?.setupMenuBar()
-            self?.setupViewMenu()
-            self?.setupHotKey()
-            self?.setupEscapeMonitor()
-            self?.setupVoiceInput()
-            self?.setupAmbientAgent()
-            self?.setupSurfaceManager()
-            self?.setupToolConfirmationNotifications()
-            self?.setupSecretPromptManager()
-            self?.setupWindowObserver()
-            self?.setupNotifications()
-            self?.setupAutoUpdate()
-
-            self?.showMainWindow(initialMessage: "Wake up, my friend")
+            self?.startAuthenticatedFlow()
         }
         onboarding.show()
         onboardingWindow = onboarding
