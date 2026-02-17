@@ -33,6 +33,8 @@ export interface ProcessSessionContext {
   readonly traceEmitter: TraceEmitter;
   currentActiveSurfaceId?: string;
   currentPage?: string;
+  /** Request-scoped skill IDs preactivated via slash resolution. */
+  preactivatedSkillIds?: string[];
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string): string;
   runAgentLoop(
     content: string,
@@ -116,6 +118,11 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   }
 
   const resolvedContent = slashResult.content;
+
+  // Preactivate skill tools when slash resolution identifies a known skill
+  if (slashResult.kind === 'rewritten') {
+    session.preactivatedSkillIds = [slashResult.skillId];
+  }
 
   // Try to persist and run the dequeued message. If persistUserMessage
   // succeeds, runAgentLoop is called and its finally block will drain
@@ -203,6 +210,11 @@ export async function processMessage(
   }
 
   const resolvedContent = slashResult.content;
+
+  // Preactivate skill tools when slash resolution identifies a known skill
+  if (slashResult.kind === 'rewritten') {
+    session.preactivatedSkillIds = [slashResult.skillId];
+  }
 
   let userMessageId: string;
   try {
