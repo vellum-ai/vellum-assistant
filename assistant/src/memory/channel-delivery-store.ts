@@ -322,7 +322,7 @@ export function getDeadLetterEvents(assistantId: string): Array<{
  * Reset dead-lettered events back to 'failed' so the sweep can retry
  * them. Resets attempt counter and sets an immediate retry_after.
  */
-export function replayDeadLetters(eventIds: string[]): number {
+export function replayDeadLetters(assistantId: string, eventIds: string[]): number {
   const db = getDb();
   const now = Date.now();
   let count = 0;
@@ -333,6 +333,7 @@ export function replayDeadLetters(eventIds: string[]): number {
       .where(
         and(
           eq(channelInboundEvents.id, id),
+          eq(channelInboundEvents.assistantId, assistantId),
           eq(channelInboundEvents.processingStatus, 'dead_letter'),
         ),
       )

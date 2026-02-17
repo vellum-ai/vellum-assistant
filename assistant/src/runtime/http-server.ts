@@ -72,6 +72,7 @@ export class RuntimeHttpServer {
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
+  private sweepInProgress = false;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -89,7 +90,11 @@ export class RuntimeHttpServer {
 
     // Sweep failed channel inbound events for retry every 30 seconds
     if (this.processMessage) {
-      this.retrySweepTimer = setInterval(() => this.sweepFailedEvents(), 30_000);
+      this.retrySweepTimer = setInterval(() => {
+        if (this.sweepInProgress) return;
+        this.sweepInProgress = true;
+        this.sweepFailedEvents().finally(() => { this.sweepInProgress = false; });
+      }, 30_000);
     }
 
     log.info({ port: this.port }, 'Runtime HTTP server listening');
