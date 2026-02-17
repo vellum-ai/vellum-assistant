@@ -33,7 +33,7 @@ struct WakeUpStepView: View {
             .foregroundColor(VColor.textPrimary)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
-            .padding(.top, VSpacing.xl)
+            .padding(.top, VSpacing.xxl)
 
         Spacer()
 
@@ -63,16 +63,15 @@ struct WakeUpStepView: View {
                         .frame(width: index == 0 ? 8 : 6, height: index == 0 ? 8 : 6)
                 }
             }
-            .padding(.top, VSpacing.sm)
+            .padding(.top, VSpacing.lg)
 
             // Footer
             Text("2026 Vellum Inc.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(VColor.textMuted.opacity(0.5))
-                .padding(.bottom, VSpacing.sm)
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.lg)
+        .padding(.bottom, VSpacing.xxl)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing)
@@ -130,11 +129,11 @@ struct WakeUpStepView: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(VColor.surface)
+                .fill(Slate._900)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                .stroke(Slate._700.opacity(0.6), lineWidth: 1)
         )
     }
 
