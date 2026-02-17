@@ -5,7 +5,7 @@ struct OnboardingFooter: View {
     let currentStep: Int
     let totalSteps: Int
 
-    private let totalDots = 4
+    private let totalDots = 3
 
     init(currentStep: Int, totalSteps: Int = 3) {
         self.currentStep = currentStep
@@ -43,9 +43,8 @@ struct OnboardingFooter: View {
         VColor.background
         VStack(spacing: 24) {
             OnboardingFooter(currentStep: 0)
+            OnboardingFooter(currentStep: 1)
             OnboardingFooter(currentStep: 2)
-            OnboardingFooter(currentStep: 4)
-            OnboardingFooter(currentStep: 7)
         }
     }
     .frame(width: 240, height: 260)
