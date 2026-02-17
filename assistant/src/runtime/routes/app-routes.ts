@@ -1,6 +1,7 @@
 /**
  * Route handlers for shareable app pages and cloud sharing.
  */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import JSZip from 'jszip';
@@ -44,23 +45,41 @@ export function handleServePage(appId: string): Response {
   const css = loadDesignSystemCss();
   const escapedName = app.name.replace(/[<>&"]/g, (c) => HTML_ESCAPE_MAP[c] ?? c);
 
+  // Per-response nonce for the trusted design-system <style> tag.
+  const nonce = randomBytes(16).toString('base64');
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapedName}</title>
-  <style>${css}</style>
+  <style nonce="${nonce}">${css}</style>
 </head>
 <body>
 ${app.htmlDefinition}
 </body>
 </html>`;
 
+  // Strict CSP: inline scripts are blocked (no 'unsafe-inline' in script-src),
+  // inline styles are allowed only via nonce for the design-system CSS,
+  // and resource origins are tightened to HTTPS-only for external loads.
+  const csp = [
+    "default-src 'self'",
+    `style-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
+    "script-src 'self'",
+    "img-src 'self' data: https:",
+    "font-src 'self' data: https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+  ].join('; ');
+
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': "default-src 'self' 'unsafe-inline'; img-src * data:; font-src *;",
+      'Content-Security-Policy': csp,
     },
   });
 }
