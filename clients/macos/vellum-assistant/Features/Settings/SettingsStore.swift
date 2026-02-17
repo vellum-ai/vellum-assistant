@@ -179,6 +179,7 @@ public final class SettingsStore: ObservableObject {
 
     func setModel(_ model: String) {
         guard model != lastDaemonModel else { return }
+        lastDaemonModel = model
         try? daemonClient?.sendModelSet(model: model)
     }
 }
