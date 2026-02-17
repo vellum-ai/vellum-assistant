@@ -13,6 +13,7 @@ import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { deriveActiveSkillIds } from '../skills/active-skill-tools.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
+import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';
 import {
   registerSkillTools,
@@ -39,11 +40,13 @@ export interface ProjectSkillToolsOptions {
   /** Skill IDs that should be treated as active regardless of history markers. */
   preactivatedSkillIds?: string[];
   /**
-   * Session-scoped tracking set of previously active skill IDs. Each session
-   * should own its own set to prevent cross-session state bleed when the
-   * daemon serves multiple concurrent sessions.
+   * Session-scoped tracking map of previously active skill IDs to their
+   * version hashes. Each session should own its own map to prevent
+   * cross-session state bleed when the daemon serves multiple concurrent
+   * sessions. When a skill's hash changes between turns, its tools are
+   * unregistered and re-registered with the updated definitions.
    */
-  previouslyActiveSkillIds?: Set<string>;
+  previouslyActiveSkillIds?: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,14 +90,14 @@ export function projectSkillTools(
 ): SkillToolProjection {
   const contextIds = deriveActiveSkillIds(history);
   const preactivated = options?.preactivatedSkillIds ?? [];
-  const prevActive = options?.previouslyActiveSkillIds ?? new Set<string>();
+  const prevActive = options?.previouslyActiveSkillIds ?? new Map<string, string>();
 
   // Union of context-derived and preactivated IDs
   const activeIds = new Set<string>([...contextIds, ...preactivated]);
 
   // Determine which skills were removed since last projection
   const removedIds = new Set<string>();
-  for (const id of prevActive) {
+  for (const id of prevActive.keys()) {
     if (!activeIds.has(id)) {
       removedIds.add(id);
     }
@@ -121,7 +124,7 @@ export function projectSkillTools(
 
   const allToolDefinitions: ToolDefinition[] = [];
   const allToolNames = new Set<string>();
-  const successfulIds = new Set<string>();
+  const successfulEntries = new Map<string, string>();
 
   for (const skillId of activeIds) {
     const skill = catalogById.get(skillId);
@@ -135,8 +138,16 @@ export function projectSkillTools(
       continue;
     }
 
-    // Create runtime Tool objects — only register if this skill is newly active
-    // to avoid inflating the registry refcount on every turn.
+    // Compute the current version hash for this skill directory
+    let currentHash: string;
+    try {
+      currentHash = computeSkillVersionHash(skill.directoryPath);
+    } catch (err) {
+      log.warn({ err, skillId }, 'Failed to compute skill version hash, treating as changed');
+      currentHash = `unknown-${Date.now()}`;
+    }
+
+    // Create runtime Tool objects
     const tools = createSkillToolsFromManifest(
       manifest.tools,
       skillId,
@@ -144,11 +155,19 @@ export function projectSkillTools(
     );
 
     if (tools.length > 0) {
-      if (!prevActive.has(skillId)) {
+      const prevHash = prevActive.get(skillId);
+      if (prevHash === undefined) {
+        // Newly active skill — register for the first time
+        registerSkillTools(tools);
+      } else if (prevHash !== currentHash) {
+        // Hash changed — unregister stale tools, then re-register with new definitions
+        log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
+        unregisterSkillTools(skillId);
         registerSkillTools(tools);
       }
+      // If hash is unchanged, skip registration to avoid inflating the refcount
 
-      successfulIds.add(skillId);
+      successfulEntries.set(skillId, currentHash);
       for (const tool of tools) {
         allToolDefinitions.push(tool.getDefinition());
         allToolNames.add(tool.name);
@@ -160,18 +179,18 @@ export function projectSkillTools(
   // turn (catalog miss, manifest failure, empty tools). Without this, the
   // skill would be re-registered when it recovers next turn, inflating the
   // refcount since the prior registration was never decremented.
-  for (const id of prevActive) {
-    if (activeIds.has(id) && !successfulIds.has(id)) {
+  for (const id of prevActive.keys()) {
+    if (activeIds.has(id) && !successfulEntries.has(id)) {
       log.info({ skillId: id }, 'Unregistering tools for transiently-failed skill');
       unregisterSkillTools(id);
     }
   }
 
-  // Update the session-scoped tracking set in-place — only include skills
+  // Update the session-scoped tracking map in-place — only include skills
   // that were successfully processed so failed skills can be retried next turn.
   prevActive.clear();
-  for (const id of successfulIds) {
-    prevActive.add(id);
+  for (const [id, hash] of successfulEntries) {
+    prevActive.set(id, hash);
   }
 
   return {
@@ -182,11 +201,11 @@ export function projectSkillTools(
 
 /**
  * Reset the projection state and unregister all skill tools tracked in the
- * given set. Used for session teardown and tests.
+ * given map. Used for session teardown and tests.
  */
-export function resetSkillToolProjection(trackedIds?: Set<string>): void {
+export function resetSkillToolProjection(trackedIds?: Map<string, string>): void {
   if (trackedIds) {
-    for (const id of trackedIds) {
+    for (const id of trackedIds.keys()) {
       unregisterSkillTools(id);
     }
     trackedIds.clear();

@@ -14,6 +14,8 @@ let mockManifests: Record<string, SkillToolManifest | null> = {};
 let mockRegisteredTools: Map<string, Tool[]> = new Map();
 let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
+/** Per-skill version hash overrides. When set, computeSkillVersionHash returns this value. */
+let mockVersionHashes: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -142,6 +144,19 @@ mock.module('node:fs', () => ({
   },
 }));
 
+mock.module('../skills/version-hash.js', () => ({
+  computeSkillVersionHash: (skillDir: string) => {
+    // Extract skill ID from path: /skills/<id> → <id>
+    const parts = skillDir.split('/');
+    const skillId = parts[parts.length - 1];
+    if (skillId in mockVersionHashes) {
+      return mockVersionHashes[skillId];
+    }
+    // Default: stable hash based on skill ID so repeated calls return the same value
+    return `v1:default-hash-${skillId}`;
+  },
+}));
+
 mock.module('../util/logger.js', () => ({
   getLogger: () => ({
     info: () => {},
@@ -218,7 +233,7 @@ function skillLoadMessages(content: string): Message[] {
 afterAll(() => { mock.restore(); });
 
 describe('projectSkillTools', () => {
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -227,7 +242,8 @@ describe('projectSkillTools', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('no active skills returns empty projection', () => {
@@ -436,6 +452,56 @@ describe('projectSkillTools', () => {
     expect(mockSkillRefCount.get('deploy')).toBe(1);
   });
 
+  test('skill version hash change triggers unregister and re-register', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:hash-aaa' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: skill registered with hash-aaa
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.has('deploy')).toBe(true);
+    expect(sessionState.get('deploy')).toBe('v1:hash-aaa');
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Turn 2: hash changes — should unregister old and re-register new
+    mockVersionHashes = { deploy: 'v1:hash-bbb' };
+    mockUnregisteredSkillIds = [];
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+    expect(sessionState.get('deploy')).toBe('v1:hash-bbb');
+    // Unregister was called for the stale version
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    // Ref count should remain 1 (unregister decremented, re-register incremented)
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('skill version hash unchanged skips re-registration', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:stable-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: skill registered
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Turn 2: same hash — should NOT call registerSkillTools again
+    mockUnregisteredSkillIds = [];
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(mockUnregisteredSkillIds).not.toContain('deploy');
+    // Ref count should still be 1 (no additional registration)
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
   test('preactivated IDs merge with context-derived IDs (dedup)', () => {
     mockCatalog = [makeSkill('deploy')];
     mockManifests = { deploy: makeManifest(['deploy_run']) };
@@ -474,8 +540,8 @@ describe('projectSkillTools', () => {
       oncall: makeManifest(['oncall_page']),
     };
 
-    const sessionA = new Set<string>();
-    const sessionB = new Set<string>();
+    const sessionA = new Map<string, string>();
+    const sessionB = new Map<string, string>();
 
     // Session A activates deploy
     const historyA: Message[] = [...skillLoadMessages('<loaded_skill id="deploy" />')];
@@ -497,8 +563,8 @@ describe('projectSkillTools', () => {
     mockCatalog = [makeSkill('deploy')];
     mockManifests = { deploy: makeManifest(['deploy_run']) };
 
-    const sessionA = new Set<string>();
-    const sessionB = new Set<string>();
+    const sessionA = new Map<string, string>();
+    const sessionB = new Map<string, string>();
 
     const history: Message[] = [...skillLoadMessages('<loaded_skill id="deploy" />')];
 
@@ -525,8 +591,8 @@ describe('projectSkillTools', () => {
     mockCatalog = [makeSkill('deploy')];
     mockManifests = { deploy: makeManifest(['deploy_run']) };
 
-    const sessionA = new Set<string>();
-    const sessionB = new Set<string>();
+    const sessionA = new Map<string, string>();
+    const sessionB = new Map<string, string>();
 
     const history: Message[] = [...skillLoadMessages('<loaded_skill id="deploy" />')];
 
@@ -556,7 +622,7 @@ describe('resolveTools callback (session wiring)', () => {
     { name: 'bash', description: 'Run a shell command', input_schema: { type: 'object', properties: {} } },
   ];
 
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]): ToolDefinition[] => {
@@ -572,7 +638,8 @@ describe('resolveTools callback (session wiring)', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('returns only base tools when no skills are active', () => {
@@ -651,7 +718,7 @@ describe('resolveTools callback (session wiring)', () => {
 
 describe('allowed tool set merging', () => {
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -660,7 +727,8 @@ describe('allowed tool set merging', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   /**
@@ -769,7 +837,7 @@ describe('mid-run skill tool activation (end-to-end)', () => {
   ];
 
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]) => {
@@ -788,7 +856,8 @@ describe('mid-run skill tool activation (end-to-end)', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('Turn 1 calls skill_load → Turn 2 sees added tool', () => {
@@ -964,7 +1033,7 @@ describe('context-derived deactivation regression', () => {
   ];
 
   const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   function makeResolveTools(base: ToolDefinition[]) {
     return (history: Message[]) => {
@@ -983,7 +1052,8 @@ describe('context-derived deactivation regression', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('tool definitions shrink when skill load marker is removed from history', () => {
@@ -1158,7 +1228,7 @@ describe('context-derived deactivation regression', () => {
 // ---------------------------------------------------------------------------
 
 describe('slash preactivation through session processing', () => {
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -1167,7 +1237,8 @@ describe('slash preactivation through session processing', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('slash-known skill has its tools available on first projection (turn-0)', () => {
@@ -1258,7 +1329,7 @@ const GMAIL_TOOL_NAMES = [
 ] as const;
 
 describe('bundled skill: gmail', () => {
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -1267,7 +1338,8 @@ describe('bundled skill: gmail', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('gmail skill activation via loaded_skill marker projects all 12 tool definitions', () => {
@@ -1305,7 +1377,7 @@ describe('bundled skill: gmail', () => {
 });
 
 describe('bundled skill: claude-code', () => {
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -1314,7 +1386,8 @@ describe('bundled skill: claude-code', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('claude-code skill activation produces claude_code tool definition', () => {
@@ -1348,7 +1421,7 @@ describe('bundled skill: claude-code', () => {
 });
 
 describe('bundled skill: weather', () => {
-  let sessionState: Set<string>;
+  let sessionState: Map<string, string>;
 
   beforeEach(() => {
     mockCatalog = [];
@@ -1357,7 +1430,8 @@ describe('bundled skill: weather', () => {
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
     mockSkillRefCount = new Map();
-    sessionState = new Set<string>();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
   });
 
   test('weather skill activation produces get_weather tool definition', () => {
@@ -1401,16 +1475,17 @@ describe('resetSkillToolProjection', () => {
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
+    mockVersionHashes = {};
   });
 
-  test('unregisters all tracked skills and clears the set', () => {
+  test('unregisters all tracked skills and clears the map', () => {
     mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
     mockManifests = {
       deploy: makeManifest(['deploy_run']),
       oncall: makeManifest(['oncall_page']),
     };
 
-    const trackedIds = new Set<string>();
+    const trackedIds = new Map<string, string>();
 
     // Activate both skills
     const history: Message[] = [
@@ -1434,9 +1509,9 @@ describe('resetSkillToolProjection', () => {
     expect(mockUnregisteredSkillIds).toHaveLength(0);
   });
 
-  test('no-op when called with empty set', () => {
+  test('no-op when called with empty map', () => {
     mockUnregisteredSkillIds = [];
-    resetSkillToolProjection(new Set());
+    resetSkillToolProjection(new Map());
     expect(mockUnregisteredSkillIds).toHaveLength(0);
   });
 });

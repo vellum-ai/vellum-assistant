@@ -128,8 +128,8 @@ export class Session {
   preactivatedSkillIds?: string[];
   /** Core tool names (computed once in constructor), always allowed regardless of skill state. */
   private coreToolNames: Set<string>;
-  /** Per-session tracking of previously active skill IDs for projection diffing. */
-  private readonly skillProjectionState = new Set<string>();
+  /** Per-session tracking of previously active skill IDs and their version hashes for projection diffing. */
+  private readonly skillProjectionState = new Map<string, string>();
   /** @internal — exposed for session-usage.ts module functions. */
   usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
