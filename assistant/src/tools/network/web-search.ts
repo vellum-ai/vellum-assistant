@@ -9,6 +9,8 @@ import { getLogger } from '../../util/logger.js';
 const log = getLogger('web-search');
 
 const BRAVE_API_URL = 'https://api.search.brave.com/res/v1/web/search';
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 1000;
 
 interface BraveSearchResult {
   title: string;
@@ -132,34 +134,47 @@ class WebSearchTool implements Tool {
     try {
       log.debug({ query, count, offset }, 'Executing web search');
 
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': apiKey,
-        },
-      });
+      let lastBody = '';
+      for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        const response = await fetch(url, {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip',
+            'X-Subscription-Token': apiKey,
+          },
+        });
 
-      if (!response.ok) {
-        const body = await response.text();
-        log.warn({ status: response.status, body }, 'Brave Search API error');
+        if (response.ok) {
+          const data = await response.json() as BraveSearchResponse;
+          const results = data.web?.results ?? [];
+          return { content: formatResults(results, query), isError: false };
+        }
+
+        lastBody = await response.text();
 
         if (response.status === 401 || response.status === 403) {
           return { content: 'Error: Invalid or expired Brave Search API key', isError: true };
         }
+
+        if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+          const retryAfter = response.headers.get('retry-after');
+          const delayMs = retryAfter && !isNaN(Number(retryAfter))
+            ? Number(retryAfter) * 1000
+            : RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+          log.warn({ attempt: attempt + 1, delayMs }, 'Brave Search rate limited, retrying');
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        log.warn({ status: response.status, body: lastBody }, 'Brave Search API error');
         if (response.status === 429) {
-          return { content: 'Error: Brave Search rate limit exceeded. Try again shortly.', isError: true };
+          return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
         }
         return { content: `Error: Brave Search API returned status ${response.status}`, isError: true };
       }
 
-      const data = await response.json() as BraveSearchResponse;
-      const results = data.web?.results ?? [];
-
-      return {
-        content: formatResults(results, query),
-        isError: false,
-      };
+      // Should be unreachable, but satisfies TypeScript
+      return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Web search failed');
