@@ -121,6 +121,7 @@ export function projectSkillTools(
 
   const allToolDefinitions: ToolDefinition[] = [];
   const allToolNames = new Set<string>();
+  const successfulIds = new Set<string>();
 
   for (const skillId of activeIds) {
     const skill = catalogById.get(skillId);
@@ -147,6 +148,7 @@ export function projectSkillTools(
         registerSkillTools(tools);
       }
 
+      successfulIds.add(skillId);
       for (const tool of tools) {
         allToolDefinitions.push(tool.getDefinition());
         allToolNames.add(tool.name);
@@ -154,9 +156,10 @@ export function projectSkillTools(
     }
   }
 
-  // Update the session-scoped tracking set in-place
+  // Update the session-scoped tracking set in-place — only include skills
+  // that were successfully processed so failed skills can be retried next turn.
   prevActive.clear();
-  for (const id of activeIds) {
+  for (const id of successfulIds) {
     prevActive.add(id);
   }
 

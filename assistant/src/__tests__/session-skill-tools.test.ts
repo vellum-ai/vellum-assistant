@@ -352,6 +352,56 @@ describe('projectSkillTools', () => {
     expect(result.allowedToolNames.size).toBe(0);
   });
 
+  test('skill with catalog miss on turn 1 is registered when catalog is populated on turn 2', () => {
+    // Turn 1: skill is active but NOT in the catalog — should not be tracked
+    mockCatalog = []; // empty catalog
+    mockManifests = {};
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    const result1 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result1.toolDefinitions).toEqual([]);
+    expect(sessionState.has('deploy')).toBe(false);
+
+    // Turn 2: catalog now has the skill — should register successfully
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+    expect(result2.allowedToolNames.has('deploy_run')).toBe(true);
+    expect(sessionState.has('deploy')).toBe(true);
+
+    // Verify registerSkillTools was called (tool is in the registry)
+    expect(mockRegisteredTools.has('deploy')).toBe(true);
+  });
+
+  test('skill with manifest failure on turn 1 is registered when manifest is available on turn 2', () => {
+    mockCatalog = [makeSkill('deploy')];
+    // No manifest — will fail to load
+    mockManifests = {};
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    const result1 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result1.toolDefinitions).toEqual([]);
+    expect(sessionState.has('deploy')).toBe(false);
+
+    // Turn 2: manifest now available
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+    expect(sessionState.has('deploy')).toBe(true);
+    expect(mockRegisteredTools.has('deploy')).toBe(true);
+  });
+
   test('preactivated IDs merge with context-derived IDs (dedup)', () => {
     mockCatalog = [makeSkill('deploy')];
     mockManifests = { deploy: makeManifest(['deploy_run']) };
