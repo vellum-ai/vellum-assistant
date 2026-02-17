@@ -1645,6 +1645,212 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── strict mode + high-risk integration tests (PR 25) ─────────
+
+  describe('strict mode + high-risk integration (PR 25)', () => {
+    test('strict mode: low-risk with no rule prompts (baseline)', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('file_read', { path: '/tmp/test.txt' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('strict mode: high-risk with allowHighRisk rule auto-allows', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'kill *', 'everywhere', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
+    });
+
+    test('strict mode: high-risk with allow rule (no allowHighRisk) still prompts', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'kill *', 'everywhere', 'allow', 2000);
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+
+    test('strict mode: medium-risk with matching allow rule auto-allows', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'rm *', '/tmp', 'allow');
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Matched trust rule');
+    });
+
+    test('strict mode: principal-scoped rule auto-allows when principal matches', async () => {
+      testConfig.permissions.mode = 'strict';
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      writeFileSync(trustPath, JSON.stringify({
+        version: 3,
+        rules: [{
+          id: 'test-strict-principal',
+          tool: 'bash',
+          pattern: 'echo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'trusted-skill',
+        }],
+      }, null, 2));
+      clearCache();
+
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'trusted-skill' },
+      };
+      const result = await check('bash', { command: 'echo hello' }, '/tmp', ctx);
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule?.id).toBe('test-strict-principal');
+    });
+
+    test('strict mode: principal-scoped rule does NOT match wrong principal', async () => {
+      testConfig.permissions.mode = 'strict';
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      writeFileSync(trustPath, JSON.stringify({
+        version: 3,
+        rules: [{
+          id: 'test-strict-principal-mismatch',
+          tool: 'bash',
+          pattern: 'echo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+          createdAt: Date.now(),
+          principalKind: 'skill',
+          principalId: 'trusted-skill',
+        }],
+      }, null, 2));
+      clearCache();
+
+      // Wrong principal — rule should not match. In strict mode, bash 'echo' is
+      // low risk but has no matching rule → prompt with "Strict mode" reason.
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'attacker-skill' },
+      };
+      const result = await check('bash', { command: 'echo hello' }, '/tmp', ctx);
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Strict mode');
+    });
+
+    test('strict mode: high-risk allowHighRisk rule with version-bound principal auto-allows', async () => {
+      testConfig.permissions.mode = 'strict';
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      writeFileSync(trustPath, JSON.stringify({
+        version: 3,
+        rules: [{
+          id: 'test-strict-hr-principal',
+          tool: 'bash',
+          pattern: 'sudo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+          createdAt: Date.now(),
+          allowHighRisk: true,
+          principalKind: 'skill',
+          principalId: 'admin-skill',
+          principalVersion: 'v1:hash123',
+        }],
+      }, null, 2));
+      clearCache();
+
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'admin-skill', version: 'v1:hash123' },
+      };
+      const result = await check('bash', { command: 'sudo apt update' }, '/tmp', ctx);
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+      expect(result.matchedRule?.id).toBe('test-strict-hr-principal');
+    });
+
+    test('strict mode: high-risk allowHighRisk rule with wrong version still prompts', async () => {
+      testConfig.permissions.mode = 'strict';
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+      const { dirname } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirname(trustPath);
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+
+      writeFileSync(trustPath, JSON.stringify({
+        version: 3,
+        rules: [{
+          id: 'test-strict-hr-version-mismatch',
+          tool: 'bash',
+          pattern: 'sudo *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+          createdAt: Date.now(),
+          allowHighRisk: true,
+          principalKind: 'skill',
+          principalId: 'admin-skill',
+          principalVersion: 'v1:hash123',
+        }],
+      }, null, 2));
+      clearCache();
+
+      // Same principal but different version — rule should not match.
+      const ctx: PolicyContext = {
+        principal: { kind: 'skill', id: 'admin-skill', version: 'v2:different' },
+      };
+      const result = await check('bash', { command: 'sudo apt update' }, '/tmp', ctx);
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('requires approval');
+    });
+
+    test('strict mode: deny rule overrides allowHighRisk rule even in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('bash', 'kill *', 'everywhere', 'allow', 100, { allowHighRisk: true });
+      addRule('bash', 'kill *', 'everywhere', 'deny', 200);
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('strict mode: scaffold_managed_skill with allowHighRisk auto-allows', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+    });
+
+    test('strict mode: scaffold_managed_skill without allowHighRisk still prompts', async () => {
+      testConfig.permissions.mode = 'strict';
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+  });
+
   // ── canonical file command candidates (PR 27) ─────────────────
 
   describe('canonical file command candidates (PR 27)', () => {

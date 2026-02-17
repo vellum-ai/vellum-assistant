@@ -513,3 +513,170 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(options.principalVersion).toBe('host-hash-v1');
   });
 });
+
+describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  function setupAddRuleSpy() {
+    addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      },
+    );
+    return addRuleSpy;
+  }
+
+  test('always_allow_high_risk creates rule with allowHighRisk: true for high-risk skill tool', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'high-risk skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'deploy-skill',
+        ownerSkillVersionHash: 'sha256-deploy-v1',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({ name, description: 'high-risk skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'deploy_tool:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('deploy_tool', { target: 'prod' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, priority, options] = spy.mock.calls[0];
+    expect(tool).toBe('deploy_tool');
+    expect(pattern).toBe('deploy_tool:*');
+    expect(scope).toBe('everywhere');
+    expect(decision).toBe('allow');
+    // The key integration assertion: allowHighRisk + principal context together
+    expect(options.allowHighRisk).toBe(true);
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('deploy-skill');
+    expect(options.principalVersion).toBe('sha256-deploy-v1');
+    expect(options.executionTarget).toBe('host');
+  });
+
+  test('always_allow creates rule without allowHighRisk even for high-risk skill tool', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'high-risk skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'risky-skill',
+        ownerSkillVersionHash: 'sha256-risky',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'high-risk skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    // User chooses always_allow (NOT always_allow_high_risk) — the rule
+    // should NOT have allowHighRisk set, meaning future high-risk checks
+    // will still prompt.
+    const prompter = makePrompterWithDecision('always_allow', 'risky_op:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('risky_op', {}, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [,,,, , options] = spy.mock.calls[0];
+    expect(options).toBeDefined();
+    // Principal context should be present
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('risky-skill');
+    // But allowHighRisk should NOT be set
+    expect(options.allowHighRisk).toBeUndefined();
+  });
+
+  test('executor forwards policyContext to check() for version-bound skill tool', async () => {
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'versioned skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'low' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'versioned-skill',
+        ownerSkillVersionHash: 'v3:content-hash-xyz',
+        executionTarget: 'sandbox' as const,
+        getDefinition: () => ({ name, description: 'versioned skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    await executor.execute('versioned_tool', { action: 'test' }, makeContext());
+
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      principal: {
+        kind: 'skill',
+        id: 'versioned-skill',
+        version: 'v3:content-hash-xyz',
+      },
+      executionTarget: 'sandbox',
+    });
+  });
+
+  test('executor creates principal-scoped rule on always_allow_high_risk with full context', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
+    const spy = setupAddRuleSpy();
+
+    getToolOverride = (name: string) => {
+      if (name === 'unknown_tool') return undefined;
+      return {
+        name,
+        description: 'admin skill tool',
+        category: 'skill',
+        defaultRiskLevel: 'high' as const,
+        origin: 'skill' as const,
+        ownerSkillId: 'admin-skill',
+        ownerSkillVersionHash: 'sha256-admin-v2',
+        executionTarget: 'host' as const,
+        getDefinition: () => ({ name, description: 'admin skill tool', input_schema: { type: 'object' as const, properties: {} } }),
+        execute: async () => fakeToolResult,
+      };
+    };
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'admin_action:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('admin_action', { op: 'restart' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision, , options] = spy.mock.calls[0];
+
+    // Verify complete integration of all fields
+    expect(tool).toBe('admin_action');
+    expect(pattern).toBe('admin_action:*');
+    expect(scope).toBe('everywhere');
+    expect(decision).toBe('allow');
+    expect(options.allowHighRisk).toBe(true);
+    expect(options.principalKind).toBe('skill');
+    expect(options.principalId).toBe('admin-skill');
+    expect(options.principalVersion).toBe('sha256-admin-v2');
+    expect(options.executionTarget).toBe('host');
+  });
+});
