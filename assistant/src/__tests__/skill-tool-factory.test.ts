@@ -82,6 +82,19 @@ describe('createSkillTool', () => {
     expect(tool.ownerSkillId).toBe('weather-skill');
   });
 
+  test('sets ownerSkillVersionHash when versionHash is provided', () => {
+    const hash = 'v1:abc123def456';
+    const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill', hash);
+
+    expect(tool.ownerSkillVersionHash).toBe(hash);
+  });
+
+  test('ownerSkillVersionHash is undefined when no versionHash is provided', () => {
+    const tool = createSkillTool(makeEntry(), 'my-skill', '/skills/my-skill');
+
+    expect(tool.ownerSkillVersionHash).toBeUndefined();
+  });
+
   test.each([
     ['low', RiskLevel.Low],
     ['medium', RiskLevel.Medium],
@@ -191,5 +204,29 @@ describe('createSkillToolsFromManifest', () => {
     const tools = createSkillToolsFromManifest([], 'empty-skill', '/skills/empty');
 
     expect(tools).toEqual([]);
+  });
+
+  test('passes versionHash through to all created tools', () => {
+    const hash = 'v1:deadbeef';
+    const entries: SkillToolEntry[] = [
+      makeEntry({ name: 'alpha' }),
+      makeEntry({ name: 'beta' }),
+    ];
+
+    const tools = createSkillToolsFromManifest(entries, 'versioned-skill', '/skills/versioned', hash);
+
+    for (const tool of tools) {
+      expect(tool.ownerSkillVersionHash).toBe(hash);
+    }
+  });
+
+  test('ownerSkillVersionHash is undefined when no versionHash passed to manifest function', () => {
+    const entries: SkillToolEntry[] = [
+      makeEntry({ name: 'gamma' }),
+    ];
+
+    const tools = createSkillToolsFromManifest(entries, 'no-hash-skill', '/skills/no-hash');
+
+    expect(tools[0].ownerSkillVersionHash).toBeUndefined();
   });
 });
