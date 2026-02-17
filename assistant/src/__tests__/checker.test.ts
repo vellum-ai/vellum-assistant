@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -1227,7 +1228,7 @@ describe('Permission Checker', () => {
     test('check() passes policyContext through to findHighestPriorityRule', async () => {
       // Create a rule with principal constraints so we can verify the
       // context is actually forwarded to the matching logic.
-      const rules = (await import('../permissions/trust-store.js')).getAllRules();
+      const _rules = (await import('../permissions/trust-store.js')).getAllRules();
       const trustPath = join(checkerTestDir, 'protected', 'trust.json');
       const { readFileSync, writeFileSync, mkdirSync, existsSync } = await import('node:fs');
       const { dirname } = await import('node:path');
@@ -2156,8 +2157,8 @@ describe('Permission Checker', () => {
     // fully resolved paths when writing rules that should match the
     // canonical (realpath-resolved) candidate.
     let realDirResolved: string;
-    let symDirResolved: string;
-    let symlinkTestDirResolved: string;
+    let _symDirResolved: string;
+    let _symlinkTestDirResolved: string;
 
     beforeAll(() => {
       mkdirSync(realDir, { recursive: true });
@@ -2165,8 +2166,8 @@ describe('Permission Checker', () => {
       symlinkSync(realDir, symDir);
 
       realDirResolved = realpathSync(realDir);
-      symDirResolved = realpathSync(symDir); // resolves to realDirResolved
-      symlinkTestDirResolved = realpathSync(symlinkTestDir);
+      _symDirResolved = realpathSync(symDir); // resolves to realDirResolved
+      _symlinkTestDirResolved = realpathSync(symlinkTestDir);
     });
 
     test('relative path with .. segments matches rule for canonical absolute path', async () => {
