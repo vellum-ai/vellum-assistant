@@ -213,6 +213,8 @@ export function registerEmailCommand(program: Command): void {
 
   draft
     .command('approve-send')
+    .alias('send')
+    .alias('approve')
     .description('Check guardrails and send a draft')
     .requiredOption('--draft-id <id>', 'Draft ID to send')
     .option('--inbox <id>', 'Inbox ID (for multi-inbox setups)')
