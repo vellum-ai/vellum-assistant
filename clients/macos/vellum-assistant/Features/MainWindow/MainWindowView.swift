@@ -361,7 +361,7 @@ struct MainWindowView: View {
                 break
             }
         }) {
-            HStack(spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.sm) {
                 if thread.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .medium))
@@ -494,7 +494,7 @@ struct MainWindowView: View {
                 VStack(spacing: VSpacing.xl) {
                     // MARK: Threads Section
                     VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Threads")
+                        SidebarSectionHeader(title: "Threads", icon: "text.bubble")
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
@@ -524,7 +524,7 @@ struct MainWindowView: View {
                     // MARK: Apps Section
                     if !appListManager.apps.isEmpty {
                         VStack(spacing: VSpacing.xs) {
-                            SidebarSectionHeader(title: "Apps")
+                            SidebarSectionHeader(title: "Apps", icon: "square.grid.2x2")
 
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
@@ -583,49 +583,28 @@ struct MainWindowView: View {
         let isSelected = windowState.isDynamicExpanded
             && windowState.activeDynamicSurface?.surfaceId != nil
             && isAppSurfaceActive(appId: app.id)
-        HStack(spacing: VSpacing.sm) {
-            Button(action: {
-                openAppInWorkspace(app: app)
-            }) {
-                HStack(spacing: VSpacing.sm) {
-                    if app.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 14)
-                    }
-                    if let icon = app.icon, !icon.isEmpty {
-                        Text(icon)
-                            .font(.system(size: 14))
-                            .frame(width: 22, height: 22)
-                    } else {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 22, height: 22)
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(app.name)
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let appType = app.appType {
-                            Text(appType)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        Button(action: {
+            openAppInWorkspace(app: app)
+        }) {
+            HStack(spacing: VSpacing.sm) {
+                if app.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(-45))
                 }
-                .contentShape(Rectangle())
+                Text(app.name)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.vertical, VSpacing.sm)
         .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .padding(.horizontal, VSpacing.sm)
@@ -1048,15 +1027,23 @@ private struct ZoomIndicatorView: View {
 
 private struct SidebarSectionHeader: View {
     let title: String
+    var icon: String? = nil
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(VColor.textMuted)
-            .textCase(.uppercase)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.lg)
-            .padding(.bottom, VSpacing.xs)
+        HStack(spacing: VSpacing.xs) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(VColor.textMuted)
+                .textCase(.uppercase)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.lg)
+        .padding(.bottom, VSpacing.xs)
     }
 }
 
