@@ -6,7 +6,7 @@ struct ChatTabView: View {
     @StateObject private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: any DaemonClientProtocol) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(daemonClient: daemonClient))
     }
 
@@ -220,7 +220,7 @@ struct ChatTabView: View {
 }
 
 #Preview {
-    let daemonClient = DaemonClient(config: .default)
+    let daemonClient: any DaemonClientProtocol = DaemonClient(config: .default)
     return NavigationStack {
         ChatTabView(daemonClient: daemonClient)
     }

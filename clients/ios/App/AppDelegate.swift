@@ -3,12 +3,31 @@ import UIKit
 import UserNotifications
 import VellumAssistantShared
 
+/// Observable wrapper that holds the active DaemonClientProtocol implementation.
+/// Allows SwiftUI views to receive the client via @EnvironmentObject without
+/// requiring DaemonClient to be the concrete type.
+@MainActor
+final class ClientProvider: ObservableObject {
+    @Published var client: any DaemonClientProtocol
+
+    init(client: any DaemonClientProtocol) {
+        self.client = client
+    }
+}
+
 @MainActor
 class AppDelegate: NSObject, UIApplicationDelegate {
-    let daemonClient: DaemonClient
+    let clientProvider: ClientProvider
 
     override init() {
-        self.daemonClient = DaemonClient(config: .fromUserDefaults())
+        let mode = UserDefaults.standard.string(forKey: "connection_mode") ?? ConnectionMode.standalone.rawValue
+        let client: any DaemonClientProtocol
+        if mode == ConnectionMode.connected.rawValue {
+            client = DaemonClient(config: .fromUserDefaults())
+        } else {
+            client = DirectClaudeClient()
+        }
+        self.clientProvider = ClientProvider(client: client)
         super.init()
     }
 
@@ -17,7 +36,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         Task {
-            try? await daemonClient.connect()
+            try? await clientProvider.client.connect()
         }
 
         // Register for push notifications
