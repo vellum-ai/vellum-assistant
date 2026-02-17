@@ -19,6 +19,9 @@ struct ContentView: View {
                     Label("Settings", systemImage: "gear")
                 }
         }
+        .overlay(alignment: .bottomTrailing) {
+            DemoOverlayView()
+        }
     }
 }
 

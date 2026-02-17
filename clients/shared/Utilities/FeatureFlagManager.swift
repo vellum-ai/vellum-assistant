@@ -2,6 +2,10 @@ import Foundation
 
 private let flagPrefix = "VELLUM_FLAG_"
 
+public enum FeatureFlag: String {
+    case demo
+}
+
 public final class FeatureFlagManager: @unchecked Sendable {
     public static let shared = FeatureFlagManager()
 
@@ -25,6 +29,10 @@ public final class FeatureFlagManager: @unchecked Sendable {
         return flags[flag.lowercased()] ?? false
     }
 
+    public func isEnabled(_ flag: FeatureFlag) -> Bool {
+        isEnabled(flag.rawValue)
+    }
+
     public func allFlags() -> [String: Bool] {
         lock.lock()
         defer { lock.unlock() }
@@ -37,10 +45,18 @@ public final class FeatureFlagManager: @unchecked Sendable {
         flags[flag.lowercased()] = enabled
     }
 
+    public func setOverride(_ flag: FeatureFlag, enabled: Bool) {
+        setOverride(flag.rawValue, enabled: enabled)
+    }
+
     public func removeOverride(_ flag: String) {
         lock.lock()
         defer { lock.unlock() }
         flags.removeValue(forKey: flag.lowercased())
+    }
+
+    public func removeOverride(_ flag: FeatureFlag) {
+        removeOverride(flag.rawValue)
     }
 
     private static func parseBool(_ value: String) -> Bool {
