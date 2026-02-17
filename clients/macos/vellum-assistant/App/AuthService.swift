@@ -314,6 +314,7 @@ final class AuthService {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if let token = SessionTokenManager.getToken() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -324,7 +325,6 @@ final class AuthService {
         }
 
         if let body {
-            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
