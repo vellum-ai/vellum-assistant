@@ -72,9 +72,11 @@ struct ModelSelectionStepView: View {
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
             .padding(.top, VSpacing.xs)
+
+            OnboardingFooter(currentStep: state.currentStep)
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
