@@ -192,41 +192,61 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 export async function initializeTools(): Promise<void> {
   const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
+  // Collect names of tools registered by the manifest so the snapshot
+  // captures exactly the canonical core tools — not test helpers or other
+  // tools that may have been registered before initializeTools() ran.
+  const manifestToolNames = new Set<string>();
+
   // Import tool modules to trigger registration side effects.
   for (const modulePath of eagerModules) {
+    const knownBefore = new Set(tools.keys());
     await import(modulePath);
+    // Detect tools added by the side-effect import.
+    for (const name of tools.keys()) {
+      if (!knownBefore.has(name)) manifestToolNames.add(name);
+    }
   }
 
   // Explicit tool instances — no side-effect import required.
   for (const tool of explicitTools) {
     registerTool(tool);
+    manifestToolNames.add(tool.name);
   }
 
   // Host tools are registered explicitly so host access stays opt-in until
   // this point in startup, rather than as module side effects.
-  registerTool(hostFileReadTool);
-  registerTool(hostFileWriteTool);
-  registerTool(hostFileEditTool);
-  registerTool(hostShellTool);
+  const hostTools = [hostFileReadTool, hostFileWriteTool, hostFileEditTool, hostShellTool];
+  for (const tool of hostTools) {
+    registerTool(tool);
+    manifestToolNames.add(tool.name);
+  }
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded
   // from getAllToolDefinitions() since regular chat sessions don't use them.
+  const knownBeforeProxies = new Set(tools.keys());
   registerComputerUseTools();
   registerUiSurfaceTools();
   registerAppTools();
+  for (const name of tools.keys()) {
+    if (!knownBeforeProxies.has(name)) manifestToolNames.add(name);
+  }
 
   // Lazy tools — defer module loading until first invocation.
   for (const descriptor of lazyTools) {
     registerLazyTool(descriptor);
+    manifestToolNames.add(descriptor.name);
   }
 
-  // Snapshot all tools on the first call so __resetRegistryForTesting() can
-  // restore the complete baseline. This includes tools pre-registered via
-  // side-effect imports before initializeTools() ran — those are also core
-  // tools and must be preserved across test resets.
+  // Build the snapshot from exactly the manifest-registered tools.
+  // This avoids capturing test-only or session-specific tools that may
+  // have been registered before initializeTools() ran.
   if (!coreToolsSnapshot) {
-    coreToolsSnapshot = new Map(tools);
+    coreToolsSnapshot = new Map<string, Tool>();
+    for (const name of manifestToolNames) {
+      const tool = tools.get(name);
+      if (tool) coreToolsSnapshot.set(name, tool);
+    }
   }
 
   log.info({ count: tools.size }, 'Tools initialized');
