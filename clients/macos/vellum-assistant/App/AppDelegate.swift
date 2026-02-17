@@ -190,18 +190,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let authView = AuthWindowView(authManager: authManager)
-            .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-                if isAuthenticated {
-                    Task { @MainActor [weak self] in
-                        self?.proceedToApp()
-                    }
+        let authView = AuthWindowView(
+            authManager: authManager,
+            onStartWithAPIKey: { [weak self] in
+                self?.proceedToApp()
+            }
+        )
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated {
+                Task { @MainActor [weak self] in
+                    self?.proceedToApp()
                 }
             }
+        }
 
         let hostingController = NSHostingController(rootView: authView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -209,9 +214,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentViewController = hostingController
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 400, height: 500)
+        window.contentMinSize = NSSize(width: 420, height: 580)
         window.center()
 
         NSApp.setActivationPolicy(.regular)
@@ -268,6 +274,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     struct AuthWindowView: View {
         @Bindable var authManager: AuthManager
+        var onStartWithAPIKey: () -> Void = {}
 
         var body: some View {
             ZStack {
@@ -306,6 +313,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     Spacer()
 
                     VStack(spacing: VSpacing.md) {
+                        Button(action: { onStartWithAPIKey() }) {
+                            Text("Start with an API key")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, VSpacing.lg)
+                                .background(
+                                    RoundedRectangle(cornerRadius: VRadius.lg)
+                                        .fill(adaptiveColor(
+                                            light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                            dark: Violet._600
+                                        ))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authManager.isSubmitting)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+
                         Button(action: {
                             Task { await authManager.startWorkOSLogin() }
                         }) {
@@ -318,15 +345,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                 Text(authManager.isSubmitting ? "Signing in..." : "Continue with Vellum")
                                     .font(.system(size: 15, weight: .medium))
                             }
-                            .foregroundColor(.white)
+                            .foregroundColor(VColor.textPrimary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, VSpacing.lg)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .fill(adaptiveColor(
-                                        light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
-                                        dark: Violet._600
-                                    ))
+                                    .fill(adaptiveColor(light: .white, dark: VColor.surface))
                             )
                         }
                         .buttonStyle(.plain)
