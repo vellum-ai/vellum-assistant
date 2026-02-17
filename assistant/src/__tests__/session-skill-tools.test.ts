@@ -736,3 +736,200 @@ describe('mid-run skill tool activation (end-to-end)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Context-derived deactivation regression tests
+// ---------------------------------------------------------------------------
+
+describe('context-derived deactivation regression', () => {
+  const baseToolDefs: ToolDefinition[] = [
+    { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+    { name: 'bash', description: 'Run a shell command', input_schema: { type: 'object', properties: {} } },
+  ];
+
+  const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+
+  function makeResolveTools(base: ToolDefinition[]) {
+    return (history: Message[]) => {
+      const projection = projectSkillTools(history);
+      return {
+        toolDefinitions: [...base, ...projection.toolDefinitions],
+        allowedToolNames: new Set([...CORE_TOOL_NAMES, ...projection.allowedToolNames]),
+      };
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('tool definitions shrink when skill load marker is removed from history', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page', 'oncall_ack']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Turn 1: both skills active
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    const result1 = resolveTools(history1);
+    expect(result1.toolDefinitions).toHaveLength(5); // 2 base + 3 skill tools
+    expect(result1.toolDefinitions.map((d) => d.name)).toContain('oncall_page');
+    expect(result1.toolDefinitions.map((d) => d.name)).toContain('oncall_ack');
+
+    // Turn 2: oncall marker removed from history (truncated)
+    const history2: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+    const result2 = resolveTools(history2);
+
+    // Tool definitions should only have base + deploy tools
+    expect(result2.toolDefinitions).toHaveLength(3); // 2 base + 1 skill tool
+    expect(result2.toolDefinitions.map((d) => d.name)).not.toContain('oncall_page');
+    expect(result2.toolDefinitions.map((d) => d.name)).not.toContain('oncall_ack');
+    expect(result2.toolDefinitions.map((d) => d.name)).toContain('deploy_run');
+  });
+
+  test('executor blocks the tool after deactivation — allowedToolNames excludes it', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Turn 1: both skills active, both tools allowed
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    const result1 = resolveTools(history1);
+    expect(result1.allowedToolNames.has('oncall_page')).toBe(true);
+    expect(result1.allowedToolNames.has('deploy_run')).toBe(true);
+
+    // Turn 2: oncall marker gone — its tool should be blocked
+    const history2: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+    const result2 = resolveTools(history2);
+
+    // oncall_page is no longer in allowedToolNames — executor would block it
+    expect(result2.allowedToolNames.has('oncall_page')).toBe(false);
+    // deploy_run remains allowed
+    expect(result2.allowedToolNames.has('deploy_run')).toBe(true);
+    // Core tools remain allowed
+    for (const core of CORE_TOOL_NAMES) {
+      expect(result2.allowedToolNames.has(core)).toBe(true);
+    }
+  });
+
+  test('unregisterSkillTools is called for deactivated skill', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    // Turn 1: both active
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    projectSkillTools(history1);
+
+    // Clear tracking before turn 2
+    mockUnregisteredSkillIds = [];
+
+    // Turn 2: deploy marker gone
+    const history2: Message[] = [
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    projectSkillTools(history2);
+
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    expect(mockUnregisteredSkillIds).not.toContain('oncall');
+  });
+
+  test('all skills deactivate when all markers leave history', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Turn 1: both skills active
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+      toolResultMsg('<loaded_skill id="oncall" />'),
+    ];
+    const result1 = resolveTools(history1);
+    expect(result1.toolDefinitions).toHaveLength(4); // 2 base + 2 skill
+
+    // Clear tracking before turn 2
+    mockUnregisteredSkillIds = [];
+
+    // Turn 2: all markers gone (e.g. context window fully truncated)
+    const history2: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Continue working' }] },
+    ];
+    const result2 = resolveTools(history2);
+
+    // Only base tools remain
+    expect(result2.toolDefinitions).toHaveLength(2);
+    expect(result2.toolDefinitions.map((d) => d.name)).toEqual(['file_read', 'bash']);
+
+    // Both skills were unregistered
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    expect(mockUnregisteredSkillIds).toContain('oncall');
+
+    // No skill tools in allowed set
+    expect(result2.allowedToolNames.has('deploy_run')).toBe(false);
+    expect(result2.allowedToolNames.has('oncall_page')).toBe(false);
+
+    // Core tools still present
+    for (const core of CORE_TOOL_NAMES) {
+      expect(result2.allowedToolNames.has(core)).toBe(true);
+    }
+  });
+
+  test('skill can reactivate after deactivation', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Turn 1: deploy active
+    const history1: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+    const result1 = resolveTools(history1);
+    expect(result1.allowedToolNames.has('deploy_run')).toBe(true);
+
+    // Turn 2: marker gone — deactivated
+    const history2: Message[] = [];
+    const result2 = resolveTools(history2);
+    expect(result2.allowedToolNames.has('deploy_run')).toBe(false);
+
+    // Turn 3: marker reappears — reactivated
+    const history3: Message[] = [
+      toolResultMsg('<loaded_skill id="deploy" />'),
+    ];
+    const result3 = resolveTools(history3);
+    expect(result3.allowedToolNames.has('deploy_run')).toBe(true);
+    expect(result3.toolDefinitions.map((d) => d.name)).toContain('deploy_run');
+  });
+});
