@@ -905,13 +905,7 @@ private struct ChatBubble: View {
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
-            .contextMenu {
-                if canReportMessage, let onReportMessage {
-                    Button("Report this response") {
-                        onReportMessage(message.daemonMessageId)
-                    }
-                }
-            }
+            .contextMenu {}
 
             if canReportMessage {
                 VStack {
