@@ -70,8 +70,6 @@ struct ComposerView: View {
     @State private var showModelSubmenu = false
     @State private var modelSelectedIndex = 0
     @State private var avatarSeed: String = "default"
-    @State private var avatarPalette: DinoPalette = .violet
-    @State private var avatarOutfit: DinoOutfit = .none
 
     /// The portion of the suggestion that extends beyond the current input.
     /// Returns nil when the composer content exceeds the max height (200pt) because
@@ -107,8 +105,8 @@ struct ComposerView: View {
                     selectedIndex: slashSelectedIndex,
                     onSelect: { command in selectSlashCommand(command) },
                     avatarSeed: avatarSeed,
-                    avatarPalette: avatarPalette,
-                    avatarOutfit: avatarOutfit
+                    avatarPalette: AvatarAppearanceManager.shared.palette,
+                    avatarOutfit: AvatarAppearanceManager.shared.outfit
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -182,9 +180,6 @@ struct ComposerView: View {
             composerFocusRequestID += 1
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
-            let appearance = AvatarAppearanceManager.shared
-            avatarPalette = appearance.palette
-            avatarOutfit = appearance.outfit
         }
     }
 
