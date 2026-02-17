@@ -183,4 +183,8 @@ class WebSearchTool implements Tool {
   }
 }
 
-registerTool(new WebSearchTool());
+// Only register when a Brave API key is available — avoids exposing a
+// non-functional tool to the model when no key is configured.
+if (getApiKey()) {
+  registerTool(new WebSearchTool());
+}
