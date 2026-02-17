@@ -378,3 +378,115 @@ describe('runSkillToolScript — tamper regression lifecycle', () => {
     expect(result.content).toContain('modified since it was approved');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hash change re-prompt regression tests (PR 35)
+// Lock behavior: version-bound approval hashes no longer match after skill
+// source changes, forcing re-approval before host execution resumes.
+// ---------------------------------------------------------------------------
+
+describe('runSkillToolScript — hash change re-prompt regressions (PR 35)', () => {
+  test('approve v1, edit skill, v2 blocks until re-approved with new hash', async () => {
+    let currentDiskHash = 'v1:approved-v1';
+    const resolver = (_dir: string) => currentDiskHash;
+
+    // Phase 1: approved at v1 — execution succeeds
+    const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v1-ok' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:approved-v1',
+      skillDirHashResolver: resolver,
+    });
+    expect(r1.isError).toBe(false);
+    expect(r1.content).toBe('hello from v1-ok');
+
+    // Phase 2: skill source edited — hash changes on disk
+    currentDiskHash = 'v2:edited-on-disk';
+
+    // Old approval hash no longer matches — blocked
+    const r2 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v2-blocked' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:approved-v1',
+      skillDirHashResolver: resolver,
+    });
+    expect(r2.isError).toBe(true);
+    expect(r2.content).toContain('Skill version mismatch');
+    expect(r2.content).toContain('v1:approved-v1');
+    expect(r2.content).toContain('v2:edited-on-disk');
+
+    // Phase 3: re-approved with new hash — execution succeeds again
+    const r3 = await runSkillToolScript(tempDir, 'success.ts', { name: 'v2-ok' }, makeContext(), {
+      expectedSkillVersionHash: 'v2:edited-on-disk',
+      skillDirHashResolver: resolver,
+    });
+    expect(r3.isError).toBe(false);
+    expect(r3.content).toBe('hello from v2-ok');
+  });
+
+  test('version-bound rule for one executor blocks all executors in the same skill after edit', async () => {
+    let currentDiskHash = 'v1:skill-hash-before';
+    const resolver = (_dir: string) => currentDiskHash;
+    const approvedHash = 'v1:skill-hash-before';
+
+    // Both executors work with matching hash
+    const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'a' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r1.isError).toBe(false);
+
+    const r2 = await runSkillToolScript(tempDir, 'echo.ts', { key: 'val' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r2.isError).toBe(false);
+
+    // Skill edited — hash changes
+    currentDiskHash = 'v1:skill-hash-after';
+
+    // Both executors are now blocked with the old approval hash
+    const r3 = await runSkillToolScript(tempDir, 'success.ts', { name: 'blocked' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r3.isError).toBe(true);
+    expect(r3.content).toContain('Skill version mismatch');
+
+    const r4 = await runSkillToolScript(tempDir, 'echo.ts', { key: 'blocked' }, makeContext(), {
+      expectedSkillVersionHash: approvedHash,
+      skillDirHashResolver: resolver,
+    });
+    expect(r4.isError).toBe(true);
+    expect(r4.content).toContain('Skill version mismatch');
+  });
+
+  test('no expectedSkillVersionHash skips guard entirely — edits have no effect', async () => {
+    let currentDiskHash = 'v1:whatever';
+    const resolver = (_dir: string) => currentDiskHash;
+
+    // Without expectedSkillVersionHash, the guard is not active
+    const r1 = await runSkillToolScript(tempDir, 'success.ts', { name: 'unguarded' }, makeContext());
+    expect(r1.isError).toBe(false);
+    expect(r1.content).toBe('hello from unguarded');
+
+    // Change hash on disk — still no guard
+    currentDiskHash = 'v2:changed';
+    const r2 = await runSkillToolScript(tempDir, 'success.ts', { name: 'still-ok' }, makeContext());
+    expect(r2.isError).toBe(false);
+    expect(r2.content).toBe('hello from still-ok');
+  });
+
+  test('hash mismatch error includes both expected and actual hashes for debugging', async () => {
+    const expectedHash = 'v1:expected-aaa';
+    const actualHash = 'v1:actual-bbb';
+    const resolver = (_dir: string) => actualHash;
+
+    const result = await runSkillToolScript(tempDir, 'success.ts', {}, makeContext(), {
+      expectedSkillVersionHash: expectedHash,
+      skillDirHashResolver: resolver,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(expectedHash);
+    expect(result.content).toContain(actualHash);
+    expect(result.content).toContain('modified since it was approved');
+    expect(result.content).toContain('Please reload the skill to re-approve');
+  });
+});
