@@ -24,7 +24,9 @@ export interface SharedAppLinkRecord {
 const SHARE_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function generateShareToken(): string {
-  return randomBytes(9).toString('base64url').slice(0, 12);
+  // 16 bytes = 128 bits of entropy (matches UUID standard), base64url-encoded
+  // to a 22-character URL-safe string.
+  return randomBytes(16).toString('base64url');
 }
 
 /** Delete all rows whose effective expiry has passed (including legacy NULL rows). */
