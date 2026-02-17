@@ -65,7 +65,6 @@ struct WakeUpStepView: View {
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
-            }
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.xxl)
