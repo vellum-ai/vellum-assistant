@@ -3,13 +3,30 @@ import SwiftUI
 
 @MainActor
 struct WakeUpStepView: View {
-    @Bindable var state: OnboardingState
+    // MARK: - Configuration
+
+    /// Optional onboarding state. When nil the view works standalone (e.g. auth gate).
+    var state: OnboardingState?
+
+    /// Optional auth manager for showing loading/error state on the Vellum card.
+    var authManager: AuthManager?
+
+    /// When true, disables all option cards (e.g. during 0.3s advance delay).
+    var isAdvancing: Bool = false
+
+    // Callbacks
+    var onStartWithAPIKey: () -> Void = {}
     var onContinueWithVellum: () -> Void = {}
+
+    /// Whether to show the onboarding footer with progress dots.
+    var showFooter: Bool = true
+
+    // MARK: - Private State
 
     @State private var showTitle = false
     @State private var showSubtext = false
     @State private var showButtons = false
-    @State private var isAdvancing = false
+    // MARK: - Body
 
     var body: some View {
         // Title
@@ -43,24 +60,32 @@ struct WakeUpStepView: View {
                 optionCard(
                     title: "Own API Key",
                     description: "When you already have a subscription to a model.",
-                    action: { advanceStep() }
+                    action: { onStartWithAPIKey() }
                 )
 
                 // Card 2: Vellum Account
                 optionCard(
                     title: "Vellum Account",
                     description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
+                    isLoading: authManager?.isSubmitting == true,
                     action: { onContinueWithVellum() }
                 )
             }
             .padding(.top, VSpacing.xl)
 
+            // Auth error message
+            if let error = authManager?.errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
-        .disabled(isAdvancing)
+        .disabled(isAdvancing || authManager?.isSubmitting == true)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -73,8 +98,10 @@ struct WakeUpStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep)
-            .padding(.bottom, VSpacing.lg)
+        if showFooter {
+            OnboardingFooter(currentStep: state?.currentStep ?? 0)
+                .padding(.bottom, VSpacing.lg)
+        }
     }
 
     // MARK: - Option Card
@@ -83,6 +110,7 @@ struct WakeUpStepView: View {
     private func optionCard(
         title: String,
         description: String,
+        isLoading: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: VSpacing.md) {
@@ -98,7 +126,18 @@ struct WakeUpStepView: View {
 
             Spacer()
 
-            VButton(label: "Start", action: action)
+            if isLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Signing in...")
+                        .font(VFont.monoMedium)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else {
+                VButton(label: "Start", action: action)
+            }
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xl)
@@ -112,20 +151,11 @@ struct WakeUpStepView: View {
                 .strokeBorder(Slate._800, lineWidth: 1)
         )
     }
-
-    // MARK: - Advance
-
-    private func advanceStep() {
-        guard !isAdvancing else { return }
-        isAdvancing = true
-        state.hasHatched = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            state.advance()
-        }
-    }
 }
 
-#Preview {
+// MARK: - Previews
+
+#Preview("Onboarding context") {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 0) {
@@ -141,3 +171,4 @@ struct WakeUpStepView: View {
     }
     .frame(width: 520, height: 580)
 }
+
