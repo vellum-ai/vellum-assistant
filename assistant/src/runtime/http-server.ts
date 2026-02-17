@@ -240,7 +240,7 @@ export class RuntimeHttpServer {
           if (!run || run.assistantId !== assistantId) {
             return Response.json({ error: 'Run not found' }, { status: 404 });
           }
-          return await handleAddTrustRule(req);
+          return await handleAddTrustRule(runId, req);
         }
         if (req.method === 'GET') {
           return handleGetRun(assistantId, runId, this.runOrchestrator);
