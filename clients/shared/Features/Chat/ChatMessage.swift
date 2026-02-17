@@ -53,16 +53,19 @@ public struct ToolConfirmationData: Equatable {
             return "The assistant wants to run a command"
         case "file_write", "host_file_write":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "The assistant wants to write a file" }
             let name = URL(fileURLWithPath: path).lastPathComponent
-            return name.isEmpty ? "The assistant wants to write a file" : "The assistant wants to write to \(name)"
+            return "The assistant wants to write to \(name)"
         case "file_edit", "host_file_edit":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "The assistant wants to edit a file" }
             let name = URL(fileURLWithPath: path).lastPathComponent
-            return name.isEmpty ? "The assistant wants to edit a file" : "The assistant wants to edit \(name)"
+            return "The assistant wants to edit \(name)"
         case "file_read", "host_file_read":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "The assistant wants to read a file" }
             let name = URL(fileURLWithPath: path).lastPathComponent
-            return name.isEmpty ? "The assistant wants to read a file" : "The assistant wants to read \(name)"
+            return "The assistant wants to read \(name)"
         case "web_fetch":
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
