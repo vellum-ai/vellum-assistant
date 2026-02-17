@@ -451,10 +451,9 @@ jobs:
       - name: Notify Slack of build failure
         uses: slackapi/slack-github-action@v2.1.0
         with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            channel: ${{ secrets.SLACK_RELEASES_CHANNEL_ID }}
             unfurl_links: false
             unfurl_media: false
             blocks:
