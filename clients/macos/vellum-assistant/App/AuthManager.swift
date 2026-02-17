@@ -284,7 +284,7 @@ final class AuthManager {
         do {
             let config = try await authService.getConfig()
             providers = (config.data?.socialaccount?.providers ?? []).filter {
-                $0.client_id != nil && $0.id == "workos-oidc"
+                $0.client_id != nil && $0.id != "auth0-oidc" && $0.id != "workos-oidc"
             }
         } catch {
             log.error("Failed to load auth config: \(error.localizedDescription)")
