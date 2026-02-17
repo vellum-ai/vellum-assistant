@@ -20,8 +20,7 @@ struct SettingsPanel: View {
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
-    @State private var permissionCheckTimer: Timer?
-    @State private var pollCount: Int = 0
+    @State private var permissionCheckTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -427,11 +426,13 @@ struct SettingsPanel: View {
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
-            permissionCheckTimer?.invalidate()
+            permissionCheckTask?.cancel()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                // Refresh permissions when app becomes active (e.g., returning from System Settings)
+                // Primary mechanism: Check permissions when app becomes active.
+                // This handles the common case where the user grants permission in
+                // System Settings and returns to the app via Cmd+Tab or clicking.
                 refreshPermissionStatus()
             }
         }
@@ -583,23 +584,20 @@ struct SettingsPanel: View {
     }
 
     private func startPermissionPolling() {
-        // Poll permission status after user clicks to request permission
-        // Checks every 0.5s for up to 30 seconds to detect when permission is granted
-        permissionCheckTimer?.invalidate()
-        pollCount = 0
+        // Hybrid permission checking approach:
+        // 1. Primary: scenePhase onChange detects when user returns from System Settings
+        // 2. Fallback: Single delayed check handles edge cases where scenePhase doesn't fire
+        //    (e.g., LSUIElement apps, or user grants permission while app stays focused)
+        //
+        // This avoids wasteful continuous polling while remaining reliable.
+        permissionCheckTask?.cancel()
 
-        permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
-            Task { @MainActor in
-                self.refreshPermissionStatus()
-                self.pollCount += 1
+        permissionCheckTask = Task { @MainActor in
+            // Wait 3 seconds (gives user time to grant permission if they're quick)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
 
-                // Stop polling if both permissions are granted or after 30 seconds
-                let bothGranted = self.accessibilityGranted && self.screenRecordingGranted
-                if bothGranted || self.pollCount >= 60 {
-                    self.permissionCheckTimer?.invalidate()
-                    self.permissionCheckTimer = nil
-                }
-            }
+            guard !Task.isCancelled else { return }
+            refreshPermissionStatus()
         }
     }
 
