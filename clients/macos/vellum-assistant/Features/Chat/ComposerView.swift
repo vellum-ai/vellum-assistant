@@ -510,6 +510,11 @@ private struct ComposerTextView: NSViewRepresentable {
             textView.needsDisplay = true
         }
 
+        // Register the composer with the window so typing auto-focuses it.
+        if let zoomableWindow = textView.window as? TitleBarZoomableWindow {
+            zoomableWindow.composerTextView = textView
+        }
+
         if context.coordinator.lastFocusRequestID != focusRequestID {
             context.coordinator.lastFocusRequestID = focusRequestID
             DispatchQueue.main.async {
