@@ -217,3 +217,13 @@ export async function initializeTools(): Promise<void> {
 
   log.info({ count: tools.size }, 'Tools initialized');
 }
+
+/**
+ * Clear all registry state. Exposed exclusively for test isolation —
+ * prevents cross-file contamination when multiple test suites share
+ * a single Bun process.
+ */
+export function __resetRegistryForTesting(): void {
+  tools.clear();
+  skillRefCount.clear();
+}

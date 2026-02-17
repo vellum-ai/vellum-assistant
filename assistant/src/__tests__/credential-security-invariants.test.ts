@@ -38,6 +38,7 @@ _overrideDeps({
 // Restore process-level keychain deps so later test files are not affected
 afterAll(() => {
   _resetDeps();
+  mock.restore();
 });
 
 import { _resetBackend } from '../security/secure-keys.js';

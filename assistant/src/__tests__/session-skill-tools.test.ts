@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import * as realFs from 'node:fs';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
@@ -214,6 +214,8 @@ function skillLoadMessages(content: string): Message[] {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+afterAll(() => { mock.restore(); });
 
 describe('projectSkillTools', () => {
   let sessionState: Set<string>;

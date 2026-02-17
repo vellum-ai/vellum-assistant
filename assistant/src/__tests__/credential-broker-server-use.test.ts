@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -51,6 +51,8 @@ import { setSecureKey } from '../security/secure-keys.js';
 // ---------------------------------------------------------------------------
 // Tests — serverUse (publish_page / unpublish_page regression)
 // ---------------------------------------------------------------------------
+
+afterAll(() => { mock.restore(); });
 
 describe('CredentialBroker.serverUse', () => {
   let broker: CredentialBroker;

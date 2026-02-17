@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -47,6 +47,8 @@ mock.module('../tools/registry.js', () => ({
 import { CredentialBroker } from '../tools/credentials/broker.js';
 import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
 import { setSecureKey } from '../security/secure-keys.js';
+
+afterAll(() => { mock.restore(); });
 
 describe('CredentialBroker.browserFill', () => {
   let broker: CredentialBroker;

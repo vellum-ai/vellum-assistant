@@ -150,6 +150,8 @@ async function executeVault(input: Record<string, unknown>): Promise<{ content: 
   }
 }
 
+afterAll(() => { mock.restore(); });
+
 describe('credential_store tool', () => {
   beforeEach(() => {
     _resetBackend();

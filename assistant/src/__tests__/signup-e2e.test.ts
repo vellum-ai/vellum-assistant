@@ -103,6 +103,7 @@ afterAll(async () => {
   _setStorePath(null);
   _resetBackend();
   _resetDeps();
+  mock.restore();
   try {
     rmSync(testDir, { recursive: true });
   } catch {

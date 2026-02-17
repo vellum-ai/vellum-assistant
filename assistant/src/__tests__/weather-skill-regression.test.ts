@@ -1,14 +1,17 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterAll } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { weatherCodeToDescription, weatherCodeToSFSymbol } from '../tools/weather/service.js';
-import { getTool } from '../tools/registry.js';
+import { getTool, __resetRegistryForTesting } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Regression tests: ensure the skill-loaded path produces the same results
 // as the legacy hardcoded path after the weather tool migration.
 // ---------------------------------------------------------------------------
+
+// Clean up after this file to prevent contamination of later test files.
+afterAll(() => { __resetRegistryForTesting(); });
 
 const CONFIG_DIR = join(dirname(import.meta.dirname!), 'config', 'bundled-skills', 'weather');
 

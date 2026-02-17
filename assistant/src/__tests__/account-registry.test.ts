@@ -47,6 +47,7 @@ const _ctx: ToolContext = {
 };
 
 afterAll(() => {
+  mock.restore();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

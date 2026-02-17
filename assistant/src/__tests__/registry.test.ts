@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { RiskLevel } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
 import type { ToolDefinition } from '../providers/types.js';
@@ -16,8 +16,13 @@ import {
   unregisterSkillTools,
   getSkillToolNames,
   getSkillRefCount,
+  __resetRegistryForTesting,
 } from '../tools/registry.js';
 import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
+
+// Clean up global registry after this file completes to prevent
+// contamination of subsequent test files in combined runs.
+afterAll(() => { __resetRegistryForTesting(); });
 
 function makeFakeTool(name: string): Tool {
   return {
@@ -231,6 +236,8 @@ describe('baseline characterization: hardcoded tool loading', () => {
 });
 
 describe('tool origin metadata', () => {
+  beforeEach(() => { __resetRegistryForTesting(); });
+
   test('registers a skill-origin tool and preserves metadata via getTool()', () => {
     const skillTool: Tool = {
       ...makeFakeTool('test-skill-origin-tool'),
@@ -257,6 +264,8 @@ describe('tool origin metadata', () => {
 });
 
 describe('dynamic skill tool registry', () => {
+  beforeEach(() => { __resetRegistryForTesting(); });
+
   test('registers skill tools and retrieves them', () => {
     const tools = [
       makeSkillTool('sk_tool_a', 'my-skill'),
@@ -363,6 +372,8 @@ describe('dynamic skill tool registry', () => {
 });
 
 describe('skill tool reference counting', () => {
+  beforeEach(() => { __resetRegistryForTesting(); });
+
   test('ref count increments on each registerSkillTools call', () => {
     registerSkillTools([makeSkillTool('rc_a', 'rc-skill')]);
     expect(getSkillRefCount('rc-skill')).toBe(1);
