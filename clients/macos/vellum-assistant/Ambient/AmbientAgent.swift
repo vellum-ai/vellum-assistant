@@ -44,11 +44,13 @@ public final class AmbientAgent: ObservableObject {
     }
 
     func pause() {
-        rideShotgunTrigger.stop()
+        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
+        // rideShotgunTrigger.stop()
     }
 
     func resume() {
-        rideShotgunTrigger.start()
+        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
+        // rideShotgunTrigger.start()
     }
 
     func teardown() {
