@@ -81,7 +81,7 @@ struct LoginView: View {
             }
 
             VStack(spacing: VSpacing.sm) {
-                HStack {
+                HStack(spacing: VSpacing.sm) {
                     if let onBack {
                         Button(action: onBack) {
                             Text("Back")
@@ -89,15 +89,17 @@ struct LoginView: View {
                                 .foregroundColor(VColor.accent)
                         }
                         .buttonStyle(.plain)
-                    }
 
-                    Spacer()
+                        Text("|")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
 
                     Button {
                         authManager.errorMessage = nil
                         authManager.currentFlow = .signup
                     } label: {
-                        Text("Create an account")
+                        Text("Create an account?")
                             .font(VFont.caption)
                             .foregroundColor(VColor.accent)
                     }
