@@ -53,6 +53,10 @@ public final class SettingsStore: ObservableObject {
     private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
 
+    /// Last model reported by the daemon — used to skip redundant model_set calls
+    /// that would otherwise reinitialize providers and evict idle sessions.
+    private var lastDaemonModel: String?
+
     init(daemonClient: DaemonClient? = nil) {
         self.daemonClient = daemonClient
 
@@ -92,6 +96,7 @@ public final class SettingsStore: ObservableObject {
         // Wire up model info IPC response
         daemonClient?.onModelInfo = { [weak self] response in
             guard let self else { return }
+            self.lastDaemonModel = response.model
             self.selectedModel = response.model
         }
 
@@ -173,6 +178,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Model Actions
 
     func setModel(_ model: String) {
+        guard model != lastDaemonModel else { return }
         try? daemonClient?.sendModelSet(model: model)
     }
 }

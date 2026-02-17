@@ -96,6 +96,14 @@ function resolveModelCommand(content: string): SlashResolution | null {
     };
   }
 
+  // Guard: /model only works with the Anthropic provider
+  if (currentConfig.provider && currentConfig.provider !== 'anthropic') {
+    return {
+      kind: 'unknown',
+      message: `Cannot switch models while using the ${currentConfig.provider} provider. Model switching is only available with the Anthropic provider.`,
+    };
+  }
+
   // Change model: save config and re-initialize providers
   const raw = loadRawConfig();
   raw.model = matched;
