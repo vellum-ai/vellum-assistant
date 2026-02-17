@@ -1020,6 +1020,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_files_changed',
     appId: 'app-001',
   },
+  browser_frame: {
+    type: 'browser_frame',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    frame: 'base64-jpeg-data',
+    metadata: { offsetTop: 0, pageScaleFactor: 1, scrollOffsetX: 0, scrollOffsetY: 0, timestamp: 1700000000 },
+  },
   accept_starter_bundle_response: {
     type: 'accept_starter_bundle_response',
     accepted: true,
