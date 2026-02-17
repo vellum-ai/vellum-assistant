@@ -22,6 +22,7 @@ struct MainWindowView: View {
     @State private var threadPendingDeletion: UUID?
     @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
+    @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
 
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -550,11 +551,12 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected = false // App selection will be wired in M5
+        let isSelected = windowState.isDynamicExpanded
+            && windowState.activeDynamicSurface?.surfaceId != nil
+            && isAppSurfaceActive(appId: app.id)
         HStack(spacing: VSpacing.sm) {
             Button(action: {
-                // Open the app via daemon
-                try? daemonClient.sendAppOpen(appId: app.id)
+                openAppInWorkspace(app: app)
             }) {
                 HStack(spacing: VSpacing.sm) {
                     if app.isPinned {
@@ -626,6 +628,28 @@ struct MainWindowView: View {
             }
         }
         .draggable(app.id)
+    }
+
+    // MARK: - App View Helpers
+
+    /// Check if a given appId matches the currently active workspace surface.
+    private func isAppSurfaceActive(appId: String) -> Bool {
+        guard let surfaceMsg = windowState.activeDynamicSurface,
+              let surface = windowState.activeDynamicParsedSurface,
+              case .dynamicPage(let dpData) = surface.data else { return false }
+        return dpData.appId == appId || surfaceMsg.surfaceId.contains(appId)
+    }
+
+    /// Open an app in the workspace view (main content area).
+    private func openAppInWorkspace(app: AppListManager.AppItem) {
+        appListManager.recordAppOpen(
+            id: app.id,
+            name: app.name,
+            icon: app.icon,
+            previewBase64: app.previewBase64,
+            appType: app.appType
+        )
+        try? daemonClient.sendAppOpen(appId: app.id)
     }
 
     // MARK: - Drawer Drag Helpers
@@ -1357,6 +1381,8 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
+                    Spacer()
+
                     Button(action: {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
@@ -1364,24 +1390,22 @@ private struct DynamicWorkspaceWrapper: View {
                         onToggleChatDock()
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: isChatDockOpen ? "arrow.down.left.and.arrow.up.right" : "arrow.up.right.and.arrow.down.left")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(isChatDockOpen ? "Move Chat To Bottom" : "Move Chat To Side")
-                                .font(VFont.bodyMedium)
+                            Image(systemName: isChatDockOpen ? "pencil.slash" : "pencil")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Edit")
+                                .font(VFont.caption)
                         }
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
+                        .foregroundColor(isChatDockOpen ? VColor.accent : VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .frame(height: 32)
                         .background(
                             Capsule()
-                                .fill(VColor.surface.opacity(0.85))
-                                .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
+                                .fill(isChatDockOpen ? VColor.accent.opacity(0.15) : VColor.surface.opacity(0.85))
+                                .overlay(Capsule().stroke(isChatDockOpen ? VColor.accent.opacity(0.4) : VColor.surfaceBorder, lineWidth: 1))
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isChatDockOpen ? "Move chat to bottom composer" : "Move chat to docked side panel")
-
-                    Spacer()
+                    .accessibilityLabel(isChatDockOpen ? "Close editor" : "Edit app")
 
                     if viewModel.surfaceUndoCount > 0 {
                         Button(action: {
