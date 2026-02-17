@@ -1,3 +1,4 @@
+import { writeFileSync, unlinkSync } from "node:fs";
 import { describe, test, expect } from "bun:test";
 import { loadConfig } from "../config.js";
 
@@ -14,6 +15,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     ...Object.keys(overrides),
     "GATEWAY_RUNTIME_PROXY_ENABLED",
     "GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH",
+    "RUNTIME_BEARER_TOKEN",
     "RUNTIME_PROXY_BEARER_TOKEN",
     "GATEWAY_ASSISTANT_ROUTING_JSON",
     "GATEWAY_DEFAULT_ASSISTANT_ID",
@@ -27,6 +29,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES",
     "GATEWAY_MAX_ATTACHMENT_BYTES",
     "GATEWAY_MAX_ATTACHMENT_CONCURRENCY",
+    "VELLUM_HTTP_TOKEN_PATH",
   ];
 
   for (const key of allKeys) {
@@ -67,7 +70,7 @@ describe("config: Telegram-only default mode", () => {
 
 describe("config: runtime proxy flags", () => {
   test("proxy disabled by default", () => {
-    withEnv({}, () => {
+    withEnv({ VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token" }, () => {
       const config = loadConfig();
       expect(config.runtimeProxyEnabled).toBe(false);
       expect(config.runtimeProxyRequireAuth).toBe(true);
@@ -95,6 +98,7 @@ describe("config: runtime proxy flags", () => {
       {
         GATEWAY_RUNTIME_PROXY_ENABLED: "true",
         GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+        VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token",
       },
       () => {
         const config = loadConfig();
@@ -110,6 +114,7 @@ describe("config: runtime proxy flags", () => {
       {
         GATEWAY_RUNTIME_PROXY_ENABLED: "true",
         GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
+        VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token",
       },
       () => {
         expect(() => loadConfig()).toThrow(
@@ -124,6 +129,7 @@ describe("config: runtime proxy flags", () => {
       {
         GATEWAY_RUNTIME_PROXY_ENABLED: "false",
         GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
+        VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token",
       },
       () => {
         const config = loadConfig();
@@ -137,11 +143,94 @@ describe("config: runtime proxy flags", () => {
       {
         GATEWAY_RUNTIME_PROXY_ENABLED: "true",
         RUNTIME_PROXY_BEARER_TOKEN: "my-token",
+        VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token",
       },
       () => {
         const config = loadConfig();
         expect(config.runtimeProxyRequireAuth).toBe(true);
       },
     );
+  });
+
+  test("reads bearer token from http-token file when available", () => {
+    /** Verifies the gateway reads the daemon's http-token file for auth. */
+    withEnv(
+      {
+        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+        VELLUM_HTTP_TOKEN_PATH: "/tmp/test-http-token",
+      },
+      () => {
+        // GIVEN an http-token file exists with a known token
+        writeFileSync("/tmp/test-http-token", "file-based-token\n");
+
+        // WHEN we load the config
+        const config = loadConfig();
+
+        // THEN the bearer token is read from the file (trimmed)
+        expect(config.runtimeProxyBearerToken).toBe("file-based-token");
+
+        // AND cleanup
+        unlinkSync("/tmp/test-http-token");
+      },
+    );
+  });
+
+  test("env var takes precedence over http-token file", () => {
+    /** Verifies that the env var is preferred over the http-token file. */
+    withEnv(
+      {
+        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+        RUNTIME_PROXY_BEARER_TOKEN: "env-token",
+        VELLUM_HTTP_TOKEN_PATH: "/tmp/test-http-token-priority",
+      },
+      () => {
+        // GIVEN an http-token file exists with a different token than the env var
+        writeFileSync("/tmp/test-http-token-priority", "file-token");
+
+        // WHEN we load the config
+        const config = loadConfig();
+
+        // THEN the env var token takes precedence
+        expect(config.runtimeProxyBearerToken).toBe("env-token");
+
+        // AND cleanup
+        unlinkSync("/tmp/test-http-token-priority");
+      },
+    );
+  });
+
+  test("falls back to env var when http-token file is missing", () => {
+    /** Verifies fallback to RUNTIME_PROXY_BEARER_TOKEN env var. */
+    withEnv(
+      {
+        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+        RUNTIME_PROXY_BEARER_TOKEN: "env-fallback-token",
+        VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token",
+      },
+      () => {
+        // GIVEN the http-token file does not exist
+        // WHEN we load the config
+        const config = loadConfig();
+
+        // THEN the env var token is used as fallback
+        expect(config.runtimeProxyBearerToken).toBe("env-fallback-token");
+      },
+    );
+  });
+});
+
+describe("config: runtime bearer token", () => {
+  test("runtimeBearerToken is undefined when RUNTIME_BEARER_TOKEN is unset", () => {
+    withEnv({}, () => {
+      const config = loadConfig();
+      expect(config.runtimeBearerToken).toBeUndefined();
+    });
+  });
+
+  test("runtimeBearerToken is set from RUNTIME_BEARER_TOKEN env var", () => {
+    withEnv({ RUNTIME_BEARER_TOKEN: "rt-secret" }, () => {
+      const config = loadConfig();
+      expect(config.runtimeBearerToken).toBe("rt-secret");
+    });
   });
 });

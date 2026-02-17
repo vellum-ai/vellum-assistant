@@ -41,8 +41,7 @@ Review what changed, draft a commit message and PR title, then ship everything i
 **Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
-cd <worktree>
-.claude/ship \
+cd <worktree> && .claude/ship \
   --commit-msg "<commit message>" \
   --title "<PR title>" \
   --body "## Summary

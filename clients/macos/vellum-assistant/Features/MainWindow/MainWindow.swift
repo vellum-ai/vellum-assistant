@@ -3,11 +3,53 @@ import Combine
 import VellumAssistantShared
 import SwiftUI
 
+/// NSWindow subclass that restores double-click-to-zoom on the title bar.
+/// With `fullSizeContentView` + `titlebarAppearsTransparent`, the system
+/// title bar becomes invisible and stops handling double-clicks. This
+/// subclass detects double-clicks in the title bar zone and performs the
+/// action configured in System Settings (zoom or minimize).
+///
+/// We manually track the pre-zoom frame because `NSWindow.isZoomed` can be
+/// unreliable with `fullSizeContentView`, causing `zoom(nil)` not to toggle
+/// back to the previous size.
+class TitleBarZoomableWindow: NSWindow {
+    private var preZoomFrame: NSRect?
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard event.clickCount == 2 else { return }
+
+        // Check if the click landed in the title bar zone (above contentLayoutRect)
+        let clickY = event.locationInWindow.y
+        guard clickY >= contentLayoutRect.maxY else { return }
+
+        // Respect "Double-click a window's title bar to" system preference
+        let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+        switch action {
+        case "Minimize":
+            miniaturize(nil)
+        case "None":
+            break
+        default: // "Maximize"
+            if let savedFrame = preZoomFrame {
+                // Restore to pre-zoom frame
+                preZoomFrame = nil
+                setFrame(savedFrame, display: true, animate: true)
+            } else {
+                // Save current frame and zoom
+                preZoomFrame = frame
+                zoom(nil)
+            }
+        }
+    }
+}
+
 @MainActor
 final class MainWindow {
     private let services: AppServices
     private var window: NSWindow?
     let threadManager: ThreadManager
+    let appListManager = AppListManager()
     let traceStore = TraceStore()
     let windowState = MainWindowState()
     var onMicrophoneToggle: (() -> Void)?
@@ -89,7 +131,7 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth: CGFloat = 780
@@ -101,7 +143,7 @@ final class MainWindow {
             height: windowHeight
         )
 
-        let window = NSWindow(
+        let window = TitleBarZoomableWindow(
             contentRect: windowRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,

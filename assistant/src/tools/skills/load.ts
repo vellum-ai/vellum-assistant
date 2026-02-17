@@ -2,7 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { loadSkillBySelector } from '../../config/skills.js';
+import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import type { SkillSummary } from '../../config/skills.js';
+import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -43,7 +45,51 @@ export class SkillLoadTool implements Tool {
     }
 
     const skill = loaded.skill;
+
+    // Load catalog for include validation and child metadata output
+    let catalogIndex: Map<string, SkillSummary> | undefined;
+    if (skill.includes && skill.includes.length > 0) {
+      const catalog = loadSkillCatalog();
+      catalogIndex = indexCatalogById(catalog);
+
+      // Validate recursive includes (fail-closed)
+      const validation = validateIncludes(skill.id, catalogIndex);
+      if (!validation.ok) {
+        if (validation.error === 'missing') {
+          return {
+            content: `Error: skill "${skill.id}" includes "${validation.missingChildId}" which was not found (referenced by "${validation.parentId}" via path: ${validation.path.join(' → ')})`,
+            isError: true,
+          };
+        }
+        if (validation.error === 'cycle') {
+          return {
+            content: `Error: skill "${skill.id}" has a circular include chain: ${validation.cyclePath.join(' → ')}`,
+            isError: true,
+          };
+        }
+        return {
+          content: `Error: skill "${skill.id}" has an invalid include graph`,
+          isError: true,
+        };
+      }
+    }
+
     const body = skill.body.length > 0 ? skill.body : '(No body content)';
+
+    // Build immediate children metadata section
+    let immediateChildrenSection: string;
+    if (skill.includes && skill.includes.length > 0 && catalogIndex) {
+      const childLines: string[] = [];
+      for (const childId of skill.includes) {
+        const child = catalogIndex.get(childId);
+        if (child) {
+          childLines.push(`  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`);
+        }
+      }
+      immediateChildrenSection = `Included Skills (immediate):\n${childLines.join('\n')}`;
+    } else {
+      immediateChildrenSection = 'Included Skills (immediate): none';
+    }
 
     let versionHash: string | undefined;
     try {
@@ -61,6 +107,8 @@ export class SkillLoadTool implements Tool {
         `Path: ${skill.skillFilePath}`,
         '',
         body,
+        '',
+        immediateChildrenSection,
         '',
         `<loaded_skill id="${skill.id}"${versionAttr} />`,
       ].join('\n'),

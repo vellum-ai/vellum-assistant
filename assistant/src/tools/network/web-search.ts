@@ -152,7 +152,6 @@ class WebSearchTool implements Tool {
     try {
       log.debug({ query, count, offset }, 'Executing web search');
 
-      let lastBody = '';
       for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
         const response = await fetch(url, {
           headers: {
@@ -168,7 +167,9 @@ class WebSearchTool implements Tool {
           return { content: formatResults(results, query), isError: false };
         }
 
-        lastBody = await response.text();
+        // Consume body to release the connection, but don't log it —
+        // upstream error bodies may echo sensitive data from the request.
+        await response.text();
 
         if (response.status === 401 || response.status === 403) {
           return { content: 'Error: Invalid or expired Brave Search API key', isError: true };
@@ -183,7 +184,7 @@ class WebSearchTool implements Tool {
           continue;
         }
 
-        log.warn({ status: response.status, body: lastBody }, 'Brave Search API error');
+        log.warn({ status: response.status }, 'Brave Search API error');
         if (response.status === 429) {
           return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
         }

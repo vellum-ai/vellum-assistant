@@ -82,6 +82,10 @@ export class SecretPrompter {
     });
   }
 
+  hasPendingRequest(requestId: string): boolean {
+    return this.pending.has(requestId);
+  }
+
   /**
    * Resolve a pending secret prompt with the user-supplied value.
    *

@@ -39,6 +39,7 @@ mock.module('../config/loader.js', () => ({
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    secretDetection: { enabled: false },
   }),
 }));
 
@@ -127,6 +128,8 @@ function makeHangingSession(): Session {
 // ---------------------------------------------------------------------------
 
 const ASSISTANT_ID = 'ast-run-http';
+const TEST_TOKEN = 'test-bearer-token-runs';
+const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 
 describe('runtime runs — HTTP layer', () => {
   let server: RuntimeHttpServer;
@@ -151,7 +154,7 @@ describe('runtime runs — HTTP layer', () => {
       getOrCreateSession: async () => sessionFactory(),
       resolveAttachments: () => [],
     });
-    server = new RuntimeHttpServer({ port, runOrchestrator: orchestrator });
+    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN, runOrchestrator: orchestrator });
     await server.start();
     return { orchestrator };
   }
@@ -164,6 +167,46 @@ describe('runtime runs — HTTP layer', () => {
     return `http://127.0.0.1:${port}/v1/assistants/${ASSISTANT_ID}/runs${path}`;
   }
 
+  // ── Auth ────────────────────────────────────────────────────────────
+
+  test('returns 401 when bearer token is missing', async () => {
+    await startServer(() => makeCompletingSession());
+
+    const res = await fetch(runsUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationKey: 'conv-noauth', content: 'Hi' }),
+    });
+
+    expect(res.status).toBe(401);
+    await stopServer();
+  });
+
+  test('returns 401 when bearer token is wrong', async () => {
+    await startServer(() => makeCompletingSession());
+
+    const res = await fetch(runsUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong-token' },
+      body: JSON.stringify({ conversationKey: 'conv-badauth', content: 'Hi' }),
+    });
+
+    expect(res.status).toBe(401);
+    await stopServer();
+  });
+
+  test('healthz is accessible without auth', async () => {
+    await startServer(() => makeCompletingSession());
+
+    const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as { status: string };
+    expect(body.status).toBe('healthy');
+
+    await stopServer();
+  });
+
   // ── POST /runs ──────────────────────────────────────────────────────
 
   test('POST /runs creates a run and returns 201', async () => {
@@ -171,7 +214,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-1', content: 'Hello' }),
     });
     const body = await res.json() as { id: string; status: string; messageId: string; createdAt: string };
@@ -190,7 +233,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ content: 'Hello' }),
     });
 
@@ -206,7 +249,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const res = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-2', content: '' }),
     });
 
@@ -222,7 +265,7 @@ describe('runtime runs — HTTP layer', () => {
     // First run starts and hangs
     const res1 = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-busy', content: 'First' }),
     });
     expect(res1.status).toBe(201);
@@ -232,7 +275,7 @@ describe('runtime runs — HTTP layer', () => {
     // Second run should be rejected
     const res2 = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-busy', content: 'Second' }),
     });
     expect(res2.status).toBe(409);
@@ -247,12 +290,12 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-get', content: 'Test' }),
     });
     const { id } = await createRes.json() as { id: string };
 
-    const getRes = await fetch(runsUrl(`/${id}`));
+    const getRes = await fetch(runsUrl(`/${id}`), { headers: AUTH_HEADERS });
     const body = await getRes.json() as { id: string; status: string; messageId: string };
 
     expect(getRes.status).toBe(200);
@@ -267,14 +310,14 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-done', content: 'Build it' }),
     });
     const { id } = await createRes.json() as { id: string };
 
     await new Promise((r) => setTimeout(r, 100));
 
-    const getRes = await fetch(runsUrl(`/${id}`));
+    const getRes = await fetch(runsUrl(`/${id}`), { headers: AUTH_HEADERS });
     const body = await getRes.json() as { id: string; status: string };
 
     expect(getRes.status).toBe(200);
@@ -288,14 +331,14 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-fail', content: 'Do it' }),
     });
     const { id } = await createRes.json() as { id: string };
 
     await new Promise((r) => setTimeout(r, 50));
 
-    const getRes = await fetch(runsUrl(`/${id}`));
+    const getRes = await fetch(runsUrl(`/${id}`), { headers: AUTH_HEADERS });
     const body = await getRes.json() as { id: string; status: string; error: string };
 
     expect(getRes.status).toBe(200);
@@ -308,7 +351,7 @@ describe('runtime runs — HTTP layer', () => {
   test('GET /runs/:id returns 404 for unknown run', async () => {
     await startServer(() => makeCompletingSession());
 
-    const res = await fetch(runsUrl('/nonexistent'));
+    const res = await fetch(runsUrl('/nonexistent'), { headers: AUTH_HEADERS });
     expect(res.status).toBe(404);
 
     await stopServer();
@@ -319,13 +362,13 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-scope', content: 'Test' }),
     });
     const { id } = await createRes.json() as { id: string };
 
     // Try to access via a different assistant
-    const res = await fetch(`http://127.0.0.1:${port}/v1/assistants/other-assistant/runs/${id}`);
+    const res = await fetch(`http://127.0.0.1:${port}/v1/assistants/other-assistant/runs/${id}`, { headers: AUTH_HEADERS });
     expect(res.status).toBe(404);
 
     await stopServer();
@@ -338,7 +381,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-decide', content: 'Approve' }),
     });
     const { id } = await createRes.json() as { id: string };
@@ -346,7 +389,7 @@ describe('runtime runs — HTTP layer', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Verify pending state via GET
-    const getRes = await fetch(runsUrl(`/${id}`));
+    const getRes = await fetch(runsUrl(`/${id}`), { headers: AUTH_HEADERS });
     const runBody = await getRes.json() as { status: string; pendingConfirmation: { toolName: string } };
     expect(runBody.status).toBe('needs_confirmation');
     expect(runBody.pendingConfirmation.toolName).toBe('swarm_delegate');
@@ -354,7 +397,7 @@ describe('runtime runs — HTTP layer', () => {
     // Submit decision
     const decisionRes = await fetch(runsUrl(`/${id}/decision`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ decision: 'allow' }),
     });
     const decisionBody = await decisionRes.json() as { accepted: boolean };
@@ -370,14 +413,14 @@ describe('runtime runs — HTTP layer', () => {
 
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-bad-dec', content: 'Test' }),
     });
     const { id } = await createRes.json() as { id: string };
 
     const res = await fetch(runsUrl(`/${id}/decision`), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ decision: 'maybe' }),
     });
 
@@ -391,7 +434,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const res = await fetch(runsUrl('/nonexistent/decision'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ decision: 'allow' }),
     });
 

@@ -439,6 +439,12 @@ export interface LinkOpenRequest {
   metadata?: Record<string, unknown>;
 }
 
+export interface DiagnosticsExportRequest {
+  type: 'diagnostics_export_request';
+  conversationId: string;
+  anchorMessageId?: string;  // if omitted, use latest assistant message
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -447,7 +453,7 @@ export interface IpcBlobProbe {
 
 // === Surface types ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload';
+export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload' | 'browser_view';
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page', 'file_upload'];
 
@@ -560,7 +566,17 @@ export interface TableSurfaceData {
   caption?: string;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData;
+export interface BrowserViewSurfaceData {
+  sessionId: string;
+  currentUrl: string;
+  status: 'navigating' | 'idle' | 'interacting';
+  frame?: string; // base64 JPEG
+  actionText?: string; // "Clicking 'Submit' button"
+  highlights?: Array<{ x: number; y: number; w: number; h: number; label: string }>;
+  pages?: Array<{ id: string; title: string; url: string; active: boolean }>;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData | BrowserViewSurfaceData;
 
 export interface UiSurfaceAction {
   type: 'ui_surface_action';
@@ -644,9 +660,24 @@ export interface UnpublishPageResponse {
   error?: string;
 }
 
+export interface DiagnosticsExportResponse {
+  type: 'diagnostics_export_response';
+  success: boolean;
+  filePath?: string;   // path to the zip file on success
+  error?: string;      // error message on failure
+}
+
 export interface AppFilesChanged {
   type: 'app_files_changed';
   appId: string;
+}
+
+export interface BrowserFrame {
+  type: 'browser_frame';
+  sessionId: string;
+  surfaceId: string;
+  frame: string; // base64 JPEG
+  metadata?: { offsetTop: number; pageScaleFactor: number; scrollOffsetX: number; scrollOffsetY: number; timestamp: number };
 }
 
 export type ClientMessage =
@@ -721,7 +752,8 @@ export type ClientMessage =
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
   | PublishPageRequest
-  | UnpublishPageRequest;
+  | UnpublishPageRequest
+  | DiagnosticsExportRequest;
 
 // === Server → Client messages ===
 
@@ -1473,6 +1505,11 @@ export interface UiSurfaceShowFileUpload extends UiSurfaceShowBase {
   data: FileUploadSurfaceData;
 }
 
+export interface UiSurfaceShowBrowserView extends UiSurfaceShowBase {
+  surfaceType: 'browser_view';
+  data: BrowserViewSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowForm
@@ -1480,7 +1517,8 @@ export type UiSurfaceShow =
   | UiSurfaceShowTable
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
-  | UiSurfaceShowFileUpload;
+  | UiSurfaceShowFileUpload
+  | UiSurfaceShowBrowserView;
 
 export interface UiSurfaceUpdate {
   type: 'ui_surface_update';
@@ -1592,7 +1630,9 @@ export type ServerMessage =
   | AppUpdatePreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse
-  | AppFilesChanged;
+  | DiagnosticsExportResponse
+  | AppFilesChanged
+  | BrowserFrame;
 
 // === Contract schema ===
 

@@ -61,6 +61,21 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
+    // Only strip the authorization header when the gateway consumed it for its
+    // own auth check. When auth is not required, the header may be intended for
+    // the upstream service and must be forwarded.
+    if (config.runtimeProxyRequireAuth) {
+      reqHeaders.delete("authorization");
+    }
+
+    // Add the runtime's bearer token so the upstream accepts the request
+    if (config.runtimeBearerToken) {
+      reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
+    }
+
+    if (config.runtimeProxyBearerToken) {
+      reqHeaders.set("authorization", `Bearer ${config.runtimeProxyBearerToken}`);
+    }
 
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
@@ -100,6 +115,21 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const resHeaders = stripHopByHop(new Headers(response.headers));
     const duration = Math.round(performance.now() - start);
+
+    if (response.status >= 400) {
+      const body = await response.text();
+      const level = response.status >= 500 ? "error" : "warn";
+      const bodySnippet = body.length > 256 ? body.slice(0, 256) + "…[truncated]" : body;
+      log[level](
+        { method: req.method, path: url.pathname, status: response.status, duration, body: bodySnippet },
+        "Upstream returned error",
+      );
+      return new Response(body, {
+        status: response.status,
+        headers: resHeaders,
+      });
+    }
+
     log.info(
       { method: req.method, path: url.pathname, status: response.status, duration },
       "Proxy request completed",

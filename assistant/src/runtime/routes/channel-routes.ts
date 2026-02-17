@@ -7,6 +7,7 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import { renderHistoryContent } from '../../daemon/handlers.js';
+import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
 import type {
   MessageProcessor,
@@ -218,6 +219,8 @@ export async function handleChannelInbound(
       channelDeliveryStore.markProcessed(result.eventId);
       processingSucceeded = true;
     } catch (err) {
+      // Secret ingress blocks are not retryable — let the top-level handler return 422
+      if (err instanceof IngressBlockedError) throw err;
       console.error(`[runtime-http] Processing failed`, err);
       log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       channelDeliveryStore.recordProcessingFailure(result.eventId, err);

@@ -3,7 +3,7 @@ import type { UserMessageAttachment } from './ipc-protocol.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
-import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
+import { uploadAttachment, linkAttachmentToMessage, AttachmentUploadError } from '../memory/attachments-store.js';
 import {
   resolveDirectives,
   contentBlocksToDrafts,
@@ -115,12 +115,22 @@ export async function resolveAssistantAttachments(
   if (assistantAttachments.length > 0 && lastAssistantMessageId) {
     for (let i = 0; i < assistantAttachments.length; i++) {
       const draft = assistantAttachments[i];
-      const stored = uploadAttachment(
-        assistantScope,
-        draft.filename,
-        draft.mimeType,
-        draft.dataBase64,
-      );
+      let stored;
+      try {
+        stored = uploadAttachment(
+          assistantScope,
+          draft.filename,
+          draft.mimeType,
+          draft.dataBase64,
+        );
+      } catch (err) {
+        if (err instanceof AttachmentUploadError) {
+          log.warn({ filename: draft.filename, error: err.message }, 'Skipping attachment upload');
+          directiveWarnings.push(`Attachment ${draft.filename} skipped: ${err.message}`);
+          continue;
+        }
+        throw err;
+      }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
       emittedAttachments.push({
         id: stored.id,

@@ -28,6 +28,8 @@ struct GeneratedPanel: View {
     let daemonClient: DaemonClient
     /// When set, app opens route to the workspace instead of a floating NSPanel.
     var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
+    /// Called to record an app open in the sidebar's recent apps list.
+    var onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)?
 
     @State private var searchText = ""
     @State private var displayItems: [DisplayAppItem] = []
@@ -46,11 +48,12 @@ struct GeneratedPanel: View {
     @State private var slackSharingAppId: String?
     @State private var slackShareResult: (appId: String, success: Bool)?
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
         self.onOpenApp = onOpenApp
+        self.onRecordAppOpen = onRecordAppOpen
     }
 
     var body: some View {
@@ -142,9 +145,51 @@ struct GeneratedPanel: View {
                         )
                         .frame(height: 100)
                     } else {
-                        VStack(spacing: VSpacing.md) {
-                            ForEach(filteredItems) { item in
-                                appRow(item)
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            // Documents section
+                            if !documentItems.isEmpty {
+                                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                    HStack {
+                                        Text("DOCUMENTS")
+                                            .font(VFont.display)
+                                            .foregroundColor(VColor.textMuted)
+                                        Spacer()
+                                        Text("\(documentItems.count)")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textMuted)
+                                    }
+                                    .padding(.horizontal, VSpacing.xs)
+
+                                    VStack(spacing: VSpacing.md) {
+                                        ForEach(documentItems) { item in
+                                            appRow(item)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Dynamic pages section
+                            if !otherItems.isEmpty {
+                                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                                    if !documentItems.isEmpty {
+                                        HStack {
+                                            Text("PAGES")
+                                                .font(VFont.display)
+                                                .foregroundColor(VColor.textMuted)
+                                            Spacer()
+                                            Text("\(otherItems.count)")
+                                                .font(VFont.caption)
+                                                .foregroundColor(VColor.textMuted)
+                                        }
+                                        .padding(.horizontal, VSpacing.xs)
+                                    }
+
+                                    VStack(spacing: VSpacing.md) {
+                                        ForEach(otherItems) { item in
+                                            appRow(item)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -169,6 +214,16 @@ struct GeneratedPanel: View {
         }
     }
 
+    /// Document apps (appId starts with "doc-")
+    private var documentItems: [DisplayAppItem] {
+        filteredItems.filter { $0.localAppId?.starts(with: "doc-") ?? false }
+    }
+
+    /// Non-document apps
+    private var otherItems: [DisplayAppItem] {
+        filteredItems.filter { !($0.localAppId?.starts(with: "doc-") ?? false) }
+    }
+
     // MARK: - App Row
 
     private func appRow(_ item: DisplayAppItem) -> some View {
@@ -186,7 +241,8 @@ struct GeneratedPanel: View {
                     .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             } else {
-                Text(item.icon ?? "\u{1F4F1}")
+                let isDocument = item.localAppId?.starts(with: "doc-") ?? false
+                Text(isDocument ? "📝" : (item.icon ?? "\u{1F4F1}"))
                     .font(.system(size: 20))
                     .frame(width: 28, height: 28)
             }
@@ -569,6 +625,7 @@ struct GeneratedPanel: View {
             // Local apps: ask the daemon to open via ui_surface_show.
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
+            onRecordAppOpen?(localId, item.name, item.icon, item.appType)
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk

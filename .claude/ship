@@ -89,7 +89,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 fi
 
 # Find the main repo root (first worktree is always the main one)
-MAIN_REPO=$(git worktree list --porcelain | head -1 | sed 's/^worktree //')
+# Use read instead of head to avoid dependency on external utilities
+MAIN_REPO=$(git worktree list --porcelain | { read -r line; echo "${line#worktree }"; })
 
 echo "==> Staging changes..."
 git add -A

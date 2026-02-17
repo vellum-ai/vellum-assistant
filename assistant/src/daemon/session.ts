@@ -91,6 +91,7 @@ import {
   createToolExecutor,
   type ToolSetupContext,
 } from './session-tool-setup.js';
+import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
 import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session');
@@ -449,6 +450,7 @@ export class Session {
       sessionId: this.conversationId,
     });
     this.abort();
+    unregisterSessionSender(this.conversationId);
     resetSkillToolProjection(this.skillProjectionState);
     this.eventBus.dispose();
   }
@@ -497,6 +499,14 @@ export class Session {
    */
   canHandoffAtCheckpoint(): boolean {
     return this.processing && this.hasQueuedMessages();
+  }
+
+  hasPendingConfirmation(requestId: string): boolean {
+    return this.prompter.hasPendingRequest(requestId);
+  }
+
+  hasPendingSecret(requestId: string): boolean {
+    return this.secretPrompter.hasPendingRequest(requestId);
   }
 
   handleConfirmationResponse(

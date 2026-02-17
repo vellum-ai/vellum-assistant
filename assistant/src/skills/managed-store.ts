@@ -44,6 +44,7 @@ export interface BuildSkillMarkdownInput {
   emoji?: string;
   userInvocable?: boolean;
   disableModelInvocation?: boolean;
+  includes?: string[];
 }
 
 export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
@@ -59,6 +60,9 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   }
   if (input.disableModelInvocation === true) {
     lines.push('disable-model-invocation: true');
+  }
+  if (input.includes && input.includes.length > 0) {
+    lines.push(`includes: ${JSON.stringify(input.includes)}`);
   }
   lines.push('---');
   lines.push('');
@@ -133,6 +137,7 @@ export interface CreateManagedSkillParams {
   disableModelInvocation?: boolean;
   overwrite?: boolean;
   addToIndex?: boolean;
+  includes?: string[];
 }
 
 export interface CreateManagedSkillResult {
@@ -174,6 +179,7 @@ export function createManagedSkill(params: CreateManagedSkillParams): CreateMana
     emoji: params.emoji,
     userInvocable: params.userInvocable,
     disableModelInvocation: params.disableModelInvocation,
+    includes: params.includes,
   });
 
   mkdirSync(skillDir, { recursive: true });

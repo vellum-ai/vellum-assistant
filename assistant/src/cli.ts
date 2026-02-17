@@ -3,7 +3,7 @@ import * as readline from 'node:readline';
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { getSocketPath, getHistoryPath, readSessionToken } from './util/platform.js';
-import { hasSocketOverride } from './daemon/connection-policy.js';
+import { hasNoAuthOverride } from './daemon/connection-policy.js';
 import {
   serialize,
   createMessageParser,
@@ -49,9 +49,9 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
 export function formatPrincipalTag(req: Pick<ConfirmationRequest, 'principalKind' | 'principalId' | 'principalVersion' | 'executionTarget'>): string {
   if (!req.principalKind || req.principalKind === 'core') return '';
   const name = req.principalId ?? req.principalKind;
-  // Show a shortened version hash when available (first 8 hex chars after prefix)
+  // Show a shortened version hash when available (first 8 hex chars after any scheme prefix)
   const versionSuffix = req.principalVersion
-    ? `@${req.principalVersion.replace(/^sha256:/, '').slice(0, 8)}`
+    ? `@${req.principalVersion.replace(/^[^:]+:/, '').slice(0, 8)}`
     : '';
   const target = req.executionTarget ? ` \u2192 ${req.executionTarget}` : '';
   return `[${req.principalKind}: ${name}${versionSuffix}${target}]`;
@@ -62,6 +62,7 @@ export async function startCli(): Promise<void> {
   let socket: net.Socket;
   let parser = createMessageParser();
   let sessionId = '';
+  let pendingUserContent: string | null = null;
   let generating = false;
   let lastResponse = '';
   let lastUsage: { inputTokens: number; outputTokens: number; totalInputTokens: number; totalOutputTokens: number; estimatedCost: number; model: string } | null = null;
@@ -370,7 +371,20 @@ export async function startCli(): Promise<void> {
         process.stdout.write(
           `\n  Session: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
         );
-        prompt();
+        if (pendingUserContent) {
+          const content = pendingUserContent;
+          pendingUserContent = null;
+          lastResponse = '';
+          if (send({ type: 'user_message', sessionId, content })) {
+            generating = true;
+            spinner.start('Thinking...');
+          } else {
+            process.stdout.write('[Not connected — message not sent]\n');
+            prompt();
+          }
+        } else {
+          prompt();
+        }
         break;
 
       case 'assistant_text_delta':
@@ -694,10 +708,11 @@ export async function startCli(): Promise<void> {
         // accept any other messages.
         const token = readSessionToken();
         if (!token) {
-          if (hasSocketOverride()) {
-            // SSH-forwarded socket: the token file lives on the remote
-            // host, not locally. Connect without auth and let the server
-            // decide whether to accept the unauthenticated connection.
+          if (hasNoAuthOverride()) {
+            // VELLUM_DAEMON_NOAUTH=1: the operator has explicitly opted
+            // into unauthenticated connections (e.g. SSH-forwarded socket
+            // where the token file lives on the remote host). Connect
+            // without auth and let the server decide.
             authenticated = true;
             startHeartbeat();
             resolve();
@@ -869,6 +884,12 @@ export async function startCli(): Promise<void> {
       process.stdout.write('  /help             Show this help\n');
       process.stdout.write('\n');
       prompt();
+      return;
+    }
+
+    if (!sessionId) {
+      pendingUserContent = content;
+      spinner.start('Waiting for session...');
       return;
     }
 

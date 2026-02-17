@@ -203,4 +203,69 @@ final class FeatureFlagManagerTests: XCTestCase {
         // THEN the flag is correctly parsed as enabled
         XCTAssertTrue(manager.isEnabled("padded"))
     }
+
+    /// Tests that env var keys are normalized by lowercasing and removing underscores.
+    func testEnvKeyNormalizationRemovesUnderscores() {
+        // GIVEN an environment with an underscore-separated flag name
+        let env = ["VELLUM_FLAG_MONITORING_EXPORT": "1"]
+
+        // WHEN we create a manager from that environment
+        let manager = FeatureFlagManager(environment: env)
+
+        // THEN the flag is accessible via the camelCase enum rawValue
+        XCTAssertTrue(manager.isEnabled(.monitoringExport))
+
+        // AND via the camelCase string directly
+        XCTAssertTrue(manager.isEnabled("monitoringExport"))
+
+        // AND via the underscore-separated string (normalization strips underscores)
+        XCTAssertTrue(manager.isEnabled("monitoring_export"))
+    }
+
+    /// Tests that flag lookup is case-insensitive after normalization.
+    func testNormalizationIsCaseInsensitive() {
+        // GIVEN an environment with a mixed-case flag name
+        let env = ["VELLUM_FLAG_MONITORING_EXPORT": "true"]
+
+        // WHEN we create a manager from that environment
+        let manager = FeatureFlagManager(environment: env)
+
+        // THEN various casings all resolve to the same flag
+        XCTAssertTrue(manager.isEnabled("MONITORING_EXPORT"))
+        XCTAssertTrue(manager.isEnabled("Monitoring_Export"))
+        XCTAssertTrue(manager.isEnabled("monitoringexport"))
+        XCTAssertTrue(manager.isEnabled("MonitoringExport"))
+        XCTAssertTrue(manager.isEnabled("MONITORINGEXPORT"))
+    }
+
+    /// Tests that the monitoringExport FeatureFlag enum case works end-to-end.
+    func testMonitoringExportFlag() {
+        // GIVEN an environment with the monitoring export flag enabled
+        let env = ["VELLUM_FLAG_MONITORING_EXPORT": "1"]
+
+        // WHEN we create a manager from that environment
+        let manager = FeatureFlagManager(environment: env)
+
+        // THEN the typed enum flag is enabled
+        XCTAssertTrue(manager.isEnabled(.monitoringExport))
+    }
+
+    /// Tests that setOverride and removeOverride work with the monitoringExport flag.
+    func testMonitoringExportOverride() {
+        // GIVEN a manager with no flags
+        let manager = FeatureFlagManager(environment: [:])
+
+        // WHEN we set the monitoringExport override
+        manager.setOverride(.monitoringExport, enabled: true)
+
+        // THEN it is enabled
+        XCTAssertTrue(manager.isEnabled(.monitoringExport))
+
+        // WHEN we remove the override
+        manager.removeOverride(.monitoringExport)
+
+        // THEN it is disabled again
+        XCTAssertFalse(manager.isEnabled(.monitoringExport))
+    }
+
 }

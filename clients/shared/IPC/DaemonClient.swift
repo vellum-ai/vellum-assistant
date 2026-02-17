@@ -217,6 +217,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `integration_connect_result` message.
     public var onIntegrationConnectResult: ((IPCIntegrationConnectResult) -> Void)?
 
+    /// Called when the daemon sends a `browser_frame` message with a new screenshot frame.
+    public var onBrowserFrame: ((BrowserFrameMessage) -> Void)?
+
+    /// Called when the daemon sends a `diagnostics_export_response` message.
+    public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -884,6 +890,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCIntegrationDisconnectRequest(type: "integration_disconnect", integrationId: integrationId))
     }
 
+    // MARK: - Diagnostics Export
+
+    /// Request a diagnostics export (zip) for a conversation.
+    public func sendDiagnosticsExportRequest(conversationId: String, anchorMessageId: String? = nil) throws {
+        try send(DiagnosticsExportRequestMessage(conversationId: conversationId, anchorMessageId: anchorMessageId))
+    }
+
     // MARK: - Link Open
 
     /// Send a link_open_request to the daemon, requesting it open a URL externally.
@@ -1170,6 +1183,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onIntegrationListResponse?(msg)
         case .integrationConnectResult(let msg):
             onIntegrationConnectResult?(msg)
+        case .diagnosticsExportResponse(let msg):
+            onDiagnosticsExportResponse?(msg)
+        case .browserFrame(let msg):
+            onBrowserFrame?(msg)
         default:
             break
         }

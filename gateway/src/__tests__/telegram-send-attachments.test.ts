@@ -12,6 +12,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   defaultAssistantId: undefined,
   unmappedPolicy: "reject",
   port: 7830,
+  runtimeBearerToken: undefined,
   runtimeProxyEnabled: false,
   runtimeProxyRequireAuth: true,
   runtimeProxyBearerToken: undefined,

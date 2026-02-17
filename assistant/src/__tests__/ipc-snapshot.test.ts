@@ -353,6 +353,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'integration_disconnect',
     integrationId: 'gmail',
   },
+  diagnostics_export_request: {
+    type: 'diagnostics_export_request',
+    conversationId: 'conv-001',
+    anchorMessageId: 'msg-042',
+  },
   accept_starter_bundle: {
     type: 'accept_starter_bundle',
   },
@@ -1019,6 +1024,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   app_files_changed: {
     type: 'app_files_changed',
     appId: 'app-001',
+  },
+  browser_frame: {
+    type: 'browser_frame',
+    sessionId: 'sess-001',
+    surfaceId: 'surface-001',
+    frame: 'base64-jpeg-data',
+    metadata: { offsetTop: 0, pageScaleFactor: 1, scrollOffsetX: 0, scrollOffsetY: 0, timestamp: 1700000000 },
+  },
+  diagnostics_export_response: {
+    type: 'diagnostics_export_response',
+    success: true,
+    filePath: '/tmp/diagnostics-conv-001.zip',
   },
   accept_starter_bundle_response: {
     type: 'accept_starter_bundle_response',

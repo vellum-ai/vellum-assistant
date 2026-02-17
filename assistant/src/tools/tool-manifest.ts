@@ -16,6 +16,7 @@ import { reminderTool } from './reminder/reminder.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { integrationManageTool } from './integrations/manage.js';
+import { documentCreateTool, documentUpdateTool } from './document/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -37,6 +38,36 @@ export const eagerModules: string[] = [
   './schedule/delete.js',
 ];
 
+// Tool names registered by the eager modules above.  Listed explicitly so
+// initializeTools() can recognise ESM-cached eager-module tools that were
+// already in the registry before init ran (e.g. when a test file imports
+// an eager module at the top level).
+export const eagerModuleToolNames: string[] = [
+  'file_read',
+  'file_write',
+  'file_edit',
+  'web_search',
+  'web_fetch',
+  'skill_load',
+  'scaffold_managed_skill',
+  'delete_managed_skill',
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_screenshot',
+  'browser_close',
+  'browser_click',
+  'browser_type',
+  'browser_press_key',
+  'browser_wait_for',
+  'browser_extract',
+  'browser_fill_credential',
+  'request_system_permission',
+  'schedule_create',
+  'schedule_list',
+  'schedule_update',
+  'schedule_delete',
+];
+
 // ── Explicit tool instances ─────────────────────────────────────────
 // Tools exported as instances — registered by initializeTools() without
 // relying on import side effects.
@@ -51,6 +82,8 @@ export const explicitTools: Tool[] = [
   screenWatchTool,
   vellumSkillsCatalogTool,
   integrationManageTool,
+  documentCreateTool,
+  documentUpdateTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

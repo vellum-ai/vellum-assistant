@@ -14,6 +14,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
+    runtimeBearerToken: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: true,
     runtimeProxyBearerToken: TOKEN,
@@ -81,6 +82,25 @@ describe("runtime proxy auth enforcement", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
+  });
+
+  test("auth required: replaces client authorization with configured bearer token for upstream", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.get("authorization")).toBe(`Bearer ${TOKEN}`);
   });
 
   test("auth not required: proxies without token", async () => {

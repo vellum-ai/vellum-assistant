@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { v4 as uuid } from 'uuid';
 import { minimatch } from 'minimatch';
@@ -112,6 +112,43 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   return changed;
 }
 
+/**
+ * Update persisted starter-bundle rules whose pattern matches a known legacy
+ * format (e.g. the old "tool:**" prefix was changed to standalone "**").
+ * Returns true when at least one rule was updated.
+ *
+ * Only rules with a recognised legacy pattern are migrated. If a user has
+ * intentionally customised a starter rule's pattern (e.g. narrowed it), it is
+ * left untouched.
+ */
+function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
+  const templatesByID = new Map(getStarterBundleRules().map((t) => [t.id, t]));
+  let changed = false;
+  for (const rule of rules) {
+    const template = templatesByID.get(rule.id);
+    if (!template || rule.pattern === template.pattern) continue;
+    // Only migrate patterns that match a known legacy format.
+    // The "tool:**" prefix (e.g. "file_read:**") was the original pattern
+    // before it was changed to standalone "**".
+    if (!isLegacyStarterPattern(rule.pattern, rule.tool)) continue;
+    log.info(
+      { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
+      'Migrated starter rule pattern to current template',
+    );
+    rule.pattern = template.pattern;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Recognises legacy starter-rule patterns that should be auto-migrated. */
+function isLegacyStarterPattern(pattern: string, tool: string): boolean {
+  // Legacy format used "tool:**" prefixes, e.g. "file_read:**", "glob:**".
+  // Only match the exact legacy pattern for this specific tool to avoid
+  // silently resetting user-customised patterns.
+  return pattern === `${tool}:**`;
+}
+
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
@@ -170,6 +207,12 @@ function loadFromDisk(): TrustRule[] {
     needsSave = true;
   }
 
+  // Migrate persisted starter rules whose pattern has drifted from the
+  // current template (e.g. old "tool:**" → "**").
+  if (migrateStarterRulePatterns(rules)) {
+    needsSave = true;
+  }
+
   rules.sort(ruleOrder);
 
   if (needsSave) {
@@ -194,8 +237,11 @@ function saveToDisk(rules: TrustRule[]): void {
     data.starterBundleAccepted = true;
   }
   const tmpPath = path + '.tmp.' + process.pid;
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+  writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
   renameSync(tmpPath, path);
+  // Enforce owner-only permissions even if the file already existed with
+  // wider permissions. Matches the pattern used in encrypted-store.ts.
+  chmodSync(path, 0o600);
 }
 
 function getRules(): TrustRule[] {
@@ -299,7 +345,11 @@ export function removeRule(id: string): boolean {
 
 function matchesScope(ruleScope: string, workingDir: string): boolean {
   if (ruleScope === 'everywhere') return true;
-  return workingDir.startsWith(ruleScope.replace(/\*$/, ''));
+  // Strip optional trailing wildcard, then enforce a directory-boundary match
+  // so that a rule for "/path/project" does NOT match "/path/project-evil".
+  const prefix = ruleScope.replace(/\*$/, '').replace(/\/+$/, '');
+  const dir = workingDir.replace(/\/+$/, '');
+  return dir === prefix || dir.startsWith(prefix + '/');
 }
 
 function findRuleByDecision(tool: string, command: string, scope: string, decision: 'allow' | 'deny' | 'ask'): TrustRule | null {
@@ -469,7 +519,9 @@ export interface AcceptStarterBundleResult {
  * (e.g. from a previous partial acceptance) are skipped individually.
  */
 export function acceptStarterBundle(): AcceptStarterBundleResult {
-  // Re-read from disk to avoid lost updates
+  // Re-read from disk to avoid lost updates.
+  // loadFromDisk() also runs migrateStarterRulePatterns() to fix any
+  // stale patterns (e.g. old "tool:**" → "**") before we get here.
   cachedRules = null;
   cachedStarterBundleAccepted = null;
   const rules = [...getRules()];

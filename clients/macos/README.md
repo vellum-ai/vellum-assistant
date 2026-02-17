@@ -95,6 +95,38 @@ The build script uses incremental compilation and caching:
 - Small code changes rebuild in ~4 seconds
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 
+### First-Time Setup: Code Signing (Optional but Recommended)
+
+Code signing helps macOS TCC (permission system) recognize your app consistently across rebuilds. **Without it, you'll need to re-grant Accessibility and Screen Recording permissions every time you rebuild.**
+
+The build script automatically detects and uses any valid code signing certificate in your keychain. If none is found, it falls back to adhoc signing (unsigned).
+
+**Recommended: Create an Apple Development certificate via Xcode** (takes ~2 minutes, works with free Apple ID):
+
+1. Open any Swift file in Xcode:
+   ```bash
+   # From clients/macos/ directory:
+   open vellum-assistant/App/AppDelegate.swift
+   ```
+
+2. In Xcode menu bar: **Xcode → Settings → Accounts**
+
+3. Click **+** to add your Apple ID (free account works - no $99/year Developer Program needed)
+
+4. Select your Apple ID → click **Manage Certificates** → click **+** → select **Apple Development**
+
+5. Xcode creates and installs the certificate in your keychain automatically
+
+6. Close Xcode and rebuild: `./build.sh`
+
+The build script will detect and use your new certificate. Permissions will now persist across rebuilds!
+
+**Alternative: Use adhoc signing** (no setup, but permissions reset on every rebuild):
+```bash
+# Override signing identity to force adhoc:
+SIGN_IDENTITY="-" ./build.sh
+```
+
 ## Auto-Rebuild on Save (Watch Mode)
 
 `./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:

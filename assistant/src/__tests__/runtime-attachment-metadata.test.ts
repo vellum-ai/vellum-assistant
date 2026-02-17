@@ -49,6 +49,9 @@ afterAll(() => {
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
+const TEST_TOKEN = 'test-bearer-token-attach';
+const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+
 describe('Runtime attachment metadata', () => {
   let server: RuntimeHttpServer;
   let port: number;
@@ -63,7 +66,7 @@ describe('Runtime attachment metadata', () => {
 
     // Use a random port to avoid conflicts
     port = 17000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port });
+    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
     await server.start();
   });
 
@@ -94,6 +97,7 @@ describe('Runtime attachment metadata', () => {
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { messages: Array<{ role: string; content: string; attachments: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number; kind: string }> }> };
 
@@ -129,6 +133,7 @@ describe('Runtime attachment metadata', () => {
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { messages: Array<{ role: string; attachments: unknown[] }> };
 
@@ -144,6 +149,7 @@ describe('Runtime attachment metadata', () => {
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/assistants/${assistantId}/attachments/${stored.id}`,
+      { headers: AUTH_HEADERS },
     );
     const body = await res.json() as {
       id: string; filename: string; mimeType: string; sizeBytes: number; kind: string; data: string;
@@ -163,6 +169,7 @@ describe('Runtime attachment metadata', () => {
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/assistants/ast-other/attachments/${stored.id}`,
+      { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { error: string };
 
@@ -173,6 +180,7 @@ describe('Runtime attachment metadata', () => {
   test('GET /attachments/:id returns 404 for nonexistent attachment', async () => {
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/assistants/ast-test-4/attachments/nonexistent-id`,
+      { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { error: string };
 

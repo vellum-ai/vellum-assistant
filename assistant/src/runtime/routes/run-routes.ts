@@ -3,6 +3,7 @@
  */
 import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
+import * as runsStore from '../../memory/runs-store.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getLogger } from '../../util/logger.js';
 import type { RunOrchestrator } from '../run-orchestrator.js';
@@ -134,19 +135,36 @@ export async function handleRunDecision(
   return Response.json({ accepted: true });
 }
 
-export async function handleAddTrustRule(req: Request): Promise<Response> {
+/**
+ * Add a trust rule, but ONLY if there is a pending confirmation for the
+ * given run.  The caller-supplied pattern and scope are validated against
+ * the server-generated allowlist/scope options that were sent with the
+ * original confirmation_request — preventing arbitrary rule injection.
+ */
+export async function handleAddTrustRule(
+  runId: string,
+  req: Request,
+): Promise<Response> {
+  const run = runsStore.getRun(runId);
+  if (!run) {
+    return Response.json({ error: 'Run not found' }, { status: 404 });
+  }
+
+  if (run.status !== 'needs_confirmation' || !run.pendingConfirmation) {
+    return Response.json(
+      { error: 'No confirmation pending for this run' },
+      { status: 409 },
+    );
+  }
+
   const body = await req.json() as {
-    toolName?: string;
     pattern?: string;
     scope?: string;
     decision?: string;
   };
 
-  const { toolName, pattern, scope, decision } = body;
+  const { pattern, scope, decision } = body;
 
-  if (!toolName || typeof toolName !== 'string') {
-    return Response.json({ error: 'toolName is required' }, { status: 400 });
-  }
   if (!pattern || typeof pattern !== 'string') {
     return Response.json({ error: 'pattern is required' }, { status: 400 });
   }
@@ -157,9 +175,39 @@ export async function handleAddTrustRule(req: Request): Promise<Response> {
     return Response.json({ error: 'decision must be "allow" or "deny"' }, { status: 400 });
   }
 
+  const confirmation = run.pendingConfirmation;
+
+  // Validate pattern against server-provided allowlist options
+  const validPatterns = (confirmation.allowlistOptions ?? []).map((o) => o.pattern);
+  if (!validPatterns.includes(pattern)) {
+    return Response.json(
+      { error: 'pattern does not match any server-provided allowlist option' },
+      { status: 403 },
+    );
+  }
+
+  // Validate scope against server-provided scope options
+  const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
+  if (!validScopes.includes(scope)) {
+    return Response.json(
+      { error: 'scope does not match any server-provided scope option' },
+      { status: 403 },
+    );
+  }
+
   try {
-    addRule(toolName, pattern, scope, decision);
-    log.info({ tool: toolName, pattern, scope, decision }, 'Trust rule added via HTTP');
+    // Intentionally omit executionTarget: core tools (bash, file_*, etc.)
+    // have no executionTarget in their PolicyContext, so a rule with one
+    // would never match and users would keep getting re-prompted.
+    addRule(confirmation.toolName, pattern, scope, decision, 100, {
+      principalKind: confirmation.principalKind,
+      principalId: confirmation.principalId,
+      principalVersion: confirmation.principalVersion,
+    });
+    log.info(
+      { tool: confirmation.toolName, pattern, scope, decision, runId },
+      'Trust rule added via HTTP (bound to pending confirmation)',
+    );
     return Response.json({ accepted: true });
   } catch (err) {
     log.error({ err }, 'Failed to add trust rule');

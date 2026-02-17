@@ -5,6 +5,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { redactSecrets } from '../../security/secret-scanner.js';
 import { wrapCommand } from './sandbox.js';
 import { formatShellOutput } from '../shared/shell-output.js';
 import { buildSanitizedEnv } from './safe-env.js';
@@ -56,7 +57,7 @@ class ShellTool implements Tool {
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
-    log.info({ command, cwd: context.workingDir, timeoutSec }, 'Executing shell command');
+    log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec }, 'Executing shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];

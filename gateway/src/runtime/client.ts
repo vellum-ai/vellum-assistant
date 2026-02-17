@@ -3,6 +3,15 @@ import { getLogger } from "../logger.js";
 
 const log = getLogger("runtime-client");
 
+/** Build common headers for runtime requests, including auth when configured. */
+function runtimeHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (config.runtimeBearerToken) {
+    headers["Authorization"] = `Bearer ${config.runtimeBearerToken}`;
+  }
+  return headers;
+}
+
 /**
  * Thrown when the assistant rejects an attachment for a non-retriable reason
  * (e.g. unsupported MIME type, dangerous file extension). Callers can use
@@ -72,7 +81,7 @@ export async function forwardToRuntime(
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(config.runtimeTimeoutMs),
       });
@@ -130,7 +139,7 @@ export async function resetConversation(
 
   const response = await fetch(url, {
     method: "DELETE",
-    headers: { "Content-Type": "application/json" },
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ sourceChannel, externalChatId }),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
   });
@@ -160,6 +169,7 @@ export async function downloadAttachment(
 
   const response = await fetch(url, {
     method: "GET",
+    headers: runtimeHeaders(config),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
   });
 
@@ -180,7 +190,7 @@ export async function uploadAttachment(
 
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify(input),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
   });

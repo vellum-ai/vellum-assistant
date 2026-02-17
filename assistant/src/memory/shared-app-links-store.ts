@@ -4,7 +4,7 @@
  * Each record holds a .vellumapp zip bundle keyed by a short, shareable token.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, lte, or, and, isNull } from 'drizzle-orm';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { getDb } from './db.js';
 import { sharedAppLinks } from './schema.js';
@@ -21,14 +21,34 @@ export interface SharedAppLinkRecord {
   expiresAt: number | null;
 }
 
+const SHARE_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 function generateShareToken(): string {
-  return randomBytes(9).toString('base64url').slice(0, 12);
+  // 16 bytes = 128 bits of entropy (matches UUID standard), base64url-encoded
+  // to a 22-character URL-safe string.
+  return randomBytes(16).toString('base64url');
+}
+
+/** Delete all rows whose effective expiry has passed (including legacy NULL rows). */
+function sweepExpiredLinks(): void {
+  const db = getDb();
+  const now = Date.now();
+  db.delete(sharedAppLinks)
+    .where(or(
+      lte(sharedAppLinks.expiresAt, now),
+      // Legacy rows created before TTL was added have expiresAt = NULL;
+      // treat them as expired once createdAt + TTL has passed.
+      and(isNull(sharedAppLinks.expiresAt), lte(sharedAppLinks.createdAt, now - SHARE_LINK_TTL_MS)),
+    ))
+    .run();
 }
 
 export function createSharedAppLink(
   bundleData: Buffer,
   manifest: AppManifest,
 ): { id: string; shareToken: string } {
+  sweepExpiredLinks();
+
   const db = getDb();
   const id = randomUUID();
   const shareToken = generateShareToken();
@@ -43,7 +63,7 @@ export function createSharedAppLink(
       manifestJson: JSON.stringify(manifest),
       downloadCount: 0,
       createdAt: now,
-      expiresAt: null,
+      expiresAt: now + SHARE_LINK_TTL_MS,
     })
     .run();
 
@@ -59,6 +79,9 @@ export function getSharedAppLink(shareToken: string): SharedAppLinkRecord | null
     .get();
 
   if (!row) return null;
+
+  const effectiveExpiry = row.expiresAt ?? row.createdAt + SHARE_LINK_TTL_MS;
+  if (effectiveExpiry < Date.now()) return null;
 
   return {
     id: row.id,

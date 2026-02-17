@@ -5,6 +5,7 @@ const mockConfig = {
     enabled: true,
     action: 'block' as 'redact' | 'warn' | 'block',
     entropyThreshold: 4.0,
+    blockIngress: true,
   },
 };
 
@@ -29,7 +30,7 @@ const GH_TOKEN = ['ghp_', 'ABCDEFghijklMN01234567', '89abcdefghijkl'].join('');
 
 describe('secret ingress handler', () => {
   beforeEach(() => {
-    mockConfig.secretDetection = { enabled: true, action: 'block', entropyThreshold: 4.0 };
+    mockConfig.secretDetection = { enabled: true, action: 'block', entropyThreshold: 4.0, blockIngress: true };
   });
 
   test('blocks message containing an AWS key', () => {
@@ -53,16 +54,21 @@ describe('secret ingress handler', () => {
     expect(result.blocked).toBe(false);
   });
 
-  test('does not block in warn mode (warn only applies to tool output)', () => {
-    mockConfig.secretDetection.action = 'warn';
+  test('does not block when blockIngress is false', () => {
+    mockConfig.secretDetection.blockIngress = false;
     const result = checkIngressForSecrets(`Here is my key: ${AWS_KEY}`);
     expect(result.blocked).toBe(false);
   });
 
-  test('does not block in redact mode', () => {
+  test('blocks regardless of output action when blockIngress is true', () => {
+    mockConfig.secretDetection.action = 'warn';
+    mockConfig.secretDetection.blockIngress = true;
+    const resultWarn = checkIngressForSecrets(`Here is my key: ${AWS_KEY}`);
+    expect(resultWarn.blocked).toBe(true);
+
     mockConfig.secretDetection.action = 'redact';
-    const result = checkIngressForSecrets(`Here is my key: ${AWS_KEY}`);
-    expect(result.blocked).toBe(false);
+    const resultRedact = checkIngressForSecrets(`Here is my key: ${AWS_KEY}`);
+    expect(resultRedact.blocked).toBe(true);
   });
 
   test('user notice never contains the secret value', () => {

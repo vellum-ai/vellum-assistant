@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 struct WakeUpStepView: View {
     @Bindable var state: OnboardingState
+    var onContinueWithVellum: () -> Void = {}
 
     @State private var showTitle = false
     @State private var showSubtext = false
@@ -49,7 +50,7 @@ struct WakeUpStepView: View {
                 optionCard(
                     title: "Vellum Account",
                     description: "Get 30 free credits starting with your Vellum Account without the need for your own model subscription.",
-                    action: {}
+                    action: { onContinueWithVellum() }
                 )
             }
             .padding(.top, VSpacing.xl)

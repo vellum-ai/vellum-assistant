@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
-import { hasSocketOverride } from './connection-policy.js';
+import { hasNoAuthOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -11,6 +11,8 @@ import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
 import { resetAllowlist } from '../security/secret-allowlist.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { IngressBlockedError } from '../util/errors.js';
 import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
@@ -333,6 +335,9 @@ export class DaemonServer {
     if (fingerprint === this.lastConfigFingerprint) {
       return false;
     }
+    // Default trust rules depend on config (e.g. skills.load.extraDirs),
+    // so clear the trust cache so rules are regenerated from fresh config.
+    clearTrustCache();
     clearEmbeddingBackendCache();
     const isFirstInit = this.lastConfigFingerprint === '';
     initializeProviders(config);
@@ -483,15 +488,15 @@ export class DaemonServer {
     this.connectedSockets.add(socket);
     const parser = createMessageParser({ maxLineSize: MAX_LINE_SIZE });
 
-    // When the daemon is listening on a custom/forwarded socket
-    // (VELLUM_DAEMON_SOCKET), clients may not have access to the local
-    // session token file (e.g. SSH-forwarded connections). Auto-authenticate
-    // these connections so they aren't disconnected by the auth timeout.
-    // Clients that DO have a token will still send an auth message which
-    // is accepted normally via the auth gate below.
-    if (hasSocketOverride()) {
+    // When the operator explicitly opts into unauthenticated connections
+    // (VELLUM_DAEMON_NOAUTH=1), auto-authenticate so clients that can't
+    // read the local session token file (e.g. SSH-forwarded sockets)
+    // aren't disconnected by the auth timeout. This is intentionally
+    // gated on a separate flag — a custom socket path alone (via
+    // VELLUM_DAEMON_SOCKET) no longer bypasses token auth.
+    if (hasNoAuthOverride()) {
       this.authenticatedSockets.add(socket);
-      log.info('Auto-authenticated client on overridden socket path');
+      log.warn('Auto-authenticated client (VELLUM_DAEMON_NOAUTH is set — token auth bypassed)');
       this.send(socket, { type: 'auth_result', success: true });
       this.sendInitialSession(socket).catch((err) => {
         log.error({ err }, 'Failed to send initial session info after auto-auth');
@@ -814,6 +819,12 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
+    // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
+    const ingressCheck = checkIngressForSecrets(content);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     // Reject concurrent requests upfront. The HTTP path should never use
@@ -861,6 +872,12 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
   ): Promise<{ messageId: string }> {
+    // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
+    const ingressCheck = checkIngressForSecrets(content);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     const session = await this.getOrCreateSession(conversationId, undefined, true, options);
 
     if (session.isProcessing()) {

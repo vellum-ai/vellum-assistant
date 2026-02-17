@@ -14,6 +14,16 @@ import { browserManager } from './browser-manager.js';
 import type { RouteHandler } from './browser-manager.js';
 import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
 import { credentialBroker } from '../credentials/broker.js';
+import {
+  ensureScreencast,
+  updateBrowserStatus,
+  updatePagesList,
+  stopBrowserScreencast,
+  stopAllScreencasts,
+  getSender,
+  getElementBounds,
+  updateHighlights,
+} from './browser-screencast.js';
 
 const log = getLogger('headless-browser');
 
@@ -59,6 +69,13 @@ async function executeBrowserNavigate(
 
   let routeHandler: RouteHandler | null = null;
   let blockedUrl: string | null = null;
+
+  // Start screencast if a sender is registered for this session
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'navigating', `Navigating to ${safeRequestedUrl}`);
+  }
 
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
@@ -121,6 +138,9 @@ async function executeBrowserNavigate(
     }
 
     if (blockedUrl) {
+      if (sender) {
+        updateBrowserStatus(context.sessionId, sender, 'idle');
+      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -166,6 +186,11 @@ async function executeBrowserNavigate(
       // Auth detection is best-effort; don't fail navigation
     }
 
+    if (sender) {
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+      await updatePagesList(context.sessionId, sender);
+    }
+
     return { content: lines.join('\n'), isError: false };
   } catch (err) {
     // Best-effort cleanup of route handler on error
@@ -180,6 +205,9 @@ async function executeBrowserNavigate(
     // page.goto() throws. Return the clear security message instead of the
     // raw Playwright error (which could leak credentials from the URL).
     if (blockedUrl) {
+      if (sender) {
+        updateBrowserStatus(context.sessionId, sender, 'idle');
+      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -188,6 +216,9 @@ async function executeBrowserNavigate(
 
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, 'Navigation failed');
+    if (sender) {
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Error: Navigation failed: ${msg}`, isError: true };
   }
 }
@@ -420,7 +451,13 @@ async function executeBrowserClose(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   try {
+    const sender = getSender(context.sessionId);
+    if (sender) {
+      await stopBrowserScreencast(context.sessionId, sender);
+    }
+
     if (input.close_all_pages === true) {
+      await stopAllScreencasts();
       await browserManager.closeAllPages();
       return { content: 'All browser pages and context closed.', isError: false };
     }
@@ -498,13 +535,31 @@ async function executeBrowserClick(
   const { selector, error } = resolveSelector(context.sessionId, input);
   if (error) return { content: error, isError: true };
 
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Clicking element');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Clicking element' }]);
+    }
+  }
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
     await page.click(selector!);
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Clicked element: ${selector}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, 'Click failed');
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Error: Click failed: ${msg}`, isError: true };
   }
 }
@@ -559,6 +614,16 @@ async function executeBrowserType(
   const clearFirst = input.clear_first !== false; // default true
   const pressEnter = input.press_enter === true;
 
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Typing text');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Typing' }]);
+    }
+  }
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
@@ -578,6 +643,11 @@ async function executeBrowserType(
       await page.press(selector!, 'Enter');
     }
 
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+
     const lines = [`Typed into element: ${selector}`];
     if (clearFirst) lines.push('(cleared existing content first)');
     if (pressEnter) lines.push('(pressed Enter after typing)');
@@ -585,6 +655,10 @@ async function executeBrowserType(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, selector }, 'Type failed');
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Error: Type failed: ${msg}`, isError: true };
   }
 }
@@ -646,6 +720,12 @@ async function executeBrowserPressKey(
     return { content: 'Error: key is required.', isError: true };
   }
 
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', `Pressing ${key}`);
+  }
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
@@ -655,17 +735,39 @@ async function executeBrowserPressKey(
 
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
-      if (error) return { content: error, isError: true };
+      if (error) {
+        if (sender) {
+          updateBrowserStatus(context.sessionId, sender, 'idle');
+        }
+        return { content: error, isError: true };
+      }
+      if (sender) {
+        const bounds = await getElementBounds(context.sessionId, selector!);
+        if (bounds) {
+          updateHighlights(context.sessionId, sender, [{ ...bounds, label: `Pressing ${key}` }]);
+        }
+      }
       await page.press(selector!, key);
+      if (sender) {
+        updateHighlights(context.sessionId, sender, []);
+        updateBrowserStatus(context.sessionId, sender, 'idle');
+      }
       return { content: `Pressed "${key}" on element: ${selector}`, isError: false };
     }
 
     // No target → press key on the page (focused element)
     await page.keyboard.press(key);
+    if (sender) {
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Pressed "${key}"`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, key }, 'Press key failed');
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
     return { content: `Error: Press key failed: ${msg}`, isError: true };
   }
 }

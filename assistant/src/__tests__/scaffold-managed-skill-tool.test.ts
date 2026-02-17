@@ -56,13 +56,11 @@ describe('scaffold_managed_skill tool', () => {
     expect(parsed.skill_id).toBe('test-skill');
     expect(parsed.index_updated).toBe(true);
 
-    // Verify file was created
     const skillFile = join(TEST_DIR, 'skills', 'test-skill', 'SKILL.md');
     expect(existsSync(skillFile)).toBe(true);
     const content = readFileSync(skillFile, 'utf-8');
     expect(content).toContain('name: "Test Skill"');
 
-    // Verify index was updated
     const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
     expect(indexContent).toContain('- test-skill');
   });
@@ -130,6 +128,89 @@ describe('scaffold_managed_skill tool', () => {
     }
   });
 
+  test('creates a skill with includes metadata', async () => {
+    const result = await tool.execute({
+      skill_id: 'parent-skill',
+      name: 'Parent',
+      description: 'Has children',
+      body_markdown: 'Parent body.',
+      includes: ['child-a', 'child-b'],
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'parent-skill', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('normalizes includes — trims and deduplicates', async () => {
+    const result = await tool.execute({
+      skill_id: 'norm-skill',
+      name: 'Normalized',
+      description: 'Tests normalization',
+      body_markdown: 'Body.',
+      includes: ['  child-a  ', 'child-b', 'child-a'],
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'norm-skill', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).toContain('includes: ["child-a","child-b"]');
+  });
+
+  test('rejects includes with non-string elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'bad-includes',
+      name: 'Bad',
+      description: 'Has non-string',
+      body_markdown: 'Body.',
+      includes: ['child-a', 42],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
+  });
+
+  test('rejects includes with empty string elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'empty-includes',
+      name: 'Empty',
+      description: 'Has empty string',
+      body_markdown: 'Body.',
+      includes: ['', 'child-a'],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
+  });
+
+  test('rejects includes with whitespace-only elements', async () => {
+    const result = await tool.execute({
+      skill_id: 'ws-includes',
+      name: 'Whitespace',
+      description: 'Has whitespace-only',
+      body_markdown: 'Body.',
+      includes: ['child-a', '  '],
+    }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('non-empty string');
+  });
+
+  test('omits includes when not provided', async () => {
+    const result = await tool.execute({
+      skill_id: 'no-includes',
+      name: 'Solo',
+      description: 'No children',
+      body_markdown: 'Body.',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const skillFile = join(TEST_DIR, 'skills', 'no-includes', 'SKILL.md');
+    const content = readFileSync(skillFile, 'utf-8');
+    expect(content).not.toContain('includes');
+  });
+
   test('rejects invalid skill_id', async () => {
     const result = await tool.execute({
       skill_id: '../escape',
@@ -140,5 +221,33 @@ describe('scaffold_managed_skill tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('traversal');
+  });
+
+  test('e2e: scaffold child then parent with includes, verify files and index', async () => {
+    const childResult = await tool.execute({
+      skill_id: 'e2e-child',
+      name: 'E2E Child',
+      description: 'Child for e2e test',
+      body_markdown: 'Child instructions.',
+    }, makeContext());
+    expect(childResult.isError).toBe(false);
+
+    const parentResult = await tool.execute({
+      skill_id: 'e2e-parent',
+      name: 'E2E Parent',
+      description: 'Parent with includes',
+      body_markdown: 'Parent instructions.',
+      includes: ['e2e-child'],
+    }, makeContext());
+    expect(parentResult.isError).toBe(false);
+
+    const parentSkillFile = join(TEST_DIR, 'skills', 'e2e-parent', 'SKILL.md');
+    expect(existsSync(parentSkillFile)).toBe(true);
+    const parentContent = readFileSync(parentSkillFile, 'utf-8');
+    expect(parentContent).toContain('includes: ["e2e-child"]');
+
+    const indexContent = readFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), 'utf-8');
+    expect(indexContent).toContain('- e2e-child');
+    expect(indexContent).toContain('- e2e-parent');
   });
 });

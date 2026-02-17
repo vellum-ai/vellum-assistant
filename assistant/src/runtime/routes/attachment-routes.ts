@@ -2,10 +2,21 @@
  * Route handlers for attachment upload, download, and deletion.
  */
 import * as attachmentsStore from '../../memory/attachments-store.js';
-import { validateAttachmentUpload } from '../../memory/attachments-store.js';
+import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
+
+/** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
+const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 
 export async function handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
-  const body = await req.json() as {
+  const rawBody = await req.arrayBuffer();
+  if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
+    return Response.json(
+      { error: `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)` },
+      { status: 413 },
+    );
+  }
+
+  const body = JSON.parse(new TextDecoder().decode(rawBody)) as {
     filename?: string;
     mimeType?: string;
     data?: string;
@@ -42,12 +53,21 @@ export async function handleUploadAttachment(assistantId: string, req: Request):
     );
   }
 
-  const attachment = attachmentsStore.uploadAttachment(
-    assistantId,
-    filename,
-    mimeType,
-    data,
-  );
+  let attachment: attachmentsStore.StoredAttachment;
+  try {
+    attachment = attachmentsStore.uploadAttachment(
+      assistantId,
+      filename,
+      mimeType,
+      data,
+    );
+  } catch (err) {
+    if (err instanceof AttachmentUploadError) {
+      const status = err.message.startsWith('Attachment too large') ? 413 : 400;
+      return Response.json({ error: err.message }, { status });
+    }
+    throw err;
+  }
 
   return Response.json({
     id: attachment.id,

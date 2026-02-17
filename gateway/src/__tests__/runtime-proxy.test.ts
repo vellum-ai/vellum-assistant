@@ -12,6 +12,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
+    runtimeBearerToken: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: false,
     runtimeProxyBearerToken: undefined,
@@ -191,6 +192,56 @@ describe("runtime proxy handler", () => {
 
     expect(capturedSignal).toBeDefined();
     expect(capturedSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("forwards authorization header when auth is not required", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: "Bearer upstream-token" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.get("authorization")).toBe("Bearer upstream-token");
+  });
+
+  test("replaces client authorization with configured bearer token for upstream", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(
+      makeConfig({ runtimeProxyBearerToken: "daemon-token" }),
+    );
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: "Bearer client-token" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.get("authorization")).toBe("Bearer daemon-token");
+  });
+
+  test("truncates long upstream error bodies in logs", async () => {
+    const longBody = "x".repeat(512);
+    globalThis.fetch = mock(async () => {
+      return new Response(longBody, { status: 500 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/fail");
+    const res = await handler(req);
+
+    expect(res.status).toBe(500);
+    // The full body is still returned to the client
+    const responseBody = await res.text();
+    expect(responseBody).toBe(longBody);
   });
 
   test("does not forward host header to upstream", async () => {

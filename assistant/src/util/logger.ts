@@ -137,6 +137,14 @@ function getRootLogger(): pino.Logger {
           { stream: prettyStream, level: 'debug' as const },
         ]);
         rootLogger = pino({ level: 'debug' }, multi);
+      } else if (process.env.DEBUG_STDOUT_LOGS === '1') {
+        rootLogger = pino(
+          { level: 'info' },
+          pino.multistream([
+            { stream: fileStream, level: 'info' as const },
+            { stream: pino.destination(1), level: 'info' as const },
+          ]),
+        );
       } else {
         rootLogger = pino({ level: 'info' }, fileStream);
       }

@@ -242,10 +242,12 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   }
   if (toolName === 'web_search') return RiskLevel.Low;
   if (toolName === 'web_fetch') {
-    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+    // Private-network fetches are High risk so that blanket allow rules
+    // (including the starter bundle) cannot silently bypass the prompt.
+    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
   }
   if (toolName === 'browser_navigate') {
-    return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
+    return input.allow_private_network === true ? RiskLevel.High : RiskLevel.Low;
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
@@ -533,48 +535,38 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
 
   if (toolName === 'skill_load') {
     const rawSelector = getStringField(input, 'skill').trim();
-    const options: AllowlistOption[] = [];
 
     if (rawSelector) {
       const resolved = resolveSkillIdAndHash(rawSelector);
-      if (resolved) {
-        // Version-specific option: pin approval to an exact version
-        if (resolved.versionHash) {
-          options.push({
+      if (resolved && resolved.versionHash) {
+        // Always pin approval to the exact version
+        return [
+          {
             label: `${resolved.id}@${resolved.versionHash}`,
             description: 'This exact version',
             pattern: `skill_load:${resolved.id}@${resolved.versionHash}`,
-          });
-        }
-        // Any-version option: allow loading this skill regardless of version
-        options.push({
-          label: resolved.id,
-          description: 'Any version of this skill',
-          pattern: `skill_load:${resolved.id}`,
-        });
-      } else {
-        // Couldn't resolve — use the raw selector
-        options.push({
-          label: rawSelector,
-          description: 'This skill',
-          pattern: `skill_load:${rawSelector}`,
-        });
+          },
+        ];
       }
+      // No version hash — use the resolved id or raw selector
+      const id = resolved ? resolved.id : rawSelector;
+      return [
+        {
+          label: id,
+          description: 'This skill',
+          pattern: `skill_load:${id}`,
+        },
+      ];
     }
 
-    options.push({
-      label: 'skill_load:*',
-      description: 'All skill loads',
-      pattern: 'skill_load:*',
-    });
-
-    // Deduplicate
-    const seen = new Set<string>();
-    return options.filter((o) => {
-      if (seen.has(o.pattern)) return false;
-      seen.add(o.pattern);
-      return true;
-    });
+    // No selector at all — fallback to wildcard
+    return [
+      {
+        label: 'skill_load:*',
+        description: 'All skill loads',
+        pattern: 'skill_load:*',
+      },
+    ];
   }
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];

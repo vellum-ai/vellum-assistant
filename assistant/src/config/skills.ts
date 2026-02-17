@@ -55,6 +55,8 @@ export interface SkillSummary {
   metadata?: VellumMetadata;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
+  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
+  includes?: string[];
 }
 
 export interface SkillDefinition extends SkillSummary {
@@ -115,7 +117,11 @@ export interface SkillToolManifestMeta {
   toolCount: number;
   /** Tool names declared in the manifest (empty if invalid). */
   toolNames: string[];
-  /** Deterministic content hash of the skill directory (`v1:<hex-sha256>`). */
+  /**
+   * Deterministic content hash of the skill directory (`v1:<hex-sha256>`).
+   * Lazily computed on first access to avoid hashing every skill directory
+   * during catalog load.
+   */
   versionHash?: string;
 }
 
@@ -221,6 +227,42 @@ interface ParsedFrontmatter {
   userInvocable: boolean;
   disableModelInvocation: boolean;
   metadata?: VellumMetadata;
+  includes?: string[];
+}
+
+function parseIncludes(raw: string | undefined, skillFilePath: string): string[] | undefined {
+  if (!raw) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    log.warn({ err, skillFilePath }, 'Failed to parse includes JSON in frontmatter');
+    return undefined;
+  }
+
+  if (!Array.isArray(parsed)) {
+    log.warn({ skillFilePath }, 'includes must be a JSON array');
+    return undefined;
+  }
+
+  if (!parsed.every((item: unknown) => typeof item === 'string')) {
+    log.warn({ skillFilePath }, 'includes must be an array of strings');
+    return undefined;
+  }
+
+  // Normalize: trim, remove empty strings, deduplicate preserving first-seen order
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of parsed as string[]) {
+    const trimmed = item.trim();
+    if (trimmed.length === 0) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontmatter | null {
@@ -288,6 +330,8 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     }
   }
 
+  const includes = parseIncludes(fields.includes, skillFilePath);
+
   return {
     name,
     description,
@@ -296,6 +340,7 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     userInvocable,
     disableModelInvocation,
     metadata,
+    includes,
   };
 }
 
@@ -317,6 +362,34 @@ function isOutsideSkillsRoot(skillsDir: string, candidatePath: string): boolean 
 // ─── Tool manifest detection ─────────────────────────────────────────────────
 
 /**
+ * Create a SkillToolManifestMeta with a lazily-computed versionHash.
+ * The hash is only computed when first accessed, avoiding the cost of
+ * recursively hashing the skill directory during catalog load.
+ */
+function createManifestMeta(
+  base: Omit<SkillToolManifestMeta, 'versionHash'>,
+  directoryPath: string,
+): SkillToolManifestMeta {
+  let cached: string | undefined;
+  let computed = false;
+  return Object.defineProperty({ ...base }, 'versionHash', {
+    get() {
+      if (!computed) {
+        computed = true;
+        try {
+          cached = computeSkillVersionHash(directoryPath);
+        } catch (err) {
+          log.warn({ err, directoryPath }, 'Failed to compute skill version hash');
+        }
+      }
+      return cached;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+}
+
+/**
  * Detect and parse a TOOLS.json manifest in a skill directory.
  * Returns the manifest metadata if the file exists, or undefined if it doesn't.
  * On parse failure, returns a degraded metadata object (present but invalid).
@@ -327,31 +400,22 @@ function detectToolManifest(directoryPath: string): SkillToolManifestMeta | unde
     return undefined;
   }
 
-  let versionHash: string | undefined;
-  try {
-    versionHash = computeSkillVersionHash(directoryPath);
-  } catch (err) {
-    log.warn({ err, directoryPath }, 'Failed to compute skill version hash');
-  }
-
   try {
     const manifest = parseToolManifestFile(manifestPath);
-    return {
+    return createManifestMeta({
       present: true,
       valid: true,
       toolCount: manifest.tools.length,
       toolNames: manifest.tools.map((t) => t.name),
-      versionHash,
-    };
+    }, directoryPath);
   } catch (err) {
     log.warn({ err, manifestPath }, 'Failed to parse TOOLS.json manifest');
-    return {
+    return createManifestMeta({
       present: true,
       valid: false,
       toolCount: 0,
       toolNames: [],
-      versionHash,
-    };
+    }, directoryPath);
   }
 }
 
@@ -399,6 +463,7 @@ function readSkillFromDirectory(directoryPath: string, skillsDir: string, source
       source,
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
+      includes: parsed.includes,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read skill file');
@@ -439,6 +504,7 @@ function readBundledSkillFromDirectory(directoryPath: string): SkillDefinition |
       source: 'bundled',
       metadata: parsed.metadata,
       toolManifest: detectToolManifest(directoryPath),
+      includes: parsed.includes,
     };
   } catch (err) {
     log.warn({ err, skillFilePath }, 'Failed to read bundled skill file');
@@ -492,6 +558,7 @@ function loadBundledSkills(): SkillSummary[] {
       source: 'bundled',
       metadata: skill.metadata,
       toolManifest: skill.toolManifest,
+      includes: skill.includes,
     });
   }
 
@@ -611,6 +678,7 @@ function skillSummaryFromDefinition(skill: SkillDefinition, source: SkillSource)
     source,
     metadata: skill.metadata,
     toolManifest: skill.toolManifest,
+    includes: skill.includes,
   };
 }
 
@@ -655,6 +723,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
             source: 'extra',
             metadata: parsed.metadata,
             toolManifest: detectToolManifest(directory),
+            includes: parsed.includes,
           });
         } catch (err) {
           log.warn({ err, directory }, 'Failed to read skill from extraDirs');
@@ -736,6 +805,7 @@ export function loadSkillCatalog(workspaceSkillsDir?: string, extraDirs?: string
           source: 'workspace',
           metadata: parsed.metadata,
           toolManifest: detectToolManifest(directory),
+          includes: parsed.includes,
         };
 
         if (seenIds.has(id)) {

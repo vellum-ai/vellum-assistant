@@ -3,8 +3,12 @@ import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
 import { registerComputerUseTools } from './computer-use/registry.js';
+import { allComputerUseTools } from './computer-use/definitions.js';
+import { requestComputerControlTool } from './computer-use/request-computer-control.js';
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
+import { allUiSurfaceTools } from './ui-surface/definitions.js';
 import { registerAppTools } from './apps/registry.js';
+import { allAppTools } from './apps/definitions.js';
 import { hostFileReadTool } from './host-filesystem/read.js';
 import { hostFileWriteTool } from './host-filesystem/write.js';
 import { hostFileEditTool } from './host-filesystem/edit.js';
@@ -190,7 +194,12 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { eagerModules, explicitTools, lazyTools } = await import('./tool-manifest.js');
+  const { eagerModules, eagerModuleToolNames, explicitTools, lazyTools } = await import('./tool-manifest.js');
+
+  // Capture tool names already in the registry before any manifest
+  // registrations.  In production this is empty; in tests a non-skill tool
+  // may have been registered before the first initializeTools() call.
+  const preExisting = new Set(tools.keys());
 
   // Import tool modules to trigger registration side effects.
   for (const modulePath of eagerModules) {
@@ -204,10 +213,10 @@ export async function initializeTools(): Promise<void> {
 
   // Host tools are registered explicitly so host access stays opt-in until
   // this point in startup, rather than as module side effects.
-  registerTool(hostFileReadTool);
-  registerTool(hostFileWriteTool);
-  registerTool(hostFileEditTool);
-  registerTool(hostShellTool);
+  const hostTools = [hostFileReadTool, hostFileWriteTool, hostFileEditTool, hostShellTool];
+  for (const tool of hostTools) {
+    registerTool(tool);
+  }
 
   // Computer-use proxy tools — registered so ToolExecutor can look them up
   // and forward execution to the connected macOS client.  They are excluded
@@ -221,13 +230,33 @@ export async function initializeTools(): Promise<void> {
     registerLazyTool(descriptor);
   }
 
-  // Snapshot the core tool set on first initialization so
-  // __resetRegistryForTesting() can restore it. ESM import caching
-  // means eager side-effect modules won't re-register on subsequent
-  // initializeTools() calls, so we need this snapshot to avoid
-  // silently losing tools.
+  // Snapshot core tools for __resetRegistryForTesting().  We include every
+  // non-skill tool that was registered by the manifest, while excluding
+  // arbitrary test tools that were registered before init.
+  //
+  // A pre-existing tool is included only if it is a known manifest tool
+  // (declared in eagerModuleToolNames, explicitTools, lazyTools, or
+  // hostTools).  This handles ESM cache hits where eager-module tools
+  // are already in the registry before init ran.
   if (!coreToolsSnapshot) {
-    coreToolsSnapshot = new Map(tools);
+    const manifestToolNames = new Set<string>([
+      ...eagerModuleToolNames,
+      ...explicitTools.map((t: Tool) => t.name),
+      ...lazyTools.map((t: LazyToolDescriptor) => t.name),
+      ...hostTools.map((t: Tool) => t.name),
+      ...allComputerUseTools.map((t: Tool) => t.name),
+      requestComputerControlTool.name,
+      ...allUiSurfaceTools.map((t: Tool) => t.name),
+      ...allAppTools.map((t: Tool) => t.name),
+    ]);
+
+    coreToolsSnapshot = new Map<string, Tool>();
+    for (const [name, tool] of tools) {
+      if (tool.origin === 'skill') continue;
+      // Exclude pre-existing tools not declared in the manifest
+      if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
+      coreToolsSnapshot.set(name, tool);
+    }
   }
 
   log.info({ count: tools.size }, 'Tools initialized');

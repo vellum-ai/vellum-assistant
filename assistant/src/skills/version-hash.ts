@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, lstatSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -16,14 +16,27 @@ const EXCLUDED_NAMES = new Set([
 
 /**
  * Collect all files under `dir` in sorted order, excluding transient entries.
+ * Uses an `ancestors` set of real directory paths currently on the recursion
+ * stack to detect symlink cycles without suppressing legitimate duplicate
+ * symlink targets reached via different paths.
  */
-function collectFiles(dir: string, base: string): string[] {
+function collectFiles(dir: string, base: string, ancestors: Set<string> = new Set()): string[] {
   const entries: string[] = [];
+
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return entries;
+  }
+  if (ancestors.has(realDir)) return entries;
+  ancestors.add(realDir);
 
   let items: string[];
   try {
     items = readdirSync(dir).sort();
   } catch {
+    ancestors.delete(realDir);
     return entries;
   }
 
@@ -36,14 +49,34 @@ function collectFiles(dir: string, base: string): string[] {
     } catch {
       continue;
     }
-    if (stat.isSymbolicLink()) continue;
+    if (stat.isSymbolicLink()) {
+      let resolved: string;
+      try {
+        resolved = realpathSync(full);
+      } catch {
+        continue;
+      }
+      let resolvedStat;
+      try {
+        resolvedStat = statSync(resolved);
+      } catch {
+        continue;
+      }
+      if (resolvedStat.isDirectory()) {
+        entries.push(...collectFiles(full, base, ancestors));
+      } else if (resolvedStat.isFile()) {
+        entries.push(relative(base, full));
+      }
+      continue;
+    }
     if (stat.isDirectory()) {
-      entries.push(...collectFiles(full, base));
+      entries.push(...collectFiles(full, base, ancestors));
     } else if (stat.isFile()) {
       entries.push(relative(base, full));
     }
   }
 
+  ancestors.delete(realDir);
   return entries;
 }
 

@@ -45,6 +45,9 @@ import {
   getAttachmentsForMessageUnscoped,
   deleteOrphanAttachments,
   validateAttachmentUpload,
+  isValidBase64,
+  AttachmentUploadError,
+  MAX_UPLOAD_BYTES,
 } from '../memory/attachments-store.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 
@@ -122,9 +125,69 @@ describe('uploadAttachment', () => {
   });
 
   test('does not deduplicate different content', () => {
-    const first = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'CONTENT_A');
-    const second = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'CONTENT_B');
+    const first = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'CONTENTA');
+    const second = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'CONTENTB');
     expect(second.id).not.toBe(first.id);
+  });
+
+  test('rejects payloads exceeding MAX_UPLOAD_BYTES', () => {
+    // Build a base64 string that decodes to just over the limit.
+    // 4 base64 chars → 3 bytes, so we need ceil((MAX_UPLOAD_BYTES+1)/3)*4 chars.
+    const oversizedLength = Math.ceil((MAX_UPLOAD_BYTES + 1) / 3) * 4;
+    const oversizedData = 'A'.repeat(oversizedLength);
+
+    expect(() =>
+      uploadAttachment('ast-1', 'huge.bin', 'application/octet-stream', oversizedData),
+    ).toThrow(AttachmentUploadError);
+  });
+
+  test('rejects invalid base64 data', () => {
+    expect(() =>
+      uploadAttachment('ast-1', 'bad.txt', 'text/plain', '!!!not-base64!!!'),
+    ).toThrow(AttachmentUploadError);
+  });
+
+  test('accepts base64 with non-standard padding/length', () => {
+    // Lenient on length — only character set is validated
+    expect(() =>
+      uploadAttachment('ast-1', 'ok.txt', 'text/plain', 'AAA'),
+    ).not.toThrow();
+  });
+
+  test('accepts payload exactly at MAX_UPLOAD_BYTES', () => {
+    // MAX_UPLOAD_BYTES (20 MB) is divisible by 3, so (MAX/3)*4 base64 chars
+    // decodes to exactly MAX bytes with no padding.
+    const exactLength = (MAX_UPLOAD_BYTES / 3) * 4;
+    const exactData = 'A'.repeat(exactLength);
+
+    expect(() =>
+      uploadAttachment('ast-1', 'exact.bin', 'application/octet-stream', exactData),
+    ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isValidBase64
+// ---------------------------------------------------------------------------
+
+describe('isValidBase64', () => {
+  test('accepts valid base64 strings', () => {
+    expect(isValidBase64('aGVsbG8=')).toBe(true);     // "hello"
+    expect(isValidBase64('dGVzdA==')).toBe(true);      // "test"
+    expect(isValidBase64('AAAA')).toBe(true);          // no padding
+    expect(isValidBase64('')).toBe(true);              // empty
+  });
+
+  test('accepts strings with non-standard length (lenient)', () => {
+    expect(isValidBase64('AAA')).toBe(true);           // 3 chars, OK
+    expect(isValidBase64('AAAAA')).toBe(true);         // 5 chars, OK
+  });
+
+  test('rejects strings with invalid characters', () => {
+    expect(isValidBase64('!!!!')).toBe(false);
+    expect(isValidBase64('abc@')).toBe(false);
+    expect(isValidBase64('hello world')).toBe(false);  // space
+    expect(isValidBase64('data_here')).toBe(false);    // underscore
   });
 });
 
@@ -165,8 +228,8 @@ describe('deleteAttachment', () => {
     const msg2 = addMessage(conv.id, 'user', 'Duplicate upload');
 
     // Dedup: both uploads return the same attachment row
-    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHARED_CONTENT');
-    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHARED_CONTENT');
+    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHAREDCONTENT1');
+    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHAREDCONTENT1');
     expect(second.id).toBe(first.id);
 
     linkAttachmentToMessage(msg1.id, first.id, 0);

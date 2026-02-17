@@ -94,12 +94,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var daemonClient: DaemonClient { services.daemonClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
+    var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
 
     private var onboardingWindow: OnboardingWindow?
+    private var authWindow: NSWindow?
+    let authManager = AuthManager()
     var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
@@ -137,6 +140,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        startAuthenticatedFlow()
+    }
+
+    private func startAuthenticatedFlow() {
+        Task {
+            await authManager.checkSession()
+            if authManager.isAuthenticated {
+                proceedToApp()
+            } else {
+                showAuthWindow()
+            }
+        }
+    }
+
+    private var hasSetupApp = false
+    private var hasSetupDaemon = false
+
+    private func proceedToApp() {
+        authWindow?.close()
+        authWindow = nil
+
+        guard !hasSetupApp else {
+            showMainWindow()
+            return
+        }
+        hasSetupApp = true
+
         setupDaemonClient()
         setupMenuBar()
         setupViewMenu()
@@ -151,6 +181,211 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow()
+    }
+
+    private func showAuthWindow() {
+        if let existing = authWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let authView = AuthWindowView(
+            authManager: authManager,
+            onStartWithAPIKey: { [weak self] in
+                self?.proceedToApp()
+            },
+            onAuthenticated: { [weak self] in
+                self?.proceedToApp()
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: authView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 420, height: 580)
+
+        let startWidth: CGFloat = 460
+        let startHeight: CGFloat = 620
+        if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+            let x = visibleFrame.midX - startWidth / 2
+            let y = visibleFrame.midY - startHeight / 2
+            window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+        } else {
+            window.setContentSize(NSSize(width: startWidth, height: startHeight))
+            window.center()
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        authWindow = window
+    }
+
+    @objc func performLogout() {
+        Task {
+            await authManager.logout()
+
+            mainWindow?.close()
+            mainWindow = nil
+            settingsWindow?.close()
+            settingsWindow = nil
+
+            hotKey = nil
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+            voiceInput?.stop()
+            voiceInput = nil
+            ambientAgent.teardown()
+
+            if let observer = windowObserver {
+                NotificationCenter.default.removeObserver(observer)
+                windowObserver = nil
+            }
+            statusIconCancellable?.cancel()
+            statusIconCancellable = nil
+
+            if let item = statusItem {
+                NSStatusBar.system.removeStatusItem(item)
+                statusItem = nil
+            }
+
+            if let mainMenu = NSApp.mainMenu {
+                if let viewIndex = mainMenu.indexOfItem(withTitle: "View") as Int?,
+                   viewIndex >= 0 {
+                    mainMenu.removeItem(at: viewIndex)
+                }
+            }
+
+            daemonLauncher.stopMonitoring()
+            hasSetupApp = false
+            hasSetupDaemon = false
+            showAuthWindow()
+        }
+    }
+
+    /// Standalone auth window shown when user needs to sign in outside of onboarding.
+    /// Displays a simple "Continue with Vellum" button that triggers WorkOS AuthKit.
+    @MainActor
+    struct AuthWindowView: View {
+        @Bindable var authManager: AuthManager
+        var onStartWithAPIKey: () -> Void = {}
+        var onAuthenticated: () -> Void = {}
+
+        var body: some View {
+            ZStack {
+                VColor.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    Spacer()
+
+                    Group {
+                        if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
+                           let nsImage = NSImage(contentsOf: url) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            Image("VellyLogo")
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fit)
+                        }
+                    }
+                    .frame(width: 128, height: 128)
+                    .padding(.bottom, VSpacing.xxl)
+
+                    Text("Sign in to continue")
+                        .font(.system(size: 32, weight: .regular, design: .serif))
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.bottom, VSpacing.md)
+
+                    Text("Sign in with your Vellum account to get started.")
+                        .font(.system(size: 16))
+                        .foregroundColor(VColor.textSecondary)
+
+                    Spacer()
+
+                    VStack(spacing: VSpacing.md) {
+                        Button(action: { onStartWithAPIKey() }) {
+                            Text("Start with an API key")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, VSpacing.lg)
+                                .background(
+                                    RoundedRectangle(cornerRadius: VRadius.lg)
+                                        .fill(adaptiveColor(
+                                            light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                            dark: Violet._600
+                                        ))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authManager.isSubmitting)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+
+                        Button(action: {
+                            Task {
+                                await authManager.startWorkOSLogin()
+                                if authManager.isAuthenticated {
+                                    onAuthenticated()
+                                }
+                            }
+                        }) {
+                            HStack(spacing: VSpacing.sm) {
+                                if authManager.isSubmitting {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .progressViewStyle(.circular)
+                                }
+                                Text(authManager.isSubmitting ? "Signing in..." : "Continue with Vellum")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(VColor.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.lg)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .fill(adaptiveColor(light: .white, dark: VColor.surface))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authManager.isSubmitting)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+
+                        if let error = authManager.errorMessage {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.xxl)
+                    .padding(.bottom, VSpacing.xxl)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
     }
 
     /// Applies the user's theme preference to the app appearance.
@@ -176,6 +411,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func setupDaemonClient() {
+        guard !hasSetupDaemon else { return }
+        hasSetupDaemon = true
+
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
             let content = UNMutableNotificationContent()
@@ -246,6 +484,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.handleEscalationToComputerUse(routed: routed)
         }
 
+        // Handle diagnostics export response — show a toast in the main window
+        daemonClient.onDiagnosticsExportResponse = { [weak self] response in
+            guard let self else { return }
+            Task { @MainActor in
+                if response.success, let filePath = response.filePath {
+                    self.mainWindow?.windowState.showToast(
+                        message: "Report exported successfully.",
+                        style: .success,
+                        primaryAction: VToastAction(label: "Reveal in Finder") {
+                            NSWorkspace.shared.selectFile(filePath, inFileViewerRootedAtPath: "")
+                        }
+                    )
+                } else {
+                    let errorDetail = response.error ?? "Unknown error"
+                    self.mainWindow?.windowState.showToast(
+                        message: "Failed to export report: \(errorDetail)",
+                        style: .error
+                    )
+                }
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         daemonLauncher.onDaemonRestarted = { [weak self] in
@@ -282,15 +542,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupSurfaceManager() {
-        // Wire daemon surface messages to SurfaceManager
+        // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
-            self?.surfaceManager.showSurface(msg)
+            guard let self else { return }
+            if msg.surfaceType == SurfaceType.browserView.rawValue {
+                self.browserPiPManager.showPanel(for: msg)
+            } else {
+                self.surfaceManager.showSurface(msg)
+            }
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
-            self?.surfaceManager.updateSurface(msg)
+            guard let self else { return }
+            self.browserPiPManager.updateSurface(msg)
+            self.surfaceManager.updateSurface(msg)
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
-            self?.surfaceManager.dismissSurface(msg)
+            guard let self else { return }
+            self.browserPiPManager.dismissIfMatching(surfaceId: msg.surfaceId)
+            self.surfaceManager.dismissSurface(msg)
+        }
+
+        // Wire browser frame updates to BrowserPiPManager
+        daemonClient.onBrowserFrame = { [weak self] msg in
+            self?.browserPiPManager.updateFrame(msg)
         }
 
         // Reload webviews for surfaces whose app files changed (cross-session broadcast)
@@ -421,7 +695,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard let self else { return }
-            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== self.statusItem.button?.window }
+            guard let statusItem = self.statusItem else { return }
+            let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== statusItem.button?.window }
             if !hasVisibleWindows {
                 NSApp.setActivationPolicy(.accessory)
             }
@@ -429,14 +704,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Don't show the main window while onboarding is active — the app
-        // isn't fully initialized yet and showing it would let users bypass
-        // the onboarding flow with partially initialized state.
-        guard onboardingWindow == nil else { return true }
+        if onboardingWindow != nil { return true }
 
-        // Always show the main window on reopen (e.g. Spotlight, Dock click).
-        // Even when hasVisibleWindows is true, the window may be behind other apps
-        // and the user expects it to come to the front.
+        if authWindow != nil {
+            authWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return true
+        }
+
         showMainWindow()
         return true
     }
@@ -573,7 +848,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             setupDaemonClient()
         }
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient)
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
@@ -595,7 +870,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showOnboarding() {
         setupDaemonClient()
 
-        let onboarding = OnboardingWindow(daemonClient: daemonClient)
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
@@ -608,20 +883,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            self?.setupMenuBar()
-            self?.setupViewMenu()
-            self?.setupHotKey()
-            self?.setupEscapeMonitor()
-            self?.setupVoiceInput()
-            self?.setupAmbientAgent()
-            self?.setupSurfaceManager()
-            self?.setupToolConfirmationNotifications()
-            self?.setupSecretPromptManager()
-            self?.setupWindowObserver()
-            self?.setupNotifications()
-            self?.setupAutoUpdate()
-
-            self?.showMainWindow(initialMessage: "Wake up, my friend")
+            if self?.authManager.isAuthenticated == true {
+                self?.proceedToApp()
+            } else {
+                self?.startAuthenticatedFlow()
+            }
         }
         onboarding.show()
         onboardingWindow = onboarding

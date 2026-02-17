@@ -10,6 +10,8 @@ mock.module('../config/loader.js', () => ({
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
+    skills: { load: { extraDirs: [] } },
+    secretDetection: { enabled: false },
   }),
   invalidateConfigCache: () => {},
 }));

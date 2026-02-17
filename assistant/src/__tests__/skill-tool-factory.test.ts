@@ -148,11 +148,12 @@ describe('createSkillTool', () => {
   });
 
   test('execute() returns error when executor script is missing', async () => {
+    const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: 'nonexistent.ts' }),
       'my-skill',
       tempDir,
-      'v1:test',
+      hash,
     );
 
     const result = await tool.execute({}, makeContext());

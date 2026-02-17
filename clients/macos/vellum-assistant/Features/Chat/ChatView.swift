@@ -86,6 +86,7 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
+    var onReportMessage: ((String?) -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -101,7 +102,6 @@ struct ChatView: View {
     @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     private let appearance = AvatarAppearanceManager.shared
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private static let defaultGreetings = [
@@ -451,7 +451,6 @@ struct ChatView: View {
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,
-                                    showDescription: true,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
                                     onAddTrustRule: onAddTrustRule
@@ -472,7 +471,6 @@ struct ChatView: View {
                                 if !hasPrecedingAssistant {
                                     ToolConfirmationBubble(
                                         confirmation: confirmation,
-                                        showDescription: true,
                                         onAllow: { onConfirmationAllow(confirmation.requestId) },
                                         onDeny: { onConfirmationDeny(confirmation.requestId) },
                                         onAddTrustRule: onAddTrustRule
@@ -514,7 +512,8 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onOpenActivity: onOpenActivity,
-                                isActivityPanelOpen: isActivityPanelOpen
+                                isActivityPanelOpen: isActivityPanelOpen,
+                                onReportMessage: onReportMessage
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -532,7 +531,7 @@ struct ChatView: View {
                         .id("scroll-bottom-anchor")
                 }
                 .padding(.horizontal, VSpacing.xl)
-                .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
+                .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
@@ -788,6 +787,7 @@ private struct ChatBubble: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
+    var onReportMessage: ((String?) -> Void)?
 
     @State private var isRegenerateHovered = false
 
@@ -893,6 +893,14 @@ private struct ChatBubble: View {
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
+            .contextMenu {
+                if !isUser, let onReportMessage,
+                   FeatureFlagManager.shared.isEnabled(.monitoringExport) {
+                    Button("Report this response") {
+                        onReportMessage(message.daemonMessageId)
+                    }
+                }
+            }
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -1347,9 +1355,10 @@ private struct ChatBubble: View {
     private func textBubble(for segmentText: String) -> some View {
         let segments = parseMarkdownSegments(segmentText)
         let hasRichContent = segments.contains(where: {
-            if case .table = $0 { return true }
-            if case .image = $0 { return true }
-            return false
+            switch $0 {
+            case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
+            case .text: return false
+            }
         })
 
         if hasRichContent {
@@ -1376,6 +1385,76 @@ private struct ChatBubble: View {
                             .frame(maxWidth: 280, maxHeight: 280)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+
+                    case .heading(let level, let headingText):
+                        let font: Font = switch level {
+                        case 1: .system(size: 20, weight: .bold)
+                        case 2: .system(size: 17, weight: .semibold)
+                        case 3: .system(size: 14, weight: .semibold)
+                        default: .system(size: 13, weight: .semibold)
+                        }
+                        Text(headingText)
+                            .font(font)
+                            .foregroundColor(VColor.textPrimary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 520, alignment: .leading)
+                            .padding(.top, level == 1 ? VSpacing.xs : 0)
+
+                    case .codeBlock(let language, let code):
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let language, !language.isEmpty {
+                                Text(language)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(VColor.textMuted)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.top, VSpacing.xs)
+                            }
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(code)
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textPrimary)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: true, vertical: true)
+                                    .padding(VSpacing.sm)
+                            }
+                        }
+                        .frame(maxWidth: 520, alignment: .leading)
+                        .background(VColor.backgroundSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                    case .horizontalRule:
+                        Rectangle()
+                            .fill(VColor.surfaceBorder)
+                            .frame(height: 1)
+                            .frame(maxWidth: 520)
+                            .padding(.vertical, VSpacing.xs)
+
+                    case .list(let items):
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                                let indentLevel = item.indent / 2
+                                HStack(alignment: .top, spacing: 0) {
+                                    Text(prefix)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(VColor.textSecondary)
+                                    let options = AttributedString.MarkdownParsingOptions(
+                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                    )
+                                    let attributed = (try? AttributedString(markdown: item.text, options: options))
+                                        ?? AttributedString(item.text)
+                                    Text(attributed)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(VColor.textPrimary)
+                                        .tint(VColor.accent)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.leading, CGFloat(indentLevel) * 16)
+                            }
+                        }
+                        .frame(maxWidth: 520, alignment: .leading)
                     }
                 }
             }
@@ -1436,9 +1515,10 @@ private struct ChatBubble: View {
             if hasText {
                 let segments = parseMarkdownSegments(message.text)
                 let hasRichContent = segments.contains(where: {
-                    if case .table = $0 { return true }
-                    if case .image = $0 { return true }
-                    return false
+                    switch $0 {
+                    case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
+                    case .text: return false
+                    }
                 })
                 VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
 
@@ -1464,6 +1544,71 @@ private struct ChatBubble: View {
                                     .frame(maxWidth: 280, maxHeight: 280)
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                     .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+                            case .heading(let level, let headingText):
+                                let font: Font = switch level {
+                                case 1: .system(size: 20, weight: .bold)
+                                case 2: .system(size: 17, weight: .semibold)
+                                case 3: .system(size: 14, weight: .semibold)
+                                default: .system(size: 13, weight: .semibold)
+                                }
+                                Text(headingText)
+                                    .font(font)
+                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.top, level == 1 ? VSpacing.xs : 0)
+
+                            case .codeBlock(let language, let code):
+                                VStack(alignment: .leading, spacing: 0) {
+                                    if let language, !language.isEmpty {
+                                        Text(language)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+                                            .padding(.horizontal, VSpacing.sm)
+                                            .padding(.top, VSpacing.xs)
+                                    }
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        Text(code)
+                                            .font(VFont.mono)
+                                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                            .textSelection(.enabled)
+                                            .fixedSize(horizontal: true, vertical: true)
+                                            .padding(VSpacing.sm)
+                                    }
+                                }
+                                .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                            case .horizontalRule:
+                                Rectangle()
+                                    .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
+                                    .frame(height: 1)
+                                    .padding(.vertical, VSpacing.xs)
+
+                            case .list(let items):
+                                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                        let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                                        let indentLevel = item.indent / 2
+                                        HStack(alignment: .top, spacing: 0) {
+                                            Text(prefix)
+                                                .font(.system(size: 13))
+                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
+                                            let options = AttributedString.MarkdownParsingOptions(
+                                                interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                            )
+                                            let attributed = (try? AttributedString(markdown: item.text, options: options))
+                                                ?? AttributedString(item.text)
+                                            Text(attributed)
+                                                .font(.system(size: 13))
+                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                                .textSelection(.enabled)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        .padding(.leading, CGFloat(indentLevel) * 16)
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -1653,88 +1798,185 @@ private struct ChatBubble: View {
 // MARK: - Markdown Table Support
 
 /// A segment of message content — either plain text or a parsed table.
+private struct ListItem {
+    let indent: Int
+    let ordered: Bool
+    let number: Int      // meaningful only when ordered == true
+    let text: String
+}
+
 private enum MarkdownSegment {
     case text(String)
     case table(headers: [String], rows: [[String]])
     case image(alt: String, url: String)
+    case heading(level: Int, text: String)
+    case codeBlock(language: String?, code: String)
+    case horizontalRule
+    case list(items: [ListItem])
 }
 
-/// Parses message text into segments, extracting pipe-delimited markdown tables.
+/// Returns true if `line` is a markdown heading (1–6 `#` chars followed by a space).
+private func isHeadingLine(_ line: String) -> (level: Int, text: String)? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let hashes = trimmed.prefix(while: { $0 == "#" })
+    let level = hashes.count
+    guard level >= 1, level <= 6 else { return nil }
+    let rest = trimmed.dropFirst(level)
+    guard rest.first == " " else { return nil }
+    return (level, String(rest.dropFirst()).trimmingCharacters(in: .whitespaces))
+}
+
+/// Returns true if `line` is a horizontal rule (`---`, `***`, or `___` with 3+ chars).
+private func isHorizontalRule(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let stripped = trimmed.filter { !$0.isWhitespace }
+    guard stripped.count >= 3 else { return false }
+    guard let ch = stripped.first, (ch == "-" || ch == "*" || ch == "_") else { return false }
+    return stripped.allSatisfy { $0 == ch }
+}
+
+/// Returns a `ListItem` if the line looks like a list entry, otherwise nil.
+private func parseListLine(_ line: String) -> ListItem? {
+    // Measure indent (count leading spaces, tabs count as 4)
+    var indent = 0
+    for ch in line {
+        if ch == " " { indent += 1 }
+        else if ch == "\t" { indent += 4 }
+        else { break }
+    }
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+    // Unordered: `- `, `* `, `+ `
+    if (trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ")) {
+        return ListItem(indent: indent, ordered: false, number: 0, text: String(trimmed.dropFirst(2)))
+    }
+    // Ordered: `1. `, `2. `, etc.
+    let digits = trimmed.prefix(while: { $0.isNumber })
+    if !digits.isEmpty {
+        let rest = trimmed.dropFirst(digits.count)
+        if rest.hasPrefix(". ") {
+            return ListItem(indent: indent, ordered: true, number: Int(digits) ?? 1,
+                            text: String(rest.dropFirst(2)))
+        }
+    }
+    return nil
+}
+
+/// Parses message text into segments, extracting markdown tables, code blocks, headings, lists, and rules.
 private func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
     let lines = text.components(separatedBy: .newlines)
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []
     var i = 0
     var fenceDelimiter: (character: Character, length: Int)? = nil
+    var codeBlockLanguage: String? = nil
+    var codeBlockLines: [String] = []
+
+    func flushText() {
+        let pending = currentText.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pending.isEmpty {
+            segments.append(.text(pending))
+        }
+        currentText = []
+    }
 
     while i < lines.count {
-        // Track fenced code blocks so we don't parse tables inside them
         let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+
+        // --- Inside a fenced code block ---
         if let fence = fenceDelimiter {
-            // Inside a fence — only close if matching character with >= length
             let closeCount = trimmed.prefix(while: { $0 == fence.character }).count
             if closeCount >= fence.length && trimmed.drop(while: { $0 == fence.character }).allSatisfy(\.isWhitespace) {
+                // Closing fence — emit code block
                 fenceDelimiter = nil
+                segments.append(.codeBlock(language: codeBlockLanguage, code: codeBlockLines.joined(separator: "\n")))
+                codeBlockLines = []
+                codeBlockLanguage = nil
+            } else {
+                codeBlockLines.append(lines[i])
             }
-            currentText.append(lines[i])
-            i += 1
-            continue
-        } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-            // Opening a new fence — record delimiter character and length
-            let fenceChar = trimmed.first!
-            let fenceLen = trimmed.prefix(while: { $0 == fenceChar }).count
-            fenceDelimiter = (fenceChar, fenceLen)
-            currentText.append(lines[i])
             i += 1
             continue
         }
 
-        // Check for table: need header row + separator row + at least one data row
-        if fenceDelimiter == nil,
-           i + 2 < lines.count,
+        // --- Opening a new fence ---
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            flushText()
+            let fenceChar = trimmed.first!
+            let fenceLen = trimmed.prefix(while: { $0 == fenceChar }).count
+            fenceDelimiter = (fenceChar, fenceLen)
+            let lang = trimmed.dropFirst(fenceLen).trimmingCharacters(in: .whitespaces)
+            codeBlockLanguage = lang.isEmpty ? nil : lang
+            i += 1
+            continue
+        }
+
+        // --- Table detection ---
+        if i + 2 < lines.count,
            isTableRow(lines[i]),
            isTableSeparator(lines[i + 1]),
            isTableRow(lines[i + 2]) {
-            // Flush accumulated text
-            let pending = currentText.joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !pending.isEmpty {
-                segments.append(.text(pending))
-            }
-            currentText = []
-
-            // Parse headers
+            flushText()
             let headers = parseTableCells(lines[i])
             i += 2  // skip separator
-
-            // Parse data rows
             var rows: [[String]] = []
             while i < lines.count, isTableRow(lines[i]) {
                 let cells = parseTableCells(lines[i])
-                // Pad or trim to match header count
                 let padded = Array(cells.prefix(headers.count))
                     + Array(repeating: "", count: max(0, headers.count - cells.count))
                 rows.append(padded)
                 i += 1
             }
-
             segments.append(.table(headers: headers, rows: rows))
-        } else {
-            currentText.append(lines[i])
-            i += 1
+            continue
         }
+
+        // --- Heading detection ---
+        if let heading = isHeadingLine(lines[i]) {
+            flushText()
+            segments.append(.heading(level: heading.level, text: heading.text))
+            i += 1
+            continue
+        }
+
+        // --- Horizontal rule detection ---
+        if isHorizontalRule(trimmed) {
+            flushText()
+            segments.append(.horizontalRule)
+            i += 1
+            continue
+        }
+
+        // --- List detection (consecutive list lines) ---
+        if parseListLine(lines[i]) != nil {
+            flushText()
+            var items: [ListItem] = []
+            while i < lines.count, let item = parseListLine(lines[i]) {
+                items.append(item)
+                i += 1
+            }
+            segments.append(.list(items: items))
+            continue
+        }
+
+        // --- Plain text ---
+        currentText.append(lines[i])
+        i += 1
     }
 
-    // Flush remaining text
-    let remaining = currentText.joined(separator: "\n")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    if !remaining.isEmpty {
-        segments.append(.text(remaining))
+    // If a fence was never closed, emit accumulated code block lines as text
+    if fenceDelimiter != nil {
+        let fenceChar = fenceDelimiter!.character
+        let fenceLen = fenceDelimiter!.length
+        let opener = String(repeating: String(fenceChar), count: fenceLen) + (codeBlockLanguage ?? "")
+        currentText.append(opener)
+        currentText.append(contentsOf: codeBlockLines)
     }
+
+    flushText()
 
     // Post-process .text segments to extract inline images.
-    // Code-fenced segments are already opaque from the table pass, so images inside
-    // code blocks remain as literal text.
     return segments.flatMap { segment -> [MarkdownSegment] in
         if case .text(let content) = segment {
             return extractImageSegments(from: content)

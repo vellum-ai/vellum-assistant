@@ -114,6 +114,47 @@ public struct IPCAuthResult: Codable, Sendable {
     public let message: String?
 }
 
+public struct IPCBrowserFrame: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let frame: String
+    public let metadata: IPCBrowserFrameMetadata?
+}
+
+public struct IPCBrowserFrameMetadata: Codable, Sendable {
+    public let offsetTop: Double
+    public let pageScaleFactor: Double
+    public let scrollOffsetX: Double
+    public let scrollOffsetY: Double
+    public let timestamp: Double
+}
+
+public struct IPCBrowserViewSurfaceData: Codable, Sendable {
+    public let sessionId: String
+    public let currentUrl: String
+    public let status: String
+    public let frame: String?
+    public let actionText: String?
+    public let highlights: [IPCBrowserViewSurfaceDataHighlight]?
+    public let pages: [IPCBrowserViewSurfaceDataPage]?
+}
+
+public struct IPCBrowserViewSurfaceDataHighlight: Codable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let w: Double
+    public let h: Double
+    public let label: String
+}
+
+public struct IPCBrowserViewSurfaceDataPage: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let url: String
+    public let active: Bool
+}
+
 public struct IPCBundleAppRequest: Codable, Sendable {
     public let type: String
     public let appId: String
@@ -1344,6 +1385,19 @@ public struct IPCUiSurfaceDismiss: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let surfaceId: String
+}
+
+public struct IPCUiSurfaceShowBrowserView: Codable, Sendable {
+    public let surfaceType: String
+    public let data: IPCBrowserViewSurfaceData
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let title: String?
+    public let actions: [IPCSurfaceAction]?
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
 }
 
 public struct IPCUiSurfaceShowCard: Codable, Sendable {

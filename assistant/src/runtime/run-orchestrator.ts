@@ -15,6 +15,8 @@ import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { UserDecision } from '../permissions/types.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('run-orchestrator');
@@ -67,6 +69,12 @@ export class RunOrchestrator {
     content: string,
     attachmentIds?: string[],
   ): Promise<Run> {
+    // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
+    const ingressCheck = checkIngressForSecrets(content);
+    if (ingressCheck.blocked) {
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
+
     const session = await this.deps.getOrCreateSession(conversationId);
 
     if (session.isProcessing()) {

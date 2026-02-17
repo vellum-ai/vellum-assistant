@@ -282,6 +282,16 @@ final class SurfaceManager: ObservableObject {
 
         activeSurfaces[message.surfaceId] = updated
 
+        // If there's a coordinator and the update contains document-specific fields,
+        // send the update directly to the web view via window.vellum.onContentUpdate()
+        if let coordinator = surfaceCoordinators[message.surfaceId] {
+            let dataDict = message.data.value as? [String: Any] ?? [:]
+            if dataDict["markdown"] != nil || dataDict["updateMode"] != nil {
+                coordinator.sendContentUpdate(dataDict)
+                log.info("Sent content update to coordinator for surface: \(message.surfaceId)")
+            }
+        }
+
         if workspaceRoutedSurfaces.contains(message.surfaceId) {
             // Notify the workspace view so it can re-render with updated data.
             NotificationCenter.default.post(

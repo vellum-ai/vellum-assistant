@@ -312,7 +312,11 @@ public final class ChatViewModel: ObservableObject {
         }
 
         isSending = true
-        isThinking = true
+        // Only show "Thinking" for the primary send. Queued messages will
+        // set isThinking = true when they are dequeued for processing.
+        if queuedMessageId == nil {
+            isThinking = true
+        }
 
         // Make sure we're listening
         if messageLoopTask == nil {
@@ -889,6 +893,11 @@ public final class ChatViewModel: ObservableObject {
                     toolCalls: toolCalls
                 )
             }
+
+            // Store the daemon's persisted message ID so diagnostics exports can
+            // anchor to it. This is the database ID from the daemon, not the
+            // client-side UUID.
+            chatMsg.daemonMessageId = item.id
 
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces

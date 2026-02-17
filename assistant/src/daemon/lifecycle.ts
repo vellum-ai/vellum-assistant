@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import * as Sentry from '@sentry/node';
@@ -7,6 +8,7 @@ import {
   getInterfacesDir,
   getSocketPath,
   getPidPath,
+  getHttpTokenPath,
   getRootDir,
   ensureDataDir,
   migrateToDataLayout,
@@ -24,6 +26,7 @@ import { ensurePromptFiles } from '../config/system-prompt.js';
 import { DaemonServer } from './server.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
+import { initSentry } from '../instrument.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
@@ -218,6 +221,7 @@ function loadDotEnv(): void {
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
+  initSentry();
 
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and
@@ -307,8 +311,20 @@ export async function runDaemon(): Promise<void> {
   if (httpPortEnv) {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
+      // Use an explicit env var if provided; otherwise generate a fresh
+      // random token. Either way, write it to disk so HTTP clients and
+      // the gateway can authenticate.
+      const bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || randomBytes(32).toString('hex');
+      const httpTokenPath = getHttpTokenPath();
+      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+      chmodSync(httpTokenPath, 0o600);
+
+      const hostname = process.env.RUNTIME_HTTP_HOST?.trim() || '127.0.0.1';
+
       runtimeHttp = new RuntimeHttpServer({
         port,
+        hostname,
+        bearerToken,
         processMessage: (assistantId, conversationId, content, attachmentIds, options) =>
           server.processMessage(assistantId, conversationId, content, attachmentIds, options),
         persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds, options) =>
@@ -317,10 +333,10 @@ export async function runDaemon(): Promise<void> {
         interfacesDir: getInterfacesDir(),
       });
       try {
-        log.info({ port }, 'Daemon startup: starting runtime HTTP server');
+        log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
         await runtimeHttp.start();
         server.setHttpPort(port);
-        log.info({ port }, 'Daemon startup: runtime HTTP server listening');
+        log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
       } catch (err) {
         log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
         runtimeHttp = null;

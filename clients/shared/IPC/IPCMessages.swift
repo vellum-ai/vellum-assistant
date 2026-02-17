@@ -41,6 +41,9 @@ import Foundation
 // │                                 │ LayoutConfig.swift (M1 / #2973)         │
 // │ SlotContentWire                 │ Temporary; canonical home is             │
 // │                                 │ LayoutConfig.swift (M1 / #2973)         │
+// │ BrowserFrameMessage             │ New message type for browser_view       │
+// │                                 │ surface frame updates; not yet in       │
+// │                                 │ generated contract                      │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1502,6 +1505,41 @@ public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 /// Backed by generated `IPCAuthResult`.
 public typealias AuthResultMessage = IPCAuthResult
 
+/// Sent to request a diagnostics export (zip) for a conversation.
+/// Wire type: `"diagnostics_export_request"`
+public struct DiagnosticsExportRequestMessage: Encodable, Sendable {
+    public let type: String = "diagnostics_export_request"
+    public let conversationId: String
+    public let anchorMessageId: String?
+
+    public init(conversationId: String, anchorMessageId: String? = nil) {
+        self.conversationId = conversationId
+        self.anchorMessageId = anchorMessageId
+    }
+}
+
+/// Response from a diagnostics export request.
+/// Wire type: `"diagnostics_export_response"`
+public struct DiagnosticsExportResponseMessage: Decodable, Sendable {
+    public let success: Bool
+    public let filePath: String?
+    public let error: String?
+}
+
+/// Browser frame update from the daemon, delivering a new screenshot frame for an active browser session.
+/// Wire type: `"browser_frame"`
+public struct BrowserFrameMessage: Decodable, Sendable {
+    public let sessionId: String
+    public let surfaceId: String
+    public let frame: String // base64 JPEG
+
+    public init(sessionId: String, surfaceId: String, frame: String) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.frame = frame
+    }
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
@@ -1576,6 +1614,8 @@ public enum ServerMessage: Decodable, Sendable {
     case integrationConnectResult(IPCIntegrationConnectResult)
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
+    case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
+    case browserFrame(BrowserFrameMessage)
     case pong
     case unknown(String)
 
@@ -1801,6 +1841,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
             self = .appFilesChanged(message)
+        case "diagnostics_export_response":
+            let message = try DiagnosticsExportResponseMessage(from: decoder)
+            self = .diagnosticsExportResponse(message)
+        case "browser_frame":
+            let message = try BrowserFrameMessage(from: decoder)
+            self = .browserFrame(message)
         case "pong":
             self = .pong
         default:

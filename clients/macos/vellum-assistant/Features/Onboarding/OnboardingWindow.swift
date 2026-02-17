@@ -7,10 +7,12 @@ final class OnboardingWindow {
     private var window: NSWindow?
     let state = OnboardingState()
     let daemonClient: DaemonClientProtocol
+    let authManager: AuthManager
     var onComplete: ((OnboardingState) -> Void)?
 
-    init(daemonClient: DaemonClientProtocol) {
+    init(daemonClient: DaemonClientProtocol, authManager: AuthManager) {
         self.daemonClient = daemonClient
+        self.authManager = authManager
     }
 
     func show() {
@@ -23,6 +25,7 @@ final class OnboardingWindow {
         let flowView = OnboardingFlowView(
             state: state,
             daemonClient: daemonClient,
+            authManager: authManager,
             onComplete: { [weak self] in
                 guard let self else { return }
                 self.onComplete?(self.state)
@@ -32,7 +35,7 @@ final class OnboardingWindow {
                 self.onComplete?(self.state)
                 // Settings will be opened by AppDelegate after onComplete
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NSApp.sendAction(NSSelectorFromString("showSettingsWindow:"), to: nil, from: nil)
                 }
             }
         )

@@ -34,6 +34,10 @@ export type NonBlockingMessageProcessor = (
 
 export interface RuntimeHttpServerOptions {
   port?: number;
+  /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
+  hostname?: string;
+  /** Bearer token required on every request (except health checks). */
+  bearerToken?: string;
   processMessage?: MessageProcessor;
   /** Non-blocking processor for POST /messages (persists + fires agent loop). */
   persistAndProcessMessage?: NonBlockingMessageProcessor;

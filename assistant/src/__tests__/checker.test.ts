@@ -101,6 +101,7 @@ describe('Permission Checker', () => {
     testConfig.skills = { load: { extraDirs: [] } };
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
+    try { rmSync(join(checkerTestDir, 'workspace', 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
   });
 
   // ── classifyRisk ────────────────────────────────────────────────
@@ -145,12 +146,12 @@ describe('Permission Checker', () => {
         expect(risk).toBe(RiskLevel.Low);
       });
 
-      test('web_fetch with allow_private_network is medium risk', async () => {
+      test('web_fetch with allow_private_network is high risk', async () => {
         const risk = await classifyRisk('web_fetch', {
           url: 'http://localhost:3000',
           allow_private_network: true,
         });
-        expect(risk).toBe(RiskLevel.Medium);
+        expect(risk).toBe(RiskLevel.High);
       });
     });
 
@@ -550,8 +551,18 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('allow');
     });
 
-    test('web_fetch allow rule can approve medium-risk private-network fetches', async () => {
+    test('web_fetch allow rule does not auto-approve high-risk private-network fetches', async () => {
       addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp');
+      const result = await check(
+        'web_fetch',
+        { url: 'http://localhost:3000/health', allow_private_network: true },
+        '/tmp',
+      );
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('web_fetch allowHighRisk rule can approve private-network fetches', async () => {
+      addRule('web_fetch', 'web_fetch:http://localhost:3000/*', '/tmp', 'allow', 100, { allowHighRisk: true });
       const result = await check(
         'web_fetch',
         { url: 'http://localhost:3000/health', allow_private_network: true },
@@ -566,7 +577,7 @@ describe('Permission Checker', () => {
 
       const allowed = await check(
         'web_fetch',
-        { url: 'https://example.com/search?q=test', allow_private_network: true },
+        { url: 'https://example.com/search?q=test' },
         '/tmp',
       );
       expect(allowed.decision).toBe('allow');
@@ -2156,17 +2167,40 @@ describe('Permission Checker', () => {
   // ── user override of skill mutation default ask rules (priority fix) ──
   // Regression tests: user-created allow rules (priority 100) must override
   // the default ask rules for skill-source mutations (priority 50).
+  //
+  // Paths use getRootDir()/workspace/skills/ (not getWorkspaceSkillsDir())
+  // because getDefaultRuleTemplates builds the managed-skill ask rule from
+  // getRootDir(), so using a different prefix would avoid contention with
+  // the default rule and silently pass even if the priority regressed.
+  //
+  // extraDirs is set to the parent "workspace" directory (not "workspace/skills")
+  // so that isSkillSourcePath classifies the paths as High risk without creating
+  // a duplicate extra-0 ask rule for the exact same path as the managed rule.
+  // The third test explicitly asserts the matched rule ID is the managed-skill
+  // rule to guard against regressions in default rule generation.
 
   describe('user override of skill mutation default ask rules', () => {
+    // Must match the path getDefaultRuleTemplates computes for managedSkillsDir
+    const wsSkillsDir = join(checkerTestDir, 'workspace', 'skills');
+    // Use parent directory for extraDirs — broad enough for isSkillSourcePath
+    // to recognize skill paths, but distinct from the managed-skill rule path.
+    const wsDir = join(checkerTestDir, 'workspace');
+
     function ensureSkillsDir(): void {
-      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+      mkdirSync(wsSkillsDir, { recursive: true });
     }
+
+    beforeEach(() => {
+      // Register the workspace parent dir so isSkillSourcePath detects skill
+      // paths under workspace/skills/ without duplicating the managed-skill
+      // default ask rule (the mock for getWorkspaceSkillsDir points elsewhere).
+      testConfig.skills.load.extraDirs = [wsDir];
+    });
 
     test('user allowHighRisk rule at priority 100 overrides default ask for skill source writes', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // Simulate the rule the prompt UX creates: priority 100, allowHighRisk: true
-      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100, { allowHighRisk: true });
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
+      addRule('file_write', `file_write:${wsSkillsDir}/**`, 'everywhere', 'allow', 100, { allowHighRisk: true });
       const result = await check('file_write', { path: skillPath }, '/tmp');
       // The user's allow rule (priority 100) must win over the default ask (priority 50),
       // and allowHighRisk must auto-allow the High-risk skill mutation.
@@ -2177,9 +2211,8 @@ describe('Permission Checker', () => {
 
     test('user allow rule without allowHighRisk at priority 100 overrides default ask but high-risk still prompts', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // User allow rule without allowHighRisk — priority 100 still beats default ask at 50
-      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, 'everywhere', 'allow', 100);
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
+      addRule('file_write', `file_write:${wsSkillsDir}/**`, 'everywhere', 'allow', 100);
       const result = await check('file_write', { path: skillPath }, '/tmp');
       // The user rule wins over default ask, but skill mutations are High risk,
       // so the allow rule without allowHighRisk falls through to high-risk prompt.
@@ -2187,12 +2220,17 @@ describe('Permission Checker', () => {
       expect(result.reason).toContain('High risk');
     });
 
-    test('without user rule, default ask still prompts for skill source mutations', async () => {
+    test('without user rule, default ask rule matches and prompts for skill source mutations', async () => {
       ensureSkillsDir();
-      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
-      // No user rule — the default ask rule (priority 50) is the only match
+      const skillPath = join(wsSkillsDir, 'my-skill', 'executor.ts');
       const result = await check('file_write', { path: skillPath }, '/tmp');
       expect(result.decision).toBe('prompt');
+      // Verify the managed-skill default ask rule is what matched (not the
+      // extra-dir fallback or a generic high-risk prompt).
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:ask-file_write-managed-skills');
+      expect(result.matchedRule!.decision).toBe('ask');
+      expect(result.reason).toContain('ask rule');
     });
   });
 
@@ -2407,26 +2445,16 @@ describe('Permission Checker', () => {
 
     // ── generateAllowlistOptions for skill_load ──
 
-    test('allowlist options include version-specific and any-version choices when hash is available', () => {
+    test('allowlist options only include version-specific option when hash is available', () => {
       ensureSkillsDir();
       writeSkill('test-opts-skill', 'Test Options Skill');
 
       const options = generateAllowlistOptions('skill_load', { skill: 'test-opts-skill' });
 
-      // Should have: version-specific, any-version, wildcard
-      expect(options.length).toBeGreaterThanOrEqual(3);
-
-      // First option should be the version-specific pattern
+      // Should have only the version-specific option
+      expect(options).toHaveLength(1);
       expect(options[0].pattern).toMatch(/^skill_load:test-opts-skill@v1:/);
       expect(options[0].description).toBe('This exact version');
-
-      // Second option should be any-version
-      expect(options[1].pattern).toBe('skill_load:test-opts-skill');
-      expect(options[1].description).toBe('Any version of this skill');
-
-      // Last option should be wildcard
-      expect(options[options.length - 1].pattern).toBe('skill_load:*');
-      expect(options[options.length - 1].description).toBe('All skill loads');
     });
 
     test('allowlist options ignore input version_hash and use disk-computed hash (regression)', () => {
@@ -2440,13 +2468,11 @@ describe('Permission Checker', () => {
         version_hash: 'v1:customhash123',
       });
 
-      expect(options.length).toBeGreaterThanOrEqual(3);
-      // First option should be the disk-computed hash, NOT the input hash
+      expect(options).toHaveLength(1);
+      // Should be the disk-computed hash, NOT the input hash
       expect(options[0].pattern).toMatch(/^skill_load:test-opts-explicit@v1:/);
       expect(options[0].pattern).not.toBe('skill_load:test-opts-explicit@v1:customhash123');
       expect(options[0].description).toBe('This exact version');
-      expect(options[1].pattern).toBe('skill_load:test-opts-explicit');
-      expect(options[1].description).toBe('Any version of this skill');
     });
 
     test('allowlist options for unresolvable skill fall back to raw selector', () => {
@@ -2454,11 +2480,10 @@ describe('Permission Checker', () => {
 
       const options = generateAllowlistOptions('skill_load', { skill: 'no-such-skill' });
 
-      // Should have: raw selector, wildcard
-      expect(options).toHaveLength(2);
+      // Should have only the raw selector
+      expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe('skill_load:no-such-skill');
       expect(options[0].description).toBe('This skill');
-      expect(options[1].pattern).toBe('skill_load:*');
     });
 
     test('allowlist options for empty skill selector only has wildcard', () => {
@@ -3152,41 +3177,37 @@ describe('Permission Checker', () => {
       });
 
       test('execution target-scoped rule matches only the specified target', async () => {
+        await addVersionBoundRule({
+          id: 'inv4-target-scoped',
+          tool: 'host_bash',
+          pattern: 'run *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+        });
+
+        // Write the executionTarget field directly (addVersionBoundRule doesn't support it)
         const trustPath = join(checkerTestDir, 'protected', 'trust.json');
-        const { writeFileSync, mkdirSync: mkdirSyncFs, existsSync } = await import('node:fs');
-        const { dirname: dirnameFn } = await import('node:path');
-
-        clearCache();
-        const trustDir = dirnameFn(trustPath);
-        if (!existsSync(trustDir)) mkdirSyncFs(trustDir, { recursive: true });
-
-        writeFileSync(trustPath, JSON.stringify({
-          version: 3,
-          rules: [{
-            id: 'inv4-target-scoped',
-            tool: 'bash',
-            pattern: 'run *',
-            scope: 'everywhere',
-            decision: 'allow',
-            priority: 2000,
-            createdAt: Date.now(),
-            executionTarget: '/usr/local/bin/node',
-          }],
-        }, null, 2));
+        const raw = JSON.parse((await import('node:fs')).readFileSync(trustPath, 'utf-8'));
+        const rule = raw.rules.find((r: any) => r.id === 'inv4-target-scoped');
+        rule.executionTarget = '/usr/local/bin/node';
+        (await import('node:fs')).writeFileSync(trustPath, JSON.stringify(raw, null, 2));
         clearCache();
 
-        // Matching target
-        const matchResult = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+        // Matching target — check() should allow via the target-scoped rule
+        const matchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/node',
         });
-        expect(matchResult).not.toBeNull();
-        expect(matchResult!.id).toBe('inv4-target-scoped');
+        expect(matchResult.decision).toBe('allow');
+        expect(matchResult.matchedRule?.id).toBe('inv4-target-scoped');
 
-        // Different target
-        const noMatchResult = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+        // Different target — the target-scoped rule should NOT match;
+        // falls back to the default host_bash ask rule (prompt)
+        const noMatchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
-        expect(noMatchResult === null || noMatchResult.id !== 'inv4-target-scoped').toBe(true);
+        expect(noMatchResult.decision).toBe('prompt');
+        expect(noMatchResult.matchedRule?.id).not.toBe('inv4-target-scoped');
       });
     });
 

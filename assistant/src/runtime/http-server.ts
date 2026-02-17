@@ -7,6 +7,8 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
+import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
@@ -42,6 +44,7 @@ import {
   handleGetSharedAppMetadata,
   handleDeleteSharedApp,
 } from './routes/app-routes.js';
+import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -61,10 +64,16 @@ import type {
 const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
+const DEFAULT_HOSTNAME = '127.0.0.1';
+
+/** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
+const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
 
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
+  private hostname: string;
+  private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
@@ -76,6 +85,8 @@ export class RuntimeHttpServer {
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
+    this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
+    this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
@@ -85,6 +96,8 @@ export class RuntimeHttpServer {
   async start(): Promise<void> {
     this.server = Bun.serve({
       port: this.port,
+      hostname: this.hostname,
+      maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req) => this.handleRequest(req),
     });
 
@@ -97,7 +110,7 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    log.info({ port: this.port }, 'Runtime HTTP server listening');
+    log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
@@ -112,9 +125,34 @@ export class RuntimeHttpServer {
     }
   }
 
+  /**
+   * Constant-time comparison of two bearer tokens to prevent timing attacks.
+   */
+  private verifyToken(provided: string): boolean {
+    const expected = this.bearerToken!;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+
   private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
+
+    // Health checks are unauthenticated — they expose no sensitive data.
+    if (path === '/healthz' && req.method === 'GET') {
+      return this.handleHealth();
+    }
+
+    // Require bearer token when configured
+    if (this.bearerToken) {
+      const authHeader = req.headers.get('authorization');
+      const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      if (!token || !this.verifyToken(token)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
 
     // Serve shareable app pages
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
@@ -168,12 +206,19 @@ export class RuntimeHttpServer {
       }
     }
 
+    // ── Secret management endpoint ─────────────────────────────────────
+    if (path === '/v1/secrets' && req.method === 'POST') {
+      try {
+        return await handleAddSecret(req);
+      } catch (err) {
+        log.error({ err }, 'Runtime HTTP handler error adding secret');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
     // Match /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
-      if (path === '/healthz' && req.method === 'GET') {
-        return this.handleHealth();
-      }
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
@@ -239,7 +284,7 @@ export class RuntimeHttpServer {
           if (!run || run.assistantId !== assistantId) {
             return Response.json({ error: 'Run not found' }, { status: 404 });
           }
-          return await handleAddTrustRule(req);
+          return await handleAddTrustRule(runId, req);
         }
         if (req.method === 'GET') {
           return handleGetRun(assistantId, runId, this.runOrchestrator);
@@ -273,8 +318,17 @@ export class RuntimeHttpServer {
 
       return Response.json({ error: 'Not found' }, { status: 404 });
     } catch (err) {
+      if (err instanceof IngressBlockedError) {
+        log.warn({ endpoint, assistantId, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
+        return Response.json({ error: err.message, code: err.code }, { status: 422 });
+      }
+      if (err instanceof ConfigError) {
+        log.warn({ err, endpoint, assistantId }, 'Runtime HTTP config error');
+        return Response.json({ error: err.message, code: err.code }, { status: 422 });
+      }
       log.error({ err, endpoint, assistantId }, 'Runtime HTTP handler error');
-      return Response.json({ error: 'Internal server error' }, { status: 500 });
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      return Response.json({ error: message }, { status: 500 });
     }
   }
 
@@ -360,7 +414,11 @@ export class RuntimeHttpServer {
       return Response.json({ error: 'Interface not found' }, { status: 404 });
     }
     const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (!fullPath.startsWith(this.interfacesDir) || !existsSync(fullPath)) {
+    // Enforce directory boundary so prefix-sibling paths (e.g. "interfaces-other/") are rejected
+    if (
+      (fullPath !== this.interfacesDir && !fullPath.startsWith(this.interfacesDir + '/')) ||
+      !existsSync(fullPath)
+    ) {
       return Response.json({ error: 'Interface not found' }, { status: 404 });
     }
     const source = readFileSync(fullPath, 'utf-8');
