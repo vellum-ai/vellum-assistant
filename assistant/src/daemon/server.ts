@@ -491,6 +491,7 @@ export class DaemonServer {
     if (hasSocketOverride()) {
       this.authenticatedSockets.add(socket);
       log.info('Auto-authenticated client on overridden socket path');
+      this.send(socket, { type: 'auth_result', success: true });
       this.sendInitialSession(socket).catch((err) => {
         log.error({ err }, 'Failed to send initial session info after auto-auth');
       });
@@ -576,6 +577,14 @@ export class DaemonServer {
           this.send(socket, { type: 'error', message: 'Authentication required' });
           socket.destroy();
           return;
+        }
+
+        // If an already-authenticated socket sends an auth message (e.g.
+        // auto-auth'd client that also has a local token), respond with
+        // auth_result so the client doesn't hang waiting for the handshake.
+        if (result.message.type === 'auth') {
+          this.send(socket, { type: 'auth_result', success: true });
+          continue;
         }
 
         this.dispatchMessage(result.message, socket);
