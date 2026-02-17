@@ -1,4 +1,4 @@
-import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
+import type { RiskLevel, AllowlistOption, ScopeOption, ToolPrincipalKind } from '../permissions/types.js';
 import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 
@@ -13,7 +13,7 @@ interface ToolLifecycleEventBase {
   requestId?: string;
   executionTarget?: ExecutionTarget;
   /** Security principal kind (e.g. 'core' or 'skill'). */
-  principalKind?: string;
+  principalKind?: ToolPrincipalKind;
   /** Security principal ID (skill ID when principalKind is 'skill'). */
   principalId?: string;
   /** Content-hash of the principal's source at invocation time. */

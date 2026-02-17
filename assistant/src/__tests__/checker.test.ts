@@ -1207,19 +1207,28 @@ describe('Permission Checker', () => {
   // ── principal types (PR 3) ──────────────────────────────────
 
   describe('principal types (PR 3)', () => {
-    test('ToolPrincipal type exists and is importable', async () => {
-      // ToolPrincipalKind is a type alias, not a runtime value,
-      // so we just verify the module imports without error.
-      const types = await import('../permissions/types.js');
-      expect(types).toBeDefined();
+    test('ToolPrincipal accepts valid principal objects', () => {
+      // Type assertions verified at compile time — if ToolPrincipal or
+      // PolicyContext change shape, these assignments will fail tsc.
+      const corePrincipal: import('../permissions/types.js').ToolPrincipal = { kind: 'core' };
+      const skillPrincipal: import('../permissions/types.js').ToolPrincipal = {
+        kind: 'skill',
+        id: 'my-skill',
+        version: 'abc123',
+      };
+      expect(corePrincipal.kind).toBe('core');
+      expect(skillPrincipal.kind).toBe('skill');
+      expect(skillPrincipal.id).toBe('my-skill');
+      expect(skillPrincipal.version).toBe('abc123');
     });
 
-    test('PolicyContext type is available', async () => {
-      // Verify type-level import works — RiskLevel is the only
-      // runtime enum in the module, so its presence confirms
-      // the module loaded (and its new types compiled) correctly.
-      const types = await import('../permissions/types.js');
-      expect(types.RiskLevel).toBeDefined();
+    test('PolicyContext carries principal and executionTarget', () => {
+      const ctx: import('../permissions/types.js').PolicyContext = {
+        principal: { kind: 'skill', id: 'test-skill' },
+        executionTarget: 'sandbox',
+      };
+      expect(ctx.principal?.kind).toBe('skill');
+      expect(ctx.executionTarget).toBe('sandbox');
     });
   });
 
