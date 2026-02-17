@@ -94,6 +94,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var daemonClient: DaemonClient { services.daemonClient }
     var ambientAgent: AmbientAgent { services.ambientAgent }
     var surfaceManager: SurfaceManager { services.surfaceManager }
+    var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
 
@@ -282,15 +283,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupSurfaceManager() {
-        // Wire daemon surface messages to SurfaceManager
+        // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
-            self?.surfaceManager.showSurface(msg)
+            guard let self else { return }
+            if msg.surfaceType == SurfaceType.browserView.rawValue {
+                self.browserPiPManager.showPanel(for: msg)
+            } else {
+                self.surfaceManager.showSurface(msg)
+            }
         }
         daemonClient.onSurfaceUpdate = { [weak self] msg in
-            self?.surfaceManager.updateSurface(msg)
+            guard let self else { return }
+            self.browserPiPManager.updateSurface(msg)
+            self.surfaceManager.updateSurface(msg)
         }
         daemonClient.onSurfaceDismiss = { [weak self] msg in
-            self?.surfaceManager.dismissSurface(msg)
+            guard let self else { return }
+            self.browserPiPManager.dismissPanel()
+            self.surfaceManager.dismissSurface(msg)
+        }
+
+        // Wire browser frame updates to BrowserPiPManager
+        daemonClient.onBrowserFrame = { [weak self] msg in
+            self?.browserPiPManager.updateFrame(msg)
         }
 
         // Reload webviews for surfaces whose app files changed (cross-session broadcast)
