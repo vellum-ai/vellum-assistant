@@ -1010,3 +1010,65 @@ describe('slash preactivation through session processing', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bundled skill pipeline integration tests
+// ---------------------------------------------------------------------------
+
+const GMAIL_TOOL_NAMES = [
+  'gmail_search',
+  'gmail_list_messages',
+  'gmail_get_message',
+  'gmail_mark_read',
+  'gmail_draft',
+  'gmail_archive',
+  'gmail_batch_archive',
+  'gmail_label',
+  'gmail_batch_label',
+  'gmail_trash',
+  'gmail_send',
+  'gmail_unsubscribe',
+] as const;
+
+describe('bundled skill: gmail', () => {
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('gmail skill activation via loaded_skill marker projects all 12 tool definitions', () => {
+    mockCatalog = [makeSkill('gmail', '/path/to/bundled-skills/gmail')];
+    mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      toolResultMsg('<loaded_skill id="gmail" />'),
+    ];
+
+    const result = projectSkillTools(history);
+
+    expect(result.toolDefinitions).toHaveLength(12);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual([...GMAIL_TOOL_NAMES]);
+    expect(result.allowedToolNames).toEqual(new Set(GMAIL_TOOL_NAMES));
+  });
+
+  test('gmail tools are NOT available when gmail skill is not in active context', () => {
+    mockCatalog = [makeSkill('gmail', '/path/to/bundled-skills/gmail')];
+    mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
+
+    // No loaded_skill marker for gmail in history
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+    ];
+
+    const result = projectSkillTools(history);
+
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(0);
+    for (const name of GMAIL_TOOL_NAMES) {
+      expect(result.allowedToolNames.has(name)).toBe(false);
+    }
+  });
+});
