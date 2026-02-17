@@ -16,6 +16,7 @@ import {
 } from '../memory/conversation-key-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
+import { validateAttachmentUpload } from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
 import { getConfig } from '../config/loader.js';
@@ -768,6 +769,14 @@ export class RuntimeHttpServer {
       return Response.json(
         { error: 'data (base64) is required' },
         { status: 400 },
+      );
+    }
+
+    const validation = validateAttachmentUpload(filename, mimeType);
+    if (!validation.ok) {
+      return Response.json(
+        { error: validation.error },
+        { status: 415 },
       );
     }
 
