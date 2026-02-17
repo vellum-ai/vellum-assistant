@@ -1113,14 +1113,20 @@ struct MainWindowView: View {
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
                 onToggleChatDock: {
-                    if case .appEditing(_, let threadId) = windowState.selection {
+                    if case .appEditing = windowState.selection {
                         // Toggle off: close app, keep thread visible
-                        windowState.selection = .thread(threadId)
+                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                        if let threadId {
+                            windowState.selection = .thread(threadId)
+                        } else {
+                            windowState.selection = nil
+                        }
                     } else if case .app(let appId) = windowState.selection {
                         // Toggle on: find most recent thread and enter editing mode
-                        if let thread = threadManager.visibleThreads.first {
-                            threadManager.selectThread(id: thread.id)
-                            windowState.setAppEditing(appId: appId, threadId: thread.id)
+                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                        if let threadId {
+                            threadManager.selectThread(id: threadId)
+                            windowState.setAppEditing(appId: appId, threadId: threadId)
                         }
                     }
                 },
