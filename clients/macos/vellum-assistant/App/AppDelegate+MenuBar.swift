@@ -117,12 +117,30 @@ extension AppDelegate {
         newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
         menu.addItem(newChatItem)
 
-        let myAppsItem = NSMenuItem(title: "My Apps", action: #selector(openAppCollection), keyEquivalent: "")
-        myAppsItem.target = self
+        // My Apps submenu
+        let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
         myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
-        menu.addItem(myAppsItem)
+        let appsSubmenu = NSMenu(title: "My Apps")
 
-        menu.addItem(NSMenuItem.separator())
+        let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
+        for app in recentApps {
+            let emoji = app.icon ?? "\u{1F4F1}"
+            let item = NSMenuItem(title: "\(emoji) \(app.name)", action: #selector(openAppById(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = app.id
+            appsSubmenu.addItem(item)
+        }
+
+        if !recentApps.isEmpty {
+            appsSubmenu.addItem(NSMenuItem.separator())
+        }
+
+        let manageAppsItem = NSMenuItem(title: "Manage Apps...", action: #selector(openAppCollection), keyEquivalent: "")
+        manageAppsItem.target = self
+        appsSubmenu.addItem(manageAppsItem)
+
+        myAppsItem.submenu = appsSubmenu
+        menu.addItem(myAppsItem)
 
         // Skills submenu
         let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
@@ -154,9 +172,9 @@ extension AppDelegate {
             skillsSubmenu.addItem(NSMenuItem.separator())
         }
 
-        let manageItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
-        manageItem.target = self
-        skillsSubmenu.addItem(manageItem)
+        let manageSkillsItem = NSMenuItem(title: "Manage Skills...", action: #selector(showSettingsWindow(_:)), keyEquivalent: "")
+        manageSkillsItem.target = self
+        skillsSubmenu.addItem(manageSkillsItem)
 
         skillsItem.submenu = skillsSubmenu
         menu.addItem(skillsItem)
@@ -225,6 +243,12 @@ extension AppDelegate {
         }
     }
 
+    @objc func openAppById(_ sender: NSMenuItem) {
+        guard let appId = sender.representedObject as? String else { return }
+        showMainWindow()
+        try? daemonClient.sendAppOpen(appId: appId)
+    }
+
     @objc func toggleSkill(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         if sender.state == .on {
@@ -233,6 +257,23 @@ extension AppDelegate {
             try? daemonClient.enableSkill(name)
         }
         refreshSkillsCache()
+    }
+
+    func refreshAppsCache() {
+        refreshAppsTask?.cancel()
+        refreshAppsTask = Task {
+            let stream = daemonClient.subscribe()
+            do {
+                try daemonClient.sendAppsList()
+            } catch { return }
+            for await message in stream {
+                guard !Task.isCancelled else { return }
+                if case .appsListResponse(let response) = message {
+                    self.cachedApps = response.apps
+                    return
+                }
+            }
+        }
     }
 
     func refreshSkillsCache() {
