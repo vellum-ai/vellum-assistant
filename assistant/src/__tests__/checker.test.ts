@@ -1851,6 +1851,297 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── skill mutation approval regression tests (PR 30) ──────────
+  // Lock full behavior for skill-source edit/write prompts, allowHighRisk
+  // persistence, and version mismatch rejection.
+
+  describe('skill mutation approval regressions (PR 30)', () => {
+    function ensureSkillsDir(): void {
+      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+    }
+
+    // Helper to write a trust rule with principal version constraints
+    // directly to the trust file, matching the pattern from existing tests.
+    async function addVersionBoundRule(opts: {
+      id: string;
+      tool: string;
+      pattern: string;
+      scope: string;
+      decision: 'allow' | 'deny' | 'ask';
+      priority: number;
+      principalKind?: string;
+      principalId?: string;
+      principalVersion?: string;
+      allowHighRisk?: boolean;
+    }): Promise<void> {
+      const trustPath = join(checkerTestDir, 'protected', 'trust.json');
+      const { readFileSync, writeFileSync, mkdirSync: mkdirSyncFs, existsSync } = await import('node:fs');
+      const { dirname: dirnameFn } = await import('node:path');
+
+      clearCache();
+      const trustDir = dirnameFn(trustPath);
+      if (!existsSync(trustDir)) mkdirSyncFs(trustDir, { recursive: true });
+
+      let currentRules: any[] = [];
+      try {
+        const raw = readFileSync(trustPath, 'utf-8');
+        currentRules = JSON.parse(raw).rules ?? [];
+      } catch { /* first run */ }
+
+      currentRules = currentRules.filter((r: any) => r.id !== opts.id);
+      currentRules.push({
+        ...opts,
+        createdAt: Date.now(),
+      });
+
+      writeFileSync(trustPath, JSON.stringify({ version: 3, rules: currentRules }, null, 2));
+      clearCache();
+    }
+
+    // ── Strict mode: first prompt for skill source writes ──────────
+
+    describe('strict mode: skill source writes prompt with high risk', () => {
+      test('strict mode: file_write to skill source prompts (no implicit allow)', async () => {
+        testConfig.permissions.mode = 'strict';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        // In strict mode the "no matching rule" check fires before the
+        // high-risk fallback — the important invariant is that it prompts.
+        expect(result.reason).toContain('requires approval');
+      });
+
+      test('strict mode: file_edit of skill source prompts (no implicit allow)', async () => {
+        testConfig.permissions.mode = 'strict';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
+        const result = await check('file_edit', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('requires approval');
+      });
+
+      test('strict mode: file_write to non-skill path prompts as Strict mode (not High risk)', async () => {
+        testConfig.permissions.mode = 'strict';
+        const normalPath = '/tmp/some-file.txt';
+        const result = await check('file_write', { path: normalPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        // Medium-risk file_write in strict mode with no rule → Strict mode reason
+        expect(result.reason).toContain('Strict mode');
+      });
+
+      test('legacy mode: file_write to skill source still prompts as High risk', async () => {
+        testConfig.permissions.mode = 'legacy';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('High risk');
+      });
+
+      test('strict mode: host_file_write to skill source prompts (high risk overrides host ask)', async () => {
+        testConfig.permissions.mode = 'strict';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        const result = await check('host_file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+      });
+
+      test('strict mode: host_file_edit of skill source prompts', async () => {
+        testConfig.permissions.mode = 'strict';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
+        const result = await check('host_file_edit', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+      });
+    });
+
+    // ── always_allow_high_risk: persisted allow auto-allows on repeat ──
+
+    describe('always_allow_high_risk: persisted rule auto-allows subsequent requests', () => {
+      test('file_write to skill source with allowHighRisk rule auto-allows', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'allow', 2000, { allowHighRisk: true });
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.reason).toContain('high-risk trust rule');
+        expect(result.matchedRule!.allowHighRisk).toBe(true);
+      });
+
+      test('file_edit of skill source with allowHighRisk rule auto-allows', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
+        addRule('file_edit', `file_edit:${checkerTestDir}/skills/**`, '/tmp', 'allow', 2000, { allowHighRisk: true });
+        const result = await check('file_edit', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.reason).toContain('high-risk trust rule');
+      });
+
+      test('file_write to skill source with allow rule (no allowHighRisk) still prompts', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'allow', 2000);
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('High risk');
+      });
+
+      test('strict mode: file_write to skill source with allowHighRisk rule auto-allows', async () => {
+        testConfig.permissions.mode = 'strict';
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'allow', 2000, { allowHighRisk: true });
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.reason).toContain('high-risk trust rule');
+      });
+
+      test('deny rule for skill source takes precedence over allowHighRisk rule', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'allow', 100, { allowHighRisk: true });
+        addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'deny', 200);
+        const result = await check('file_write', { path: skillPath }, '/tmp');
+        expect(result.decision).toBe('deny');
+        expect(result.reason).toContain('deny rule');
+      });
+    });
+
+    // ── Version mismatch: old version rule does not match new version ──
+
+    describe('version mismatch: allow rule for old version does not match new version', () => {
+      test('version-bound allowHighRisk rule for skill source matches same version', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        await addVersionBoundRule({
+          id: 'pr30-version-match',
+          tool: 'file_write',
+          pattern: `file_write:${checkerTestDir}/skills/**`,
+          scope: '/tmp',
+          decision: 'allow',
+          priority: 2000,
+          principalKind: 'skill',
+          principalId: 'my-skill',
+          principalVersion: 'v1:original-hash',
+          allowHighRisk: true,
+        });
+
+        const ctx: PolicyContext = {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v1:original-hash' },
+        };
+        const result = await check('file_write', { path: skillPath }, '/tmp', ctx);
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('pr30-version-match');
+      });
+
+      test('version-bound allowHighRisk rule for skill source does NOT match different version', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        await addVersionBoundRule({
+          id: 'pr30-version-mismatch',
+          tool: 'file_write',
+          pattern: `file_write:${checkerTestDir}/skills/**`,
+          scope: '/tmp',
+          decision: 'allow',
+          priority: 2000,
+          principalKind: 'skill',
+          principalId: 'my-skill',
+          principalVersion: 'v1:original-hash',
+          allowHighRisk: true,
+        });
+
+        // Skill has been updated — new version hash
+        const ctx: PolicyContext = {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v2:modified-hash' },
+        };
+        const result = await check('file_write', { path: skillPath }, '/tmp', ctx);
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('requires approval');
+        expect(result.matchedRule?.id).not.toBe('pr30-version-mismatch');
+      });
+
+      test('version-bound rule for file_edit of skill source: version mismatch rejects', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
+        await addVersionBoundRule({
+          id: 'pr30-edit-version-mismatch',
+          tool: 'file_edit',
+          pattern: `file_edit:${checkerTestDir}/skills/**`,
+          scope: '/tmp',
+          decision: 'allow',
+          priority: 2000,
+          principalKind: 'skill',
+          principalId: 'my-skill',
+          principalVersion: 'v1:abc',
+          allowHighRisk: true,
+        });
+
+        const ctx: PolicyContext = {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v2:def' },
+        };
+        const result = await check('file_edit', { path: skillPath }, '/tmp', ctx);
+        expect(result.decision).toBe('prompt');
+        expect(result.matchedRule?.id).not.toBe('pr30-edit-version-mismatch');
+      });
+
+      test('version-bound rule without principalVersion (wildcard) matches any version', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        await addVersionBoundRule({
+          id: 'pr30-version-wildcard',
+          tool: 'file_write',
+          pattern: `file_write:${checkerTestDir}/skills/**`,
+          scope: '/tmp',
+          decision: 'allow',
+          priority: 2000,
+          principalKind: 'skill',
+          principalId: 'my-skill',
+          // principalVersion intentionally omitted — wildcard
+          allowHighRisk: true,
+        });
+
+        const ctxV1: PolicyContext = {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v1:hash-a' },
+        };
+        const resultV1 = await check('file_write', { path: skillPath }, '/tmp', ctxV1);
+        expect(resultV1.decision).toBe('allow');
+        expect(resultV1.matchedRule?.id).toBe('pr30-version-wildcard');
+
+        const ctxV2: PolicyContext = {
+          principal: { kind: 'skill', id: 'my-skill', version: 'v2:hash-b' },
+        };
+        const resultV2 = await check('file_write', { path: skillPath }, '/tmp', ctxV2);
+        expect(resultV2.decision).toBe('allow');
+        expect(resultV2.matchedRule?.id).toBe('pr30-version-wildcard');
+      });
+
+      test('version-bound rule for different principal id does not match', async () => {
+        ensureSkillsDir();
+        const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+        await addVersionBoundRule({
+          id: 'pr30-wrong-principal',
+          tool: 'file_write',
+          pattern: `file_write:${checkerTestDir}/skills/**`,
+          scope: '/tmp',
+          decision: 'allow',
+          priority: 2000,
+          principalKind: 'skill',
+          principalId: 'trusted-skill',
+          principalVersion: 'v1:hash',
+          allowHighRisk: true,
+        });
+
+        const ctx: PolicyContext = {
+          principal: { kind: 'skill', id: 'attacker-skill', version: 'v1:hash' },
+        };
+        const result = await check('file_write', { path: skillPath }, '/tmp', ctx);
+        expect(result.decision).toBe('prompt');
+        expect(result.matchedRule?.id).not.toBe('pr30-wrong-principal');
+      });
+    });
+  });
+
   // ── canonical file command candidates (PR 27) ─────────────────
 
   describe('canonical file command candidates (PR 27)', () => {
