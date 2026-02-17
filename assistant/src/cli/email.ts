@@ -163,6 +163,34 @@ export function registerEmailCommand(program: Command): void {
     });
 
   // =========================================================================
+  // Inbox subcommands
+  // =========================================================================
+  const inbox = email.command('inbox').description('Manage inboxes');
+
+  inbox
+    .command('create')
+    .description('Create a new inbox')
+    .requiredOption('--username <username>', 'Local part (e.g. "sam")')
+    .option('--domain <domain>', 'Domain (e.g. "agentmail.to"). Omit for provider default.')
+    .option('--display-name <name>', 'Display name (e.g. "Samwise")')
+    .action(async (opts: { username: string; domain?: string; displayName?: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const created = await svc.createInbox(opts.username, opts.domain, opts.displayName);
+        return { inbox: created };
+      });
+    });
+
+  inbox
+    .command('list')
+    .description('List all inboxes')
+    .action(async (_opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        const inboxes = await svc.listInboxes();
+        return { inboxes };
+      });
+    });
+
+  // =========================================================================
   // Draft subcommands
   // =========================================================================
   const draft = email.command('draft').description('Manage email drafts');
@@ -258,7 +286,7 @@ export function registerEmailCommand(program: Command): void {
   // =========================================================================
   // Inbound subcommands
   // =========================================================================
-  const inbound = email.command('inbound').alias('inbox').description('View inbound messages');
+  const inbound = email.command('inbound').description('View inbound messages');
 
   inbound
     .command('list')

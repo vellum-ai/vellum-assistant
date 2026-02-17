@@ -120,8 +120,18 @@ export class EmailService {
   }
 
   // =========================================================================
-  // Inbox setup
+  // Inbox management
   // =========================================================================
+
+  async createInbox(username: string, domain?: string, displayName?: string): Promise<EmailInbox> {
+    const p = await this.provider();
+    return p.createInbox({ username, domain, displayName });
+  }
+
+  async listInboxes(): Promise<EmailInbox[]> {
+    const p = await this.provider();
+    return p.listInboxes();
+  }
 
   async ensureInboxes(domain: string): Promise<EmailInbox[]> {
     const p = await this.provider();

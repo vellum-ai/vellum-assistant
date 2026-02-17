@@ -5,7 +5,7 @@
  */
 
 import type { AgentMailClient } from 'agentmail';
-import type { EmailProvider, SetupDomainOpts, EnsureInboxesOpts, SetupWebhookOpts, CreateDraftOpts, ListDraftsOpts, ListMessagesOpts, ListThreadsOpts } from '../provider.js';
+import type { EmailProvider, SetupDomainOpts, CreateInboxOpts, EnsureInboxesOpts, SetupWebhookOpts, CreateDraftOpts, ListDraftsOpts, ListMessagesOpts, ListThreadsOpts } from '../provider.js';
 import type { EmailDomain, DnsRecord, EmailInbox, EmailDraft, EmailMessage, EmailThread, EmailWebhook, ProviderHealth, SendResult } from '../types.js';
 
 const DEFAULT_INBOX_PREFIXES = ['hello', 'support', 'ops'];
@@ -65,8 +65,21 @@ export class AgentMailProvider implements EmailProvider {
   }
 
   // -------------------------------------------------------------------------
-  // Inbox setup
+  // Inbox management
   // -------------------------------------------------------------------------
+
+  async createInbox(opts: CreateInboxOpts): Promise<EmailInbox> {
+    const params: Record<string, unknown> = { username: opts.username };
+    if (opts.domain) params.domain = opts.domain;
+    if (opts.displayName) params.displayName = opts.displayName;
+    const inbox = await this.client.inboxes.create(params as Parameters<typeof this.client.inboxes.create>[0]);
+    return mapInbox(inbox);
+  }
+
+  async listInboxes(): Promise<EmailInbox[]> {
+    const response = await this.client.inboxes.list();
+    return response.inboxes.map(mapInbox);
+  }
 
   async ensureInboxes(opts: EnsureInboxesOpts): Promise<EmailInbox[]> {
     const prefixes = opts.prefixes ?? DEFAULT_INBOX_PREFIXES;

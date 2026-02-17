@@ -42,7 +42,8 @@ After the credential is stored, retry `vellum email status --json` to confirm it
 ## Workflow
 
 1. **Preflight:** `vellum email status --json` (if API key error, run API Key Setup above)
-2. **Setup (first-time):** domain -> dns -> verify -> inboxes -> webhook
+2. **Quick inbox:** `vellum email inbox create --username <name>` (creates e.g. sam@agentmail.to — no custom domain needed)
+3. **Custom domain setup (optional):** domain -> dns -> verify -> inboxes -> webhook
 3. **Draft path:** `vellum email draft create ...` — always draft first
 4. **Send path:** show draft -> user confirms -> `draft approve-send --draft-id <id> --confirm`
 5. **Inbound triage:** list -> get -> summarize -> propose reply draft
@@ -63,13 +64,20 @@ vellum email provider set <provider> [--json]               # Switch provider
 vellum email status [--json]                               # Provider health + guardrails
 ```
 
+### Inbox Management
+
+```
+vellum email inbox create --username <name> [--domain <d>] [--display-name <n>] [--json]   # Create a new inbox (e.g. --username sam)
+vellum email inbox list [--json]                                                            # List all inboxes
+```
+
 ### Setup
 
 ```
 vellum email setup domain --domain <d> [--dry-run] [--json]
 vellum email setup dns --domain <d> [--json]
 vellum email setup verify --domain <d> [--json]
-vellum email setup inboxes --domain <d> [--json]
+vellum email setup inboxes --domain <d> [--json]                                            # Creates standard hello@/support@/ops@ inboxes
 vellum email setup webhook --url <u> [--secret <s>] [--json]
 ```
 

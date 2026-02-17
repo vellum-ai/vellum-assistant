@@ -31,6 +31,15 @@ export interface EnsureInboxesOpts {
   prefixes?: string[];
 }
 
+export interface CreateInboxOpts {
+  /** Username/local part (e.g. "sam"). */
+  username: string;
+  /** Domain (e.g. "agentmail.to"). If omitted, provider uses its default. */
+  domain?: string;
+  /** Display name (e.g. "Samwise"). */
+  displayName?: string;
+}
+
 export interface SetupWebhookOpts {
   url: string;
   secret?: string;
@@ -84,6 +93,8 @@ export interface EmailProvider {
   verifyDomain(domain: string): Promise<EmailDomain>;
 
   // --- Inbox setup ---
+  createInbox(opts: CreateInboxOpts): Promise<EmailInbox>;
+  listInboxes(): Promise<EmailInbox[]>;
   ensureInboxes(opts: EnsureInboxesOpts): Promise<EmailInbox[]>;
 
   // --- Webhook setup ---
