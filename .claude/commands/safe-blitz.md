@@ -28,40 +28,19 @@ Everything after stripping flags is the **feature description**.
 
 ## Phase 1: Project Setup
 
-1. Source `.private/project-config.env` to load the project board IDs:
+1. If `.private/project-config.env` exists, source it. Otherwise, create the project board:
+
+```bash
+.claude/gh-project init
+```
+
+2. Source the config for later use:
 
 ```bash
 source .private/project-config.env
 ```
 
-This provides: `GH_PROJECT_NUMBER`, `GH_PROJECT_OWNER`, `GH_PROJECT_ID`, `GH_STATUS_FIELD_ID`, `GH_STATUS_TRIAGE_ID`, `GH_STATUS_READY_ID`, `GH_STATUS_IN_PROGRESS_ID`, `GH_STATUS_IN_REVIEW_ID`, `GH_STATUS_DONE_ID`.
-
-2. If `.private/project-config.env` doesn't exist, create the project and config:
-
-The project title follows the convention `<github-username>-vellum-assistant` where `<github-username>` is the current GitHub user's login (from `gh api user --jq '.login'`).
-
-```bash
-# Get the current GitHub username
-GH_USERNAME=$(gh api user --jq '.login')
-
-# Create the project under the vellum-ai org
-PROJECT_URL=$(gh project create --owner "vellum-ai" --title "${GH_USERNAME}-vellum-assistant" --format json | jq -r '.url')
-PROJECT_NUMBER=$(echo "$PROJECT_URL" | grep -oE '[0-9]+$')
-
-# Get the project node ID
-GH_PROJECT_ID=$(gh project view "$PROJECT_NUMBER" --owner "vellum-ai" --format json | jq -r '.id')
-
-# Add Status field (single select) with standard columns
-gh api graphql -f query='mutation {
-  addProjectV2SingleSelectField(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    name: "Status"
-    options: [{name:"Triage",color:GRAY},{name:"Ready",color:BLUE},{name:"In Progress",color:YELLOW},{name:"In Review",color:ORANGE},{name:"Done",color:GREEN}]
-  }) { projectV2SingleSelectField { id options { id name } } }
-}'
-```
-
-Then query the field and option IDs and write them to `.private/project-config.env` in the same format shown above. Include `GH_PROJECT_NUMBER` (the human-readable number from the project URL). Set `GH_PROJECT_OWNER=vellum-ai`.
+This provides: `GH_PROJECT_NUMBER`, `GH_PROJECT_OWNER`, `GH_PROJECT_ID`, and status option IDs.
 
 ## Phase 1.5: Create the Feature Branch
 
@@ -150,36 +129,11 @@ EOF
 4. Add all issues to the GH project board and set their statuses:
 
 ```bash
-# Add issue to project (repeat for each issue)
-ITEM_ID=$(gh api graphql -f query='mutation {
-  addProjectV2ItemById(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    contentId: "<issue-node-id>"
-  }) { item { id } }
-}' --jq '.data.addProjectV2ItemById.item.id')
+# Project-level (epic) issue → in-progress
+.claude/gh-project add-issue <epic-issue-number> --status in-progress
 
-# Get the issue node ID first:
-# gh api repos/vellum-ai/vellum-assistant/issues/<number> --jq '.node_id'
-
-# Set status — use GH_STATUS_IN_PROGRESS_ID for the project-level (epic) issue:
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    itemId: "'"$ITEM_ID"'"
-    fieldId: "'"$GH_STATUS_FIELD_ID"'"
-    value: {singleSelectOptionId: "'"$GH_STATUS_IN_PROGRESS_ID"'"}
-  }) { projectV2Item { id } }
-}'
-
-# Set status — use GH_STATUS_READY_ID for milestone issues:
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    itemId: "'"$ITEM_ID"'"
-    fieldId: "'"$GH_STATUS_FIELD_ID"'"
-    value: {singleSelectOptionId: "'"$GH_STATUS_READY_ID"'"}
-  }) { projectV2Item { id } }
-}'
+# Milestone issues → ready (repeat for each)
+.claude/gh-project add-issue <milestone-issue-number> --status ready
 ```
 
 5. **Present the plan to the user for approval.** Show:
@@ -275,49 +229,9 @@ git fetch origin <feature-branch-name>
 ```
 
 9. **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items):
-   1. Set the project board status to "Done":
 
 ```bash
-ITEM_ID=""
-CURSOR=""
-while [ -z "$ITEM_ID" ]; do
-  if [ -z "$CURSOR" ]; then
-    AFTER_ARG=""
-  else
-    AFTER_ARG=", after: \"$CURSOR\""
-  fi
-  RESULT=$(gh api graphql -f query='{
-    node(id: "'"$GH_PROJECT_ID"'") {
-      ... on ProjectV2 {
-        items(first: 100'"$AFTER_ARG"') {
-          pageInfo { hasNextPage endCursor }
-          nodes {
-            id
-            content { ... on Issue { number } }
-          }
-        }
-      }
-    }
-  }')
-  ITEM_ID=$(echo "$RESULT" | jq -r '.data.node.items.nodes[] | select(.content.number == <issue-number>) | .id')
-  HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
-  CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
-  if [ "$HAS_NEXT" != "true" ]; then break; fi
-done
-
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    itemId: "'"$ITEM_ID"'"
-    fieldId: "'"$GH_STATUS_FIELD_ID"'"
-    value: {singleSelectOptionId: "'"$GH_STATUS_DONE_ID"'"}
-  }) { projectV2Item { id } }
-}'
-```
-
-   2. Close the GitHub issue:
-
-```bash
+.claude/gh-project set-status <issue-number> done
 gh issue close <issue-number>
 ```
 
@@ -341,18 +255,10 @@ gh issue close <issue-number>
 
 This is the key difference from `/blitz`. Instead of closing the epic, we create the final PR.
 
-1. Update the project-level issue status to "In Review" on the GH project board:
+1. Update the project-level issue status to "In Review":
 
 ```bash
-# Same paginated lookup pattern, then:
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    itemId: "'"$ITEM_ID"'"
-    fieldId: "'"$GH_STATUS_FIELD_ID"'"
-    value: {singleSelectOptionId: "'"$GH_STATUS_IN_REVIEW_ID"'"}
-  }) { projectV2Item { id } }
-}'
+.claude/gh-project set-status <project-issue-number> in-review
 ```
 
 2. Create the final PR from the feature branch into main. **Do NOT merge it.**
