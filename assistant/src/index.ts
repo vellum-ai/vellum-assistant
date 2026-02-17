@@ -997,13 +997,10 @@ program
       for (const cmd of hostCommands) {
         try {
           const response = await sendOneMessage({ type: 'doctor_bash', command: cmd });
-          if (response.type === 'doctor_bash_response') {
-            const resp = response as { type: 'doctor_bash_response'; success: boolean; output?: string; error?: string };
-            if (resp.success && resp.output) {
-              pass(`${cmd}: ${resp.output.split('\n')[0]}`);
-            } else {
-              fail(cmd, resp.error ?? 'unknown error');
-            }
+          if (response.type === 'doctor_bash_response' && response.success && response.output) {
+            pass(`${cmd}: ${response.output.split('\n')[0]}`);
+          } else if (response.type === 'doctor_bash_response') {
+            fail(cmd, response.error ?? 'unknown error');
           } else {
             fail(cmd, 'unexpected response type');
           }

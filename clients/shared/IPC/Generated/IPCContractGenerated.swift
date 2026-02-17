@@ -348,6 +348,39 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCDoctorBashListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCDoctorBashListResponse: Codable, Sendable {
+    public let type: String
+    public let commands: [IPCDoctorBashListResponseCommand]
+}
+
+public struct IPCDoctorBashListResponseCommand: Codable, Sendable {
+    public let command: String
+    public let description: String
+}
+
+public struct IPCDoctorBashRequest: Codable, Sendable {
+    public let type: String
+    public let command: String
+}
+
+public struct IPCDoctorBashResponse: Codable, Sendable {
+    public let type: String
+    public let command: String
+    public let success: Bool
+    public let output: String?
+    public let error: String?
+    public let availableCommands: [IPCDoctorBashResponseAvailableCommand]?
+}
+
+public struct IPCDoctorBashResponseAvailableCommand: Codable, Sendable {
+    public let command: String
+    public let description: String
+}
+
 public struct IPCDynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?
