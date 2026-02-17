@@ -1011,18 +1011,27 @@ private struct SlashCommandRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     @State private var isHovered = false
+    private let identity = IdentityInfo.load()
+    private let appearance = AvatarAppearanceManager.shared
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("/\(command.name)")
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
-                Text(command.description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+            HStack(spacing: VSpacing.md) {
+                DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .allowsHitTesting(false)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("/\(command.name)")
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textPrimary)
+                    Text(command.description)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isSelected || isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
