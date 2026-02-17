@@ -1,4 +1,10 @@
+import os
 import SwiftUI
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "CurrentStepIndicator"
+)
 
 /// A simple indicator showing the current step being executed.
 /// Clicking it opens the Activity sidebar with all step details.
@@ -102,7 +108,7 @@ public struct CurrentStepIndicator: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                print("DEBUG: CurrentStepIndicator tapped")
+                log.debug("CurrentStepIndicator tapped")
                 onTap()
             }
             .padding(.top, VSpacing.md)

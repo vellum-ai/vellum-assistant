@@ -1,4 +1,10 @@
 import Foundation
+import os
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "SessionLogger"
+)
 
 struct TurnLog: Codable {
     let step: Int
@@ -92,7 +98,7 @@ final class SessionLogger {
             let data = try encoder.encode(log)
             try data.write(to: fileURL)
         } catch {
-            print("Failed to save session log: \(error)")
+            log.error("Failed to save session log: \(error.localizedDescription)")
         }
     }
 }
