@@ -101,7 +101,6 @@ struct ChatView: View {
     @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     private let appearance = AvatarAppearanceManager.shared
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private static let defaultGreetings = [
@@ -532,7 +531,7 @@ struct ChatView: View {
                         .id("scroll-bottom-anchor")
                 }
                 .padding(.horizontal, VSpacing.xl)
-                .padding(.top, useThreadDrawer ? VSpacing.xs : VSpacing.md)
+                .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
