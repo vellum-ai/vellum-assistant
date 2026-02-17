@@ -86,7 +86,7 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
-    var onReportMessage: ((UUID) -> Void)?
+    var onReportMessage: ((String?) -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -789,7 +789,7 @@ private struct ChatBubble: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
-    var onReportMessage: ((UUID) -> Void)?
+    var onReportMessage: ((String?) -> Void)?
 
     @State private var isRegenerateHovered = false
 
@@ -899,7 +899,7 @@ private struct ChatBubble: View {
                 if !isUser, let onReportMessage,
                    FeatureFlagManager.shared.isEnabled(.monitoringExport) {
                     Button("Report this response") {
-                        onReportMessage(message.id)
+                        onReportMessage(message.daemonMessageId)
                     }
                 }
             }
