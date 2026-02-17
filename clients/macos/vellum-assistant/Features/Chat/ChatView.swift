@@ -445,6 +445,13 @@ struct ChatView: View {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             }
+            .onChange(of: isActivityPanelOpen) {
+                if !isActivityPanelOpen {
+                    withAnimation(VAnimation.standard) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                }
+            }
         }
     }
 
@@ -807,7 +814,10 @@ private struct ChatBubble: View {
             let rawName = message.streamingCodeToolName ?? ""
             let displayName = rawName.replacingOccurrences(of: "_", with: " ")
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                RunningIndicator(label: Self.friendlyRunningLabel(displayName))
+                RunningIndicator(
+                    label: Self.friendlyRunningLabel(displayName),
+                    onTap: { onOpenActivity(message.id) }
+                )
                 CodePreviewView(code: message.streamingCodePreview!)
             }
             .frame(maxWidth: 520, alignment: .leading)
@@ -818,12 +828,18 @@ private struct ChatBubble: View {
             RunningIndicator(
                 label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary),
                 progressiveLabels: progressive,
-                labelInterval: progressive.isEmpty ? 6 : 15
+                labelInterval: progressive.isEmpty ? 6 : 15,
+                onTap: { onOpenActivity(message.id) }
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
             // All tools done but model is still working (generating next tool call)
-            RunningIndicator(label: "Working")
+            RunningIndicator(
+                label: "Thinking",
+                progressiveLabels: ["Thinking", "Figuring out next steps", "Almost ready"],
+                labelInterval: 8,
+                onTap: { onOpenActivity(message.id) }
+            )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
             // All done (or denied) — show chips + regenerate on one line
@@ -1620,11 +1636,14 @@ private struct RunningIndicator: View {
     var progressiveLabels: [String] = []
     /// Seconds between each label transition.
     var labelInterval: TimeInterval = 6
+    /// Optional tap handler — when set, the indicator becomes a clickable button.
+    var onTap: (() -> Void)?
 
     @State private var phase: Int = 0
     @State private var timer: Timer?
     @State private var currentLabelIndex: Int = 0
     @State private var labelTimer: Timer?
+    @State private var isHovered: Bool = false
 
     private var displayLabel: String {
         if progressiveLabels.isEmpty { return label }
@@ -1632,6 +1651,20 @@ private struct RunningIndicator: View {
     }
 
     var body: some View {
+        if let onTap {
+            Button(action: onTap) {
+                indicatorContent
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+        } else {
+            indicatorContent
+        }
+    }
+
+    private var indicatorContent: some View {
         HStack(spacing: VSpacing.xs) {
             Image(systemName: "terminal")
                 .font(.system(size: 10))
@@ -1649,8 +1682,21 @@ private struct RunningIndicator: View {
                     .opacity(dotOpacity(for: index))
             }
 
+            if onTap != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(VColor.textMuted)
+            }
+
             Spacer()
         }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(isHovered ? VColor.backgroundSubtle.opacity(0.6) : Color.clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             startDotAnimation()
             startLabelCycling()
