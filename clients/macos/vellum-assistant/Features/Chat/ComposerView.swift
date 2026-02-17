@@ -448,6 +448,11 @@ private struct ComposerTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
 
+        // Use a centering clip view so text + cursor are vertically centered together
+        let clipView = CenteringClipView()
+        clipView.drawsBackground = false
+        scrollView.contentView = clipView
+
         let textView = ComposerNativeTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
@@ -459,7 +464,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
         textView.textColor = NSColor(VColor.textPrimary)
         textView.insertionPointColor = NSColor(VColor.accent)
-        textView.textContainerInset = NSSize(width: 0, height: 8)
+        textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.string = text
 
         if let container = textView.textContainer {
@@ -558,7 +563,8 @@ private struct ComposerTextView: NSViewRepresentable {
 
             layoutManager.ensureLayout(for: textContainer)
             let usedRect = layoutManager.usedRect(for: textContainer)
-            let rawHeight = ceil(usedRect.height + (textView.textContainerInset.height * 2))
+            let verticalPadding: CGFloat = 16 // 8pt top + 8pt bottom visual breathing room
+            let rawHeight = ceil(usedRect.height + verticalPadding)
             let clampedHeight = min(max(rawHeight, parent.minHeight), parent.maxHeight)
 
             parent.onOverflowChange?(rawHeight > parent.maxHeight)
@@ -656,6 +662,29 @@ private final class ComposerNativeTextView: NSTextView {
         let resigned = super.resignFirstResponder()
         if resigned { onFocusChange?(false) }
         return resigned
+    }
+}
+
+// MARK: - Centering Clip View
+
+/// Custom NSClipView that vertically centers the document view when
+/// the content is shorter than the visible area. This keeps cursor,
+/// text, and placeholder all aligned to the visual center of the
+/// composer field. When content grows beyond the clip view bounds,
+/// normal scroll behavior takes over.
+private final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        if let textView = documentView as? NSTextView,
+           let layoutManager = textView.layoutManager,
+           let textContainer = textView.textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+            let contentHeight = layoutManager.usedRect(for: textContainer).height
+            if contentHeight < bounds.height {
+                rect.origin.y = ceil((contentHeight - bounds.height) / 2)
+            }
+        }
+        return rect
     }
 }
 
