@@ -233,8 +233,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     title: "Sign in to continue",
                     subtitle: "Sign in with your Vellum account to get started.",
                     onStartWithAPIKey: onStartWithAPIKey,
-                    onContinueWithVellum: onContinueWithVellum,
-                    showFooter: false
+                    onContinueWithVellum: onContinueWithVellum
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
