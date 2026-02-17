@@ -189,6 +189,7 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2502 [d] Deny once\n`);
     if (req.allowlistOptions.length > 0) {
       process.stdout.write(`\u2502 [A] Allowlist...\n`);
+      process.stdout.write(`\u2502 [H] Allowlist (high-risk)...\n`);
       process.stdout.write(`\u2502 [D] Denylist...\n`);
     }
     process.stdout.write(`\u2514 > `);
@@ -202,6 +203,13 @@ export async function startCli(): Promise<void> {
       if (trimmed === 'A' || choice === 'allowlist') {
         // pendingConfirmation stays true through sub-prompts
         renderPatternSelection(req, 'always_allow');
+        return;
+      }
+
+      // Uppercase 'H' → high-risk allowlist pattern selection
+      if (trimmed === 'H') {
+        // pendingConfirmation stays true through sub-prompts
+        renderPatternSelection(req, 'always_allow_high_risk');
         return;
       }
 
@@ -240,8 +248,8 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_deny'): void {
-    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
+  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
+    const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${label}: choose command pattern\n`);
     for (let i = 0; i < req.allowlistOptions.length; i++) {
@@ -267,8 +275,8 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_deny'): void {
-    const label = decision === 'always_allow' ? 'Allowlist' : 'Denylist';
+  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
+    const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${label}: choose scope\n`);
     for (let i = 0; i < req.scopeOptions.length; i++) {

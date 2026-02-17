@@ -169,13 +169,30 @@ describe('IPC Validate', () => {
     });
 
     test('accepts all valid decision values', () => {
-      for (const decision of ['allow', 'always_allow', 'deny', 'always_deny']) {
+      for (const decision of ['allow', 'always_allow', 'always_allow_high_risk', 'deny', 'always_deny']) {
         const result = validateClientMessage({
           type: 'confirmation_response',
           requestId: 'req-1',
           decision,
         });
         expect(result.valid).toBe(true);
+      }
+    });
+
+    test('accepts always_allow_high_risk decision', () => {
+      const result = validateClientMessage({
+        type: 'confirmation_response',
+        requestId: 'req-1',
+        decision: 'always_allow_high_risk',
+        selectedPattern: 'Bash(*)',
+        selectedScope: 'global',
+      });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        const msg = result.message as { decision: string; selectedPattern?: string; selectedScope?: string };
+        expect(msg.decision).toBe('always_allow_high_risk');
+        expect(msg.selectedPattern).toBe('Bash(*)');
+        expect(msg.selectedScope).toBe('global');
       }
     });
 
