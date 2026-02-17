@@ -2,6 +2,13 @@
 # Creates a self-signed code signing certificate for local development.
 # This certificate will be trusted by your Mac for signing apps, which helps
 # TCC (permission system) recognize the app consistently across rebuilds.
+#
+# SECURITY NOTE:
+# - Certificate is added to system-wide trust (admin domain) via trustRoot
+# - Private key is created in secure temp directory (700 perms) and deleted on exit
+# - Certificate persists in keychain but private key cannot be extracted after script completes
+# - For DEVELOPMENT ONLY - do not use in production or share this certificate
+# - To remove: security delete-identity -c "Vellum Development"
 
 set -euo pipefail
 
@@ -82,4 +89,9 @@ echo "Next steps:"
 echo "  1. Rebuild the app: ./build.sh clean && ./build.sh run"
 echo "  2. Grant permissions in System Settings when prompted"
 echo "  3. Permissions will now persist across rebuilds!"
+echo
+echo "Security notes:"
+echo "  - Certificate is trusted system-wide (dev-only, do not share)"
+echo "  - Private key deleted (cannot be extracted from keychain)"
+echo "  - To remove: security delete-identity -c \"Vellum Development\""
 echo

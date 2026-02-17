@@ -112,6 +112,46 @@ Press `Enter` or type `y` to create the certificate automatically. This ensures 
 
 **Skip prompt:** To always use adhoc signing, create a `.no-auto-cert` file in this directory.
 
+### Certificate Security & Management
+
+The self-signed "Vellum Development" certificate is trusted system-wide (admin trust domain) for code signing. This is for **development only** and has security implications:
+
+**What this means:**
+- The certificate can sign any code on your Mac (not just Vellum)
+- Private key is deleted immediately after installation (cannot be extracted)
+- Only impacts your local machine (not shared or distributed)
+
+**To view installed certificate:**
+```bash
+security find-identity -v -p codesigning | grep "Vellum Development"
+```
+
+**To remove certificate (if needed):**
+```bash
+# Remove from keychain
+security delete-identity -c "Vellum Development"
+
+# Remove from trust store
+sudo security remove-trusted-cert -d \
+  $(security find-certificate -c "Vellum Development" -a -p | \
+    openssl x509 -text | grep "Serial Number:" | sed 's/.*: //')
+```
+
+**To recreate certificate (if compromised or expired):**
+```bash
+# Remove old certificate first
+security delete-identity -c "Vellum Development"
+
+# Create new one
+./create-dev-cert.sh
+```
+
+**Best practices:**
+- Only use on your personal development machine
+- Remove certificate when done with development (project archived)
+- Recreate if you suspect your machine was compromised
+- Don't use production certificates for development (keep them separate)
+
 ## Auto-Rebuild on Save (Watch Mode)
 
 `./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:
