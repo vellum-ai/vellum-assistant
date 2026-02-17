@@ -259,9 +259,6 @@ struct MainWindowView: View {
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
-        .overlay(alignment: .bottomTrailing) {
-            DemoOverlayView()
-        }
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
@@ -743,6 +740,9 @@ struct MainWindowView: View {
                 ambientAgent: ambientAgent,
                 onMicrophoneToggle: onMicrophoneToggle
             )
+            .overlay(alignment: .bottomTrailing) {
+                DemoOverlayView()
+            }
         }
     }
 

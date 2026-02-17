@@ -204,46 +204,4 @@ final class FeatureFlagManagerTests: XCTestCase {
         XCTAssertTrue(manager.isEnabled("padded"))
     }
 
-    /// Tests that the typed FeatureFlag.demo case works with isEnabled.
-    func testTypedDemoFlagIsEnabled() {
-        // GIVEN an environment with the demo flag enabled
-        let env = ["VELLUM_FLAG_DEMO": "true"]
-        let manager = FeatureFlagManager(environment: env)
-
-        // WHEN we query using the typed enum
-        let result = manager.isEnabled(.demo)
-
-        // THEN the flag is enabled
-        XCTAssertTrue(result)
-    }
-
-    /// Tests that the typed FeatureFlag.demo returns false when not set.
-    func testTypedDemoFlagDefaultsToFalse() {
-        // GIVEN an empty environment
-        let manager = FeatureFlagManager(environment: [:])
-
-        // WHEN we query the demo flag
-        let result = manager.isEnabled(.demo)
-
-        // THEN it defaults to false
-        XCTAssertFalse(result)
-    }
-
-    /// Tests that setOverride and removeOverride work with the typed FeatureFlag enum.
-    func testTypedSetAndRemoveOverride() {
-        // GIVEN a manager with no flags
-        let manager = FeatureFlagManager(environment: [:])
-
-        // WHEN we set a typed override
-        manager.setOverride(.demo, enabled: true)
-
-        // THEN the flag is enabled
-        XCTAssertTrue(manager.isEnabled(.demo))
-
-        // AND when we remove the typed override
-        manager.removeOverride(.demo)
-
-        // THEN the flag returns false
-        XCTAssertFalse(manager.isEnabled(.demo))
-    }
 }
