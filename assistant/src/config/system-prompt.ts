@@ -248,6 +248,8 @@ export function buildOnboardingGuidanceSection(): string {
     '',
     'USER.md contains structured onboarding sections that you must keep up to date as you learn about the user. These sections are client-agnostic and persist across sessions.',
     '',
+    'If a section referenced below does not yet exist in USER.md, create it with the default values shown here before updating. Legacy USER.md files from earlier installations may be missing these sections.',
+    '',
     '### Locale',
     'When the user mentions where they live, their timezone, or their language preferences, update the `## Locale` section in USER.md with the relevant fields (`city`, `region`, `country`, `timezone`, `localeId`). Set `confidence` to `low`, `medium`, or `high` based on how explicit the information was.',
     '',
