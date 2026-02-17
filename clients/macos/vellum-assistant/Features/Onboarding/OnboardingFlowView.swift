@@ -17,7 +17,11 @@ struct OnboardingFlowView: View {
             VColor.background.ignoresSafeArea()
 
             if showVellumAuth {
-                AuthContainerView(authManager: authManager)
+                AuthContainerView(authManager: authManager, onBack: {
+                    withAnimation(VAnimation.standard) {
+                        showVellumAuth = false
+                    }
+                })
                     .transition(
                         .asymmetric(
                             insertion: .opacity.combined(with: .offset(y: 12)),

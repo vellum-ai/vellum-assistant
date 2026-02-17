@@ -4,6 +4,7 @@ import VellumAssistantShared
 @MainActor
 struct AuthContainerView: View {
     @Bindable var authManager: AuthManager
+    var onBack: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -13,6 +14,24 @@ struct AuthContainerView: View {
             ScrollView {
                 VStack {
                     Spacer(minLength: VSpacing.xxl)
+
+                    if let onBack {
+                        HStack {
+                            Button(action: onBack) {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text("Back")
+                                        .font(VFont.body)
+                                }
+                                .foregroundColor(VColor.accent)
+                            }
+                            .buttonStyle(.plain)
+                            Spacer()
+                        }
+                        .padding(.horizontal, VSpacing.xxl)
+                        .padding(.bottom, VSpacing.sm)
+                    }
 
                     Image(systemName: "sparkles")
                         .font(.system(size: 28))
