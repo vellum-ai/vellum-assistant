@@ -74,6 +74,9 @@ enum BundleSandbox {
             throw BundleSandboxError.unzipFailed(output)
         }
 
+        // Reject symlinks and hardlinks that could escape the sandbox.
+        try stripUnsafeLinks(in: targetDir)
+
         log.info("Unpacked bundle to \(targetDir.path)")
 
         // Write metadata file
@@ -105,13 +108,57 @@ enum BundleSandbox {
         return (uuid: uuid, directory: targetDir)
     }
 
+    /// Walk the extracted directory and remove any symlinks or hardlinks whose
+    /// real target falls outside `root`. Throws if any are found (after cleanup).
+    private static func stripUnsafeLinks(in root: URL) throws {
+        let fm = FileManager.default
+        let rootReal = root.resolvingSymlinksInPath().path
+
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey, .linkCountKey],
+            options: [.producesRelativePathURLs]
+        ) else { return }
+
+        var removed: [String] = []
+
+        for case let fileURL as URL in enumerator {
+            let absURL = root.appendingPathComponent(fileURL.relativePath)
+
+            let values = try absURL.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .linkCountKey])
+
+            if values.isSymbolicLink == true {
+                // Resolve and check containment
+                let target = absURL.resolvingSymlinksInPath().path
+                if target != rootReal && !target.hasPrefix(rootReal + "/") {
+                    removed.append(fileURL.relativePath)
+                    try? fm.removeItem(at: absURL)
+                }
+            } else if values.isRegularFile == true, let linkCount = values.linkCount, linkCount > 1 {
+                // Hardlink — can't verify target containment, reject outright
+                removed.append(fileURL.relativePath)
+                try? fm.removeItem(at: absURL)
+            }
+        }
+
+        if !removed.isEmpty {
+            log.error("Removed \(removed.count) unsafe link(s) from bundle: \(removed.joined(separator: ", "))")
+            // Clean up the whole extraction and abort
+            try? fm.removeItem(at: root)
+            throw BundleSandboxError.unsafeLinks(removed)
+        }
+    }
+
     enum BundleSandboxError: Error, LocalizedError {
         case unzipFailed(String)
+        case unsafeLinks([String])
 
         var errorDescription: String? {
             switch self {
             case .unzipFailed(let output):
                 return "Failed to extract bundle: \(output)"
+            case .unsafeLinks(let paths):
+                return "Bundle contains unsafe symlinks/hardlinks: \(paths.joined(separator: ", "))"
             }
         }
     }
