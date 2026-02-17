@@ -209,6 +209,7 @@ const handlers: DispatchMap = {
     }
     const session = ctx.sessions.get(msg.sessionId);
     if (session) {
+      ctx.touchSession(msg.sessionId);
       session.handleSurfaceAction(msg.surfaceId, msg.actionId, msg.data);
       return;
     }
@@ -217,6 +218,7 @@ const handlers: DispatchMap = {
   ui_surface_undo: (msg, _socket, ctx) => {
     const session = ctx.sessions.get(msg.sessionId);
     if (session) {
+      ctx.touchSession(msg.sessionId);
       session.handleSurfaceUndo(msg.surfaceId);
       return;
     }

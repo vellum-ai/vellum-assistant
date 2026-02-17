@@ -71,6 +71,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     broadcast: () => {},
     clearAllSessions: () => 0,
     getOrCreateSession: () => { throw new Error('not implemented'); },
+    touchSession: () => {},
   };
   return { ctx, sent };
 }

@@ -132,6 +132,7 @@ export function handleConfirmationResponse(
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
+      ctx.touchSession(sessionId);
       session.handleConfirmationResponse(
         msg.requestId,
         msg.decision as 'allow' | 'always_allow' | 'deny',
@@ -162,6 +163,7 @@ export function handleSecretResponse(
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
+      ctx.touchSession(sessionId);
       session.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
     }
   }
@@ -241,6 +243,7 @@ export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: Handle
   if (sessionId) {
     const session = ctx.sessions.get(sessionId);
     if (session) {
+      ctx.touchSession(sessionId);
       session.abort();
     }
   }
@@ -327,6 +330,7 @@ export function handleUndo(
     ctx.send(socket, { type: 'error', message: 'No active session' });
     return;
   }
+  ctx.touchSession(msg.sessionId);
   const removedCount = session.undo();
   ctx.send(socket, { type: 'undo_complete', removedCount, sessionId: msg.sessionId });
 }
@@ -341,6 +345,7 @@ export async function handleRegenerate(
     ctx.send(socket, { type: 'error', message: 'No active session' });
     return;
   }
+  ctx.touchSession(msg.sessionId);
 
   const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
   const requestId = uuid();

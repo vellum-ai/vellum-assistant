@@ -94,6 +94,7 @@ function createTestContext(sessionId: string): {
     broadcast: () => {},
     clearAllSessions: () => 0,
     getOrCreateSession: () => { throw new Error('not implemented'); },
+    touchSession: () => {},
   };
   return { ctx, sent, observations };
 }

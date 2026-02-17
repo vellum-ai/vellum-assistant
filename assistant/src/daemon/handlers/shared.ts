@@ -112,6 +112,8 @@ export interface HandlerContext {
     rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session>;
+  /** Refresh the eviction timestamp for a session that was accessed directly. */
+  touchSession(sessionId: string): void;
 }
 
 /**

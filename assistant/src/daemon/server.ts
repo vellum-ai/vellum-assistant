@@ -755,6 +755,7 @@ export class DaemonServer {
       clearAllSessions: () => this.clearAllSessions(),
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
+      touchSession: (id) => this.evictor.touch(id),
     };
   }
 
