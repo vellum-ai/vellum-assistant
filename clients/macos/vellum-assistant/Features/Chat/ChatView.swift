@@ -657,10 +657,6 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
-    @State private var isExpanded = true
-    private let truncationLimit = 2000  // Character limit before truncation
-    private let lineLimit = 50  // Maximum lines before truncation
-
     private var statusLabel: String? {
         switch message.status {
         case .queued(let position):
@@ -1169,42 +1165,6 @@ private struct ChatBubble: View {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var shouldTruncate: Bool {
-        if isExpanded { return false }
-        let charCount = message.text.count
-        let lineCount = message.text.components(separatedBy: .newlines).count
-        return charCount > truncationLimit || lineCount > lineLimit
-    }
-
-    private var displayText: String {
-        if shouldTruncate {
-            let lines = message.text.components(separatedBy: .newlines)
-            if lines.count > lineLimit {
-                // Truncate by line count
-                let truncatedLines = lines.prefix(lineLimit)
-                return truncatedLines.joined(separator: "\n")
-            } else {
-                // Truncate by character count
-                return String(message.text.prefix(truncationLimit))
-            }
-        }
-        return message.text
-    }
-
-    private var truncationMessage: String {
-        let charCount = message.text.count
-        let lineCount = message.text.components(separatedBy: .newlines).count
-
-        if lineCount > lineLimit {
-            let hiddenLines = lineCount - lineLimit
-            return "Show more (\(hiddenLines) more lines)"
-        } else if charCount > truncationLimit {
-            let hiddenChars = charCount - truncationLimit
-            return "Show more (\(hiddenChars) more characters)"
-        }
-        return "Show more"
-    }
-
     private var attachmentSummary: String {
         let count = message.attachments.count
         if count == 1 {
@@ -1237,7 +1197,7 @@ private struct ChatBubble: View {
 
             if hasText {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    let segments = parseMarkdownSegments(displayText)
+                    let segments = parseMarkdownSegments(message.text)
                     let hasTable = segments.contains(where: {
                         if case .table = $0 { return true }; return false
                     })
@@ -1268,15 +1228,6 @@ private struct ChatBubble: View {
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    if shouldTruncate || (isExpanded && (message.text.count > truncationLimit || message.text.components(separatedBy: .newlines).count > lineLimit)) {
-                        Button(action: { isExpanded.toggle() }) {
-                            Text(isExpanded ? "Show less" : truncationMessage)
-                                .font(VFont.caption)
-                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.accent)
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
             } else if !message.attachments.isEmpty {
@@ -1399,7 +1350,7 @@ private struct ChatBubble: View {
     private static let maxCacheSize = 100
 
     private var markdownText: AttributedString {
-        let textToRender = displayText
+        let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
         let cacheKey = trimmed.hashValue
 
