@@ -16,7 +16,6 @@ struct SettingsPanel: View {
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
-    @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
@@ -237,18 +236,6 @@ struct SettingsPanel: View {
                         .frame(width: 200)
                     }
 
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Show thread list drawer")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("Access chat history from a left-side drawer instead of tabs")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VToggle(isOn: $useThreadDrawer)
-                    }
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
