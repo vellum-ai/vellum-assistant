@@ -23,9 +23,25 @@ Never use browser/computer-use unless user explicitly approves fallback.
 - When uncertain, draft to ops@ inbox and notify user.
 - Never send cold outreach without explicit user authorization.
 
+## API Key Setup
+
+If `vellum email status --json` returns an error about a missing API key, prompt the user for their AgentMail API key using the secure credential prompt. **Never ask the user to paste the key in chat.**
+
+Use `credential_store` with:
+- action: `prompt`
+- service: `agentmail`
+- field: `api_key`
+- label: `AgentMail API Key`
+- description: `Get your API key from console.agentmail.to`
+- placeholder: `am_us_...`
+- allowed_tools: `["host_bash"]`
+- usage_description: `AgentMail email operations via vellum CLI`
+
+After the credential is stored, retry `vellum email status --json` to confirm it works.
+
 ## Workflow
 
-1. **Preflight:** `vellum email status --json`
+1. **Preflight:** `vellum email status --json` (if API key error, run API Key Setup above)
 2. **Setup (first-time):** domain -> dns -> verify -> inboxes -> webhook
 3. **Draft path:** `vellum email draft create ...` — always draft first
 4. **Send path:** show draft -> user confirms -> `draft approve-send --draft-id <id> --confirm`
