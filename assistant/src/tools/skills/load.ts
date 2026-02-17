@@ -2,7 +2,8 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { loadSkillBySelector } from '../../config/skills.js';
+import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -43,6 +44,28 @@ export class SkillLoadTool implements Tool {
     }
 
     const skill = loaded.skill;
+
+    // Validate recursive includes (fail-closed)
+    if (skill.includes && skill.includes.length > 0) {
+      const catalog = loadSkillCatalog();
+      const catalogIndex = indexCatalogById(catalog);
+      const validation = validateIncludes(skill.id, catalogIndex);
+      if (!validation.ok) {
+        if (validation.error === 'missing') {
+          return {
+            content: `Error: skill "${skill.id}" includes "${validation.missingChildId}" which was not found (referenced by "${validation.parentId}" via path: ${validation.path.join(' → ')})`,
+            isError: true,
+          };
+        }
+        if (validation.error === 'cycle') {
+          return {
+            content: `Error: skill "${skill.id}" has a circular include chain: ${validation.cyclePath.join(' → ')}`,
+            isError: true,
+          };
+        }
+      }
+    }
+
     const body = skill.body.length > 0 ? skill.body : '(No body content)';
 
     let versionHash: string | undefined;
