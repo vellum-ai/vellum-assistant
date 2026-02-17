@@ -12,7 +12,7 @@ export function isPrebuiltHomeBaseApp(app: Pick<AppDefinition, 'name' | 'descrip
   if (app.description?.startsWith(HOME_BASE_PREBUILT_DESCRIPTION_PREFIX)) {
     return true;
   }
-  return app.htmlDefinition.includes('data-vellum-home-base="v1"');
+  return app.htmlDefinition?.includes('data-vellum-home-base="v1"') ?? false;
 }
 
 export function validatePrebuiltHomeBaseHtml(html: string): { valid: boolean; missingAnchors: string[] } {
