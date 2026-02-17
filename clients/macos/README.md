@@ -19,8 +19,8 @@ The iOS app can be tested in three ways:
 
 **1. Xcode Simulator (Recommended for development)**
 ```bash
-# Open the iOS target in Xcode
-open clients/Package.swift
+# Open the iOS target in Xcode (from the clients/macos/ directory)
+open ../Package.swift
 
 # In Xcode:
 # - Select the vellum-assistant-ios scheme
@@ -76,7 +76,7 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 # Build debug .app bundle (→ dist/Vellum.app)
 ./build.sh
 
-# Build + launch
+# Build + launch + watch for changes (auto-rebuild)
 ./build.sh run
 
 # Build release
@@ -97,18 +97,19 @@ The build script uses incremental compilation and caching:
 
 ## Auto-Rebuild on Save (Watch Mode)
 
-For faster development iteration, use the watch script to automatically rebuild and relaunch when you save Swift files or resources:
+`./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:
 
 ```bash
-./watch.sh
+./build.sh run
 ```
 
-**Workflow:**
-1. Start `./watch.sh` in a terminal
-2. Edit Swift files or resources (images, fonts, JSON, assets) in your editor
+**How it works:**
+1. After the initial build and launch, the script watches for file changes
+2. Edit Swift files or resources (.swift, .xcassets) in your editor
 3. Save (Cmd+S)
-4. App automatically rebuilds and relaunches in ~4 seconds!
-5. Multiple rapid saves are debounced automatically
+4. App automatically rebuilds and relaunches in ~4 seconds
+5. Watch polls every 2 seconds for changes (no external dependencies required)
+6. Press Ctrl+C to stop watching
 
 ## SwiftPM Commands
 
@@ -126,37 +127,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 # Build for release
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
-```
-
-## Stable Dev Run (Persist Permissions)
-
-`swift run` rebuilds and runs an unsigned binary, which can trigger macOS Privacy & Security prompts repeatedly.
-Use the signed app launcher instead:
-
-```bash
-# One-time: set your Apple team ID (or set this in Local.xcconfig)
-export DEVELOPMENT_TEAM=YOUR_TEAM_ID
-
-# Build + launch from a stable .app path
-scripts/run-dev.sh
-```
-
-What this does:
-- Builds `vellum-assistant.app` with `xcodebuild` and automatic signing
-- Uses a fixed DerivedData location: `.dev/DerivedData`
-- Launches the same app bundle path each run, so TCC permissions stick across rebuilds
-
-Useful options:
-
-```bash
-# Build without launching
-scripts/run-dev.sh --build-only
-
-# Clean build
-scripts/run-dev.sh --clean
-
-# Override team ID
-scripts/run-dev.sh --team YOUR_TEAM_ID
 ```
 
 ## Test DMG Installer
@@ -232,9 +202,13 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 
 1. Open Terminal and run:
    ```bash
-   open clients/macos/Package.swift
+   # From the clients/macos/ directory:
+   open ../Package.swift
+
+   # Or from the repo root:
+   open clients/Package.swift
    ```
-   This opens the Swift package in Xcode. You can also double-click `Package.swift` in Finder.
+   This opens the Swift package in Xcode. The Package.swift lives in the `clients/` directory and contains both macOS and iOS targets.
 
 2. Xcode will open and start resolving dependencies (you'll see a spinner in the top status bar). Wait for it to finish — this only takes a few seconds.
 
