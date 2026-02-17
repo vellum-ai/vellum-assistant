@@ -1533,7 +1533,7 @@ graph TB
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
+    NO_MATCH -->|"legacy mode (non-default)"| RISK_FALLBACK{"Risk level?"}
     RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
     RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
@@ -1543,7 +1543,7 @@ graph TB
 
 The `permissions.mode` config option (`legacy` or `strict`) controls the default behavior when no trust rule matches a tool invocation.
 
-| Behavior | Legacy mode (default) | Strict mode |
+| Behavior | Legacy mode | Strict mode (default) |
 |---|---|---|
 | Low-risk tools with no matching rule | Auto-allowed | Prompted |
 | Medium-risk tools with no matching rule | Prompted | Prompted |

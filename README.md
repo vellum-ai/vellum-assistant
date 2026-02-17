@@ -190,11 +190,11 @@ All three tools require explicit user approval before execution (Risk Level = Hi
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
 ```bash
-# Default — low-risk tools auto-allowed, medium/high prompted
-vellum config set permissions.mode '"legacy"'
-
-# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
+# Default — ALL tools require an explicit trust rule, no implicit auto-allow
 vellum config set permissions.mode '"strict"'
+
+# Legacy — low-risk tools auto-allowed, medium/high prompted
+vellum config set permissions.mode '"legacy"'
 ```
 
 ### Trust rules
