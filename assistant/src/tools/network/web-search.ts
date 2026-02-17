@@ -12,6 +12,24 @@ const BRAVE_API_URL = 'https://api.search.brave.com/res/v1/web/search';
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 1000;
 
+/**
+ * Parse a Retry-After header value into milliseconds.
+ * RFC 7231 allows either delta-seconds (e.g. "120") or an HTTP-date
+ * (e.g. "Tue, 17 Feb 2026 12:00:00 GMT"). Returns undefined if unparseable.
+ */
+function parseRetryAfterMs(value: string): number | undefined {
+  const seconds = Number(value);
+  if (!isNaN(seconds)) {
+    return seconds * 1000;
+  }
+  // Try HTTP-date format — Date.parse handles RFC 2822 / IMF-fixdate
+  const dateMs = Date.parse(value);
+  if (!isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return undefined;
+}
+
 interface BraveSearchResult {
   title: string;
   url: string;
@@ -158,9 +176,8 @@ class WebSearchTool implements Tool {
 
         if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
           const retryAfter = response.headers.get('retry-after');
-          const delayMs = retryAfter && !isNaN(Number(retryAfter))
-            ? Number(retryAfter) * 1000
-            : RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+          const parsed = retryAfter ? parseRetryAfterMs(retryAfter) : undefined;
+          const delayMs = parsed ?? RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
           log.warn({ attempt: attempt + 1, delayMs }, 'Brave Search rate limited, retrying');
           await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
