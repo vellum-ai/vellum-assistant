@@ -82,9 +82,13 @@ export function validateAttachmentUpload(
   filename: string,
   mimeType: string,
 ): AttachmentValidationResult {
-  const dot = filename.lastIndexOf('.');
+  // Normalize filename: trim whitespace and strip trailing dots to prevent
+  // bypasses like "payload.exe " or "payload.exe."
+  const normalizedFilename = filename.trim().replace(/\.+$/, '');
+
+  const dot = normalizedFilename.lastIndexOf('.');
   if (dot !== -1) {
-    const ext = filename.slice(dot + 1).toLowerCase();
+    const ext = normalizedFilename.slice(dot + 1).toLowerCase();
     if (DANGEROUS_EXTENSIONS.has(ext)) {
       return {
         ok: false,
@@ -93,7 +97,8 @@ export function validateAttachmentUpload(
     }
   }
 
-  const normalised = mimeType.toLowerCase().trim();
+  // Strip MIME parameters (e.g. "text/plain; charset=utf-8" → "text/plain")
+  const normalised = mimeType.toLowerCase().trim().split(';')[0].trim();
   if (!ALLOWED_MIME_TYPES.has(normalised)) {
     return {
       ok: false,

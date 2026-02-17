@@ -166,10 +166,11 @@ export function createTelegramWebhookHandler(
           return true;
         });
 
-        // Process with bounded concurrency
+        // Process with bounded concurrency, skipping individual failures
+        // so that an unsupported attachment doesn't drop the user's message.
         for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
           const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
-          const results = await Promise.all(
+          const results = await Promise.allSettled(
             batch.map(async (att) => {
               const downloaded = await downloadTelegramFile(config, att.fileId, {
                 fileName: att.fileName,
@@ -178,13 +179,16 @@ export function createTelegramWebhookHandler(
               return uploadAttachment(config, routing.assistantId, downloaded);
             }),
           );
-          for (const uploaded of results) {
-            attachmentIds.push(uploaded.id);
+          for (const result of results) {
+            if (result.status === 'fulfilled') {
+              attachmentIds.push(result.value.id);
+            } else {
+              log.warn({ err: result.reason }, "Skipping attachment that failed to upload");
+            }
           }
         }
       } catch (err) {
         log.error({ err }, "Failed to process attachments");
-        return Response.json({ error: "Failed to process attachments" }, { status: 500 });
       }
     }
 
