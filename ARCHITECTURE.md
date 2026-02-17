@@ -1477,13 +1477,15 @@ graph TB
 
 ### Permission Flow for Skill Tools
 
-Skill-origin tools follow a stricter default permission model than core tools. Even if a skill tool declares `risk: "low"` in its manifest, the permission checker defaults to prompting the user unless a trust rule explicitly allows it.
+Skill-origin tools follow a stricter default permission model than core tools. Even if a skill tool declares `risk: "low"` in its manifest, the permission checker defaults to prompting the user unless a trust rule explicitly allows it. Additionally, high-risk tool invocations always prompt the user even when a matching allow rule exists.
 
 ```mermaid
 graph TB
     TOOL_CALL["Skill tool invocation"] --> PERM["PermissionChecker"]
     PERM --> TRUST{"Matching trust rule<br/>in trust.json?"}
-    TRUST -->|"Allow rule matches"| ALLOW["Auto-allow"]
+    TRUST -->|"Allow rule matches"| HRISK{"Risk level?"}
+    HRISK -->|"Low / Medium"| ALLOW["Auto-allow"]
+    HRISK -->|"High"| HPROMPT["Prompt user<br/>(high-risk always prompts)"]
     TRUST -->|"No rule matches"| ORIGIN{"tool.origin?"}
     ORIGIN -->|"core"| RISK["Normal risk-level logic<br/>Low=auto, Medium=check, High=prompt"]
     ORIGIN -->|"skill"| PROMPT["Always prompt user<br/>(default ask for skill tools)"]
