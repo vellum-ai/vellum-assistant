@@ -158,6 +158,44 @@ describe('deleteAttachment', () => {
     const fetched = getAttachmentById('ast-owner', stored.id);
     expect(fetched).not.toBeNull();
   });
+
+  test('preserves shared attachment when other messages still reference it', () => {
+    const conv = createConversation();
+    const msg1 = addMessage(conv.id, 'user', 'First upload');
+    const msg2 = addMessage(conv.id, 'user', 'Duplicate upload');
+
+    // Dedup: both uploads return the same attachment row
+    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHARED_CONTENT');
+    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHARED_CONTENT');
+    expect(second.id).toBe(first.id);
+
+    linkAttachmentToMessage(msg1.id, first.id, 0);
+    linkAttachmentToMessage(msg2.id, second.id, 0);
+
+    // Delete should succeed but NOT remove the attachment row
+    const result = deleteAttachment('ast-1', first.id);
+    expect(result).toBe(true);
+
+    // Attachment row still exists because messages reference it
+    const fetched = getAttachmentById('ast-1', first.id);
+    expect(fetched).not.toBeNull();
+
+    // Both messages still see the attachment
+    const linked1 = getAttachmentsForMessage(msg1.id, 'ast-1');
+    expect(linked1).toHaveLength(1);
+    const linked2 = getAttachmentsForMessage(msg2.id, 'ast-1');
+    expect(linked2).toHaveLength(1);
+  });
+
+  test('deletes attachment when no messages reference it', () => {
+    const stored = uploadAttachment('ast-1', 'lonely.txt', 'text/plain', 'UNREFERENCED');
+    // No linkAttachmentToMessage call — zero references
+    const result = deleteAttachment('ast-1', stored.id);
+    expect(result).toBe(true);
+
+    const fetched = getAttachmentById('ast-1', stored.id);
+    expect(fetched).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
