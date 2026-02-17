@@ -161,6 +161,7 @@ export const attachments = sqliteTable('attachments', {
   sizeBytes: integer('size_bytes').notNull(),
   kind: text('kind').notNull(),
   dataBase64: text('data_base64').notNull(),
+  contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
 });
 

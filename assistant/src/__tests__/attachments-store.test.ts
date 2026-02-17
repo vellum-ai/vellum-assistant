@@ -102,6 +102,30 @@ describe('uploadAttachment', () => {
     const stored = uploadAttachment('ast-1', 'hello.txt', 'text/plain', 'aGVsbG8=');
     expect(stored.sizeBytes).toBe(5);
   });
+
+  test('deduplicates by content hash within the same assistant', () => {
+    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
+    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
+    expect(second.id).toBe(first.id);
+  });
+
+  test('deduplicates even when filenames differ', () => {
+    const first = uploadAttachment('ast-1', 'original.png', 'image/png', 'DUPECONTENT123');
+    const second = uploadAttachment('ast-1', 'renamed.png', 'image/png', 'DUPECONTENT123');
+    expect(second.id).toBe(first.id);
+  });
+
+  test('does not deduplicate across different assistants', () => {
+    const first = uploadAttachment('ast-1', 'file.txt', 'text/plain', 'CROSSASSISTANT');
+    const second = uploadAttachment('ast-2', 'file.txt', 'text/plain', 'CROSSASSISTANT');
+    expect(second.id).not.toBe(first.id);
+  });
+
+  test('does not deduplicate different content', () => {
+    const first = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'CONTENT_A');
+    const second = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'CONTENT_B');
+    expect(second.id).not.toBe(first.id);
+  });
 });
 
 // ---------------------------------------------------------------------------

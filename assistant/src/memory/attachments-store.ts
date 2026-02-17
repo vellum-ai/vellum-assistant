@@ -104,6 +104,14 @@ export function validateAttachmentUpload(
   return { ok: true };
 }
 
+/**
+ * Compute a content hash for deduplication. Uses Bun.hash (wyhash) for speed,
+ * encoded as base-36 for compact storage.
+ */
+function computeContentHash(dataBase64: string): string {
+  return Bun.hash(dataBase64).toString(36);
+}
+
 export function uploadAttachment(
   assistantId: string,
   filename: string,
@@ -111,6 +119,33 @@ export function uploadAttachment(
   dataBase64: string,
 ): StoredAttachment {
   const db = getDb();
+  const contentHash = computeContentHash(dataBase64);
+
+  // Dedup: if an attachment with the same content already exists for this
+  // assistant, return it instead of storing a duplicate.
+  const existing = db
+    .select({
+      id: attachments.id,
+      assistantId: attachments.assistantId,
+      originalFilename: attachments.originalFilename,
+      mimeType: attachments.mimeType,
+      sizeBytes: attachments.sizeBytes,
+      kind: attachments.kind,
+      createdAt: attachments.createdAt,
+    })
+    .from(attachments)
+    .where(
+      and(
+        eq(attachments.assistantId, assistantId),
+        eq(attachments.contentHash, contentHash),
+      ),
+    )
+    .get();
+
+  if (existing) {
+    return existing;
+  }
+
   const now = Date.now();
   const padding = dataBase64.endsWith('==') ? 2 : (dataBase64.endsWith('=') ? 1 : 0);
   const sizeBytes = Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
@@ -124,6 +159,7 @@ export function uploadAttachment(
     sizeBytes,
     kind,
     dataBase64,
+    contentHash,
     createdAt: now,
   };
 
