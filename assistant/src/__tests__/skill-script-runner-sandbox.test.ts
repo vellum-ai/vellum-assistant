@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,7 +51,7 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 }));
 
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
-import type { RunSkillToolScriptOptions } from '../tools/skills/skill-script-runner.js';
+
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------

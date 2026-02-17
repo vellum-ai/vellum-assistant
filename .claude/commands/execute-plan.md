@@ -37,14 +37,21 @@ Run the tests and type-checks specified in the PR section. Fix any failures befo
 
 #### 3c. Mainline
 
-Ship the changes using the same workflow as `/mainline`:
+Create a branch from the plan (or derive one from the PR title), then ship:
 
-1. Create a branch using the name from the plan (or derive one from the PR title).
-2. Stage and commit with a descriptive message.
-3. Push and create a PR with a title and summary matching the plan.
-4. Read `.private/UNREVIEWED_PRS.md`, append the new PR link, write it back.
-5. Merge immediately: `gh pr merge <N> --squash`.
-6. Switch back to main and pull.
+```bash
+.claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<title from plan>" \
+  --body "## Summary
+<1-3 bullet points>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+  --base main \
+  --merge \
+  --track-unreviewed \
+  --pull-base
+```
 
 #### 3d. Report progress
 

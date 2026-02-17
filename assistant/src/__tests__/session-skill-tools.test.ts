@@ -841,6 +841,65 @@ describe('allowed tool set merging', () => {
 // End-to-end mid-run activation tests
 // ---------------------------------------------------------------------------
 
+// ── Security invariant (PR 34): skill_load is the permission gate ──
+// In strict mode, skill_load requires an explicit trust rule before the
+// tool executor emits a <loaded_skill> marker. Without that marker in
+// the conversation history, projectSkillTools will never activate the
+// skill's tools. The permission enforcement lives in checker.ts; the
+// tests here verify that tool activation only occurs when markers are
+// present — meaning the permission check already succeeded.
+
+describe('skill activation requires loaded_skill marker (security invariant)', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('skill_load tool_use without tool_result marker does not activate skill tools', () => {
+    mockCatalog = [makeSkill('gated')];
+    mockManifests = { gated: makeManifest(['gated_action']) };
+
+    // History has a skill_load call but NO tool_result with a
+    // <loaded_skill> marker — simulating a permission denial or pending
+    // prompt in strict mode where the tool never executed.
+    const history: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'sl-gate-1', name: 'skill_load', input: { skill_id: 'gated' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'sl-gate-1', content: 'Permission denied.' }],
+      },
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(0);
+  });
+
+  test('skill_load with valid marker activates skill tools (approved path)', () => {
+    mockCatalog = [makeSkill('approved')];
+    mockManifests = { approved: makeManifest(['approved_action']) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="approved" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('approved_action');
+    expect(result.allowedToolNames.has('approved_action')).toBe(true);
+  });
+});
+
 describe('mid-run skill tool activation (end-to-end)', () => {
   const baseToolDefs: ToolDefinition[] = [
     { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
@@ -1764,5 +1823,158 @@ describe('versioned markers through session projection', () => {
     const result2 = projectSkillTools([], { previouslyActiveSkillIds: sessionState });
     expect(result2.toolDefinitions).toEqual([]);
     expect(mockUnregisteredSkillIds).toContain('deploy');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hash change re-prompt regression tests (PR 35)
+// Verify that version hash changes trigger re-registration and that the
+// session state accurately tracks the new hash, which downstream components
+// use to decide whether cached approvals still apply.
+// ---------------------------------------------------------------------------
+
+describe('hash change re-prompt regressions (PR 35)', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('approve v1, edit skill (hash changes), v2 triggers re-registration with new hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:approved-hash' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: skill approved and registered with v1 hash
+    const result1 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result1.toolDefinitions).toHaveLength(1);
+    expect(sessionState.get('deploy')).toBe('v1:approved-hash');
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Simulate skill edit — hash changes on disk
+    mockVersionHashes = { deploy: 'v2:edited-hash' };
+    mockUnregisteredSkillIds = [];
+
+    // Turn 2: projection detects hash drift, unregisters old, re-registers new
+    const result2 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result2.toolDefinitions).toHaveLength(1);
+    expect(result2.toolDefinitions[0].name).toBe('deploy_run');
+
+    // Old version was unregistered
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Session state updated to the new hash
+    expect(sessionState.get('deploy')).toBe('v2:edited-hash');
+
+    // Ref count balanced (unregister decremented, re-register incremented)
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('two consecutive edits each trigger re-registration with correct hash', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:first-version' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: initial registration
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:first-version');
+
+    // Edit 1: hash changes to v2
+    mockVersionHashes = { deploy: 'v2:second-version' };
+    mockUnregisteredSkillIds = [];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v2:second-version');
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Edit 2: hash changes to v3
+    mockVersionHashes = { deploy: 'v3:third-version' };
+    mockUnregisteredSkillIds = [];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v3:third-version');
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+
+    // Ref count stays at 1 through all edits
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
+  test('hash change in one skill does not affect co-active skill with stable hash', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+    mockVersionHashes = {
+      deploy: 'v1:deploy-stable',
+      oncall: 'v1:oncall-original',
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="oncall" />'),
+    ];
+
+    // Turn 1: both skills registered
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.get('deploy')).toBe('v1:deploy-stable');
+    expect(sessionState.get('oncall')).toBe('v1:oncall-original');
+
+    // Edit only oncall
+    mockVersionHashes = {
+      deploy: 'v1:deploy-stable', // unchanged
+      oncall: 'v2:oncall-edited',
+    };
+    mockUnregisteredSkillIds = [];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Only oncall was re-registered
+    expect(mockUnregisteredSkillIds).toContain('oncall');
+    expect(mockUnregisteredSkillIds).not.toContain('deploy');
+
+    // Hashes updated correctly
+    expect(sessionState.get('deploy')).toBe('v1:deploy-stable');
+    expect(sessionState.get('oncall')).toBe('v2:oncall-edited');
+  });
+
+  test('registered tools carry updated ownerSkillId after hash change re-registration', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockVersionHashes = { deploy: 'v1:pre-edit' };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    const toolsV1 = mockRegisteredTools.get('deploy');
+    expect(toolsV1).toBeDefined();
+    expect(toolsV1!.length).toBe(1);
+    expect(toolsV1![0].ownerSkillId).toBe('deploy');
+
+    // Edit
+    mockVersionHashes = { deploy: 'v2:post-edit' };
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // After re-registration, tools should still be associated with the skill
+    const toolsV2 = mockRegisteredTools.get('deploy');
+    expect(toolsV2).toBeDefined();
+    expect(toolsV2!.length).toBeGreaterThanOrEqual(1);
+    expect(toolsV2![0].ownerSkillId).toBe('deploy');
   });
 });

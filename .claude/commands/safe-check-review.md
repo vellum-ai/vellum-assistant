@@ -99,10 +99,9 @@ EOF
    )"
    git push origin HEAD
    ```
-6. For each unresolved thread from step 2, reply and resolve:
+6. Resolve all bot review threads from step 2:
    ```
-   gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"<thread-id>", body:"Addressed in latest push."}) { comment { id } } }'
-   gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<thread-id>"}) { thread { isResolved } } }'
+   .claude/gh-review resolve-threads <pr-number> "Addressed in latest push."
    ```
 7. After pushing, request re-review by posting two separate comments on the PR:
    ```bash

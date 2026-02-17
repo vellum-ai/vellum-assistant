@@ -211,23 +211,6 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
 
-                // RIDE SHOTGUN section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("RIDE SHOTGUN")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text("Ride Shotgun lets the assistant watch how you work for a few minutes, then offers to help based on what it observed.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-
-                    Text("Use the menu bar icon or wait for the assistant to offer.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
                 // DISPLAY section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("DISPLAY")
@@ -423,7 +406,7 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textPrimary)
 
                     VStack(alignment: .leading, spacing: 0) {
-                        privacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable Ride Shotgun sessions")
+                        privacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
                         Divider().background(VColor.surfaceBorder)
                         privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
                         Divider().background(VColor.surfaceBorder)

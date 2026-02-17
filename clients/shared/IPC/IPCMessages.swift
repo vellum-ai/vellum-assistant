@@ -1550,6 +1550,7 @@ public enum ServerMessage: Decodable, Sendable {
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case acceptStarterBundleResponse(IPCAcceptStarterBundleResponse)
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
@@ -1719,6 +1720,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "accept_starter_bundle_response":
+            let message = try IPCAcceptStarterBundleResponse(from: decoder)
+            self = .acceptStarterBundleResponse(message)
         case "reminders_list_response":
             let message = try RemindersListResponseMessage(from: decoder)
             self = .remindersListResponse(message)

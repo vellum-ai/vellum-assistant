@@ -154,11 +154,15 @@ struct MainWindowView: View {
         coreLayoutView
             .onChange(of: windowState.isDynamicExpanded) { _, expanded in
                 threadManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+                threadManager.activeViewModel?.isChatDockedToSide = expanded && windowState.isChatDockOpen
             }
             .onChange(of: windowState.activeDynamicSurface?.surfaceId) { _, surfaceId in
                 if windowState.isDynamicExpanded {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
+            }
+            .onChange(of: windowState.isChatDockOpen) { _, docked in
+                threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && docked
             }
             .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Close activity panel if the referenced message no longer exists
@@ -298,6 +302,7 @@ struct MainWindowView: View {
                 threadManager.clearActiveSurface(threadId: oldId)
             }
             threadManager.activeViewModel?.activeSurfaceId = windowState.isDynamicExpanded ? windowState.activeDynamicSurface?.surfaceId : nil
+            threadManager.activeViewModel?.isChatDockedToSide = windowState.isDynamicExpanded && windowState.isChatDockOpen
         }
         .onChange(of: windowState.activePanel) { _, newPanel in
             // Close the left sidebar when the activity panel opens to avoid crowding
@@ -481,6 +486,14 @@ struct MainWindowView: View {
         .background(VColor.backgroundSubtle)
     }
 
+    // MARK: - Drawer Drag Helpers
+
+    private func resetDrawerDragState() {
+        isDrawerDragging = false
+        drawerDragStartWidth = nil
+        drawerDragStartAvailableWidth = nil
+    }
+
     private func drawerDragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
@@ -496,13 +509,9 @@ struct MainWindowView: View {
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
                     .onChanged { value in
-                        // Capture initial state on first drag event (translation near zero = drag just started)
-                        // Always re-initialize if we're at the start of a drag to avoid stale state issues
-                        let deltaX = value.location.x - value.startLocation.x
-                        let isDragStart = abs(deltaX) < 2.0  // Within 2 points of start = new drag
-
-                        if drawerDragStartWidth == nil || isDragStart {
-                            // Force reset and re-initialize state at the start of each drag
+                        // Capture initial state on first drag event. Check both nil state AND
+                        // isDrawerDragging flag to handle race condition where async reset hasn't completed.
+                        if drawerDragStartWidth == nil || !isDrawerDragging {
                             drawerDragStartWidth = threadDrawerWidth
                             drawerDragStartAvailableWidth = availableWidth
                             isDrawerDragging = true
@@ -515,8 +524,9 @@ struct MainWindowView: View {
 
                         // Use a stable parent coordinate space so divider movement
                         // does not feed back into gesture translation while dragging.
+                        let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
-                        let minDrawerWidth: CGFloat = 200  // Increased from 180 for better usability
+                        let minDrawerWidth: CGFloat = 200
                         let minMainContent: CGFloat = 300
                         let sidePanelVisible =
                             (windowState.activePanel != nil &&
@@ -534,20 +544,11 @@ struct MainWindowView: View {
                         }
                     }
                     .onEnded { _ in
-                        isDrawerDragging = false
-                        // Explicitly schedule state reset on next run loop to ensure clean state
-                        DispatchQueue.main.async {
-                            self.drawerDragStartWidth = nil
-                            self.drawerDragStartAvailableWidth = nil
-                        }
+                        resetDrawerDragState()
                     }
             )
             .onDisappear {
-                isDrawerDragging = false
-                DispatchQueue.main.async {
-                    self.drawerDragStartWidth = nil
-                    self.drawerDragStartAvailableWidth = nil
-                }
+                resetDrawerDragState()
             }
     }
 
@@ -1379,7 +1380,9 @@ private struct DynamicWorkspaceWrapper: View {
 
                 Spacer()
 
-                WorkspaceActivityFeed(viewModel: viewModel)
+                if !isChatDockOpen {
+                    WorkspaceActivityFeed(viewModel: viewModel)
+                }
 
                 if !isChatDockOpen {
                     ComposerView(

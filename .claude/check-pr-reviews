@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/check-pr-reviews — Fetch and classify reviewer status for a PR
+# Outputs structured JSON with reviewer verdicts and raw review data.
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/check-pr-reviews <pr-number>
+
+Fetches review data for a PR and classifies each reviewer's status.
+
+Output is JSON with this structure:
+{
+  "pr_number": 123,
+  "created_at": "2024-01-15T10:00:00Z",
+  "age_seconds": 3600,
+  "codex": {
+    "status": "approved|changes_requested|rate_limited|pending",
+    "reviews": [...],
+    "inline_comments": [...],
+    "has_plus_one_reaction": true|false
+  },
+  "devin": {
+    "status": "approved|changes_requested|pending",
+    "reviews": [...],
+    "inline_comments": [...]
+  }
+}
+
+Reviewer classification:
+  codex (chatgpt-codex-connector[bot]):
+    approved          — +1 reaction on PR description
+    changes_requested — review or inline comment with suggestions
+    rate_limited      — most recent comment mentions rate limit
+    pending           — none of the above
+
+  devin (devin-ai-integration[bot]):
+    approved          — review containing "No Issues Found"
+    changes_requested — review or inline comment (not "No Issues Found")
+    pending           — no review from this user
+
+Examples:
+  .claude/check-pr-reviews 123
+  .claude/check-pr-reviews 123 | jq '.codex.status'
+EOF
+}
+
+if [ $# -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+PR_NUMBER="$1"
+NOW=$(date -u +%s)
+
+# Fetch all data in parallel using temp files
+TMPDIR_WORK=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_WORK"' EXIT
+
+# 1. PR reviews + comments + creation time
+gh pr view "$PR_NUMBER" --json comments,reviews,createdAt > "$TMPDIR_WORK/pr.json" &
+PID1=$!
+
+# 2. PR description reactions (uses issues API)
+gh api "repos/vellum-ai/vellum-assistant/issues/$PR_NUMBER/reactions" \
+  --jq '[.[] | {user: .user.login, content: .content}]' > "$TMPDIR_WORK/reactions.json" &
+PID2=$!
+
+# 3. Inline review comments
+gh api "repos/vellum-ai/vellum-assistant/pulls/$PR_NUMBER/comments" \
+  --jq '[.[] | {user: .user.login, body: .body, path: .path, line: .line}]' > "$TMPDIR_WORK/inline.json" &
+PID3=$!
+
+wait $PID1 $PID2 $PID3
+
+# Parse creation time and compute age
+CREATED_AT=$(jq -r '.createdAt' "$TMPDIR_WORK/pr.json")
+# macOS date: convert ISO 8601 to epoch
+if date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s >/dev/null 2>&1; then
+  CREATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s)
+else
+  CREATED_EPOCH=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo "$NOW")
+fi
+AGE_SECONDS=$((NOW - CREATED_EPOCH))
+
+# --- Classify Codex ---
+
+# Check for +1 reaction
+CODEX_PLUS_ONE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | length > 0' "$TMPDIR_WORK/reactions.json")
+
+# Get codex reviews
+CODEX_REVIEWS=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector[bot]") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
+
+# Get codex inline comments
+CODEX_INLINE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]")]' "$TMPDIR_WORK/inline.json")
+
+# Check for rate limiting in most recent comment
+CODEX_RATE_LIMITED=$(jq '
+  [.comments[] | select(.author.login == "chatgpt-codex-connector[bot]")]
+  | sort_by(.createdAt)
+  | last
+  | if . == null then false
+    elif (.body | test("rate.?limit|too many requests"; "i")) then true
+    else false
+    end
+' "$TMPDIR_WORK/pr.json")
+
+# Classify codex status
+CODEX_REVIEW_COUNT=$(echo "$CODEX_REVIEWS" | jq 'length')
+CODEX_INLINE_COUNT=$(echo "$CODEX_INLINE" | jq 'length')
+
+if [ "$CODEX_RATE_LIMITED" = "true" ]; then
+  CODEX_STATUS="rate_limited"
+elif [ "$CODEX_PLUS_ONE" = "true" ]; then
+  CODEX_STATUS="approved"
+elif [ "$CODEX_REVIEW_COUNT" -gt 0 ] || [ "$CODEX_INLINE_COUNT" -gt 0 ]; then
+  CODEX_STATUS="changes_requested"
+else
+  CODEX_STATUS="pending"
+fi
+
+# --- Classify Devin ---
+
+# Get devin reviews
+DEVIN_REVIEWS=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration[bot]") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
+
+# Get devin inline comments
+DEVIN_INLINE=$(jq '[.[] | select(.user == "devin-ai-integration[bot]")]' "$TMPDIR_WORK/inline.json")
+
+DEVIN_REVIEW_COUNT=$(echo "$DEVIN_REVIEWS" | jq 'length')
+DEVIN_INLINE_COUNT=$(echo "$DEVIN_INLINE" | jq 'length')
+
+# Check if any devin review says "No Issues Found"
+DEVIN_APPROVED=$(echo "$DEVIN_REVIEWS" | jq '[.[] | select(.body | test("No Issues Found"))] | length > 0')
+
+if [ "$DEVIN_APPROVED" = "true" ]; then
+  DEVIN_STATUS="approved"
+elif [ "$DEVIN_REVIEW_COUNT" -gt 0 ] || [ "$DEVIN_INLINE_COUNT" -gt 0 ]; then
+  DEVIN_STATUS="changes_requested"
+else
+  DEVIN_STATUS="pending"
+fi
+
+# --- Output JSON ---
+
+jq -n \
+  --argjson pr_number "$PR_NUMBER" \
+  --arg created_at "$CREATED_AT" \
+  --argjson age_seconds "$AGE_SECONDS" \
+  --arg codex_status "$CODEX_STATUS" \
+  --argjson codex_reviews "$CODEX_REVIEWS" \
+  --argjson codex_inline "$CODEX_INLINE" \
+  --argjson codex_plus_one "$CODEX_PLUS_ONE" \
+  --arg devin_status "$DEVIN_STATUS" \
+  --argjson devin_reviews "$DEVIN_REVIEWS" \
+  --argjson devin_inline "$DEVIN_INLINE" \
+  '{
+    pr_number: $pr_number,
+    created_at: $created_at,
+    age_seconds: $age_seconds,
+    codex: {
+      status: $codex_status,
+      reviews: $codex_reviews,
+      inline_comments: $codex_inline,
+      has_plus_one_reaction: $codex_plus_one
+    },
+    devin: {
+      status: $devin_status,
+      reviews: $devin_reviews,
+      inline_comments: $devin_inline
+    }
+  }'

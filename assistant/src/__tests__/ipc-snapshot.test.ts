@@ -4,6 +4,7 @@ import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
+import type { ConfirmationRequest } from '../daemon/ipc-contract.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -351,6 +352,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   integration_disconnect: {
     type: 'integration_disconnect',
     integrationId: 'gmail',
+  },
+  accept_starter_bundle: {
+    type: 'accept_starter_bundle',
   },
 };
 
@@ -1016,6 +1020,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_files_changed',
     appId: 'app-001',
   },
+  accept_starter_bundle_response: {
+    type: 'accept_starter_bundle_response',
+    accepted: true,
+    rulesAdded: 5,
+    alreadyAccepted: false,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1124,6 +1134,43 @@ describe('IPC message snapshots', () => {
       expect(parsed.type).toBe('secret_response');
       expect(parsed.requestId).toBe('req-cancel-001');
       expect(parsed.value).toBeUndefined();
+    });
+  });
+
+  // Baseline assertions for principal context in confirmation_request.
+  describe('confirmation principal context baselines', () => {
+    test('confirmation_request includes principal context fields', () => {
+      const req = serverMessages.confirmation_request as ConfirmationRequest;
+      expect(req.principalKind).toBe('skill');
+      expect(req.principalId).toBe('my-skill');
+      expect(req.principalVersion).toBe('sha256:abcdef1234567890');
+    });
+
+    test('confirmation_request principal fields are optional (backward-compatible)', () => {
+      // Core tools omit principal fields — verify the contract allows it
+      const minimal: typeof serverMessages.confirmation_request = {
+        type: 'confirmation_request',
+        requestId: 'req-minimal',
+        toolName: 'bash',
+        input: { command: 'ls' },
+        riskLevel: 'low',
+        allowlistOptions: [],
+        scopeOptions: [],
+      };
+      const serialized = serialize(minimal);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed.principalKind).toBeUndefined();
+      expect(parsed.principalId).toBeUndefined();
+      expect(parsed.principalVersion).toBeUndefined();
+    });
+
+    test('confirmation_request round-trips with all principal fields', () => {
+      const req = serverMessages.confirmation_request;
+      const serialized = serialize(req);
+      const parsed = JSON.parse(serialized.trimEnd());
+      expect(parsed.principalKind).toBe('skill');
+      expect(parsed.principalId).toBe('my-skill');
+      expect(parsed.principalVersion).toBe('sha256:abcdef1234567890');
     });
   });
 

@@ -6,33 +6,15 @@ Look at every item in .private/UNREVIEWED_PRS.md. Each line is a PR URL like `ht
 
 Check each PR to see if **both** chatgpt-codex-connector and devin-ai-integration have reviewed it and whether they have feedback.
 
-## How to fetch PR data
+## How to fetch PR data and determine review status
 
-Before fetching any PR data, run `date -u +%s` to get the current UTC epoch time. You will need this to accurately compute PR ages for the output table — do not guess the current time.
+For each PR, run:
 
-For each PR, run these commands in parallel:
+```bash
+.claude/check-pr-reviews <number>
+```
 
-1. **Reviews, comments, and creation time:** `gh pr view <number> --json comments,reviews,createdAt`
-2. **PR description reactions:** `gh api repos/vellum-ai/vellum-assistant/issues/<number>/reactions --jq '[.[] | {user: .user.login, content: .content}]'`
-
-Note: PR description reactions use the **issues** API endpoint (not pulls). The `reactionGroups` field from `gh pr view` doesn't include user info.
-
-Also fetch inline review comments if needed: `gh api repos/vellum-ai/vellum-assistant/pulls/<number>/comments --jq '[.[] | {user: .user.login, body: .body}]'`
-
-## How to determine review status
-
-### chatgpt-codex-connector (appears as `chatgpt-codex-connector[bot]`)
-
-- **Approved:** Left a `+1` reaction on the PR description (check the issues reactions endpoint)
-- **Requested changes:** Left a PR review or inline review comment with suggestions/issues (look for reviews or comments by `chatgpt-codex-connector[bot]`)
-- **Rate-limited:** The most recent comment from Codex mentions a rate limit was reached (e.g. "rate limit", "rate_limit", "too many requests"). This is NOT a review — treat it as **Pending**.
-- **Pending:** Neither of the above
-
-### devin-ai-integration (appears as `devin-ai-integration[bot]`)
-
-- **Approved:** Left a PR review containing "No Issues Found" (typically "✅ Devin Review: No Issues Found")
-- **Requested changes:** Left a PR review or inline comment with issues/findings (any review that does NOT say "No Issues Found")
-- **Pending:** No review from this user
+This outputs JSON with `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column.
 
 ## Contextual review assessment
 

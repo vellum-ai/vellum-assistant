@@ -29,6 +29,10 @@ dist
 !.claude/commands/
 !.claude/README.md
 !.claude/worktree
+!.claude/ship
+!.claude/gh-project
+!.claude/gh-review
+!.claude/check-pr-reviews
 .private/
 temp.sh
 context.md

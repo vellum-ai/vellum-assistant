@@ -90,37 +90,24 @@ cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEm
 
 Fix any failures before proceeding.
 
-#### 8d. Commit and push
+#### 8d. Ship (do NOT merge)
+
+**Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
 cd <worktree>
-git add -A
-git commit -m "$(cat <<'EOF'
-<commit message>
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-git push -u origin HEAD
-```
-
-#### 8e. Create PR (do NOT merge)
-
-```bash
-gh pr create --base main --title "<title from plan>" --body "$(cat <<'EOF'
-## Summary
+.claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<title from plan>" \
+  --body "## Summary
 <1-3 bullet points>
 
 Part of plan: <plan filename> (PR <X> of <total>)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+  --base main \
+  --track-unreviewed
 ```
-
-#### 8f. Add to unreviewed list
-
-Read `.private/UNREVIEWED_PRS.md`, append the new PR link, write it back.
 
 ### 9. Save state
 

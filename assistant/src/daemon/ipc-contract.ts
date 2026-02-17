@@ -300,6 +300,10 @@ export interface UpdateTrustRule {
   priority?: number;
 }
 
+export interface AcceptStarterBundle {
+  type: 'accept_starter_bundle';
+}
+
 export interface SchedulesList {
   type: 'schedules_list';
 }
@@ -681,6 +685,7 @@ export type ClientMessage =
   | TrustRulesList
   | RemoveTrustRule
   | UpdateTrustRule
+  | AcceptStarterBundle
   | SchedulesList
   | ScheduleToggle
   | ScheduleRemove
@@ -1153,6 +1158,13 @@ export interface TrustRulesListResponse {
   }>;
 }
 
+export interface AcceptStarterBundleResponse {
+  type: 'accept_starter_bundle_response';
+  accepted: boolean;
+  rulesAdded: number;
+  alreadyAccepted: boolean;
+}
+
 export interface SchedulesListResponse {
   type: 'schedules_list_response';
   schedules: Array<{
@@ -1548,6 +1560,7 @@ export type ServerMessage =
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse
+  | AcceptStarterBundleResponse
   | SchedulesListResponse
   | RemindersListResponse
   | BundleAppResponse

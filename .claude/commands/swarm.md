@@ -66,12 +66,10 @@ ALL work happens here. Do NOT touch the main repo.
 ## Workflow
 1. Make the changes in your worktree.
 2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
-3. Commit with a descriptive message.
-4. Push and create a PR:
-   gh pr create --base main --title "<concise title>" --body "<what changed and why>" --assignee @me
-5. Merge immediately: gh pr merge <number> --squash
-6. Send a message to "lead" with:
-   - The PR link
+3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
+   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
+4. Send a message to "lead" with:
+   - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
    - Which files were modified
    - Any issues or concerns
@@ -82,12 +80,7 @@ For "Address the feedback on <PR URL>" tasks:
 - Follow the same PR creation and merge workflow above.
 - After creating the followup PR, leave a paper trail on the original PR:
   1. Comment on the original PR: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
-  2. Reply to each review thread and resolve it. Fetch threads:
-     `gh api graphql -f query='query { repository(owner:"vellum-ai", name:"vellum-assistant") { pullRequest(number:<original-PR-number>) { reviewThreads(first:100) { nodes { id isResolved comments(first:1) { nodes { body author { login } } } } } } } }'`
-  3. For each unresolved thread from `chatgpt-codex-connector[bot]` or `devin-ai-integration[bot]`, reply and resolve:
-     `gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:"<thread-id>", body:"Addressed in <new-PR-URL>"}) { comment { id } } }'`
-     `gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<thread-id>"}) { thread { isResolved } } }'`
-  4. Leave human review threads untouched.
+  2. Resolve all bot review threads: `.claude/gh-review resolve-threads <original-PR-number> "Addressed in <new-PR-URL>"`
 ```
 
 ## Phase 4: When an agent finishes

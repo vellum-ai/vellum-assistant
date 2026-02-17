@@ -170,16 +170,6 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Ride Shotgun") {
-                Text("Ride Shotgun lets the assistant watch how you work for a few minutes, then offers to help based on what it observed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("Use the menu bar icon or wait for the assistant to offer.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Permissions") {
                 HStack {
                     Image(systemName: accessibilityGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -274,7 +264,7 @@ public struct SettingsView: View {
             }
 
             Section("Privacy & Security") {
-                PrivacyBullet(icon: "eye.slash", text: "AI only runs when you trigger it or enable Ride Shotgun sessions")
+                PrivacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
                 PrivacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
                 PrivacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
                 PrivacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
@@ -408,7 +398,7 @@ private struct PrivacyDetailView: View {
                     privacySection(
                         title: "How Velly Works",
                         items: [
-                            "Velly only activates AI when you explicitly trigger a task, use voice input, or accept a Ride Shotgun invitation. It does not run in the background unless you opt in.",
+                            "Velly only activates AI when you explicitly trigger a task or use voice input. It does not run in the background unless you opt in.",
                             "You are always in control. You can disable the ambient agent, revoke permissions, or clear stored data at any time from Settings.",
                         ]
                     )
@@ -417,7 +407,6 @@ private struct PrivacyDetailView: View {
                         title: "What Data Leaves Your Mac",
                         items: [
                             "When you run a task: screenshots (compressed, max 1280x720) and UI element data (window titles, button labels, text field values) are sent to the Anthropic API over HTTPS.",
-                            "When Ride Shotgun is active: screenshots and UI element data from the current session are sent to Anthropic for analysis.",
                             "Voice input: speech is transcribed on-device using Apple Speech Recognition. Only the final text is sent to Anthropic as part of the task.",
                         ]
                     )

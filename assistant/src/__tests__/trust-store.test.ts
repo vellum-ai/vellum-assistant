@@ -1099,7 +1099,9 @@ describe('Trust Store', () => {
       expect(rule!.tool).toBe('bash');
       expect(rule!.pattern).toBe('git *');
       // Extra fields pass through because the migration does not strip them
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
       expect((rule as any).customField).toBe('should-survive');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
       expect((rule as any).nested).toEqual({ deep: true });
     });
 
@@ -1260,7 +1262,7 @@ describe('Trust Store', () => {
           tool: 'bash',
           pattern: 'git *',
           scope: '/home/user',
-          decision: 'allow',
+          decision: 'allow' as const,
           priority: 100,
           createdAt: 8000,
         },
@@ -1269,7 +1271,7 @@ describe('Trust Store', () => {
           tool: 'file_write',
           pattern: '/tmp/**',
           scope: 'everywhere',
-          decision: 'deny',
+          decision: 'deny' as const,
           priority: 50,
           createdAt: 8001,
         },
@@ -1334,14 +1336,14 @@ describe('Trust Store', () => {
     });
   });
 
-  // ── baseline: approvals are not version-bound (PR 2) ──────────
-  // These tests lock the current behavior where trust rules match by
-  // tool/pattern/scope only. The TrustRule schema has no principal or
-  // version fields, so a rule created for skill v1 still matches
-  // after skill code changes.
+  // ── backward compat: addRule without principal options (PR 2/40) ──
+  // These tests verify that addRule() without explicit principal options
+  // creates wildcard rules. The TrustRule schema *does* support principal
+  // and version fields (since PR 14), but they are only set when explicitly
+  // provided via the options parameter.
 
-  describe('baseline: rules have no version binding (PR 2)', () => {
-    test('addRule creates rules without principal or version fields', () => {
+  describe('backward compat: addRule without principal options (PR 2/40)', () => {
+    test('addRule without principal options creates rules without principal fields', () => {
       const rule = addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
       expect(rule).not.toHaveProperty('principalKind');
       expect(rule).not.toHaveProperty('principalId');
@@ -1350,9 +1352,9 @@ describe('Trust Store', () => {
       expect(rule).not.toHaveProperty('allowHighRisk');
     });
 
-    test('findHighestPriorityRule matches without version context', () => {
+    test('findHighestPriorityRule matches without policy context (backward compat)', () => {
       addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 200);
-      // The function signature is (tool, commands, scope) — no version parameter
+      // Calling without the optional 4th ctx parameter still matches wildcard rules
       const match = findHighestPriorityRule('skill_test_tool', ['skill_test_tool:do-thing'], '/tmp');
       expect(match).not.toBeNull();
       expect(match!.decision).toBe('allow');
@@ -1364,7 +1366,7 @@ describe('Trust Store', () => {
       expect(raw.version).toBe(3);
       const userRule = raw.rules.find((r: { pattern: string }) => r.pattern === 'skill_test_tool:*');
       expect(userRule).toBeDefined();
-      // addRule doesn't set principal fields — they remain absent
+      // addRule without principal options doesn't set principal fields
       expect(userRule).not.toHaveProperty('principalVersion');
       expect(userRule).not.toHaveProperty('principalKind');
     });
