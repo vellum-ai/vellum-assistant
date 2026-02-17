@@ -265,6 +265,22 @@ describe('validateIncludes — cycle detection', () => {
     expect(result.ok).toBe(true);
   });
 
+  test('validates deeply nested chain (4+ levels) without false cycle detection', () => {
+    const catalog = [
+      makeSkill('l1', ['l2']),
+      makeSkill('l2', ['l3']),
+      makeSkill('l3', ['l4']),
+      makeSkill('l4', ['l5']),
+      makeSkill('l5'),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('l1', index);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.visited).toEqual(['l1', 'l2', 'l3', 'l4', 'l5']);
+    }
+  });
+
   test('missing check still works alongside cycle detection', () => {
     const catalog = [
       makeSkill('root', ['exists', 'missing']),

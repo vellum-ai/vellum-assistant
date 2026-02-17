@@ -346,4 +346,64 @@ describe('skill_load tool', () => {
     // Loaded-skill marker must be present (validation passed)
     expect(result.content).toMatch(/<loaded_skill id="grandparent" version="v1:[a-f0-9]{64}" \/>/);
   });
+
+  test('succeeds with diamond dependency and shows only immediate children', async () => {
+    // Diamond: root includes A and B, both A and B include shared-leaf
+    writeSkill('shared-leaf', 'Shared Leaf', 'Shared dependency', 'Shared body');
+    writeSkillWithIncludes('branch-a', 'Branch A', 'First branch', 'Branch A body', ['shared-leaf']);
+    writeSkillWithIncludes('branch-b', 'Branch B', 'Second branch', 'Branch B body', ['shared-leaf']);
+    writeSkillWithIncludes('diamond-root', 'Diamond Root', 'Top of diamond', 'Root body', ['branch-a', 'branch-b']);
+    writeFileSync(
+      join(TEST_DIR, 'skills', 'SKILLS.md'),
+      '- diamond-root\n- branch-a\n- branch-b\n- shared-leaf\n',
+    );
+
+    const result = await executeSkillLoad({ skill: 'diamond-root' });
+    expect(result.isError).toBe(false);
+
+    // Immediate children section should list only branch-a and branch-b
+    expect(result.content).toContain('Included Skills (immediate):');
+    expect(result.content).toContain('branch-a: Branch A');
+    expect(result.content).toContain('branch-b: Branch B');
+
+    // shared-leaf is a transitive dependency — must NOT appear in immediate section
+    const immediateSection = result.content.match(
+      /Included Skills \(immediate\):[\s\S]*?(?=\n\n|<loaded_skill)/,
+    );
+    expect(immediateSection).not.toBeNull();
+    expect(immediateSection![0]).not.toContain('shared-leaf');
+
+    // Exactly one loaded_skill marker (for root only)
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+    expect(result.content).toMatch(/<loaded_skill id="diamond-root" version="v1:[a-f0-9]{64}" \/>/);
+  });
+
+  test('returns error when skill includes itself (self-cycle)', async () => {
+    writeSkillWithIncludes('self-ref', 'Self Referencing', 'Includes itself', 'Body', ['self-ref']);
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- self-ref\n');
+
+    const result = await executeSkillLoad({ skill: 'self-ref' });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('circular');
+    expect(result.content).not.toContain('<loaded_skill');
+  });
+
+  test('skill with empty includes array loads successfully as "none"', async () => {
+    // Write a skill with `includes: []` directly in frontmatter.
+    // The parser normalizes this to undefined, so it should behave identically
+    // to a skill with no includes field.
+    const skillDir = join(TEST_DIR, 'skills', 'empty-includes');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: "Empty Includes"\ndescription: "Has empty array"\nincludes: []\n---\n\nBody.\n',
+    );
+    writeFileSync(join(TEST_DIR, 'skills', 'SKILLS.md'), '- empty-includes\n');
+
+    const result = await executeSkillLoad({ skill: 'empty-includes' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Included Skills (immediate): none');
+    expect(result.content).toMatch(/<loaded_skill id="empty-includes" version="v1:[a-f0-9]{64}" \/>/);
+  });
 });
