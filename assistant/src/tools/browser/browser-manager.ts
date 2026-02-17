@@ -68,6 +68,9 @@ class BrowserManager {
   private contextCreating: Promise<BrowserContext> | null = null;
   private contextCloseHandler: ((...args: unknown[]) => void) | null = null;
   private pages = new Map<string, Page>();
+  private rawPages = new Map<string, any>();
+  private cdpSessions = new Map<string, any>();
+  private screencastCallbacks = new Map<string, (frame: { data: string; metadata: any }) => void>();
   private snapshotMaps = new Map<string, Map<string, string>>();
 
   private async ensureContext(): Promise<BrowserContext> {
@@ -132,6 +135,9 @@ class BrowserManager {
           this.context = null;
           this.contextCloseHandler = null;
           this.pages.clear();
+          this.rawPages.clear();
+          this.cdpSessions.clear();
+          this.screencastCallbacks.clear();
           this.snapshotMaps.clear();
         };
         rawCtx.on('close', this.contextCloseHandler);
@@ -156,21 +162,33 @@ class BrowserManager {
 
     const page = await context.newPage();
     this.pages.set(sessionId, page);
+    this.rawPages.set(sessionId, page);
     log.debug({ sessionId }, 'Session page created');
     return page;
   }
 
   async closeSessionPage(sessionId: string): Promise<void> {
+    await this.stopScreencast(sessionId);
     const page = this.pages.get(sessionId);
     if (page && !page.isClosed()) {
       await page.close();
     }
     this.pages.delete(sessionId);
+    this.rawPages.delete(sessionId);
     this.snapshotMaps.delete(sessionId);
     log.debug({ sessionId }, 'Session page closed');
   }
 
   async closeAllPages(): Promise<void> {
+    // Stop all screencasts first
+    for (const sessionId of this.cdpSessions.keys()) {
+      try {
+        await this.stopScreencast(sessionId);
+      } catch (err) {
+        log.warn({ err, sessionId }, 'Failed to stop screencast');
+      }
+    }
+
     for (const [sessionId, page] of this.pages) {
       if (!page.isClosed()) {
         try {
@@ -181,6 +199,7 @@ class BrowserManager {
       }
     }
     this.pages.clear();
+    this.rawPages.clear();
     this.snapshotMaps.clear();
 
     if (this.context) {
@@ -201,6 +220,44 @@ class BrowserManager {
       this.context = null;
       log.info('Browser context closed');
     }
+  }
+
+  async startScreencast(sessionId: string, onFrame: (frame: { data: string; metadata: any }) => void): Promise<void> {
+    const rawPage = this.rawPages.get(sessionId);
+    if (!rawPage) throw new Error('No page for session');
+
+    const cdp = await rawPage.context().newCDPSession(rawPage);
+    this.cdpSessions.set(sessionId, cdp);
+    this.screencastCallbacks.set(sessionId, onFrame);
+
+    cdp.on('Page.screencastFrame', (params: any) => {
+      onFrame({ data: params.data, metadata: params.metadata });
+      cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+    });
+
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 60,
+      maxWidth: 800,
+      maxHeight: 600,
+      everyNthFrame: 1,
+    });
+  }
+
+  async stopScreencast(sessionId: string): Promise<void> {
+    const cdp = this.cdpSessions.get(sessionId);
+    if (cdp) {
+      try {
+        await cdp.send('Page.stopScreencast');
+        await cdp.detach();
+      } catch {}
+      this.cdpSessions.delete(sessionId);
+      this.screencastCallbacks.delete(sessionId);
+    }
+  }
+
+  isScreencasting(sessionId: string): boolean {
+    return this.cdpSessions.has(sessionId);
   }
 
   storeSnapshotMap(sessionId: string, map: Map<string, string>): void {
