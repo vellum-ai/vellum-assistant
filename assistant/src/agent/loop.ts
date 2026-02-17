@@ -2,11 +2,13 @@ import * as Sentry from '@sentry/node';
 import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { getHookManager } from '../hooks/manager.js';
+import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
 
 const log = getLogger('agent-loop');
 
 export interface AgentLoopConfig {
   maxTokens: number;
+  maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean; budgetTokens: number };
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
   maxToolUseTurns?: number;
@@ -316,13 +318,22 @@ export class AgentLoop {
         }
 
         // Collect result blocks preserving tool_use order (Promise.all maintains order)
-        const resultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
+        const rawResultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
           type: 'tool_result' as const,
           tool_use_id: toolUse.id,
           content: result.content,
           is_error: result.isError,
           ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
         }));
+
+        // Pre-emptively truncate oversized tool results to prevent context overflow
+        const { blocks: resultBlocks, truncatedCount } = truncateOversizedToolResults(
+          rawResultBlocks,
+          this.config.maxInputTokens ?? 180_000,
+        );
+        if (truncatedCount > 0) {
+          log.warn(`Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`);
+        }
 
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {

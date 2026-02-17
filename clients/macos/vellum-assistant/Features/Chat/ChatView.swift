@@ -911,7 +911,7 @@ private struct ChatBubble: View {
                 VStack {
                     Menu {
                         if let onReportMessage {
-                            Button("Report this response") {
+                            Button("Export response for diagnostics") {
                                 onReportMessage(message.daemonMessageId)
                             }
                         }
