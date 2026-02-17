@@ -400,8 +400,9 @@ describe('Permission Checker', () => {
     test('allow rule for scaffold_managed_skill still prompts (High risk)', async () => {
       addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000);
       const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
-      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      // High-risk tools always prompt even with allow rules
       expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
     test('allow rule for scaffold_managed_skill does not match other skill ids', async () => {
@@ -413,8 +414,9 @@ describe('Permission Checker', () => {
     test('wildcard allow rule for delete_managed_skill still prompts (High risk)', async () => {
       addRule('delete_managed_skill', 'delete_managed_skill:*', 'everywhere', 'allow', 2000);
       const result = await check('delete_managed_skill', { skill_id: 'any-skill' }, '/tmp');
-      // High-risk tools always prompt even with allow rules (checker.ts line 302)
+      // High-risk tools always prompt even with allow rules
       expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
     test('computer_use_click prompts by default via computer-use ask rule', async () => {
@@ -478,6 +480,7 @@ describe('Permission Checker', () => {
       addRule('bash', 'sudo *', 'everywhere');
       const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
     // Deny rule tests
@@ -710,8 +713,11 @@ describe('Permission Checker', () => {
       registerTool(highRiskSkillTool);
       addRule('skill_high_risk_tool', 'skill_high_risk_tool:*', '/tmp', 'allow', 2000);
       const result = await check('skill_high_risk_tool', {}, '/tmp');
-      // High-risk tools always prompt even with allow rules
+      // High-risk tools always prompt even with allow rules — assert on the
+      // reason discriminator to verify it's the high-risk fallback path, not
+      // the generic skill-tool default-ask policy.
       expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
   });
 
