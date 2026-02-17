@@ -76,23 +76,46 @@ extension ChatViewModel {
         let isAppTool = toolName == "app_create" || toolName == "app_update"
         guard isAppTool else { return nil }
 
-        // Show the HTML code as it streams in
+        // Find the html JSON string value by locating the opening quote
         let markers = ["\"html\": \"", "\"html\":\""]
         for marker in markers {
-            if let range = accumulatedJson.range(of: marker) {
-                var html = String(accumulatedJson[range.upperBound...])
-                if html.hasSuffix("\"}") {
-                    html = String(html.dropLast(2))
-                } else if html.hasSuffix("\"") {
-                    html = String(html.dropLast(1))
+            guard let range = accumulatedJson.range(of: marker) else { continue }
+            let afterMarker = accumulatedJson[range.upperBound...]
+
+            // Scan for the closing unescaped quote of the JSON string value
+            var result: [Character] = []
+            var i = afterMarker.startIndex
+            while i < afterMarker.endIndex {
+                let ch = afterMarker[i]
+                if ch == "\\" {
+                    let next = afterMarker.index(after: i)
+                    if next < afterMarker.endIndex {
+                        // Single-pass unescape: handle the pair
+                        switch afterMarker[next] {
+                        case "n": result.append("\n")
+                        case "t": result.append("\t")
+                        case "\"": result.append("\"")
+                        case "\\": result.append("\\")
+                        default:
+                            result.append(ch)
+                            result.append(afterMarker[next])
+                        }
+                        i = afterMarker.index(after: next)
+                    } else {
+                        // Trailing backslash (incomplete escape at end of stream)
+                        break
+                    }
+                } else if ch == "\"" {
+                    // Found the closing quote — stop
+                    break
+                } else {
+                    result.append(ch)
+                    i = afterMarker.index(after: i)
                 }
-                html = html
-                    .replacingOccurrences(of: "\\n", with: "\n")
-                    .replacingOccurrences(of: "\\t", with: "\t")
-                    .replacingOccurrences(of: "\\\"", with: "\"")
-                    .replacingOccurrences(of: "\\\\", with: "\\")
-                return html.isEmpty ? nil : html
             }
+
+            let html = String(result)
+            return html.isEmpty ? nil : html
         }
 
         return nil
@@ -368,6 +391,8 @@ extension ChatViewModel {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
@@ -418,6 +443,8 @@ extension ChatViewModel {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
@@ -442,6 +469,8 @@ extension ChatViewModel {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
@@ -723,6 +752,8 @@ extension ChatViewModel {
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
+                messages[index].streamingCodePreview = nil
+                messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
