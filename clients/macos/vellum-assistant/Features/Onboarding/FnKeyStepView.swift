@@ -183,7 +183,7 @@ struct FnKeyStepView: View {
             stopPolling()
         }
 
-        OnboardingFooter(currentStep: 3)
+        OnboardingFooter(currentStep: state.currentStep)
             .padding(.bottom, VSpacing.lg)
     }
 
