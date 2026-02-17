@@ -44,6 +44,7 @@ import {
   handleGetSharedAppMetadata,
   handleDeleteSharedApp,
 } from './routes/app-routes.js';
+import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -201,6 +202,16 @@ export class RuntimeHttpServer {
         return handleGetSharedAppMetadata(sharedMetadataMatch[1]);
       } catch (err) {
         log.error({ err, shareToken: sharedMetadataMatch[1] }, 'Runtime HTTP handler error getting shared app metadata');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
+    }
+
+    // ── Secret management endpoint ─────────────────────────────────────
+    if (path === '/v1/secrets' && req.method === 'POST') {
+      try {
+        return await handleAddSecret(req);
+      } catch (err) {
+        log.error({ err }, 'Runtime HTTP handler error adding secret');
         return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     }
