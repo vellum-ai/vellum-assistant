@@ -179,14 +179,17 @@ public struct ToolConfirmationData: Equatable {
             return Self.describeBashCommand((input["command"]?.value as? String) ?? "")
         case "file_write", "host_file_write":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "I\u{2019}d like to save some changes to a file \u{2014} that ok?" }
             let name = URL(fileURLWithPath: path).lastPathComponent
             return "I\u{2019}d like to save some changes to \(name) \u{2014} that ok?"
         case "file_edit", "host_file_edit":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "I need to make a quick edit to a file \u{2014} cool?" }
             let name = URL(fileURLWithPath: path).lastPathComponent
             return "I need to make a quick edit to \(name) \u{2014} cool?"
         case "file_read", "host_file_read":
             let path = (input["path"]?.value as? String) ?? ""
+            if path.isEmpty { return "Let me take a peek at a file \u{2014} alright?" }
             let name = URL(fileURLWithPath: path).lastPathComponent
             return "Let me take a peek at \(name) \u{2014} alright?"
         case "web_fetch":
