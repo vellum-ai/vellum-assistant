@@ -38,6 +38,7 @@ public struct InlineWidgetCardModifier: ViewModifier {
                 }
                 .allowsHitTesting(false)
             )
+            #if os(macOS)
             .onHover { hovering in
                 guard interactive else { return }
                 isHovered = hovering
@@ -50,6 +51,7 @@ public struct InlineWidgetCardModifier: ViewModifier {
                 }
                 .allowsHitTesting(false)
             )
+            #endif
             .animation(VAnimation.fast, value: isHovered)
     }
 }
