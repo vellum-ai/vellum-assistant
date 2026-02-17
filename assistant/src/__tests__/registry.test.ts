@@ -151,7 +151,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(17);
+    expect(eagerModules.length).toBe(16);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -168,5 +168,46 @@ describe('tool manifest', () => {
     await initializeTools();
     const tools = getAllTools();
     expect(tools.length).toBeGreaterThanOrEqual(eagerModules.length + lazyTools.length);
+  });
+});
+
+describe('baseline characterization: hardcoded tool loading', () => {
+  test('gmail tools are registered via eager module after initializeTools()', async () => {
+    await initializeTools();
+    const allTools = getAllTools();
+    const toolNames = allTools.map(t => t.name);
+
+    const gmailTools = ['gmail_search', 'gmail_list_messages', 'gmail_get_message', 'gmail_mark_read',
+      'gmail_draft', 'gmail_archive', 'gmail_batch_archive', 'gmail_label', 'gmail_batch_label',
+      'gmail_trash', 'gmail_send', 'gmail_unsubscribe'];
+    for (const name of gmailTools) {
+      expect(toolNames).toContain(name);
+    }
+  });
+
+  test('gmail eager module is in eagerModules manifest', () => {
+    expect(eagerModules).toContain('./gmail/executors.js');
+  });
+
+  test('weather tool is registered via eager module after initializeTools()', async () => {
+    await initializeTools();
+    const tool = getTool('get_weather');
+    expect(tool).toBeDefined();
+    expect(tool?.category).toBe('weather');
+  });
+
+  test('weather eager module is in eagerModules manifest', () => {
+    expect(eagerModules).toContain('./weather/get-weather.js');
+  });
+
+  test('claude_code is registered via lazy descriptor after initializeTools()', async () => {
+    await initializeTools();
+    const tool = getTool('claude_code');
+    expect(tool).toBeDefined();
+  });
+
+  test('claude_code lazy descriptor is in lazyTools manifest', () => {
+    const lazyNames = lazyTools.map(t => t.name);
+    expect(lazyNames).toContain('claude_code');
   });
 });
