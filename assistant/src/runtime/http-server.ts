@@ -31,7 +31,10 @@ import {
   handleDeleteConversation,
   handleChannelInbound,
   handleChannelDeliveryAck,
+  handleListDeadLetters,
+  handleReplayDeadLetters,
 } from './routes/channel-routes.js';
+import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import {
   handleServePage,
   handleShareApp,
@@ -68,6 +71,7 @@ export class RuntimeHttpServer {
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
+  private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -83,10 +87,19 @@ export class RuntimeHttpServer {
       fetch: (req) => this.handleRequest(req),
     });
 
+    // Sweep failed channel inbound events for retry every 30 seconds
+    if (this.processMessage) {
+      this.retrySweepTimer = setInterval(() => this.sweepFailedEvents(), 30_000);
+    }
+
     log.info({ port: this.port }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
+    if (this.retrySweepTimer) {
+      clearInterval(this.retrySweepTimer);
+      this.retrySweepTimer = null;
+    }
     if (this.server) {
       this.server.stop(true);
       this.server = null;
@@ -245,10 +258,88 @@ export class RuntimeHttpServer {
         return await handleChannelDeliveryAck(assistantId, req);
       }
 
+      if (endpoint === 'channels/dead-letters' && req.method === 'GET') {
+        return handleListDeadLetters(assistantId);
+      }
+
+      if (endpoint === 'channels/replay' && req.method === 'POST') {
+        return await handleReplayDeadLetters(assistantId, req);
+      }
+
       return Response.json({ error: 'Not found' }, { status: 404 });
     } catch (err) {
       log.error({ err, endpoint, assistantId }, 'Runtime HTTP handler error');
       return Response.json({ error: 'Internal server error' }, { status: 500 });
+    }
+  }
+
+  /**
+   * Periodically retry failed channel inbound events that have passed
+   * their exponential backoff delay.
+   */
+  private async sweepFailedEvents(): Promise<void> {
+    if (!this.processMessage) return;
+
+    const events = channelDeliveryStore.getRetryableEvents();
+    if (events.length === 0) return;
+
+    log.info({ count: events.length }, 'Retrying failed channel inbound events');
+
+    for (const event of events) {
+      if (!event.rawPayload) {
+        // No payload stored — can't replay, move to dead letter
+        channelDeliveryStore.recordProcessingFailure(
+          event.id,
+          new Error('No raw payload stored for replay'),
+        );
+        continue;
+      }
+
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(event.rawPayload) as Record<string, unknown>;
+      } catch {
+        channelDeliveryStore.recordProcessingFailure(
+          event.id,
+          new Error('Failed to parse stored raw payload'),
+        );
+        continue;
+      }
+
+      const content = typeof payload.content === 'string' ? payload.content.trim() : '';
+      const attachmentIds = Array.isArray(payload.attachmentIds) ? payload.attachmentIds as string[] : undefined;
+      const sourceChannel = payload.sourceChannel as string;
+      const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
+
+      const metadataHintsRaw = sourceMetadata?.hints;
+      const metadataHints = Array.isArray(metadataHintsRaw)
+        ? metadataHintsRaw.filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
+        : [];
+      const metadataUxBrief = typeof sourceMetadata?.uxBrief === 'string' && sourceMetadata.uxBrief.trim().length > 0
+        ? sourceMetadata.uxBrief.trim()
+        : undefined;
+
+      try {
+        const { messageId: userMessageId } = await this.processMessage(
+          event.assistantId,
+          event.conversationId,
+          content,
+          attachmentIds,
+          {
+            transport: {
+              channelId: sourceChannel,
+              hints: metadataHints.length > 0 ? metadataHints : undefined,
+              uxBrief: metadataUxBrief,
+            },
+          },
+        );
+        channelDeliveryStore.linkMessage(event.id, userMessageId);
+        channelDeliveryStore.markProcessed(event.id);
+        log.info({ eventId: event.id }, 'Successfully replayed failed channel event');
+      } catch (err) {
+        log.error({ err, eventId: event.id }, 'Retry failed for channel event');
+        channelDeliveryStore.recordProcessingFailure(event.id, err);
+      }
     }
   }
 

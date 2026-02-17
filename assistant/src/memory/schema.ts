@@ -190,6 +190,11 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   messageId: text('message_id')
     .references(() => messages.id, { onDelete: 'cascade' }),
   deliveryStatus: text('delivery_status').notNull().default('pending'),
+  processingStatus: text('processing_status').notNull().default('pending'),
+  processingAttempts: integer('processing_attempts').notNull().default(0),
+  lastProcessingError: text('last_processing_error'),
+  retryAfter: integer('retry_after'),
+  rawPayload: text('raw_payload'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
