@@ -318,6 +318,9 @@ struct APIKeyStepView: View {
         let configURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vellum/workspace/config.json")
 
+        let dirURL = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
         do {
             let data = try Data(contentsOf: configURL)
             if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
