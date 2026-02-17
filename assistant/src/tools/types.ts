@@ -152,6 +152,9 @@ export interface Tool {
   ownerSkillId?: string;
   /** Content-hash of the owning skill's source at registration time. */
   ownerSkillVersionHash?: string;
+  /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
+   * to accurately label lifecycle events for skill-provided tools. */
+  executionTarget?: ExecutionTarget;
   getDefinition(): ToolDefinition;
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
 }
