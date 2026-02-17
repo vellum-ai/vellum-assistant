@@ -102,6 +102,10 @@ export function getSessionTokenPath(): string {
   return join(getRootDir(), 'session-token');
 }
 
+export function getHttpTokenPath(): string {
+  return join(getRootDir(), 'http-token');
+}
+
 /**
  * Read the daemon session token from disk. Returns null if the file
  * doesn't exist or can't be read (daemon not running).
@@ -109,6 +113,18 @@ export function getSessionTokenPath(): string {
 export function readSessionToken(): string | null {
   try {
     return readFileSync(getSessionTokenPath(), 'utf-8').trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the runtime HTTP bearer token from disk. Returns null if the
+ * file doesn't exist or can't be read (HTTP server not running).
+ */
+export function readHttpToken(): string | null {
+  try {
+    return readFileSync(getHttpTokenPath(), 'utf-8').trim();
   } catch {
     return null;
   }

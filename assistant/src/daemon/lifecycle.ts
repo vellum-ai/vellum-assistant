@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import * as Sentry from '@sentry/node';
@@ -7,6 +8,7 @@ import {
   getInterfacesDir,
   getSocketPath,
   getPidPath,
+  getHttpTokenPath,
   getRootDir,
   ensureDataDir,
   migrateToDataLayout,
@@ -307,8 +309,19 @@ export async function runDaemon(): Promise<void> {
   if (httpPortEnv) {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
+      // Generate a bearer token and write it to disk so HTTP clients
+      // can authenticate. Written before the server starts listening.
+      const bearerToken = randomBytes(32).toString('hex');
+      const httpTokenPath = getHttpTokenPath();
+      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+      chmodSync(httpTokenPath, 0o600);
+
+      const hostname = process.env.RUNTIME_HTTP_HOST?.trim() || '127.0.0.1';
+
       runtimeHttp = new RuntimeHttpServer({
         port,
+        hostname,
+        bearerToken,
         processMessage: (assistantId, conversationId, content, attachmentIds, options) =>
           server.processMessage(assistantId, conversationId, content, attachmentIds, options),
         persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds, options) =>
@@ -317,10 +330,10 @@ export async function runDaemon(): Promise<void> {
         interfacesDir: getInterfacesDir(),
       });
       try {
-        log.info({ port }, 'Daemon startup: starting runtime HTTP server');
+        log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
         await runtimeHttp.start();
         server.setHttpPort(port);
-        log.info({ port }, 'Daemon startup: runtime HTTP server listening');
+        log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
       } catch (err) {
         log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
         runtimeHttp = null;
