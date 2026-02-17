@@ -60,6 +60,43 @@ public final class FeatureFlagManager: @unchecked Sendable {
         removeOverride(flag.rawValue)
     }
 
+    /// Load VELLUM_FLAG_* entries from a `.env` file and apply them as overrides.
+    public func loadFromFile(at path: String) {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            guard key.hasPrefix(flagPrefix) else { continue }
+            let name = String(key.dropFirst(flagPrefix.count)).lowercased().replacingOccurrences(of: "_", with: "")
+            guard !name.isEmpty else { continue }
+            let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            flags[name] = Self.parseBool(value)
+        }
+    }
+
+    /// Walk up from the app executable to find the repo root `.env` file.
+    public static func findRepoEnvFile() -> String? {
+        guard let execURL = Bundle.main.executableURL else { return nil }
+        var dir = execURL.deletingLastPathComponent()
+        for _ in 0..<10 {
+            let candidate = dir.appendingPathComponent(".env")
+            let gitDir = dir.appendingPathComponent(".git")
+            if FileManager.default.fileExists(atPath: gitDir.path),
+               FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate.path
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { break }
+            dir = parent
+        }
+        return nil
+    }
+
     private static func normalize(_ name: String) -> String {
         name.lowercased().replacingOccurrences(of: "_", with: "")
     }

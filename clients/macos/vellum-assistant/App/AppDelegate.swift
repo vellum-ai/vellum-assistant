@@ -125,6 +125,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        if let envPath = FeatureFlagManager.findRepoEnvFile() {
+            FeatureFlagManager.shared.loadFromFile(at: envPath)
+        }
+
         applyThemePreference()
         registerBundledFonts()
         AvatarAppearanceManager.shared.start()
