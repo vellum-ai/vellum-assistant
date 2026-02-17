@@ -29,12 +29,31 @@ mock.module('../util/logger.js', () => ({
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { RiskLevel } from '../permissions/types.js';
 import { addRule, clearCache } from '../permissions/trust-store.js';
+import { registerTool } from '../tools/registry.js';
+import type { Tool } from '../tools/types.js';
 
 // Import managed skill tools so they register in the tool registry.
 // Without this, classifyRisk falls through to RiskLevel.Medium (unknown tool)
 // instead of the declared RiskLevel.High — producing wrong test behavior.
 import '../tools/skills/scaffold-managed.js';
 import '../tools/skills/delete-managed.js';
+
+// Register a mock skill-origin tool for testing default-ask policy.
+const mockSkillTool: Tool = {
+  name: 'skill_test_tool',
+  description: 'A test skill tool',
+  category: 'skill',
+  defaultRiskLevel: RiskLevel.Low,
+  origin: 'skill',
+  ownerSkillId: 'test-skill',
+  getDefinition: () => ({
+    name: 'skill_test_tool',
+    description: 'A test skill tool',
+    input_schema: { type: 'object' as const, properties: {} },
+  }),
+  execute: async () => ({ content: 'ok', isError: false }),
+};
+registerTool(mockSkillTool);
 
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
@@ -597,6 +616,52 @@ describe('Permission Checker', () => {
       addRule('bash', 'sudo *', 'everywhere', 'deny', 100);
       const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('deny');
+    });
+  });
+
+  // ── skill-origin tool default-ask policy ─────────────────────
+
+  describe('skill tool default-ask policy', () => {
+    test('skill tool with Low risk and no matching rule → prompts', async () => {
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Skill tool');
+    });
+
+    test('skill tool with Medium risk and no matching rule → prompts', async () => {
+      // Register a medium-risk skill tool for this test
+      const mediumSkillTool: Tool = {
+        name: 'skill_medium_tool',
+        description: 'A medium-risk skill tool',
+        category: 'skill',
+        defaultRiskLevel: RiskLevel.Medium,
+        origin: 'skill',
+        ownerSkillId: 'test-skill',
+        getDefinition: () => ({
+          name: 'skill_medium_tool',
+          description: 'A medium-risk skill tool',
+          input_schema: { type: 'object' as const, properties: {} },
+        }),
+        execute: async () => ({ content: 'ok', isError: false }),
+      };
+      registerTool(mediumSkillTool);
+      const result = await check('skill_medium_tool', {}, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Skill tool');
+    });
+
+    test('skill tool with matching allow rule → auto-allowed', async () => {
+      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 2000);
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Matched trust rule');
+    });
+
+    test('core tool (no origin) still follows risk-based fallback', async () => {
+      // file_read is a core tool with Low risk → should auto-allow as before
+      const result = await check('file_read', { path: '/tmp/test.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Low risk');
     });
   });
 

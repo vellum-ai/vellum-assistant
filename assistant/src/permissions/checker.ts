@@ -329,6 +329,17 @@ export async function check(
   }
 
   // No matching rule (or High risk with allow rule) → risk-based fallback
+
+  // Skill-origin tools default to prompting when no trust rule matches,
+  // regardless of risk level. This ensures third-party skill tools don't
+  // silently auto-execute even when classified as Low risk.
+  if (!matchedRule) {
+    const tool = getTool(toolName);
+    if (tool?.origin === 'skill') {
+      return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
+    }
+  }
+
   if (risk === RiskLevel.High) {
     return { decision: 'prompt', reason: `High risk: always requires approval` };
   }
