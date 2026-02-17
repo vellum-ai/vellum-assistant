@@ -112,6 +112,28 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   return changed;
 }
 
+/**
+ * Update persisted starter-bundle rules whose pattern no longer matches the
+ * canonical template (e.g. the old "tool:**" prefix was changed to standalone
+ * "**").  Returns true when at least one rule was updated.
+ */
+function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
+  const templatesByID = new Map(getStarterBundleRules().map((t) => [t.id, t]));
+  let changed = false;
+  for (const rule of rules) {
+    const template = templatesByID.get(rule.id);
+    if (template && rule.pattern !== template.pattern) {
+      log.info(
+        { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
+        'Migrated starter rule pattern to current template',
+      );
+      rule.pattern = template.pattern;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function loadFromDisk(): TrustRule[] {
   const path = getTrustPath();
   let rules: TrustRule[] = [];
@@ -167,6 +189,12 @@ function loadFromDisk(): TrustRule[] {
 
   // Backfill default rules at their declared priority
   if (backfillDefaults(rules)) {
+    needsSave = true;
+  }
+
+  // Migrate persisted starter rules whose pattern has drifted from the
+  // current template (e.g. old "tool:**" → "**").
+  if (migrateStarterRulePatterns(rules)) {
     needsSave = true;
   }
 
@@ -469,7 +497,9 @@ export interface AcceptStarterBundleResult {
  * (e.g. from a previous partial acceptance) are skipped individually.
  */
 export function acceptStarterBundle(): AcceptStarterBundleResult {
-  // Re-read from disk to avoid lost updates
+  // Re-read from disk to avoid lost updates.
+  // loadFromDisk() also runs migrateStarterRulePatterns() to fix any
+  // stale patterns (e.g. old "tool:**" → "**") before we get here.
   cachedRules = null;
   cachedStarterBundleAccepted = null;
   const rules = [...getRules()];
