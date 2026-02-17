@@ -14,6 +14,12 @@ const log = getLogger('tool-registry');
 
 const tools = new Map<string, Tool>();
 
+// Snapshot of core tools captured after initializeTools() completes.
+// Used by __resetRegistryForTesting() to restore eager tools that cannot
+// be re-registered because ESM import caching prevents side effects
+// from running a second time.
+let coreToolsSnapshot: Map<string, Tool> | null = null;
+
 // Tracks how many sessions are currently using each skill's tools.
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
@@ -215,15 +221,35 @@ export async function initializeTools(): Promise<void> {
     registerLazyTool(descriptor);
   }
 
+  // Snapshot the core tool set on first initialization so
+  // __resetRegistryForTesting() can restore it. ESM import caching
+  // means eager side-effect modules won't re-register on subsequent
+  // initializeTools() calls, so we need this snapshot to avoid
+  // silently losing tools.
+  if (!coreToolsSnapshot) {
+    coreToolsSnapshot = new Map(tools);
+  }
+
   log.info({ count: tools.size }, 'Tools initialized');
 }
 
 /**
- * Clear all registry state. Exposed exclusively for test isolation —
- * prevents cross-file contamination when multiple test suites share
- * a single Bun process.
+ * Reset registry to its post-initializeTools() baseline. Exposed
+ * exclusively for test isolation — prevents cross-file contamination
+ * when multiple test suites share a single Bun process.
+ *
+ * Restores core tools from a snapshot taken after the first
+ * initializeTools() call, because ESM import caching means eager
+ * side-effect modules will not re-register their tools on subsequent
+ * initializeTools() calls.
  */
 export function __resetRegistryForTesting(): void {
   tools.clear();
   skillRefCount.clear();
+
+  if (coreToolsSnapshot) {
+    for (const [name, tool] of coreToolsSnapshot) {
+      tools.set(name, tool);
+    }
+  }
 }
