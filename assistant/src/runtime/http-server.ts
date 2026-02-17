@@ -63,6 +63,9 @@ const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
 
+/** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
+const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -86,6 +89,7 @@ export class RuntimeHttpServer {
   async start(): Promise<void> {
     this.server = Bun.serve({
       port: this.port,
+      maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req) => this.handleRequest(req),
     });
 
