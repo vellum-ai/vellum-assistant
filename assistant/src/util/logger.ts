@@ -138,7 +138,13 @@ function getRootLogger(): pino.Logger {
         ]);
         rootLogger = pino({ level: 'debug' }, multi);
       } else {
-        rootLogger = pino({ level: 'info' }, fileStream);
+        rootLogger = pino(
+          { level: 'info' },
+          pino.multistream([
+            { stream: fileStream, level: 'info' as const },
+            { stream: pino.destination(1), level: 'info' as const },
+          ]),
+        );
       }
     } catch {
       rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' }, pino.destination(2));
