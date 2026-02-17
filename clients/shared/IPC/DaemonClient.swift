@@ -353,6 +353,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         #if os(macOS)
         log.info("Connecting to daemon socket at \(self.config.socketPath)")
         let endpoint = NWEndpoint.unix(path: self.config.socketPath)
+        let parameters = NWParameters()
+        parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
         #elseif os(iOS)
         // Check UserDefaults first to pick up runtime changes, fall back to config
         // This allows reconnects to pick up changed settings while preserving custom configs for tests
@@ -372,17 +374,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             port = self.config.port
         }
 
-        log.info("Connecting to daemon at \(hostname):\(port)")
+        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(self.config.tlsEnabled))")
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
+        let parameters: NWParameters = self.config.tlsEnabled ? .tls : .tcp
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
-
-        let parameters = NWParameters()
-        parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
 
         let conn = NWConnection(to: endpoint, using: parameters)
         self.connection = conn
@@ -421,6 +421,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                                 do {
                                     #if os(macOS)
                                     try await self.authenticate()
+                                    #elseif os(iOS)
+                                    try await self.authenticateIfNeeded()
                                     #else
                                     self.isAuthenticated = true
                                     #endif
@@ -489,6 +491,48 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     private func authenticate() async throws {
         guard let token = readSessionToken() else {
             throw AuthError.missingToken
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            authContinuation?.resume(throwing: AuthError.rejected("Authentication superseded"))
+            authContinuation = continuation
+
+            authTimeoutTask?.cancel()
+            authTimeoutTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(Self.authTimeout * 1_000_000_000))
+                } catch {
+                    return
+                }
+                guard let self, let pending = self.authContinuation else { return }
+                self.authContinuation = nil
+                self.authTimeoutTask = nil
+                self.isAuthenticated = false
+                pending.resume(throwing: AuthError.timeout)
+            }
+
+            do {
+                try self.send(AuthMessage(token: token))
+            } catch {
+                authContinuation = nil
+                authTimeoutTask?.cancel()
+                authTimeoutTask = nil
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+    #endif
+
+    #if os(iOS)
+    /// Perform token-based authentication if `config.authToken` is set.
+    /// Sends an `AuthMessage` and waits for an `auth_result` response before
+    /// allowing the connection to be marked as ready.
+    /// If no token is configured, marks the connection as authenticated immediately.
+    private func authenticateIfNeeded() async throws {
+        guard let token = config.authToken else {
+            // No token configured — treat as unauthenticated (plain TCP, no handshake).
+            isAuthenticated = true
+            return
         }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -951,7 +995,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         reconnectTask = nil
         stopPingTimer()
-        #if os(macOS)
+        #if os(macOS) || os(iOS)
         if let pending = authContinuation {
             authContinuation = nil
             authTimeoutTask?.cancel()
@@ -1192,7 +1236,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     private func handleAuthResult(_ result: AuthResultMessage) {
-        #if os(macOS)
+        #if os(macOS) || os(iOS)
         isAuthenticated = result.success
         if let pending = authContinuation {
             authContinuation = nil

@@ -16,18 +16,34 @@ public struct DaemonConfig {
     public let hostname: String
     public let port: UInt16
 
-    public init(hostname: String, port: UInt16) {
+    /// Whether to use TLS for the TCP connection (iOS only).
+    public var tlsEnabled: Bool
+
+    /// Authentication token for the daemon TCP handshake (iOS only).
+    public var authToken: String?
+
+    public init(hostname: String, port: UInt16, tlsEnabled: Bool = false, authToken: String? = nil) {
         self.hostname = hostname
         self.port = port
+        self.tlsEnabled = tlsEnabled
+        self.authToken = authToken
     }
 
     public static var `default`: DaemonConfig {
+        return DaemonConfig(hostname: "localhost", port: 8765)
+    }
+
+    /// Create a `DaemonConfig` populated from UserDefaults, falling back to safe defaults.
+    /// Reads: `daemon_hostname`, `daemon_port`, `daemon_tls_enabled`, `daemon_auth_token`.
+    public static func fromUserDefaults() -> DaemonConfig {
         // Treat empty string as nil to ensure fallback to "localhost"
         let hostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? "localhost"
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
         // Validate port is in valid UInt16 range (1-65535) before converting to avoid crash
         let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
-        return DaemonConfig(hostname: hostname, port: finalPort)
+        let tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
+        let authToken = UserDefaults.standard.string(forKey: "daemon_auth_token")
+        return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken.flatMap { $0.isEmpty ? nil : $0 })
     }
     #else
     #error("Unsupported platform")
