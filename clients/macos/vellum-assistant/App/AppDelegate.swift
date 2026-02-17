@@ -744,6 +744,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             setupDaemonClient()
         }
 
+        // Clear persisted step so replay always starts at step 0
+        OnboardingState.clearPersistedState()
+
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
