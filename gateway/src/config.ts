@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { getLogger, type LogFileConfig } from "./logger.js";
 
 const log = getLogger("config");
@@ -64,6 +67,16 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
   return entries;
 }
 
+function readHttpTokenFile(): string | null {
+  const tokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
+    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
+  try {
+    return readFileSync(tokenPath, "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export function loadConfig(): GatewayConfig {
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
   const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
@@ -121,7 +134,7 @@ export function loadConfig(): GatewayConfig {
     process.env.RUNTIME_BEARER_TOKEN || undefined;
 
   const runtimeProxyBearerToken =
-    process.env.RUNTIME_PROXY_BEARER_TOKEN || undefined;
+    readHttpTokenFile() ?? process.env.RUNTIME_PROXY_BEARER_TOKEN ?? undefined;
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
