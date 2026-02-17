@@ -502,7 +502,8 @@ struct MainWindowView: View {
                     onSkills: { windowState.togglePanel(.agent) },
                     onDirectory: { windowState.togglePanel(.directory) },
                     onDebug: { windowState.togglePanel(.debug) },
-                    onDoctor: { windowState.togglePanel(.doctor) }
+                    onDoctor: { windowState.togglePanel(.doctor) },
+                    onIdentity: { windowState.togglePanel(.identity) }
                 )
             }
             .background(VColor.backgroundSubtle)
@@ -1018,6 +1019,7 @@ private struct ControlCenterMenuButton: View {
     let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
+    let onIdentity: () -> Void
     @State private var isHovered = false
     @State private var showDrawer = false
 
@@ -1059,6 +1061,7 @@ private struct ControlCenterMenuButton: View {
                     onSettings: { showDrawer = false; onSettings() },
                     onSkills: { showDrawer = false; onSkills() },
                     onDirectory: { showDrawer = false; onDirectory() },
+                    onIdentity: { showDrawer = false; onIdentity() },
                     onDebug: { showDrawer = false; onDebug() },
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
@@ -1073,6 +1076,7 @@ private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onSkills: () -> Void
     let onDirectory: () -> Void
+    let onIdentity: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
@@ -1081,6 +1085,7 @@ private struct DrawerMenuView: View {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
             DrawerMenuItem(icon: "doc.text", label: "Directory", action: onDirectory)
+            DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
