@@ -101,57 +101,10 @@ Wait for the merge to complete. Confirm with:
 gh pr view <pr-number> --json state,mergedAt
 ```
 
-## Step 4: Update project board status to Done
-
-Source project config:
+## Step 4: Update project board and close issue
 
 ```bash
-source .private/project-config.env
-```
-
-Find the project item for the epic issue and set status to Done:
-
-```bash
-ITEM_ID=""
-CURSOR=""
-while [ -z "$ITEM_ID" ]; do
-  if [ -z "$CURSOR" ]; then
-    AFTER_ARG=""
-  else
-    AFTER_ARG=", after: \"$CURSOR\""
-  fi
-  RESULT=$(gh api graphql -f query='{
-    node(id: "'"$GH_PROJECT_ID"'") {
-      ... on ProjectV2 {
-        items(first: 100'"$AFTER_ARG"') {
-          pageInfo { hasNextPage endCursor }
-          nodes {
-            id
-            content { ... on Issue { number } }
-          }
-        }
-      }
-    }
-  }')
-  ITEM_ID=$(echo "$RESULT" | jq -r '.data.node.items.nodes[] | select(.content.number == <issue-number>) | .id')
-  HAS_NEXT=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.hasNextPage')
-  CURSOR=$(echo "$RESULT" | jq -r '.data.node.items.pageInfo.endCursor')
-  if [ "$HAS_NEXT" != "true" ]; then break; fi
-done
-
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "'"$GH_PROJECT_ID"'"
-    itemId: "'"$ITEM_ID"'"
-    fieldId: "'"$GH_STATUS_FIELD_ID"'"
-    value: {singleSelectOptionId: "'"$GH_STATUS_DONE_ID"'"}
-  }) { projectV2Item { id } }
-}'
-```
-
-## Step 5: Close the project issue
-
-```bash
+.claude/gh-project set-status <project-issue-number> done
 gh issue close <project-issue-number>
 ```
 

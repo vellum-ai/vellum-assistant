@@ -30,6 +30,7 @@ dist
 !.claude/README.md
 !.claude/worktree
 !.claude/ship
+!.claude/gh-project
 .private/
 temp.sh
 context.md

@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# .claude/gh-project — GitHub Projects V2 operations
+# Wraps common project board GraphQL queries into simple CLI commands.
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIG_FILE="$REPO_ROOT/.private/project-config.env"
+
+usage() {
+  cat <<'EOF'
+Usage: .claude/gh-project <command> [args]
+
+Commands:
+  init                               Create project board and write config
+  add-issue <number> [--status S]    Add issue to project, optionally set status
+  set-status <number> <status>       Update an issue's status on the project board
+
+Statuses: triage, ready, in-progress, in-review, done
+
+The config file at .private/project-config.env is auto-sourced for all
+commands except init (which creates it).
+
+Examples:
+  .claude/gh-project init
+  .claude/gh-project add-issue 42 --status ready
+  .claude/gh-project set-status 42 done
+EOF
+}
+
+# Map human-friendly status name to the env var name suffix
+status_var_for() {
+  local status="$1"
+  case "$status" in
+    triage)      echo "GH_STATUS_TRIAGE_ID" ;;
+    ready)       echo "GH_STATUS_READY_ID" ;;
+    in-progress) echo "GH_STATUS_IN_PROGRESS_ID" ;;
+    in-review)   echo "GH_STATUS_IN_REVIEW_ID" ;;
+    done)        echo "GH_STATUS_DONE_ID" ;;
+    *) echo "Error: unknown status '$status'. Use: triage, ready, in-progress, in-review, done" >&2; exit 1 ;;
+  esac
+}
+
+load_config() {
+  if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE not found. Run '.claude/gh-project init' first." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+}
+
+# Find the project item ID for a given issue number (paginated)
+find_item_id() {
+  local issue_number="$1"
+  local item_id=""
+  local cursor=""
+
+  while [ -z "$item_id" ]; do
+    local after_arg=""
+    if [ -n "$cursor" ]; then
+      after_arg=", after: \"$cursor\""
+    fi
+
+    local result
+    result=$(gh api graphql -f query='{
+      node(id: "'"$GH_PROJECT_ID"'") {
+        ... on ProjectV2 {
+          items(first: 100'"$after_arg"') {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              content { ... on Issue { number } }
+            }
+          }
+        }
+      }
+    }')
+
+    item_id=$(echo "$result" | jq -r '.data.node.items.nodes[] | select(.content.number == '"$issue_number"') | .id')
+    local has_next
+    has_next=$(echo "$result" | jq -r '.data.node.items.pageInfo.hasNextPage')
+    cursor=$(echo "$result" | jq -r '.data.node.items.pageInfo.endCursor')
+
+    if [ "$has_next" != "true" ]; then break; fi
+  done
+
+  if [ -z "$item_id" ]; then
+    echo "Error: issue #$issue_number not found on the project board" >&2
+    exit 1
+  fi
+
+  echo "$item_id"
+}
+
+# Update a project item's status field
+update_status() {
+  local item_id="$1"
+  local status_option_id="$2"
+
+  gh api graphql -f query='mutation {
+    updateProjectV2ItemFieldValue(input: {
+      projectId: "'"$GH_PROJECT_ID"'"
+      itemId: "'"$item_id"'"
+      fieldId: "'"$GH_STATUS_FIELD_ID"'"
+      value: {singleSelectOptionId: "'"$status_option_id"'"}
+    }) { projectV2Item { id } }
+  }' > /dev/null
+}
+
+# --- Commands ---
+
+cmd_init() {
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+
+  echo "==> Getting GitHub username..."
+  local gh_username
+  gh_username=$(gh api user --jq '.login')
+
+  local project_title="${gh_username}-vellum-assistant"
+  echo "==> Creating project: $project_title"
+
+  local project_url
+  project_url=$(gh project create --owner "vellum-ai" --title "$project_title" --format json | jq -r '.url')
+  local project_number
+  project_number=$(echo "$project_url" | grep -oE '[0-9]+$')
+
+  echo "==> Getting project node ID..."
+  local project_id
+  project_id=$(gh project view "$project_number" --owner "vellum-ai" --format json | jq -r '.id')
+
+  echo "==> Adding Status field..."
+  local field_result
+  field_result=$(gh api graphql -f query='mutation {
+    addProjectV2SingleSelectField(input: {
+      projectId: "'"$project_id"'"
+      name: "Status"
+      options: [{name:"Triage",color:GRAY},{name:"Ready",color:BLUE},{name:"In Progress",color:YELLOW},{name:"In Review",color:ORANGE},{name:"Done",color:GREEN}]
+    }) { projectV2SingleSelectField { id options { id name } } }
+  }')
+
+  local field_id
+  field_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.id')
+
+  local triage_id ready_id in_progress_id in_review_id done_id
+  triage_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Triage") | .id')
+  ready_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Ready") | .id')
+  in_progress_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "In Progress") | .id')
+  in_review_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "In Review") | .id')
+  done_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Done") | .id')
+
+  echo "==> Writing config to $CONFIG_FILE"
+  cat > "$CONFIG_FILE" <<ENVEOF
+GH_PROJECT_NUMBER=$project_number
+GH_PROJECT_OWNER=vellum-ai
+GH_PROJECT_ID=$project_id
+GH_STATUS_FIELD_ID=$field_id
+GH_STATUS_TRIAGE_ID=$triage_id
+GH_STATUS_READY_ID=$ready_id
+GH_STATUS_IN_PROGRESS_ID=$in_progress_id
+GH_STATUS_IN_REVIEW_ID=$in_review_id
+GH_STATUS_DONE_ID=$done_id
+ENVEOF
+
+  echo "Done. Project #$project_number created: $project_url"
+}
+
+cmd_add_issue() {
+  local issue_number=""
+  local status=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status) status="$2"; shift 2 ;;
+      *) issue_number="$1"; shift ;;
+    esac
+  done
+
+  if [ -z "$issue_number" ]; then
+    echo "Error: issue number is required" >&2
+    echo "Usage: .claude/gh-project add-issue <number> [--status STATUS]" >&2
+    exit 1
+  fi
+
+  load_config
+
+  echo "==> Getting node ID for issue #$issue_number..."
+  local node_id
+  node_id=$(gh api "repos/vellum-ai/vellum-assistant/issues/$issue_number" --jq '.node_id')
+
+  echo "==> Adding issue #$issue_number to project..."
+  local item_id
+  item_id=$(gh api graphql -f query='mutation {
+    addProjectV2ItemById(input: {
+      projectId: "'"$GH_PROJECT_ID"'"
+      contentId: "'"$node_id"'"
+    }) { item { id } }
+  }' --jq '.data.addProjectV2ItemById.item.id')
+
+  echo "Added issue #$issue_number (item: $item_id)"
+
+  if [ -n "$status" ]; then
+    local var_name
+    var_name=$(status_var_for "$status")
+    local option_id="${!var_name}"
+    echo "==> Setting status to $status..."
+    update_status "$item_id" "$option_id"
+    echo "Status set to $status."
+  fi
+}
+
+cmd_set_status() {
+  if [ $# -lt 2 ]; then
+    echo "Error: issue number and status are required" >&2
+    echo "Usage: .claude/gh-project set-status <number> <status>" >&2
+    exit 1
+  fi
+
+  local issue_number="$1"
+  local status="$2"
+
+  load_config
+
+  local var_name
+  var_name=$(status_var_for "$status")
+  local option_id="${!var_name}"
+
+  echo "==> Finding issue #$issue_number on project board..."
+  local item_id
+  item_id=$(find_item_id "$issue_number")
+
+  echo "==> Setting status to $status..."
+  update_status "$item_id" "$option_id"
+
+  echo "Done. Issue #$issue_number status set to $status."
+}
+
+# --- Dispatch ---
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+case "$1" in
+  init) shift; cmd_init "$@" ;;
+  add-issue) shift; cmd_add_issue "$@" ;;
+  set-status) shift; cmd_set_status "$@" ;;
+  -h|--help) usage ;;
+  *) echo "Error: unknown command '$1'" >&2; usage >&2; exit 1 ;;
+esac
