@@ -18,7 +18,7 @@ import type {
   AppUpdatePreviewRequest,
   UiSurfaceShow,
 } from '../ipc-protocol.js';
-import { log, compareSemver, type HandlerContext } from './shared.js';
+import { log, compareSemver, createSigningCallback, type HandlerContext } from './shared.js';
 
 export function handleAppDataRequest(
   msg: AppDataRequest,
@@ -338,7 +338,7 @@ export async function handleShareAppCloud(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await packageApp(msg.appId);
+    const result = await packageApp(msg.appId, createSigningCallback(socket, ctx));
     const bundleData = readFileSync(result.bundlePath);
     const { shareToken } = createSharedAppLink(bundleData, result.manifest);
 
@@ -370,7 +370,7 @@ export async function handleBundleApp(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await packageApp(msg.appId);
+    const result = await packageApp(msg.appId, createSigningCallback(socket, ctx));
     ctx.send(socket, {
       type: 'bundle_app_response',
       bundlePath: result.bundlePath,

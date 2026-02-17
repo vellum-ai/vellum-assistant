@@ -20,6 +20,21 @@ let cachedScreenDims: { width: number; height: number } | null = null;
 // Module-level map for non-session secret prompts (e.g. publish_page)
 export const pendingStandaloneSecrets = new Map<string, { resolve: (result: SecretPromptResult) => void; timer: ReturnType<typeof setTimeout> }>();
 
+// Pending IPC signing responses (bundle signing orchestration)
+interface PendingSigningResolve {
+  resolve: (result: { signature: string; keyId: string; publicKey: string }) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+export const pendingSignBundlePayload = new Map<net.Socket, PendingSigningResolve>();
+
+interface PendingIdentityResolve {
+  resolve: (result: { keyId: string; publicKey: string }) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+export const pendingSigningIdentity = new Map<net.Socket, PendingIdentityResolve>();
+
 export interface HistoryToolCall {
   name: string;
   input: Record<string, unknown>;
@@ -451,6 +466,27 @@ export function requestSecretStandalone(
       allowedTools: params.allowedTools,
     });
   });
+}
+
+const SIGNING_TIMEOUT_MS = 30_000;
+
+/**
+ * Create a SigningCallback that sends `sign_bundle_payload` to the Swift client
+ * over IPC and waits for the `sign_bundle_payload_response`.
+ */
+export function createSigningCallback(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): (payload: string) => Promise<{ signature: string; keyId: string; publicKey: string }> {
+  return (payload: string) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingSignBundlePayload.delete(socket);
+        reject(new Error('Signing request timed out'));
+      }, SIGNING_TIMEOUT_MS);
+      pendingSignBundlePayload.set(socket, { resolve, reject, timer });
+      ctx.send(socket, { type: 'sign_bundle_payload', payload });
+    });
 }
 
 /** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.
