@@ -130,12 +130,22 @@ graph TB
             SYNTH["Synthesizer<br/>LLM + markdown fallback"]
         end
 
+        subgraph "Skill Tool System"
+            SKILL_CATALOG["Skill Catalog<br/>bundled + managed + workspace + extra"]
+            SKILL_MANIFEST["SKILL.md + TOOLS.json<br/>per-skill directory"]
+            SKILL_PROJECTION["projectSkillTools()<br/>session-level projection"]
+            SKILL_DERIVE["deriveActiveSkillIds()<br/>scan &lt;loaded_skill&gt; markers"]
+            SKILL_FACTORY["SkillToolFactory<br/>manifest → Tool objects"]
+            SKILL_HOST_RUNNER["Host Script Runner<br/>in-process import + run()"]
+            SKILL_SANDBOX_RUNNER["Sandbox Script Runner<br/>isolated subprocess"]
+        end
+
         subgraph "Integrations"
             INT_REGISTRY["IntegrationRegistry<br/>in-memory definitions"]
             INT_OAUTH["OAuth2 PKCE Flow<br/>Bun.serve loopback"]
             INT_TOKEN["TokenManager<br/>auto-refresh + retry"]
             GMAIL_CLIENT["GmailClient<br/>REST API wrapper"]
-            GMAIL_TOOLS["Gmail Tools<br/>search, archive, send, etc."]
+            GMAIL_TOOLS["Gmail Tools<br/>(bundled skill: gmail)"]
         end
 
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
@@ -308,6 +318,17 @@ graph TB
     INT_TOKEN -->|"auto-refresh"| KEYCHAIN
     INT_TOKEN --> GMAIL_CLIENT
 
+    %% Skill tool data flow
+    SESSION_MGR -->|"per-turn resolveTools"| SKILL_PROJECTION
+    SKILL_PROJECTION --> SKILL_DERIVE
+    SKILL_DERIVE -->|"&lt;loaded_skill id=...&gt;<br/>markers in history"| SKILL_CATALOG
+    SKILL_PROJECTION --> SKILL_CATALOG
+    SKILL_CATALOG --> SKILL_MANIFEST
+    SKILL_MANIFEST --> SKILL_FACTORY
+    SKILL_FACTORY -->|"register/unregister"| HANDLERS
+    SKILL_FACTORY -->|"host tools"| SKILL_HOST_RUNNER
+    SKILL_FACTORY -->|"sandbox tools"| SKILL_SANDBOX_RUNNER
+
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS
 
@@ -431,6 +452,7 @@ graph LR
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
         APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
+        SKILLS_DIR["skills/<br/>managed skill directories<br/>SKILL.md + TOOLS.json + tools/"]
     end
 
     subgraph "PostgreSQL (Web Server Only)"
@@ -1193,7 +1215,7 @@ graph TB
     end
 
     subgraph "Text Q&A Session"
-        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>headless-browser, ui_show, ..."]
+        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>headless-browser, ui_show, ...<br/>+ dynamically projected skill tools"]
         ESCALATE["request_computer_control<br/>(proxy tool)"]
     end
 
@@ -1364,6 +1386,124 @@ graph TB
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
 - After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
+
+---
+
+## Dynamic Skill Tool System — Runtime Tool Projection
+
+Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools.
+
+### Skill Directory Structure
+
+Each skill directory (bundled, managed, workspace, or extra) may contain:
+
+```
+skills/<skill-id>/
+  SKILL.md          # Skill instructions (frontmatter + markdown body)
+  TOOLS.json        # Tool manifest (optional — skills without tools are instruction-only)
+  tools/            # Executor scripts referenced by TOOLS.json
+    my-tool.ts      # Exports run(input, context) → ToolExecutionResult
+```
+
+### Bundled Skills
+
+The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
+
+| Skill ID | Tools | Purpose |
+|----------|-------|---------|
+| `gmail` | Gmail search, archive, send, etc. | Email management via OAuth2 integration |
+| `claude-code` | Claude Code tool | Delegate coding tasks to Claude Code subprocess |
+| `weather` | `get-weather` | Fetch current weather data |
+| `app-builder` | (instruction-only) | Dynamic app authoring guidance |
+| `self-upgrade` | (instruction-only) | Self-improvement workflow |
+| `start-the-day` | (instruction-only) | Morning briefing routine |
+
+### Activation and Projection Flow
+
+```mermaid
+graph TB
+    subgraph "Activation Sources"
+        SLASH["Slash command<br/>/skill-id → preactivate"]
+        MARKER["&lt;loaded_skill id=&quot;...&quot; /&gt;<br/>marker in conversation history"]
+        CONFIG["Config / session<br/>preactivatedSkillIds"]
+    end
+
+    subgraph "Per-Turn Projection (session-skill-tools.ts)"
+        DERIVE["deriveActiveSkillIds(history)<br/>scan all messages for markers"]
+        UNION["Union: context-derived ∪ preactivated"]
+        DIFF["Diff vs previous turn"]
+        UNREGISTER["unregisterSkillTools(removedId)<br/>tear down stale tools"]
+        CATALOG["loadSkillCatalog()<br/>bundled + managed + workspace + extra"]
+        LOAD_MANIFEST["loadManifestForSkill()<br/>read TOOLS.json from skill dir"]
+        FACTORY["createSkillToolsFromManifest()<br/>→ Tool[] with origin='skill'"]
+        REGISTER["registerSkillTools(tools)<br/>add to global tool registry"]
+        PROJECTION["SkillToolProjection<br/>{toolDefinitions, allowedToolNames}"]
+    end
+
+    subgraph "Agent Loop (loop.ts)"
+        RESOLVE["resolveTools(history) callback<br/>merges base tools + projected skill tools"]
+        PROVIDER["LLM Provider<br/>receives full tool list"]
+    end
+
+    SLASH --> CONFIG
+    MARKER --> DERIVE
+    CONFIG --> UNION
+    DERIVE --> UNION
+    UNION --> DIFF
+    DIFF -->|"removed IDs"| UNREGISTER
+    UNION --> CATALOG
+    CATALOG --> LOAD_MANIFEST
+    LOAD_MANIFEST --> FACTORY
+    FACTORY --> REGISTER
+    REGISTER --> PROJECTION
+    PROJECTION --> RESOLVE
+    RESOLVE --> PROVIDER
+```
+
+### Skill Tool Execution
+
+Skill tool executors are TypeScript scripts that export a `run(input, context)` function. Execution is routed based on the `execution_target` field in `TOOLS.json`:
+
+```mermaid
+graph TB
+    CALL["Model tool_use call"] --> EXEC["ToolExecutor<br/>look up in registry"]
+    EXEC --> CHECK{"tool.origin === 'skill'?"}
+    CHECK -->|"No"| CORE["Core tool execution"]
+    CHECK -->|"Yes"| RUNNER["runSkillToolScript()"]
+    RUNNER --> TARGET{"execution_target?"}
+    TARGET -->|"host"| HOST["Host Script Runner<br/>dynamic import + run()<br/>in-process execution"]
+    TARGET -->|"sandbox"| SANDBOX["Sandbox Script Runner<br/>isolated subprocess<br/>wrapCommand() sandboxing"]
+```
+
+### Permission Flow for Skill Tools
+
+Skill-origin tools follow a stricter default permission model than core tools. Even if a skill tool declares `risk: "low"` in its manifest, the permission checker defaults to prompting the user unless a trust rule explicitly allows it.
+
+```mermaid
+graph TB
+    TOOL_CALL["Skill tool invocation"] --> PERM["PermissionChecker"]
+    PERM --> TRUST{"Matching trust rule<br/>in trust.json?"}
+    TRUST -->|"Allow rule matches"| ALLOW["Auto-allow"]
+    TRUST -->|"No rule matches"| ORIGIN{"tool.origin?"}
+    ORIGIN -->|"core"| RISK["Normal risk-level logic<br/>Low=auto, Medium=check, High=prompt"]
+    ORIGIN -->|"skill"| PROMPT["Always prompt user<br/>(default ask for skill tools)"]
+    TRUST -->|"Deny rule matches"| DENY["Blocked"]
+```
+
+### Key Source Files
+
+| File | Role |
+|------|------|
+| `assistant/src/config/skills.ts` | Skill catalog loading: bundled, managed, workspace, extra directories |
+| `assistant/src/config/bundled-skills/` | Bundled skill directories (gmail, claude-code, weather, etc.) |
+| `assistant/src/skills/tool-manifest.ts` | `TOOLS.json` parser and validator |
+| `assistant/src/skills/active-skill-tools.ts` | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers |
+| `assistant/src/daemon/session-skill-tools.ts` | `projectSkillTools()` — per-turn projection, register/unregister lifecycle |
+| `assistant/src/tools/skills/skill-tool-factory.ts` | `createSkillToolsFromManifest()` — manifest entries to Tool objects |
+| `assistant/src/tools/skills/skill-script-runner.ts` | Host runner: dynamic import + `run()` call |
+| `assistant/src/tools/skills/sandbox-runner.ts` | Sandbox runner: isolated subprocess execution |
+| `assistant/src/tools/registry.ts` | `registerSkillTools()` / `unregisterSkillTools()` — global tool registry |
+| `assistant/src/permissions/checker.ts` | Skill-origin default-ask permission policy |
 
 ---
 
