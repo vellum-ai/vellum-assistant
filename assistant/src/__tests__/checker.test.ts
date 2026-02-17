@@ -3152,41 +3152,37 @@ describe('Permission Checker', () => {
       });
 
       test('execution target-scoped rule matches only the specified target', async () => {
+        await addVersionBoundRule({
+          id: 'inv4-target-scoped',
+          tool: 'host_bash',
+          pattern: 'run *',
+          scope: 'everywhere',
+          decision: 'allow',
+          priority: 2000,
+        });
+
+        // Write the executionTarget field directly (addVersionBoundRule doesn't support it)
         const trustPath = join(checkerTestDir, 'protected', 'trust.json');
-        const { writeFileSync, mkdirSync: mkdirSyncFs, existsSync } = await import('node:fs');
-        const { dirname: dirnameFn } = await import('node:path');
-
-        clearCache();
-        const trustDir = dirnameFn(trustPath);
-        if (!existsSync(trustDir)) mkdirSyncFs(trustDir, { recursive: true });
-
-        writeFileSync(trustPath, JSON.stringify({
-          version: 3,
-          rules: [{
-            id: 'inv4-target-scoped',
-            tool: 'bash',
-            pattern: 'run *',
-            scope: 'everywhere',
-            decision: 'allow',
-            priority: 2000,
-            createdAt: Date.now(),
-            executionTarget: '/usr/local/bin/node',
-          }],
-        }, null, 2));
+        const raw = JSON.parse((await import('node:fs')).readFileSync(trustPath, 'utf-8'));
+        const rule = raw.rules.find((r: any) => r.id === 'inv4-target-scoped');
+        rule.executionTarget = '/usr/local/bin/node';
+        (await import('node:fs')).writeFileSync(trustPath, JSON.stringify(raw, null, 2));
         clearCache();
 
-        // Matching target
-        const matchResult = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+        // Matching target — check() should allow via the target-scoped rule
+        const matchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/node',
         });
-        expect(matchResult).not.toBeNull();
-        expect(matchResult!.id).toBe('inv4-target-scoped');
+        expect(matchResult.decision).toBe('allow');
+        expect(matchResult.matchedRule?.id).toBe('inv4-target-scoped');
 
-        // Different target
-        const noMatchResult = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
+        // Different target — the target-scoped rule should NOT match;
+        // falls back to the default host_bash ask rule (prompt)
+        const noMatchResult = await check('host_bash', { command: 'run script.js' }, '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
-        expect(noMatchResult === null || noMatchResult.id !== 'inv4-target-scoped').toBe(true);
+        expect(noMatchResult.decision).toBe('prompt');
+        expect(noMatchResult.matchedRule?.id).not.toBe('inv4-target-scoped');
       });
     });
 
