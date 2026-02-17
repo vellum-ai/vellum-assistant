@@ -25,10 +25,12 @@ Everything after stripping flags is the **feature description**.
 
 ## Phase 1: Project Setup
 
-1. If `.private/project-config.env` exists, source it. Otherwise, create the project board:
+1. If `.private/project-config.env` does not exist, create the project board:
 
 ```bash
-.claude/gh-project init
+if [ ! -f .private/project-config.env ]; then
+  .claude/gh-project init
+fi
 ```
 
 2. Source the config for later use:
