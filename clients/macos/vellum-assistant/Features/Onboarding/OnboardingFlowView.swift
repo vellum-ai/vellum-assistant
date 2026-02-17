@@ -14,9 +14,9 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if [0, 2, 3, 4].contains(state.currentStep) {
-                // Steps 0–4: Shared layout with persistent icon + background.
-                // Only the content below the icon transitions between steps.
+            if [0, 1, 2].contains(state.currentStep) {
+                // Steps 0–2: Trimmed onboarding flow (WakeUp → APIKey → ModelSelection).
+                // Previous flow used steps [0, 2, 3, 4] — kept below but unreachable.
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -48,12 +48,14 @@ struct OnboardingFlowView: View {
                                     await authManager.startWorkOSLogin()
                                 }
                             })
-                        case 2:
+                        case 1:
                             APIKeyStepView(state: state)
-                        case 3:
+                        case 2:
                             ModelSelectionStepView(state: state)
-                        case 4:
-                            FnKeyStepView(state: state)
+                        // Previous flow (preserved for revert):
+                        // case 2: APIKeyStepView(state: state)
+                        // case 3: ModelSelectionStepView(state: state)
+                        // case 4: FnKeyStepView(state: state)
                         default:
                             EmptyView()
                         }
@@ -146,7 +148,9 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
-            if newStep > 4 {
+            // Trimmed flow ends after step 2 (ModelSelection).
+            // Previous threshold was > 4 (after FnKey step).
+            if newStep > 2 {
                 onComplete()
             }
         }

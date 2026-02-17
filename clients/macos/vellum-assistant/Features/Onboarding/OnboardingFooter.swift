@@ -7,7 +7,7 @@ struct OnboardingFooter: View {
 
     private let totalDots = 4
 
-    init(currentStep: Int, totalSteps: Int = 8) {
+    init(currentStep: Int, totalSteps: Int = 3) {
         self.currentStep = currentStep
         self.totalSteps = totalSteps
     }
