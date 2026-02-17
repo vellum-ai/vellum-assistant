@@ -55,20 +55,6 @@ struct WakeUpStepView: View {
             }
             .padding(.top, VSpacing.xl)
 
-            // Progress dots (4 dots)
-            HStack(spacing: VSpacing.sm) {
-                ForEach(0..<4, id: \.self) { index in
-                    Circle()
-                        .fill(index == 0 ? VColor.textPrimary : VColor.textMuted.opacity(0.3))
-                        .frame(width: index == 0 ? 8 : 6, height: index == 0 ? 8 : 6)
-                }
-            }
-            .padding(.top, VSpacing.lg)
-
-            // Footer
-            Text("© 2026 Vellum Inc.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(VColor.textMuted.opacity(0.5))
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
