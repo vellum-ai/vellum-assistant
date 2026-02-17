@@ -4,7 +4,7 @@
  * Each record holds a .vellumapp zip bundle keyed by a short, shareable token.
  */
 
-import { eq, lte } from 'drizzle-orm';
+import { eq, lte, or, and, isNull } from 'drizzle-orm';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { getDb } from './db.js';
 import { sharedAppLinks } from './schema.js';
@@ -27,11 +27,17 @@ function generateShareToken(): string {
   return randomBytes(9).toString('base64url').slice(0, 12);
 }
 
-/** Delete all rows whose expiresAt has passed. */
+/** Delete all rows whose effective expiry has passed (including legacy NULL rows). */
 function sweepExpiredLinks(): void {
   const db = getDb();
+  const now = Date.now();
   db.delete(sharedAppLinks)
-    .where(lte(sharedAppLinks.expiresAt, Date.now()))
+    .where(or(
+      lte(sharedAppLinks.expiresAt, now),
+      // Legacy rows created before TTL was added have expiresAt = NULL;
+      // treat them as expired once createdAt + TTL has passed.
+      and(isNull(sharedAppLinks.expiresAt), lte(sharedAppLinks.createdAt, now - SHARE_LINK_TTL_MS)),
+    ))
     .run();
 }
 
@@ -71,7 +77,9 @@ export function getSharedAppLink(shareToken: string): SharedAppLinkRecord | null
     .get();
 
   if (!row) return null;
-  if (row.expiresAt != null && row.expiresAt < Date.now()) return null;
+
+  const effectiveExpiry = row.expiresAt ?? row.createdAt + SHARE_LINK_TTL_MS;
+  if (effectiveExpiry < Date.now()) return null;
 
   return {
     id: row.id,
