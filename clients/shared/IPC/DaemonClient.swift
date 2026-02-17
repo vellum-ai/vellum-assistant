@@ -56,9 +56,12 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
 public protocol DaemonClientProtocol {
+    var isConnected: Bool { get }
     var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
+    func connect() async throws
+    func disconnect()
 }
 
 extension Notification.Name {
