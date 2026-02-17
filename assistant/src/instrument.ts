@@ -3,9 +3,9 @@ import { APP_VERSION } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
-  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, // email
-  /\b(?:\d[ -]*?){13,19}\b/g, // credit card
-  /\b\d{3}-\d{2}-\d{4}\b/g, // SSN
+  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+  /\b(?:\d{4}[- ]){3}\d{1,7}\b/g,
+  /\b\d{3}-\d{2}-\d{4}\b/g,
 ];
 
 function redactString(value: string): string {
