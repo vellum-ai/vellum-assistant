@@ -556,6 +556,12 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types accept_starter_bundle serializes to expected JSON 1`] = `
+{
+  "type": "accept_starter_bundle",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1579,5 +1585,14 @@ exports[`IPC message snapshots ServerMessage types app_files_changed serializes 
 {
   "appId": "app-001",
   "type": "app_files_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types accept_starter_bundle_response serializes to expected JSON 1`] = `
+{
+  "accepted": true,
+  "alreadyAccepted": false,
+  "rulesAdded": 5,
+  "type": "accept_starter_bundle_response",
 }
 `;
