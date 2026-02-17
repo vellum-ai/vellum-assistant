@@ -69,6 +69,12 @@ export async function ensureScreencast(
       } satisfies BrowserFrame);
     });
   } catch (err) {
+    // Dismiss the surface we already showed so the client doesn't have an orphaned panel
+    sendToClient({
+      type: 'ui_surface_dismiss',
+      sessionId,
+      surfaceId,
+    });
     // Roll back so future calls can retry
     activeScreencasts.delete(sessionId);
     throw err;
