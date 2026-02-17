@@ -547,3 +547,192 @@ describe('allowed tool set merging', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// End-to-end mid-run activation tests
+// ---------------------------------------------------------------------------
+
+describe('mid-run skill tool activation (end-to-end)', () => {
+  const baseToolDefs: ToolDefinition[] = [
+    { name: 'file_read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+    { name: 'bash', description: 'Run a shell command', input_schema: { type: 'object', properties: {} } },
+  ];
+
+  const CORE_TOOL_NAMES = new Set(['bash', 'file_read', 'file_write', 'file_edit']);
+
+  function makeResolveTools(base: ToolDefinition[]) {
+    return (history: Message[]) => {
+      const projection = projectSkillTools(history);
+      return {
+        toolDefinitions: [...base, ...projection.toolDefinitions],
+        allowedToolNames: new Set([...CORE_TOOL_NAMES, ...projection.allowedToolNames]),
+      };
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection();
+  });
+
+  test('Turn 1 calls skill_load → Turn 2 sees added tool', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Turn 1: no skill markers in history yet
+    const historyTurn1: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Please deploy' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Let me load the deploy skill.' }] },
+    ];
+
+    const turn1Result = resolveTools(historyTurn1);
+    expect(turn1Result.toolDefinitions.map((d) => d.name)).toEqual(['file_read', 'bash']);
+    expect(turn1Result.allowedToolNames.has('deploy_run')).toBe(false);
+
+    // Simulate skill_load output appended as a tool result in the same run
+    const historyTurn2: Message[] = [
+      ...historyTurn1,
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'skill-load-1', content: '<loaded_skill id="deploy" />' },
+        ],
+      },
+    ];
+
+    const turn2Result = resolveTools(historyTurn2);
+    expect(turn2Result.toolDefinitions.map((d) => d.name)).toEqual([
+      'file_read',
+      'bash',
+      'deploy_run',
+    ]);
+    expect(turn2Result.allowedToolNames.has('deploy_run')).toBe(true);
+  });
+
+  test('activation succeeds without requiring a new user message', () => {
+    mockCatalog = [makeSkill('monitor')];
+    mockManifests = { monitor: makeManifest(['monitor_check', 'monitor_alert']) };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // History contains only the initial user message and the assistant's
+    // tool_use that triggered skill_load, followed by the tool result.
+    // No second user message is present — the agent loop re-projects
+    // tools between turns within the same run.
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Monitor the service' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill_id: 'monitor' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-1', content: '<loaded_skill id="monitor" />' },
+        ],
+      },
+    ];
+
+    const result = resolveTools(history);
+
+    // Skill tools appear without needing another user message
+    expect(result.toolDefinitions.map((d) => d.name)).toContain('monitor_check');
+    expect(result.toolDefinitions.map((d) => d.name)).toContain('monitor_alert');
+    expect(result.allowedToolNames.has('monitor_check')).toBe(true);
+    expect(result.allowedToolNames.has('monitor_alert')).toBe(true);
+
+    // Core tools remain accessible
+    for (const core of CORE_TOOL_NAMES) {
+      expect(result.allowedToolNames.has(core)).toBe(true);
+    }
+  });
+
+  test('multiple skills can activate in sequence across turns', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall'), makeSkill('metrics')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+      metrics: makeManifest(['metrics_query', 'metrics_dashboard']),
+    };
+
+    const resolveTools = makeResolveTools(baseToolDefs);
+
+    // Step 1: Load skill A (deploy)
+    const historyAfterA: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'I need to deploy and check oncall' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu-1', name: 'skill_load', input: { skill_id: 'deploy' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-1', content: '<loaded_skill id="deploy" />' },
+        ],
+      },
+    ];
+
+    const resultA = resolveTools(historyAfterA);
+    const namesA = resultA.toolDefinitions.map((d) => d.name);
+    expect(namesA).toContain('deploy_run');
+    expect(namesA).not.toContain('oncall_page');
+    expect(namesA).not.toContain('metrics_query');
+
+    // Step 2: Load skill B (oncall) — deploy should remain active
+    const historyAfterB: Message[] = [
+      ...historyAfterA,
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu-2', name: 'skill_load', input: { skill_id: 'oncall' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-2', content: '<loaded_skill id="oncall" />' },
+        ],
+      },
+    ];
+
+    const resultB = resolveTools(historyAfterB);
+    const namesB = resultB.toolDefinitions.map((d) => d.name);
+    expect(namesB).toContain('deploy_run');
+    expect(namesB).toContain('oncall_page');
+    expect(namesB).not.toContain('metrics_query');
+
+    // Step 3: Load skill C (metrics) — all three should be active
+    const historyAfterC: Message[] = [
+      ...historyAfterB,
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'tu-3', name: 'skill_load', input: { skill_id: 'metrics' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-3', content: '<loaded_skill id="metrics" />' },
+        ],
+      },
+    ];
+
+    const resultC = resolveTools(historyAfterC);
+    const namesC = resultC.toolDefinitions.map((d) => d.name);
+    expect(namesC).toContain('deploy_run');
+    expect(namesC).toContain('oncall_page');
+    expect(namesC).toContain('metrics_query');
+    expect(namesC).toContain('metrics_dashboard');
+
+    // Verify allowed tool names include all skill tools plus core tools
+    expect(resultC.allowedToolNames.has('deploy_run')).toBe(true);
+    expect(resultC.allowedToolNames.has('oncall_page')).toBe(true);
+    expect(resultC.allowedToolNames.has('metrics_query')).toBe(true);
+    expect(resultC.allowedToolNames.has('metrics_dashboard')).toBe(true);
+    for (const core of CORE_TOOL_NAMES) {
+      expect(resultC.allowedToolNames.has(core)).toBe(true);
+    }
+  });
+});
