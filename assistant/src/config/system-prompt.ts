@@ -7,14 +7,24 @@ import { getConfig } from './loader.js';
 
 const log = getLogger('system-prompt');
 
-const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'BOOTSTRAP.md'] as const;
+const PROMPT_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
  * Called once during daemon startup so users always have discoverable files to edit.
+ *
+ * BOOTSTRAP.md is handled separately: it is only created when *none* of the core
+ * prompt files existed beforehand (a truly fresh install).  This prevents the
+ * daemon from recreating the file on every restart after the user deletes it to
+ * signal that onboarding is complete.
  */
 export function ensurePromptFiles(): void {
   const templatesDir = join(import.meta.dirname ?? __dirname, 'templates');
+
+  // Track whether this is a fresh workspace (no core prompt files exist yet).
+  const isFirstRun = PROMPT_FILES.every(
+    (file) => !existsSync(getWorkspacePromptPath(file)),
+  );
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
@@ -30,6 +40,23 @@ export function ensurePromptFiles(): void {
       log.info({ file, dest }, 'Created prompt file from template');
     } catch (err) {
       log.warn({ err, file }, 'Failed to create prompt file from template');
+    }
+  }
+
+  // Only seed BOOTSTRAP.md on a truly fresh install so that deleting it
+  // reliably signals onboarding completion across daemon restarts.
+  if (isFirstRun) {
+    const bootstrapDest = getWorkspacePromptPath('BOOTSTRAP.md');
+    if (!existsSync(bootstrapDest)) {
+      const bootstrapSrc = join(templatesDir, 'BOOTSTRAP.md');
+      try {
+        if (existsSync(bootstrapSrc)) {
+          copyFileSync(bootstrapSrc, bootstrapDest);
+          log.info({ file: 'BOOTSTRAP.md', dest: bootstrapDest }, 'Created BOOTSTRAP.md for first-run onboarding');
+        }
+      } catch (err) {
+        log.warn({ err, file: 'BOOTSTRAP.md' }, 'Failed to create BOOTSTRAP.md from template');
+      }
     }
   }
 }
