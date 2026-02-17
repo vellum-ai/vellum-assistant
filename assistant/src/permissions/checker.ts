@@ -2,6 +2,7 @@ import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type Scope
 import { findHighestPriorityRule } from './trust-store.js';
 import { parse } from '../tools/terminal/parser.js';
 import { resolveSkillSelector } from '../config/skills.js';
+import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { getTool } from '../tools/registry.js';
 import { getConfig } from '../config/loader.js';
 import { dirname, resolve } from 'node:path';
@@ -62,6 +63,31 @@ function getStringField(input: Record<string, unknown>, ...keys: string[]): stri
     if (typeof value === 'string') return value;
   }
   return '';
+}
+
+/**
+ * Resolve a skill selector to its id and version hash. The version hash
+ * lets trust rules differentiate between skill versions so an approval
+ * for one version doesn't silently apply after the skill is updated.
+ */
+function resolveSkillIdAndHash(selector: string, input: Record<string, unknown>): { id: string; versionHash?: string } | null {
+  const resolved = resolveSkillSelector(selector);
+  if (!resolved.skill) return null;
+
+  // Prefer an explicit version_hash from the input (set by the agent loop
+  // or prior enrichment) over computing it on the fly.
+  const explicitHash = getStringField(input, 'version_hash');
+  if (explicitHash) {
+    return { id: resolved.skill.id, versionHash: explicitHash };
+  }
+
+  // Fall back to computing the hash from the skill directory.
+  try {
+    const hash = computeSkillVersionHash(resolved.skill.directoryPath);
+    return { id: resolved.skill.id, versionHash: hash };
+  } catch {
+    return { id: resolved.skill.id };
+  }
 }
 
 function canonicalizeWebFetchUrl(parsed: URL): URL {
@@ -136,9 +162,14 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     if (!rawSelector) {
       targets.push('');
     } else {
-      const resolved = resolveSkillSelector(rawSelector);
-      if (resolved.skill) {
-        targets.push(resolved.skill.id);
+      const resolved = resolveSkillIdAndHash(rawSelector, input);
+      if (resolved) {
+        // Version-specific candidate lets rules pin to an exact skill version
+        if (resolved.versionHash) {
+          targets.push(`${resolved.id}@${resolved.versionHash}`);
+        }
+        // Bare skill id candidate for backward compat / any-version rules
+        targets.push(resolved.id);
       }
       targets.push(rawSelector);
     }
@@ -503,6 +534,52 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
       pattern: `${toolName}:*`,
     });
     return options;
+  }
+
+  if (toolName === 'skill_load') {
+    const rawSelector = getStringField(input, 'skill').trim();
+    const options: AllowlistOption[] = [];
+
+    if (rawSelector) {
+      const resolved = resolveSkillIdAndHash(rawSelector, input);
+      if (resolved) {
+        // Version-specific option: pin approval to an exact version
+        if (resolved.versionHash) {
+          options.push({
+            label: `${resolved.id}@${resolved.versionHash}`,
+            description: 'This exact version',
+            pattern: `skill_load:${resolved.id}@${resolved.versionHash}`,
+          });
+        }
+        // Any-version option: allow loading this skill regardless of version
+        options.push({
+          label: resolved.id,
+          description: 'Any version of this skill',
+          pattern: `skill_load:${resolved.id}`,
+        });
+      } else {
+        // Couldn't resolve — use the raw selector
+        options.push({
+          label: rawSelector,
+          description: 'This skill',
+          pattern: `skill_load:${rawSelector}`,
+        });
+      }
+    }
+
+    options.push({
+      label: 'skill_load:*',
+      description: 'All skill loads',
+      pattern: 'skill_load:*',
+    });
+
+    // Deduplicate
+    const seen = new Set<string>();
+    return options.filter((o) => {
+      if (seen.has(o.pattern)) return false;
+      seen.add(o.pattern);
+      return true;
+    });
   }
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];
