@@ -95,7 +95,7 @@ export function getAllTools(): Tool[] {
 }
 
 export function getAllToolDefinitions(): ToolDefinition[] {
-  // Exclude proxy tools (e.g. cu_* computer-use tools) — they are only used
+  // Exclude proxy tools (e.g. computer_use_* tools) — they are only used
   // by ComputerUseSession which builds its own tool definitions list.
   return getAllTools()
     .filter((t) => t.executionMode !== 'proxy')

@@ -14,19 +14,20 @@ export interface DefaultRuleTemplate {
 const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
 const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
 const COMPUTER_USE_TOOLS = [
-  'cu_click',
-  'cu_double_click',
-  'cu_right_click',
-  'cu_type_text',
-  'cu_key',
-  'cu_scroll',
-  'cu_drag',
-  'cu_wait',
-  'cu_open_app',
-  'cu_run_applescript',
+  'computer_use_click',
+  'computer_use_double_click',
+  'computer_use_right_click',
+  'computer_use_type_text',
+  'computer_use_key',
+  'computer_use_scroll',
+  'computer_use_drag',
+  'computer_use_wait',
+  'computer_use_open_app',
+  'computer_use_run_applescript',
   'request_computer_control',
-  // cu_done and cu_respond are terminal signal tools (RiskLevel.Low) — they
-  // don't perform any computer action, so they should NOT get an 'ask' rule.
+  // computer_use_done and computer_use_respond are terminal signal tools
+  // (RiskLevel.Low) — they don't perform any computer action, so they
+  // should NOT get an 'ask' rule.
 ] as const;
 
 /**

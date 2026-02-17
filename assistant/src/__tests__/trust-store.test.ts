@@ -597,16 +597,16 @@ describe('Trust Store', () => {
         .map((r) => r.tool)
         .sort();
       expect(defaultTools).toEqual([
-        'cu_click',
-        'cu_double_click',
-        'cu_drag',
-        'cu_key',
-        'cu_open_app',
-        'cu_right_click',
-        'cu_run_applescript',
-        'cu_scroll',
-        'cu_type_text',
-        'cu_wait',
+        'computer_use_click',
+        'computer_use_double_click',
+        'computer_use_drag',
+        'computer_use_key',
+        'computer_use_open_app',
+        'computer_use_right_click',
+        'computer_use_run_applescript',
+        'computer_use_scroll',
+        'computer_use_type_text',
+        'computer_use_wait',
         'delete_managed_skill',
         'file_edit',
         'file_read',
@@ -725,12 +725,12 @@ describe('Trust Store', () => {
       expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-host_bash-global')!);
     });
 
-    test('findHighestPriorityRule matches default ask for cu_click', () => {
-      const match = findHighestPriorityRule('cu_click', ['cu_click:'], '/tmp');
+    test('findHighestPriorityRule matches default ask for computer_use_click', () => {
+      const match = findHighestPriorityRule('computer_use_click', ['computer_use_click:'], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.id).toBe('default:ask-cu_click-global');
+      expect(match!.id).toBe('default:ask-computer_use_click-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-cu_click-global')!);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-computer_use_click-global')!);
     });
 
     test('findHighestPriorityRule matches default ask for request_computer_control', () => {

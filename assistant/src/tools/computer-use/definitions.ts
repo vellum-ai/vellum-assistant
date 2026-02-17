@@ -2,7 +2,7 @@
  * Computer-use tool definitions.
  *
  * These tools mirror the macOS client's ToolDefinitions.swift schemas, prefixed
- * with `cu_` to avoid collisions with existing daemon tools.  They are all
+ * with `computer_use_` to avoid collisions with existing daemon tools.  They are all
  * proxy tools — execution is forwarded to a connected macOS client and never
  * handled locally by the daemon.
  */
@@ -64,16 +64,16 @@ function makeClickTool(name: string, verb: string): Tool {
 // Click variants
 // ---------------------------------------------------------------------------
 
-export const cuClickTool = makeClickTool('cu_click', 'Click');
-export const cuDoubleClickTool = makeClickTool('cu_double_click', 'Double-click');
-export const cuRightClickTool = makeClickTool('cu_right_click', 'Right-click');
+export const computerUseClickTool = makeClickTool('computer_use_click', 'Click');
+export const computerUseDoubleClickTool = makeClickTool('computer_use_double_click', 'Double-click');
+export const computerUseRightClickTool = makeClickTool('computer_use_right_click', 'Right-click');
 
 // ---------------------------------------------------------------------------
 // type_text
 // ---------------------------------------------------------------------------
 
-export const cuTypeTextTool: Tool = {
-  name: 'cu_type_text',
+export const computerUseTypeTextTool: Tool = {
+  name: 'computer_use_type_text',
   description: 'Type text at the current cursor position. The target field must already be focused (click it first).',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -107,8 +107,8 @@ export const cuTypeTextTool: Tool = {
 // key
 // ---------------------------------------------------------------------------
 
-export const cuKeyTool: Tool = {
-  name: 'cu_key',
+export const computerUseKeyTool: Tool = {
+  name: 'computer_use_key',
   description: 'Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -142,8 +142,8 @@ export const cuKeyTool: Tool = {
 // scroll
 // ---------------------------------------------------------------------------
 
-export const cuScrollTool: Tool = {
-  name: 'cu_scroll',
+export const computerUseScrollTool: Tool = {
+  name: 'computer_use_scroll',
   description: 'Scroll within an element by its [ID], or at raw screen coordinates as fallback.',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -194,8 +194,8 @@ export const cuScrollTool: Tool = {
 // drag
 // ---------------------------------------------------------------------------
 
-export const cuDragTool: Tool = {
-  name: 'cu_drag',
+export const computerUseDragTool: Tool = {
+  name: 'computer_use_drag',
   description: 'Drag from one element or position to another. Use for moving files, resizing windows, rearranging items, or adjusting sliders.',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -249,8 +249,8 @@ export const cuDragTool: Tool = {
 // wait
 // ---------------------------------------------------------------------------
 
-export const cuWaitTool: Tool = {
-  name: 'cu_wait',
+export const computerUseWaitTool: Tool = {
+  name: 'computer_use_wait',
   description: 'Wait for the UI to update',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -284,8 +284,8 @@ export const cuWaitTool: Tool = {
 // open_app
 // ---------------------------------------------------------------------------
 
-export const cuOpenAppTool: Tool = {
-  name: 'cu_open_app',
+export const computerUseOpenAppTool: Tool = {
+  name: 'computer_use_open_app',
   description: 'Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps — more reliable and explicit.',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -319,8 +319,8 @@ export const cuOpenAppTool: Tool = {
 // run_applescript
 // ---------------------------------------------------------------------------
 
-export const cuRunAppleScriptTool: Tool = {
-  name: 'cu_run_applescript',
+export const computerUseRunAppleScriptTool: Tool = {
+  name: 'computer_use_run_applescript',
   description:
     'Execute an AppleScript to control applications via Apple\'s scripting bridge. ' +
     'Use this for operations that are more reliable through scripting than UI interaction: ' +
@@ -361,8 +361,8 @@ export const cuRunAppleScriptTool: Tool = {
 // done
 // ---------------------------------------------------------------------------
 
-export const cuDoneTool: Tool = {
-  name: 'cu_done',
+export const computerUseDoneTool: Tool = {
+  name: 'computer_use_done',
   description: 'Task is complete',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -392,8 +392,8 @@ export const cuDoneTool: Tool = {
 // respond
 // ---------------------------------------------------------------------------
 
-export const cuRespondTool: Tool = {
-  name: 'cu_respond',
+export const computerUseRespondTool: Tool = {
+  name: 'computer_use_respond',
   description: 'Respond directly to the user with a text answer. Use this when the user is asking a question (about their schedule, meetings, calendar, etc.) rather than asking you to control the computer.',
   category: 'computer-use',
   defaultRiskLevel: RiskLevel.Low,
@@ -428,16 +428,16 @@ export const cuRespondTool: Tool = {
 // ---------------------------------------------------------------------------
 
 export const allComputerUseTools: Tool[] = [
-  cuClickTool,
-  cuDoubleClickTool,
-  cuRightClickTool,
-  cuTypeTextTool,
-  cuKeyTool,
-  cuScrollTool,
-  cuDragTool,
-  cuWaitTool,
-  cuOpenAppTool,
-  cuRunAppleScriptTool,
-  cuDoneTool,
-  cuRespondTool,
+  computerUseClickTool,
+  computerUseDoubleClickTool,
+  computerUseRightClickTool,
+  computerUseTypeTextTool,
+  computerUseKeyTool,
+  computerUseScrollTool,
+  computerUseDragTool,
+  computerUseWaitTool,
+  computerUseOpenAppTool,
+  computerUseRunAppleScriptTool,
+  computerUseDoneTool,
+  computerUseRespondTool,
 ];
