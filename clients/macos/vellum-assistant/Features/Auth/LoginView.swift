@@ -81,6 +81,16 @@ struct LoginView: View {
             }
 
             VStack(spacing: VSpacing.sm) {
+                Button {
+                    authManager.errorMessage = nil
+                    authManager.currentFlow = .forgotPassword
+                } label: {
+                    Text("Forgot password?")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+
                 HStack(spacing: VSpacing.sm) {
                     if let onBack {
                         Button(action: onBack) {
@@ -106,16 +116,6 @@ struct LoginView: View {
                     .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
-
-                Button {
-                    authManager.errorMessage = nil
-                    authManager.currentFlow = .forgotPassword
-                } label: {
-                    Text("Forgot password?")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
             }
         }
         .padding(VSpacing.xxl)
