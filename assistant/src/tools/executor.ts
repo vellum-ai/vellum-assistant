@@ -238,7 +238,8 @@ export class ToolExecutor {
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
-      const toolTimeoutMs = getConfig().timeouts.toolExecutionTimeoutSec * 1000;
+      const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
+      const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
           const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
@@ -432,6 +433,20 @@ export class ToolExecutor {
 
 const TIMEOUT_SENTINEL = Symbol('tool-timeout');
 
+const DEFAULT_TOOL_TIMEOUT_SEC = 120;
+
+/**
+ * Convert a config-provided seconds value to a safe milliseconds value,
+ * falling back to the default if the input is NaN, non-finite, zero, or negative.
+ */
+function safeTimeoutMs(sec: unknown): number {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_TOOL_TIMEOUT_SEC * 1000;
+  }
+  return n * 1000;
+}
+
 /**
  * Race a tool execution promise against a timeout. Returns a timeout error
  * result instead of throwing so the agent loop can continue gracefully.
@@ -441,14 +456,18 @@ async function executeWithTimeout(
   timeoutMs: number,
   toolName: string,
 ): Promise<ToolExecutionResult> {
+  // Guard against NaN/invalid values that would cause setTimeout to fire immediately
+  const safeMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : DEFAULT_TOOL_TIMEOUT_SEC * 1000;
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
+    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), safeMs);
   });
   try {
     const result = await Promise.race([promise, timeoutPromise]);
     if (result === TIMEOUT_SENTINEL) {
-      const sec = Math.round(timeoutMs / 1000);
+      const sec = Math.round(safeMs / 1000);
       return {
         content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
         isError: true,
