@@ -27,6 +27,7 @@ final class BrowserPiPManager: ObservableObject {
 
     private var moveObserver: Any?
     private var resizeObserver: Any?
+    private let decodeQueue = DispatchQueue(label: "browser-pip-frame-decode")
 
     // Saved position
     private static let positionXKey = "BrowserPiP.positionX"
@@ -106,6 +107,11 @@ final class BrowserPiPManager: ObservableObject {
         decodeFrame(message.frame)
     }
 
+    func dismissIfMatching(surfaceId: String) {
+        guard surfaceId == self.surfaceId else { return }
+        dismissPanel()
+    }
+
     func dismissPanel() {
         if let moveObs = moveObserver {
             NotificationCenter.default.removeObserver(moveObs)
@@ -126,7 +132,7 @@ final class BrowserPiPManager: ObservableObject {
     }
 
     private func decodeFrame(_ base64: String) {
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+        decodeQueue.async { [weak self] in
             guard let data = Data(base64Encoded: base64),
                   let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
