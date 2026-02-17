@@ -122,12 +122,29 @@ export async function handleChannelInbound(
       });
     }
 
-    const original = channelDeliveryStore.findMessageBySourceId(
-      assistantId,
-      sourceChannel,
-      externalChatId,
-      sourceMessageId,
-    );
+    // Retry lookup a few times — the original message may still be processing
+    // (linkMessage hasn't been called yet). Short backoff avoids losing edits
+    // that arrive while the original agent loop is in progress.
+    const EDIT_LOOKUP_RETRIES = 5;
+    const EDIT_LOOKUP_DELAY_MS = 2000;
+
+    let original: { messageId: string; conversationId: string } | null = null;
+    for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
+      original = channelDeliveryStore.findMessageBySourceId(
+        assistantId,
+        sourceChannel,
+        externalChatId,
+        sourceMessageId,
+      );
+      if (original) break;
+      if (attempt < EDIT_LOOKUP_RETRIES) {
+        log.info(
+          { assistantId, sourceMessageId, attempt: attempt + 1, maxAttempts: EDIT_LOOKUP_RETRIES },
+          'Original message not linked yet, retrying edit lookup',
+        );
+        await new Promise((resolve) => setTimeout(resolve, EDIT_LOOKUP_DELAY_MS));
+      }
+    }
 
     if (original) {
       conversationStore.updateMessageContent(original.messageId, content ?? '');
@@ -138,7 +155,7 @@ export async function handleChannelInbound(
     } else {
       log.warn(
         { assistantId, sourceChannel, externalChatId, sourceMessageId },
-        'Could not find original message for edit, ignoring',
+        'Could not find original message for edit after retries, ignoring',
       );
     }
 

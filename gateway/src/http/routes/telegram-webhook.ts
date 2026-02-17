@@ -140,6 +140,9 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
+    // Edits don't produce a new reply, so skip typing indicator and attachments
+    const isEdit = !!normalized.message.isEdit;
+
     // Check routing early so we can gate attachments and typing indicator
     const chatId = normalized.message.externalChatId;
     const routing = resolveAssistant(
@@ -149,10 +152,11 @@ export function createTelegramWebhookHandler(
     );
     const routable = !isRejection(routing);
 
-    // Download and upload attachments if present
+    // Download and upload attachments if present (skip for edits — the runtime
+    // edit path only updates text content and doesn't link new attachments)
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
-    if (eventAttachments && eventAttachments.length > 0 && routable) {
+    if (eventAttachments && eventAttachments.length > 0 && routable && !isEdit) {
       try {
         attachmentIds = [];
 
@@ -193,9 +197,6 @@ export function createTelegramWebhookHandler(
         log.error({ err }, "Failed to process attachments");
       }
     }
-
-    // Edits don't produce a new reply, so skip typing indicator
-    const isEdit = !!normalized.message.isEdit;
 
     // Start typing indicator only for routable chats with new messages.
     // A safety timeout ensures the interval is cleared even if handleInbound hangs.
