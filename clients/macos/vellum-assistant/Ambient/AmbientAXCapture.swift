@@ -27,6 +27,9 @@ enum AmbientAXCapture {
     private static let maxDepth = 4
     private static let maxElements = 50
 
+    /// Timeout for AX API calls — prevents blocking if the target app is unresponsive.
+    private static let axMessagingTimeoutSeconds: Float = 5.0
+
     /// Roles to skip — they add noise without meaningful content.
     private static let decorationRoles: Set<String> = [
         "AXScrollBar", "AXSplitter", "AXGrowArea", "AXRuler",
@@ -59,6 +62,7 @@ enum AmbientAXCapture {
         let bundleId = frontApp.bundleIdentifier
         let appName = frontApp.localizedName ?? "Unknown"
         let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, axMessagingTimeoutSeconds)
 
         // Get focused window
         var windowValue: CFTypeRef?
