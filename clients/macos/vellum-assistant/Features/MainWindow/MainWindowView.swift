@@ -521,7 +521,7 @@ struct MainWindowView: View {
                         // does not feed back into gesture translation while dragging.
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
-                        let minDrawerWidth: CGFloat = 180
+                        let minDrawerWidth: CGFloat = 200
                         let minMainContent: CGFloat = 300
                         let sidePanelVisible =
                             (windowState.activePanel != nil &&
