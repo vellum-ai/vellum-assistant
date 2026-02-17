@@ -5,7 +5,7 @@ import type { ToolDefinition } from '../providers/types.js';
 
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
-import { registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
+import { registerTool, registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
 import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
 function makeFakeTool(name: string): Tool {
@@ -209,5 +209,31 @@ describe('baseline characterization: hardcoded tool loading', () => {
   test('claude_code lazy descriptor is in lazyTools manifest', () => {
     const lazyNames = lazyTools.map(t => t.name);
     expect(lazyNames).toContain('claude_code');
+  });
+});
+
+describe('tool origin metadata', () => {
+  test('registers a skill-origin tool and preserves metadata via getTool()', () => {
+    const skillTool: Tool = {
+      ...makeFakeTool('test-skill-origin-tool'),
+      origin: 'skill',
+      ownerSkillId: 'test-skill',
+    };
+
+    registerTool(skillTool);
+
+    const retrieved = getTool('test-skill-origin-tool');
+    expect(retrieved).toBeDefined();
+    expect(retrieved?.origin).toBe('skill');
+    expect(retrieved?.ownerSkillId).toBe('test-skill');
+  });
+
+  test('core tools default to no origin metadata (undefined)', async () => {
+    await initializeTools();
+
+    const coreTool = getTool('host_file_read');
+    expect(coreTool).toBeDefined();
+    expect(coreTool?.origin).toBeUndefined();
+    expect(coreTool?.ownerSkillId).toBeUndefined();
   });
 });
