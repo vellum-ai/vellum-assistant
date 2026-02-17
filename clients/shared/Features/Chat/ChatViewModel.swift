@@ -319,8 +319,13 @@ public final class ChatViewModel: ObservableObject {
             ))
         } catch {
             log.error("Failed to send user_message: \(error.localizedDescription)")
-            isSending = false
-            isThinking = false
+            // Only reset sending state when this is the primary send (not a
+            // queued retry). A queued retry failing must not clobber the
+            // isSending/isThinking flags of the original turn still in flight.
+            if queuedMessageId == nil {
+                isSending = false
+                isThinking = false
+            }
             lastFailedMessageText = text
             lastFailedMessageAttachments = attachments
             lastFailedSendError = "Failed to send message."
