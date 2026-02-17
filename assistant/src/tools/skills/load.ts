@@ -67,6 +67,10 @@ export class SkillLoadTool implements Tool {
             isError: true,
           };
         }
+        return {
+          content: `Error: skill "${skill.id}" has an invalid include graph`,
+          isError: true,
+        };
       }
     }
 
