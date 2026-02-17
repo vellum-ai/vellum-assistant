@@ -1,18 +1,18 @@
 import { v4 as uuid } from 'uuid';
 import { browserManager } from './browser-manager.js';
-import type { BrowserViewSurfaceData, BrowserFrame } from '../../daemon/ipc-contract.js';
+import type { BrowserViewSurfaceData, BrowserFrame, ServerMessage } from '../../daemon/ipc-contract.js';
 
 // Track active screencast sessions
 const activeScreencasts = new Map<string, { surfaceId: string }>();
 
 // Registry of sendToClient callbacks per session
-const sessionSenders = new Map<string, (msg: any) => void>();
+const sessionSenders = new Map<string, (msg: ServerMessage) => void>();
 
 /**
  * Register a sendToClient callback for a session.
  * Called from session-tool-setup when the session is created.
  */
-export function registerSessionSender(sessionId: string, sendToClient: (msg: any) => void): void {
+export function registerSessionSender(sessionId: string, sendToClient: (msg: ServerMessage) => void): void {
   sessionSenders.set(sessionId, sendToClient);
 }
 
@@ -23,13 +23,13 @@ export function unregisterSessionSender(sessionId: string): void {
   sessionSenders.delete(sessionId);
 }
 
-function getSender(sessionId: string): ((msg: any) => void) | undefined {
+function getSender(sessionId: string): ((msg: ServerMessage) => void) | undefined {
   return sessionSenders.get(sessionId);
 }
 
 export async function ensureScreencast(
   sessionId: string,
-  sendToClient: (msg: any) => void,
+  sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
   if (activeScreencasts.has(sessionId)) return;
 
@@ -83,7 +83,7 @@ export async function ensureScreencast(
 
 export function updateBrowserStatus(
   sessionId: string,
-  sendToClient: (msg: any) => void,
+  sendToClient: (msg: ServerMessage) => void,
   status: 'navigating' | 'idle' | 'interacting',
   actionText?: string,
   currentUrl?: string,
@@ -105,7 +105,7 @@ export function updateBrowserStatus(
 
 export async function updatePagesList(
   sessionId: string,
-  sendToClient: (msg: any) => void,
+  sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
   const state = activeScreencasts.get(sessionId);
   if (!state) return;
@@ -127,7 +127,7 @@ export async function updatePagesList(
 
 export async function stopBrowserScreencast(
   sessionId: string,
-  sendToClient: (msg: any) => void,
+  sendToClient: (msg: ServerMessage) => void,
 ): Promise<void> {
   const state = activeScreencasts.get(sessionId);
   if (!state) return;
@@ -172,7 +172,7 @@ export async function getElementBounds(
 
 export function updateHighlights(
   sessionId: string,
-  sendToClient: (msg: any) => void,
+  sendToClient: (msg: ServerMessage) => void,
   highlights: Array<{ x: number; y: number; w: number; h: number; label: string }>,
 ): void {
   const state = activeScreencasts.get(sessionId);

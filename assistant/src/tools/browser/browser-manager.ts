@@ -46,6 +46,24 @@ export type Page = {
   keyboard: { press(key: string): Promise<void> };
 };
 
+type ScreencastFrameMetadata = {
+  offsetTop: number;
+  pageScaleFactor: number;
+  scrollOffsetX: number;
+  scrollOffsetY: number;
+  timestamp: number;
+};
+
+type CDPSession = {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on(event: string, handler: (params: Record<string, unknown>) => void): void;
+  detach(): Promise<void>;
+};
+
+type RawPlaywrightPage = {
+  context(): { newCDPSession(page: unknown): Promise<CDPSession> };
+};
+
 type LaunchFn = (userDataDir: string, options: { headless: boolean }) => Promise<BrowserContext>;
 
 let launchPersistentContext: LaunchFn | null = null;
@@ -68,9 +86,9 @@ class BrowserManager {
   private contextCreating: Promise<BrowserContext> | null = null;
   private contextCloseHandler: ((...args: unknown[]) => void) | null = null;
   private pages = new Map<string, Page>();
-  private rawPages = new Map<string, any>();
-  private cdpSessions = new Map<string, any>();
-  private screencastCallbacks = new Map<string, (frame: { data: string; metadata: any }) => void>();
+  private rawPages = new Map<string, unknown>();
+  private cdpSessions = new Map<string, CDPSession>();
+  private screencastCallbacks = new Map<string, (frame: { data: string; metadata: ScreencastFrameMetadata }) => void>();
   private snapshotMaps = new Map<string, Map<string, string>>();
 
   private async ensureContext(): Promise<BrowserContext> {
@@ -223,8 +241,8 @@ class BrowserManager {
     }
   }
 
-  async startScreencast(sessionId: string, onFrame: (frame: { data: string; metadata: any }) => void): Promise<void> {
-    const rawPage = this.rawPages.get(sessionId);
+  async startScreencast(sessionId: string, onFrame: (frame: { data: string; metadata: ScreencastFrameMetadata }) => void): Promise<void> {
+    const rawPage = this.rawPages.get(sessionId) as RawPlaywrightPage | undefined;
     if (!rawPage) throw new Error('No page for session');
 
     // Stop any existing screencast before creating a new CDP session
@@ -234,8 +252,8 @@ class BrowserManager {
     this.cdpSessions.set(sessionId, cdp);
     this.screencastCallbacks.set(sessionId, onFrame);
 
-    cdp.on('Page.screencastFrame', (params: any) => {
-      onFrame({ data: params.data, metadata: params.metadata });
+    cdp.on('Page.screencastFrame', (params) => {
+      onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
       cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
     });
 

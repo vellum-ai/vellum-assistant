@@ -2132,7 +2132,7 @@ describe('includes metadata does not auto-activate child skill tools', () => {
   test('parent with includes — only parent tools projected when only parent marker present', () => {
     // Parent skill declares child in its includes metadata
     const parentSkill = makeSkill('parent-skill');
-    (parentSkill as any).includes = ['child-skill'];
+    parentSkill.includes = ['child-skill'];
 
     mockCatalog = [parentSkill, makeSkill('child-skill')];
     mockManifests = {
@@ -2158,7 +2158,7 @@ describe('includes metadata does not auto-activate child skill tools', () => {
 
   test('child tools appear only after explicit child loaded_skill marker', () => {
     const parentSkill = makeSkill('parent-skill');
-    (parentSkill as any).includes = ['child-skill'];
+    parentSkill.includes = ['child-skill'];
 
     mockCatalog = [parentSkill, makeSkill('child-skill')];
     mockManifests = {
@@ -2180,9 +2180,9 @@ describe('includes metadata does not auto-activate child skill tools', () => {
 
   test('child tools are absent even with deep include chain — only markers matter', () => {
     const grandparent = makeSkill('grandparent');
-    (grandparent as any).includes = ['parent'];
+    grandparent.includes = ['parent'];
     const parent = makeSkill('parent');
-    (parent as any).includes = ['child'];
+    parent.includes = ['child'];
 
     mockCatalog = [grandparent, parent, makeSkill('child')];
     mockManifests = {
