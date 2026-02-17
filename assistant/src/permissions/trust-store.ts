@@ -113,25 +113,38 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 }
 
 /**
- * Update persisted starter-bundle rules whose pattern no longer matches the
- * canonical template (e.g. the old "tool:**" prefix was changed to standalone
- * "**").  Returns true when at least one rule was updated.
+ * Update persisted starter-bundle rules whose pattern matches a known legacy
+ * format (e.g. the old "tool:**" prefix was changed to standalone "**").
+ * Returns true when at least one rule was updated.
+ *
+ * Only rules with a recognised legacy pattern are migrated. If a user has
+ * intentionally customised a starter rule's pattern (e.g. narrowed it), it is
+ * left untouched.
  */
 function migrateStarterRulePatterns(rules: TrustRule[]): boolean {
   const templatesByID = new Map(getStarterBundleRules().map((t) => [t.id, t]));
   let changed = false;
   for (const rule of rules) {
     const template = templatesByID.get(rule.id);
-    if (template && rule.pattern !== template.pattern) {
-      log.info(
-        { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
-        'Migrated starter rule pattern to current template',
-      );
-      rule.pattern = template.pattern;
-      changed = true;
-    }
+    if (!template || rule.pattern === template.pattern) continue;
+    // Only migrate patterns that match a known legacy format.
+    // The "tool:**" prefix (e.g. "file_read:**") was the original pattern
+    // before it was changed to standalone "**".
+    if (!isLegacyStarterPattern(rule.pattern)) continue;
+    log.info(
+      { ruleId: rule.id, oldPattern: rule.pattern, newPattern: template.pattern },
+      'Migrated starter rule pattern to current template',
+    );
+    rule.pattern = template.pattern;
+    changed = true;
   }
   return changed;
+}
+
+/** Recognises legacy starter-rule patterns that should be auto-migrated. */
+function isLegacyStarterPattern(pattern: string): boolean {
+  // Legacy format used "tool:**" prefixes, e.g. "file_read:**", "glob:**".
+  return /^[a-z_]+:\*\*$/.test(pattern);
 }
 
 function loadFromDisk(): TrustRule[] {
