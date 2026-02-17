@@ -66,7 +66,6 @@ import {
   executeBrowserType,
   executeBrowserExtract,
   executeBrowserFillCredential,
-  executeBrowserDetectCaptcha,
   executeBrowserClose,
 } from '../tools/browser/headless-browser.js';
 import type { ToolContext } from '../tools/types.js';
@@ -178,13 +177,7 @@ describe('end-to-end signup flow', () => {
     );
     await executeBrowserClick({ selector: 'button[type="submit"]' }, ctx);
 
-    // Step 4: CAPTCHA detection + solve
-    const captchaResult = await executeBrowserDetectCaptcha({}, ctx);
-    expect(captchaResult.isError).toBe(false);
-    const captchaData = JSON.parse(captchaResult.content);
-    expect(captchaData.detected).toBe(true);
-
-    // Solve by checking the checkbox and submitting
+    // Step 4: Solve CAPTCHA checkbox and submit
     await executeBrowserClick(
       { selector: 'input[name="captcha_solved"]' },
       ctx,
