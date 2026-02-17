@@ -61,6 +61,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
+    reqHeaders.delete("authorization");
 
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
@@ -104,8 +105,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     if (response.status >= 400) {
       const body = await response.text();
       const level = response.status >= 500 ? "error" : "warn";
+      const bodySnippet = body.length > 256 ? body.slice(0, 256) + "…[truncated]" : body;
       log[level](
-        { method: req.method, path: url.pathname, status: response.status, duration, body },
+        { method: req.method, path: url.pathname, status: response.status, duration, body: bodySnippet },
         "Upstream returned error",
       );
       return new Response(body, {

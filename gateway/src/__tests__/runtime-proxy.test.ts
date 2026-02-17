@@ -193,6 +193,38 @@ describe("runtime proxy handler", () => {
     expect(capturedSignal).toBeInstanceOf(AbortSignal);
   });
 
+  test("does not forward authorization header to upstream", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response("ok", { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: "Bearer my-secret-token" },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.has("authorization")).toBe(false);
+  });
+
+  test("truncates long upstream error bodies in logs", async () => {
+    const longBody = "x".repeat(512);
+    globalThis.fetch = mock(async () => {
+      return new Response(longBody, { status: 500 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/fail");
+    const res = await handler(req);
+
+    expect(res.status).toBe(500);
+    // The full body is still returned to the client
+    const responseBody = await res.text();
+    expect(responseBody).toBe(longBody);
+  });
+
   test("does not forward host header to upstream", async () => {
     let capturedHeaders: Headers | undefined;
     globalThis.fetch = mock(async (_input: any, init?: any) => {
