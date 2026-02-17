@@ -26,9 +26,9 @@ class IOSThreadStore: ObservableObject {
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
-    private let daemonClient: DaemonClient
+    private let daemonClient: any DaemonClientProtocol
 
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
         // Start with one default thread.
         newThread()
@@ -62,24 +62,10 @@ class IOSThreadStore: ObservableObject {
 // MARK: - ThreadListView
 
 struct ThreadListView: View {
-    @EnvironmentObject private var daemonClient: DaemonClient
     @StateObject private var store: IOSThreadStore
     @State private var selectedThreadId: UUID?
 
-    init() {
-        // Store is initialised with a temporary placeholder; the real
-        // daemonClient is injected via onAppear once the environment is set.
-        // However, @StateObject is only created once, so we use a workaround:
-        // capture the store creation inside a lazy init via _store assignment.
-        // The actual daemonClient is set in `makeStore` via the environment.
-        // Because @StateObject wrappedValue must be set at init time we defer
-        // to the factory pattern below.
-        _store = StateObject(wrappedValue: IOSThreadStore(daemonClient: DaemonClient(config: .fromUserDefaults())))
-    }
-
-    /// Designated factory initialiser used by ContentView so the correct
-    /// DaemonClient is passed before the SwiftUI environment is available.
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: any DaemonClientProtocol) {
         _store = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
     }
 

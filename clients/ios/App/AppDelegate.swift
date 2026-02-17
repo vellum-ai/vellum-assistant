@@ -84,9 +84,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     private func sendDeviceTokenToDaemon(_ token: String) async throws {
-        guard daemonClient.isConnected else { return }
+        guard clientProvider.client.isConnected else { return }
         // Send a RegisterDeviceTokenMessage to the daemon so it can route notifications
-        try daemonClient.send(RegisterDeviceTokenMessage(token: token, platform: "ios"))
+        try clientProvider.client.send(RegisterDeviceTokenMessage(token: token, platform: "ios"))
     }
 
     func application(
@@ -102,7 +102,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
 // MARK: - UNUserNotificationCenterDelegate
 
-extension AppDelegate: UNUserNotificationCenterDelegate {
+extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -117,8 +117,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
             Task { @MainActor in
                 // If daemon is connected, send the reply via IPC
-                if self.daemonClient.isConnected, let sid = sessionId {
-                    try? self.daemonClient.send(UserMessageMessage(
+                if self.clientProvider.client.isConnected, let sid = sessionId {
+                    try? self.clientProvider.client.send(UserMessageMessage(
                         sessionId: sid,
                         content: replyText,
                         attachments: nil

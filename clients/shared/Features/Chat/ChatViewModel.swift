@@ -49,7 +49,7 @@ public final class ChatViewModel: ObservableObject {
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = 4 * 1024 * 1024
     /// Maximum number of attachments per message.
-    static let maxAttachments = 5
+    public static let maxAttachments = 5
 
     let daemonClient: any DaemonClientProtocol
     public var sessionId: String?
@@ -169,10 +169,12 @@ public final class ChatViewModel: ObservableObject {
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
-            self?.pendingQueuedCount = 0
-            self?.pendingMessageIds.removeAll()
+            Task { @MainActor [weak self] in
+                self?.pendingQueuedCount = 0
+                self?.pendingMessageIds.removeAll()
+            }
         }
     }
 

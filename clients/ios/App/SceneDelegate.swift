@@ -6,7 +6,7 @@ import UIKit
 class SceneDelegate: NSObject, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else { return }
-        let client = appDelegate.daemonClient
+        let client = appDelegate.clientProvider.client
         guard !client.isConnected else { return }
         Task { try? await client.connect() }
     }
