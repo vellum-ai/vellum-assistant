@@ -36,37 +36,43 @@ export async function ensureScreencast(
   const surfaceId = uuid();
   activeScreencasts.set(sessionId, { surfaceId });
 
-  // Get current page info
-  const page = await browserManager.getOrCreateSessionPage(sessionId);
-  const currentUrl = page.url();
-  const title = await page.title();
+  try {
+    // Get current page info
+    const page = await browserManager.getOrCreateSessionPage(sessionId);
+    const currentUrl = page.url();
+    const title = await page.title();
 
-  // Send surface show
-  sendToClient({
-    type: 'ui_surface_show',
-    sessionId,
-    surfaceId,
-    surfaceType: 'browser_view',
-    title: 'Browser',
-    data: {
-      sessionId,
-      currentUrl: currentUrl || 'about:blank',
-      status: 'idle',
-      pages: [{ id: sessionId, title: title || 'New Tab', url: currentUrl || 'about:blank', active: true }],
-    } satisfies BrowserViewSurfaceData,
-    display: 'panel',
-  });
-
-  // Start CDP screencast
-  await browserManager.startScreencast(sessionId, (frame) => {
+    // Send surface show
     sendToClient({
-      type: 'browser_frame',
+      type: 'ui_surface_show',
       sessionId,
       surfaceId,
-      frame: frame.data,
-      metadata: frame.metadata,
-    } satisfies BrowserFrame);
-  });
+      surfaceType: 'browser_view',
+      title: 'Browser',
+      data: {
+        sessionId,
+        currentUrl: currentUrl || 'about:blank',
+        status: 'idle',
+        pages: [{ id: sessionId, title: title || 'New Tab', url: currentUrl || 'about:blank', active: true }],
+      } satisfies BrowserViewSurfaceData,
+      display: 'panel',
+    });
+
+    // Start CDP screencast
+    await browserManager.startScreencast(sessionId, (frame) => {
+      sendToClient({
+        type: 'browser_frame',
+        sessionId,
+        surfaceId,
+        frame: frame.data,
+        metadata: frame.metadata,
+      } satisfies BrowserFrame);
+    });
+  } catch (err) {
+    // Roll back so future calls can retry
+    activeScreencasts.delete(sessionId);
+    throw err;
+  }
 }
 
 export function updateBrowserStatus(
@@ -164,6 +170,24 @@ export function updateHighlights(
     surfaceId: state.surfaceId,
     data: { highlights },
   });
+}
+
+export async function stopAllScreencasts(): Promise<void> {
+  const entries = Array.from(activeScreencasts.entries());
+  for (const [sessionId, state] of entries) {
+    try {
+      await browserManager.stopScreencast(sessionId);
+    } catch { /* best-effort */ }
+    const sender = sessionSenders.get(sessionId);
+    if (sender) {
+      sender({
+        type: 'ui_surface_dismiss',
+        sessionId,
+        surfaceId: state.surfaceId,
+      });
+    }
+  }
+  activeScreencasts.clear();
 }
 
 export function isScreencastActive(sessionId: string): boolean {

@@ -19,6 +19,7 @@ import {
   updateBrowserStatus,
   updatePagesList,
   stopBrowserScreencast,
+  stopAllScreencasts,
   getSender,
   getElementBounds,
   updateHighlights,
@@ -137,6 +138,9 @@ async function executeBrowserNavigate(
     }
 
     if (blockedUrl) {
+      if (sender) {
+        updateBrowserStatus(context.sessionId, sender, 'idle');
+      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -201,6 +205,9 @@ async function executeBrowserNavigate(
     // page.goto() throws. Return the clear security message instead of the
     // raw Playwright error (which could leak credentials from the URL).
     if (blockedUrl) {
+      if (sender) {
+        updateBrowserStatus(context.sessionId, sender, 'idle');
+      }
       return {
         content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
         isError: true,
@@ -450,6 +457,7 @@ async function executeBrowserClose(
     }
 
     if (input.close_all_pages === true) {
+      await stopAllScreencasts();
       await browserManager.closeAllPages();
       return { content: 'All browser pages and context closed.', isError: false };
     }
@@ -727,7 +735,12 @@ async function executeBrowserPressKey(
 
     if (elementId || rawSelector) {
       const { selector, error } = resolveSelector(context.sessionId, input);
-      if (error) return { content: error, isError: true };
+      if (error) {
+        if (sender) {
+          updateBrowserStatus(context.sessionId, sender, 'idle');
+        }
+        return { content: error, isError: true };
+      }
       if (sender) {
         const bounds = await getElementBounds(context.sessionId, selector!);
         if (bounds) {
