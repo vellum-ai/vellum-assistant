@@ -206,8 +206,15 @@ struct ActivityStepView: View {
         return "\(mins)m \(secs)s"
     }
 
+    /// Whether the result text looks like a unified diff (contains @@ hunk headers).
+    private var resultIsDiff: Bool {
+        guard let result = toolCall.result else { return false }
+        return result.contains("@@") && result.contains("---") && result.contains("+++")
+    }
+
     private func diffLineColor(_ line: String) -> Color {
         if toolCall.isError { return VColor.error }
+        guard resultIsDiff else { return VColor.textSecondary }
         if line.hasPrefix("+") { return Emerald._400 }
         if line.hasPrefix("-") { return Rose._400 }
         if line.hasPrefix("@@") { return VColor.textMuted }
