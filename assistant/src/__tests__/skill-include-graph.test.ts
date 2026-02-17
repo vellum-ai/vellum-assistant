@@ -211,3 +211,70 @@ describe('validateIncludes — missing detection', () => {
     }
   });
 });
+
+describe('validateIncludes — cycle detection', () => {
+  test('detects direct self-cycle (a -> a)', () => {
+    const catalog = [makeSkill('a', ['a'])];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('a', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('cycle');
+      if (result.error === 'cycle') {
+        expect(result.cyclePath).toEqual(['a', 'a']);
+      }
+    }
+  });
+
+  test('detects simple two-node cycle (a -> b -> a)', () => {
+    const catalog = [
+      makeSkill('a', ['b']),
+      makeSkill('b', ['a']),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('a', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error === 'cycle') {
+      expect(result.cyclePath).toEqual(['a', 'b', 'a']);
+    }
+  });
+
+  test('detects indirect cycle (a -> b -> c -> a)', () => {
+    const catalog = [
+      makeSkill('a', ['b']),
+      makeSkill('b', ['c']),
+      makeSkill('c', ['a']),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('a', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error === 'cycle') {
+      expect(result.cyclePath).toEqual(['a', 'b', 'c', 'a']);
+    }
+  });
+
+  test('no false positive on diamond dependency', () => {
+    const catalog = [
+      makeSkill('root', ['a', 'b']),
+      makeSkill('a', ['shared']),
+      makeSkill('b', ['shared']),
+      makeSkill('shared'),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(true);
+  });
+
+  test('missing check still works alongside cycle detection', () => {
+    const catalog = [
+      makeSkill('root', ['exists', 'missing']),
+      makeSkill('exists'),
+    ];
+    const index = indexCatalogById(catalog);
+    const result = validateIncludes('root', index);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('missing');
+    }
+  });
+});

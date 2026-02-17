@@ -53,46 +53,67 @@ export interface IncludeValidationError {
   path: string[];  // full path from root to the parent that referenced the missing child
 }
 
-export type IncludeValidationResult = IncludeValidationSuccess | IncludeValidationError;
+export interface IncludeValidationCycleError {
+  ok: false;
+  error: 'cycle';
+  cyclePath: string[];  // the IDs forming the cycle, e.g. ['a', 'b', 'c', 'a']
+}
+
+export type IncludeValidationResult = IncludeValidationSuccess | IncludeValidationError | IncludeValidationCycleError;
 
 /**
  * Validate the include graph starting from the given root skill ID.
- * Returns an error result on the first missing child encountered (DFS order),
- * including the full path from root to the parent that referenced it.
+ * Uses three-state DFS (unseen/visiting/done) to detect both missing children
+ * and cycles. Returns the first error encountered in DFS order.
  */
 export function validateIncludes(
   rootId: string,
   catalogIndex: Map<string, SkillSummary>,
 ): IncludeValidationResult {
   const visited: string[] = [];
-  const seen = new Set<string>();
+  type State = 'unseen' | 'visiting' | 'done';
+  const state = new Map<string, State>();
+  const ancestry: string[] = [];  // current DFS path for cycle reporting
 
-  function dfs(id: string, path: string[]): IncludeValidationError | null {
-    if (seen.has(id)) return null;
-    seen.add(id);
+  function dfs(id: string): IncludeValidationError | IncludeValidationCycleError | null {
+    const currentState = state.get(id) ?? 'unseen';
+
+    if (currentState === 'done') return null;
+
+    if (currentState === 'visiting') {
+      // Found a cycle — build the cycle path from the point where id first appears
+      const cycleStart = ancestry.indexOf(id);
+      const cyclePath = [...ancestry.slice(cycleStart), id];
+      return { ok: false, error: 'cycle', cyclePath };
+    }
+
+    state.set(id, 'visiting');
+    ancestry.push(id);
     visited.push(id);
 
     const skill = catalogIndex.get(id);
-    if (!skill?.includes) return null;
-
-    const currentPath = [...path, id];
-    for (const childId of skill.includes) {
-      if (!catalogIndex.has(childId)) {
-        return {
-          ok: false,
-          error: 'missing',
-          missingChildId: childId,
-          parentId: id,
-          path: currentPath,
-        };
+    if (skill?.includes) {
+      for (const childId of skill.includes) {
+        if (!catalogIndex.has(childId)) {
+          return {
+            ok: false,
+            error: 'missing',
+            missingChildId: childId,
+            parentId: id,
+            path: [...ancestry],
+          };
+        }
+        const childError = dfs(childId);
+        if (childError) return childError;
       }
-      const childError = dfs(childId, currentPath);
-      if (childError) return childError;
     }
+
+    ancestry.pop();
+    state.set(id, 'done');
     return null;
   }
 
-  const error = dfs(rootId, []);
+  const error = dfs(rootId);
   if (error) return error;
   return { ok: true, visited };
 }
