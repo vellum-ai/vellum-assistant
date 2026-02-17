@@ -66,7 +66,7 @@ openssl pkcs12 -export \
     -passout pass:
 
 # Import into keychain
-security import "$TMP_DIR/dev-cert.p12" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign
+security import "$TMP_DIR/dev-cert.p12" -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign -P ""
 
 # Trust the certificate for code signing
 security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db "$TMP_DIR/dev-cert.crt"
