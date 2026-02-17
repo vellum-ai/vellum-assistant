@@ -83,6 +83,25 @@ describe("runtime proxy auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
+  test("auth required: strips authorization header from upstream request", async () => {
+    let capturedHeaders: Headers | undefined;
+    globalThis.fetch = mock(async (_input: any, init?: any) => {
+      capturedHeaders = init?.headers;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/health", {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    await handler(req);
+
+    expect(capturedHeaders!.has("authorization")).toBe(false);
+  });
+
   test("auth not required: proxies without token", async () => {
     mockUpstream();
     const handler = createRuntimeProxyHandler(

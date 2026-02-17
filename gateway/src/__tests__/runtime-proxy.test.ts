@@ -193,7 +193,7 @@ describe("runtime proxy handler", () => {
     expect(capturedSignal).toBeInstanceOf(AbortSignal);
   });
 
-  test("does not forward authorization header to upstream", async () => {
+  test("forwards authorization header when auth is not required", async () => {
     let capturedHeaders: Headers | undefined;
     globalThis.fetch = mock(async (_input: any, init?: any) => {
       capturedHeaders = init?.headers;
@@ -202,11 +202,11 @@ describe("runtime proxy handler", () => {
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
-      headers: { authorization: "Bearer my-secret-token" },
+      headers: { authorization: "Bearer upstream-token" },
     });
     await handler(req);
 
-    expect(capturedHeaders!.has("authorization")).toBe(false);
+    expect(capturedHeaders!.get("authorization")).toBe("Bearer upstream-token");
   });
 
   test("truncates long upstream error bodies in logs", async () => {

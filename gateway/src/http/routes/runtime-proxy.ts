@@ -61,7 +61,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
-    reqHeaders.delete("authorization");
+    // Only strip the authorization header when the gateway consumed it for its
+    // own auth check. When auth is not required, the header may be intended for
+    // the upstream service and must be forwarded.
+    if (config.runtimeProxyRequireAuth) {
+      reqHeaders.delete("authorization");
+    }
 
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
