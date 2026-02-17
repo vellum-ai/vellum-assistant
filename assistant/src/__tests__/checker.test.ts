@@ -1512,6 +1512,86 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── persistent high-risk allow rules (PR 22) ──────────────────
+
+  describe('persistent high-risk allow rules (PR 22)', () => {
+    test('high-risk tool with allowHighRisk: true allow rule returns allow', async () => {
+      addRule('bash', 'kill *', 'everywhere', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
+    });
+
+    test('high-risk tool with allow rule WITHOUT allowHighRisk still prompts', async () => {
+      addRule('bash', 'kill *', 'everywhere', 'allow', 2000);
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+
+    test('high-risk tool with allowHighRisk: false still prompts', async () => {
+      addRule('bash', 'kill *', 'everywhere', 'allow', 2000, { allowHighRisk: false });
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+
+    test('high-risk tool with no matching rule returns prompt', async () => {
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
+    });
+
+    test('low-risk tool is NOT affected by allowHighRisk (still auto-allows without it)', async () => {
+      const result = await check('bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Low risk');
+    });
+
+    test('medium-risk tool with allow rule is NOT affected by allowHighRisk', async () => {
+      addRule('bash', 'rm *', '/tmp', 'allow', 100);
+      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Matched trust rule');
+      // No mention of high-risk in the reason
+      expect(result.reason).not.toContain('high-risk');
+    });
+
+    test('high-risk scaffold_managed_skill with allowHighRisk: true returns allow', async () => {
+      addRule('scaffold_managed_skill', 'scaffold_managed_skill:my-skill', 'everywhere', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('scaffold_managed_skill', { skill_id: 'my-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+    });
+
+    test('high-risk delete_managed_skill with allowHighRisk: true returns allow', async () => {
+      addRule('delete_managed_skill', 'delete_managed_skill:*', 'everywhere', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('delete_managed_skill', { skill_id: 'any-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+    });
+
+    test('deny rule still takes precedence over allowHighRisk allow rule', async () => {
+      addRule('bash', 'kill *', 'everywhere', 'allow', 100, { allowHighRisk: true });
+      addRule('bash', 'kill *', 'everywhere', 'deny', 200);
+      const result = await check('bash', { command: 'kill -9 1234' }, '/tmp');
+      expect(result.decision).toBe('deny');
+      expect(result.reason).toContain('deny rule');
+    });
+
+    test('allowHighRisk persists through addRule', () => {
+      const rule = addRule('bash', 'kill *', 'everywhere', 'allow', 100, { allowHighRisk: true });
+      expect(rule.allowHighRisk).toBe(true);
+    });
+
+    test('addRule without allowHighRisk option does not set the field', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      expect(rule.allowHighRisk).toBeUndefined();
+    });
+  });
+
   // ── canonical file command candidates (PR 27) ─────────────────
 
   describe('canonical file command candidates (PR 27)', () => {

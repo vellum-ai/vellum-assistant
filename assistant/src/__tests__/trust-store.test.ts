@@ -119,6 +119,27 @@ describe('Trust Store', () => {
       expect(userRules[2].priority).toBe(0);
     });
 
+    test('accepts allowHighRisk option and persists it', () => {
+      const rule = addRule('bash', 'sudo *', 'everywhere', 'allow', 100, { allowHighRisk: true });
+      expect(rule.allowHighRisk).toBe(true);
+      // Verify it persists to disk
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === rule.id);
+      expect(found).toBeDefined();
+      expect(found!.allowHighRisk).toBe(true);
+    });
+
+    test('addRule without allowHighRisk option does not set the field', () => {
+      const rule = addRule('bash', 'git *', '/tmp');
+      expect(rule.allowHighRisk).toBeUndefined();
+      // Verify on disk
+      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
+      const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
+      expect(diskRule).toBeDefined();
+      expect(diskRule).not.toHaveProperty('allowHighRisk');
+    });
+
     test('at same priority deny rules sort before allow rules', () => {
       addRule('bash', 'allow *', '/tmp', 'allow', 100);
       addRule('bash', 'deny *', '/tmp', 'deny', 100);

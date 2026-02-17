@@ -318,7 +318,11 @@ export async function check(
     if (risk !== RiskLevel.High) {
       return { decision: 'allow', reason: `Matched trust rule: ${matchedRule.pattern}`, matchedRule };
     }
-    // High risk with allow rule → fall through to prompt
+    // High risk with allow rule that explicitly permits high-risk → auto-allow
+    if (matchedRule.allowHighRisk === true) {
+      return { decision: 'allow', reason: `Matched high-risk trust rule: ${matchedRule.pattern}`, matchedRule };
+    }
+    // High risk with allow rule (without allowHighRisk) → fall through to prompt
   }
 
   // No matching rule (or High risk with allow rule) → risk-based fallback
