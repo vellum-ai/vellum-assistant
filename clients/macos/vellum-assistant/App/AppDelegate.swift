@@ -116,6 +116,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusIconCancellable: AnyCancellable?
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
+    var cachedApps: [AppItem] = []
+    var refreshAppsTask: Task<Void, Never>?
 
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -252,6 +254,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await self.daemonClient.connect()
                 if self.daemonClient.isConnected {
                     self.setupAmbientAgent()
+                    self.refreshAppsCache()
                     self.refreshSkillsCache()
                 }
             }
@@ -265,6 +268,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
                 setupAmbientAgent()
+                refreshAppsCache()
                 refreshSkillsCache()
             }
         }
