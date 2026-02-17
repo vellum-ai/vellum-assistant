@@ -13,7 +13,7 @@ export class DocumentCreateTool implements Tool {
     'Create a new long-form document with a rich text editor. Use this when the user asks to write a blog post, article, or any long-form content. The editor opens in workspace mode with chat docked to the side.';
   category = 'document';
   defaultRiskLevel = RiskLevel.Low;
-  executionMode: 'local' = 'local';
+  executionMode = 'local' as const;
 
   getDefinition(): ToolDefinition {
     return {
@@ -87,7 +87,7 @@ export class DocumentCreateTool implements Tool {
           }),
           isError: false,
         };
-      } catch (err) {
+      } catch {
         return {
           content: JSON.stringify({
             app_id: appId,
@@ -119,7 +119,7 @@ export class DocumentUpdateTool implements Tool {
     'Update content in an open document editor. Use this to stream generated content or apply edits.';
   category = 'document';
   defaultRiskLevel = RiskLevel.Low;
-  executionMode: 'local' = 'local';
+  executionMode = 'local' as const;
 
   getDefinition(): ToolDefinition {
     return {
