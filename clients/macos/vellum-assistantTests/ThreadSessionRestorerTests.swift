@@ -51,6 +51,10 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     func isSessionArchived(_ sessionId: String) -> Bool {
         archivedSessionIds.contains(sessionId)
     }
+
+    func restoreLastActiveThread() {
+        // no-op for tests
+    }
 }
 
 // MARK: - Helpers

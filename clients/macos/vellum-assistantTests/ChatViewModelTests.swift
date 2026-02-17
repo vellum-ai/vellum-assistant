@@ -1616,8 +1616,8 @@ final class ChatViewModelTests: XCTestCase {
             data: "iVBORw0KGgo=", extractedText: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
-            IPCHistoryResponseMessage(role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
+            IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1635,7 +1635,7 @@ final class ChatViewModelTests: XCTestCase {
             data: "JVBER", extractedText: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment]),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1649,7 +1649,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1711,6 +1711,7 @@ final class ChatViewModelTests: XCTestCase {
         let toolCall = IPCHistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
             IPCHistoryResponseMessage(
+                id: nil,
                 role: "assistant",
                 text: "What are you working on?Saved that to memory.",
                 timestamp: 1000,
@@ -1718,7 +1719,8 @@ final class ChatViewModelTests: XCTestCase {
                 toolCallsBeforeText: nil,
                 attachments: nil,
                 textSegments: ["What are you working on?", "Saved that to memory."],
-                contentOrder: ["text:0", "tool:0", "text:1"]
+                contentOrder: ["text:0", "tool:0", "text:1"],
+                surfaces: nil
             ),
         ]
 
@@ -1734,12 +1736,16 @@ final class ChatViewModelTests: XCTestCase {
         let toolCall = IPCHistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
             IPCHistoryResponseMessage(
+                id: nil,
                 role: "assistant",
                 text: "Here are the files.",
                 timestamp: 1000,
                 toolCalls: [toolCall],
                 toolCallsBeforeText: true,
-                attachments: nil
+                attachments: nil,
+                textSegments: nil,
+                contentOrder: nil,
+                surfaces: nil
             ),
         ]
 
@@ -1847,6 +1853,64 @@ final class ChatViewModelTests: XCTestCase {
         } else {
             XCTFail("Retried message should have queued status when another send is in progress")
         }
+    }
+
+    func testRetryWhileSendingRevertsQueuedStatusOnDisconnect() {
+        viewModel.sessionId = "sess-1"
+
+        // Send message A successfully
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isSending)
+
+        // Send message B which fails (disconnect)
+        daemonClient.isConnected = false
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messages.count, 2)
+
+        // Reconnect and retry while A is still in progress
+        daemonClient.isConnected = true
+        viewModel.isSending = true
+
+        // Now disconnect again so the retry fails at the connectivity check
+        daemonClient.isConnected = false
+        viewModel.retryLastMessage()
+
+        // The message status should be reverted from .queued back to .sent
+        XCTAssertEqual(viewModel.messages[1].status, .sent,
+                        "Queued status should be reverted to .sent when retry send fails due to disconnect")
+        // pendingMessageIds should be cleaned up
+        XCTAssertEqual(viewModel.pendingMessageIds.count, 0,
+                        "pendingMessageIds should be cleaned up on retry failure")
+    }
+
+    func testRetryWhileSendingRevertsQueuedStatusOnSendThrow() {
+        viewModel.sessionId = "sess-1"
+
+        // Send message A successfully
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isSending)
+
+        // Send message B which fails (disconnect)
+        daemonClient.isConnected = false
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messages.count, 2)
+
+        // Reconnect and retry while A is still in progress, but make send throw
+        daemonClient.isConnected = true
+        viewModel.isSending = true
+        daemonClient.sendOverride = { _ in throw NSError(domain: "test", code: 1) }
+        viewModel.retryLastMessage()
+
+        // The message status should be reverted from .queued back to .sent
+        XCTAssertEqual(viewModel.messages[1].status, .sent,
+                        "Queued status should be reverted to .sent when retry send throws")
+        // pendingMessageIds should be cleaned up
+        XCTAssertEqual(viewModel.pendingMessageIds.count, 0,
+                        "pendingMessageIds should be cleaned up on retry send failure")
     }
 
     func testRetryWhenNotSendingDoesNotTrackInQueue() {

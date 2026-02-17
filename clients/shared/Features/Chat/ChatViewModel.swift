@@ -289,6 +289,10 @@ public final class ChatViewModel: ObservableObject {
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
                 pendingMessageIds.removeAll { $0 == queuedMessageId }
+                // Revert status so the message doesn't appear permanently queued
+                if let idx = messages.firstIndex(where: { $0.id == queuedMessageId }) {
+                    messages[idx].status = .sent
+                }
             }
             return
         }
@@ -320,6 +324,10 @@ public final class ChatViewModel: ObservableObject {
             // Remove the queued message ID to prevent stale FIFO entries
             if let queuedMessageId {
                 pendingMessageIds.removeAll { $0 == queuedMessageId }
+                // Revert status so the message doesn't appear permanently queued
+                if let idx = messages.firstIndex(where: { $0.id == queuedMessageId }) {
+                    messages[idx].status = .sent
+                }
             }
         }
     }
