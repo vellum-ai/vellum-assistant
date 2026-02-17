@@ -44,6 +44,7 @@ import {
   getAttachmentsForMessage,
   getAttachmentsForMessageUnscoped,
   deleteOrphanAttachments,
+  validateAttachmentUpload,
 } from '../memory/attachments-store.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 
@@ -343,5 +344,79 @@ describe('deleteOrphanAttachments', () => {
     // The unrelated attachment should still exist
     const fetched = getAttachmentById('ast-1', unrelated.id);
     expect(fetched).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAttachmentUpload
+// ---------------------------------------------------------------------------
+
+describe('validateAttachmentUpload', () => {
+  test('accepts common image MIME types', () => {
+    expect(validateAttachmentUpload('photo.png', 'image/png').ok).toBe(true);
+    expect(validateAttachmentUpload('pic.jpg', 'image/jpeg').ok).toBe(true);
+    expect(validateAttachmentUpload('anim.gif', 'image/gif').ok).toBe(true);
+    expect(validateAttachmentUpload('sticker.webp', 'image/webp').ok).toBe(true);
+  });
+
+  test('accepts document MIME types', () => {
+    expect(validateAttachmentUpload('doc.pdf', 'application/pdf').ok).toBe(true);
+    expect(validateAttachmentUpload('notes.txt', 'text/plain').ok).toBe(true);
+    expect(validateAttachmentUpload('data.csv', 'text/csv').ok).toBe(true);
+    expect(validateAttachmentUpload('config.json', 'application/json').ok).toBe(true);
+  });
+
+  test('accepts audio and video MIME types', () => {
+    expect(validateAttachmentUpload('voice.ogg', 'audio/ogg').ok).toBe(true);
+    expect(validateAttachmentUpload('song.mp3', 'audio/mpeg').ok).toBe(true);
+    expect(validateAttachmentUpload('clip.mp4', 'video/mp4').ok).toBe(true);
+  });
+
+  test('accepts application/octet-stream fallback', () => {
+    expect(validateAttachmentUpload('data.bin', 'application/octet-stream').ok).toBe(true);
+  });
+
+  test('rejects dangerous file extensions', () => {
+    const exeResult = validateAttachmentUpload('malware.exe', 'application/octet-stream');
+    expect(exeResult.ok).toBe(false);
+    if (!exeResult.ok) expect(exeResult.error).toContain('.exe');
+
+    const shResult = validateAttachmentUpload('script.sh', 'text/plain');
+    expect(shResult.ok).toBe(false);
+    if (!shResult.ok) expect(shResult.error).toContain('.sh');
+
+    const isoResult = validateAttachmentUpload('disk.iso', 'application/octet-stream');
+    expect(isoResult.ok).toBe(false);
+    if (!isoResult.ok) expect(isoResult.error).toContain('.iso');
+  });
+
+  test('rejects dangerous extensions regardless of claimed MIME type', () => {
+    // .exe disguised as image/png
+    const result = validateAttachmentUpload('payload.exe', 'image/png');
+    expect(result.ok).toBe(false);
+  });
+
+  test('extension check is case-insensitive', () => {
+    expect(validateAttachmentUpload('PROGRAM.EXE', 'application/octet-stream').ok).toBe(false);
+    expect(validateAttachmentUpload('script.SH', 'text/plain').ok).toBe(false);
+  });
+
+  test('rejects unsupported MIME types', () => {
+    const result = validateAttachmentUpload('file.unknown', 'application/x-msdownload');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('Unsupported MIME type');
+  });
+
+  test('handles filenames without extensions', () => {
+    // No extension — only MIME check applies
+    expect(validateAttachmentUpload('Makefile', 'text/plain').ok).toBe(true);
+    expect(validateAttachmentUpload('Makefile', 'application/x-evil').ok).toBe(false);
+  });
+
+  test('rejects all dangerous extension variants', () => {
+    for (const ext of ['bat', 'cmd', 'com', 'msi', 'dmg', 'app', 'scr', 'pif', 'vbs', 'ps1', 'jar']) {
+      const result = validateAttachmentUpload(`file.${ext}`, 'application/octet-stream');
+      expect(result.ok).toBe(false);
+    }
   });
 });

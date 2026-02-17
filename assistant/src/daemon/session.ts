@@ -1,9 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock, ImageContent } from '../providers/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
-import { getQdrantClient } from '../memory/qdrant-client.js';
-import { enqueueMemoryJob } from '../memory/jobs-store.js';
 import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { CheckpointDecision } from '../agent/loop.js';
@@ -22,7 +19,6 @@ import { allAppTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
-import { estimateCost, resolvePricingWithOverrides } from '../util/pricing.js';
 import { getLogger } from '../util/logger.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
@@ -47,13 +43,11 @@ import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import {
   ContextWindowManager,
   createContextSummaryMessage,
-  getSummaryFromContextMessage,
 } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { recordUsageEvent } from '../memory/llm-usage-store.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
@@ -64,19 +58,9 @@ import {
   stripActiveSurfaceContext,
   stripWorkspaceTopLevelContext,
 } from './session-runtime-assembly.js';
-import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
-import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
 import type {
   ActiveSurfaceContext,
 } from './session-runtime-assembly.js';
-import type { UsageActor } from '../usage/actors.js';
-import { loadSkillCatalog } from '../config/skills.js';
-import { resolveSkillStates } from '../config/skill-state.js';
-import {
-  buildInvocableSlashCatalog,
-  resolveSlashSkillCommand,
-  rewriteKnownSlashCommandPrompt,
-} from '../skills/slash-commands.js';
 import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
@@ -96,19 +80,33 @@ import {
   formatAttachmentWarnings,
   resolveAssistantAttachments,
 } from './session-attachments.js';
+import {
+  consolidateAssistantMessages,
+  undo as undoImpl,
+  regenerate as regenerateImpl,
+  type HistorySessionContext,
+} from './session-history.js';
+import { recordUsage, generateTitle } from './session-usage.js';
+import { resolveSlash, isProviderOrderingError } from './session-slash.js';
+import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
+import type { UsageActor } from '../usage/actors.js';
 
 const log = getLogger('session');
 
 export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
+export { findLastUndoableUserMessageIndex } from './session-history.js';
 
 export class Session {
   public readonly conversationId: string;
   private provider: Provider;
-  private messages: Message[] = [];
+  /** @internal — exposed for session-history.ts module functions. */
+  messages: Message[] = [];
   private agentLoop: AgentLoop;
-  private processing = false;
+  /** @internal — exposed for session-history.ts module functions. */
+  processing = false;
   private stale = false;
-  private abortController: AbortController | null = null;
+  /** @internal — exposed for session-history.ts module functions. */
+  abortController: AbortController | null = null;
   private prompter: PermissionPrompter;
   private secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
@@ -117,15 +115,19 @@ export class Session {
   /** Broadcast a message to all connected sockets (not just this session's client). */
   private broadcastToAllClients?: (msg: ServerMessage) => void;
   private eventBus = new EventBus<AssistantDomainEvents>();
-  private workingDir: string;
+  /** @internal — exposed for session-workspace.ts module functions. */
+  workingDir: string;
   private sandboxOverride?: boolean;
-  private usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+  /** @internal — exposed for session-usage.ts module functions. */
+  usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
   private contextWindowManager: ContextWindowManager;
   private contextCompactedMessageCount = 0;
   private contextCompactedAt: number | null = null;
-  private currentRequestId?: string;
-  private assistantId: string | null = null;
+  /** @internal — exposed for session-history.ts module functions. */
+  currentRequestId?: string;
+  /** @internal — exposed for session-usage.ts module functions. */
+  assistantId: string | null = null;
   private conflictGate = new ConflictGate();
   private hasNoClient = false;
   private readonly queue = new MessageQueue();
@@ -142,8 +144,10 @@ export class Session {
   /** @internal Surfaces created during the current agent loop turn, to be persisted with the message. */
   currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
   /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
-  private workspaceTopLevelContext: string | null = null;
-  private workspaceTopLevelDirty = true;
+  /** @internal — exposed for session-workspace.ts module functions. */
+  workspaceTopLevelContext: string | null = null;
+  /** @internal — exposed for session-workspace.ts module functions. */
+  workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
@@ -1216,128 +1220,8 @@ export class Session {
     }
   }
 
-  /**
-   * Consolidate consecutive assistant messages created during an agent loop.
-   * After the loop completes, merge all assistant messages that came after
-   * the user message into a single message, and delete the internal tool_result
-   * user messages. This ensures the database matches what the client sees
-   * during streaming (one consolidated message per user request).
-   */
   private consolidateAssistantMessages(userMessageId: string): void {
-    const allMessages = conversationStore.getMessages(this.conversationId);
-    const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
-    if (userMsgIndex === -1) return;
-
-    const messagesToConsolidate: typeof allMessages = [];
-    const internalToolResultMessages: typeof allMessages = [];
-    const messagesToDelete: string[] = [];
-
-    // Collect all assistant messages and internal tool_result user messages after this user message
-    for (let i = userMsgIndex + 1; i < allMessages.length; i++) {
-      const msg = allMessages[i];
-      if (msg.role === 'assistant') {
-        messagesToConsolidate.push(msg);
-      } else if (msg.role === 'user') {
-        // Check if this is an internal tool_result message (no text, only tool_result blocks)
-        try {
-          const content = JSON.parse(msg.content);
-          const isToolResultOnly = Array.isArray(content) &&
-            content.every((block) => block.type === 'tool_result') &&
-            content.length > 0;
-          if (isToolResultOnly) {
-            internalToolResultMessages.push(msg);
-            messagesToDelete.push(msg.id);
-          } else {
-            // Hit a real user message, stop consolidating
-            break;
-          }
-        } catch {
-          // Can't parse, assume it's a real user message
-          break;
-        }
-      }
-    }
-
-    // Only consolidate if there are multiple assistant messages
-    if (messagesToConsolidate.length <= 1) {
-      // Still delete internal tool_result messages even if only one assistant message
-      for (const id of messagesToDelete) {
-        conversationStore.deleteMessageById(id);
-      }
-      return;
-    }
-
-    log.info({
-      conversationId: this.conversationId,
-      userMessageId,
-      assistantCount: messagesToConsolidate.length,
-      internalMessageCount: messagesToDelete.length,
-    }, 'Consolidating assistant messages');
-
-    // Merge all content blocks from all assistant messages AND tool_result blocks from internal user messages
-    const consolidatedContent: ContentBlock[] = [];
-    for (const msg of messagesToConsolidate) {
-      try {
-        const content = JSON.parse(msg.content);
-        if (Array.isArray(content)) {
-          const toolUseBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_use');
-          log.info({ messageId: msg.id, blockCount: content.length, toolUseCount: toolUseBlocks.length }, 'Consolidating assistant message content');
-          consolidatedContent.push(...content);
-        }
-      } catch (err) {
-        log.warn({ err, messageId: msg.id }, 'Failed to parse message content during consolidation');
-      }
-    }
-
-    // Also merge tool_result blocks from internal user messages
-    for (const msg of internalToolResultMessages) {
-      try {
-        const content = JSON.parse(msg.content);
-        if (Array.isArray(content)) {
-          const toolResultBlocks = content.filter((b: Record<string, unknown>) => b.type === 'tool_result');
-          log.info({ messageId: msg.id, blockCount: content.length, toolResultCount: toolResultBlocks.length }, 'Merging tool_result blocks from internal user message');
-          consolidatedContent.push(...content);
-        }
-      } catch (err) {
-        log.warn({ err, messageId: msg.id }, 'Failed to parse internal tool_result message during consolidation');
-      }
-    }
-
-    const toolUseBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_use').length;
-    const toolResultBlocksInConsolidated = consolidatedContent.filter((b) => b.type === 'tool_result').length;
-    log.info({ totalBlocks: consolidatedContent.length, toolUseBlocks: toolUseBlocksInConsolidated, toolResultBlocks: toolResultBlocksInConsolidated }, 'Final consolidated content');
-
-    // Update the first assistant message with all content
-    const firstAssistantMsg = messagesToConsolidate[0];
-    conversationStore.updateMessageContent(firstAssistantMsg.id, JSON.stringify(consolidatedContent));
-
-    // Delete the other assistant messages and internal tool_result messages,
-    // and collect IDs for vector cleanup
-    const allSegmentIds: string[] = [];
-    const allOrphanedItemIds: string[] = [];
-    for (let i = 1; i < messagesToConsolidate.length; i++) {
-      const deleted = conversationStore.deleteMessageById(messagesToConsolidate[i].id);
-      allSegmentIds.push(...deleted.segmentIds);
-      allOrphanedItemIds.push(...deleted.orphanedItemIds);
-    }
-    for (const id of messagesToDelete) {
-      const deleted = conversationStore.deleteMessageById(id);
-      allSegmentIds.push(...deleted.segmentIds);
-      allOrphanedItemIds.push(...deleted.orphanedItemIds);
-    }
-
-    // Clean up Qdrant vectors (fire-and-forget)
-    if (allSegmentIds.length > 0 || allOrphanedItemIds.length > 0) {
-      this.cleanupQdrantVectors(allSegmentIds, allOrphanedItemIds).catch((err) => {
-        log.warn({ err, conversationId: this.conversationId }, 'Qdrant cleanup after consolidation failed (non-fatal)');
-      });
-    }
-
-    log.info({
-      conversationId: this.conversationId,
-      consolidatedMessageId: firstAssistantMsg.id,
-      deletedCount: messagesToConsolidate.length - 1 + messagesToDelete.length,
-    }, 'Assistant messages consolidated');
+    consolidateAssistantMessages(this.conversationId, userMessageId);
   }
 
   /**
@@ -1367,7 +1251,7 @@ export class Session {
     });
 
     // Resolve slash commands for queued messages
-    const slashResult = this.resolveSlash(next.content);
+    const slashResult = resolveSlash(next.content);
 
     // Unknown slash — persist the exchange and continue draining.
     // Persist each message before pushing to this.messages so that a
@@ -1464,7 +1348,7 @@ export class Session {
     this.currentPage = currentPage;
 
     // Resolve slash commands before persistence
-    const slashResult = this.resolveSlash(content);
+    const slashResult = resolveSlash(content);
 
     // Unknown slash command — persist the exchange (user + assistant) so the
     // messageId is real.  Persist each message before pushing to this.messages
@@ -1510,37 +1394,6 @@ export class Session {
     return userMessageId;
   }
 
-  /**
-   * Resolve slash commands against the current skill catalog.
-   * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
-   */
-  private resolveSlash(content: string): { kind: 'passthrough' | 'rewritten'; content: string } | { kind: 'unknown'; message: string } {
-    const config = getConfig();
-    const catalog = loadSkillCatalog();
-    const resolved = resolveSkillStates(catalog, config);
-    const invocable = buildInvocableSlashCatalog(catalog, resolved);
-    const resolution = resolveSlashSkillCommand(content, invocable);
-
-    if (resolution.kind === 'known') {
-      const skill = invocable.get(resolution.skillId.toLowerCase());
-      return {
-        kind: 'rewritten',
-        content: rewriteKnownSlashCommandPrompt({
-          rawInput: content,
-          skillId: resolution.skillId,
-          skillName: skill?.name ?? resolution.skillId,
-          trailingArgs: resolution.trailingArgs,
-        }),
-      };
-    }
-
-    if (resolution.kind === 'unknown') {
-      return { kind: 'unknown', message: resolution.message };
-    }
-
-    return { kind: 'passthrough', content };
-  }
-
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
     handleSurfaceActionImpl(this, surfaceId, actionId, data);
   }
@@ -1549,243 +1402,28 @@ export class Session {
     return this.messages;
   }
 
-  /**
-   * Remove the last user+assistant exchange from memory and DB.
-   * Returns the number of messages removed.
-   */
   undo(): number {
-    if (this.processing) return 0;
-
-    const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
-    if (lastUserIdx === -1) return 0;
-
-    const removed = this.messages.length - lastUserIdx;
-    this.messages = this.messages.slice(0, lastUserIdx);
-
-    // Also remove from DB. We may need to call deleteLastExchange multiple
-    // times because the DB stores tool_result user messages as separate rows.
-    // The in-memory findLastUndoableUserMessageIndex skips these, but the DB's
-    // deleteLastExchange only finds the last role='user' row — which may be a
-    // tool_result message, leaving the real user message orphaned.
-    //
-    // Strategy: peel back any trailing tool_result exchanges first, then
-    // delete the real user message exchange only if tool_result rows were
-    // actually encountered. The do-while handles the case where the last DB
-    // exchange is a tool_result row; the flag ensures we only issue the extra
-    // deleteLastExchange when the loop peeled back tool_result messages.
-    let hadToolResult = false;
-    do {
-      conversationStore.deleteLastExchange(this.conversationId);
-      if (conversationStore.isLastUserMessageToolResult(this.conversationId)) {
-        hadToolResult = true;
-      } else {
-        break;
-      }
-    } while (true);
-    if (hadToolResult) {
-      conversationStore.deleteLastExchange(this.conversationId);
-    }
-
-    return removed;
+    return undoImpl(this as HistorySessionContext);
   }
 
-  /**
-   * Regenerate the last assistant response: remove the assistant's reply
-   * (and any intermediate tool_result messages) from memory, DB, and
-   * Qdrant, then re-run the agent loop with the same user message.
-   */
   async regenerate(onEvent: (msg: ServerMessage) => void, requestId?: string): Promise<void> {
-    if (this.processing) {
-      onEvent({ type: 'error', message: 'Cannot regenerate while processing' });
-      if (requestId) {
-        this.traceEmitter.emit('request_error', 'Cannot regenerate while processing', {
-          requestId,
-          status: 'error',
-          attributes: { reason: 'already_processing' },
-        });
-      }
-      return;
-    }
-
-    // Find the last undoable user message — everything after it is the
-    // assistant's exchange that we want to regenerate.
-    const lastUserIdx = findLastUndoableUserMessageIndex(this.messages);
-    if (lastUserIdx === -1) {
-      onEvent({ type: 'error', message: 'No messages to regenerate' });
-      if (requestId) {
-        this.traceEmitter.emit('request_error', 'No messages to regenerate', {
-          requestId,
-          status: 'error',
-          attributes: { reason: 'no_messages' },
-        });
-      }
-      return;
-    }
-
-    // There must be at least one message after the user message (the assistant reply).
-    if (lastUserIdx >= this.messages.length - 1) {
-      onEvent({ type: 'error', message: 'No assistant response to regenerate' });
-      if (requestId) {
-        this.traceEmitter.emit('request_error', 'No assistant response to regenerate', {
-          requestId,
-          status: 'error',
-          attributes: { reason: 'no_assistant_response' },
-        });
-      }
-      return;
-    }
-
-    // Remove the assistant's exchange from in-memory history (keep the user message).
-    this.messages = this.messages.slice(0, lastUserIdx + 1);
-
-    // Find DB message IDs to delete: get all messages from the DB, then
-    // identify the ones that come after the last user message.
-    const dbMessages = conversationStore.getMessages(this.conversationId);
-
-    // Walk backwards to find the last real (non-tool_result) user message in the DB.
-    let dbUserMsgIdx = -1;
-    for (let i = dbMessages.length - 1; i >= 0; i--) {
-      if (dbMessages[i].role !== 'user') continue;
-      try {
-        const parsed = JSON.parse(dbMessages[i].content);
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((b: Record<string, unknown>) => b.type === 'tool_result')) {
-          continue; // Skip tool_result-only user messages
-        }
-      } catch { /* plain text = real user message */ }
-      dbUserMsgIdx = i;
-      break;
-    }
-
-    if (dbUserMsgIdx === -1) {
-      onEvent({ type: 'error', message: 'No user message found in DB' });
-      if (requestId) {
-        this.traceEmitter.emit('request_error', 'No user message found in DB', {
-          requestId,
-          status: 'error',
-          attributes: { reason: 'no_db_user_message' },
-        });
-      }
-      return;
-    }
-
-    // Capture the existing DB user message ID so we can pass it to
-    // runAgentLoop without re-persisting the user message.
-    const existingUserMessageId = dbMessages[dbUserMsgIdx].id;
-
-    // Everything after the user message needs to be deleted.
-    const messagesToDelete = dbMessages.slice(dbUserMsgIdx + 1);
-
-    // Delete each message via deleteMessageById and collect IDs for Qdrant cleanup.
-    const allSegmentIds: string[] = [];
-    const allOrphanedItemIds: string[] = [];
-    for (const msg of messagesToDelete) {
-      const deleted = conversationStore.deleteMessageById(msg.id);
-      allSegmentIds.push(...deleted.segmentIds);
-      allOrphanedItemIds.push(...deleted.orphanedItemIds);
-    }
-
-    // Clean up Qdrant vectors (fire-and-forget).
-    this.cleanupQdrantVectors(allSegmentIds, allOrphanedItemIds).catch((err) => {
-      log.warn({ err, conversationId: this.conversationId }, 'Qdrant cleanup after regenerate failed (non-fatal)');
-    });
-
-    // Re-extract the user message content for the agent loop.
-    // Use all content blocks (text, image, file) so attachments are
-    // preserved — not just text blocks.
-    const userMessage = this.messages[lastUserIdx];
-    const textBlocks = userMessage.content.filter(
-      (b) => b.type === 'text',
-    );
-    const content = textBlocks
-      .map((b) => (b as { type: 'text'; text: string }).text)
-      .join('');
-
-    // Notify client that the old response has been removed.
-    onEvent({ type: 'undo_complete', removedCount: messagesToDelete.length, sessionId: this.conversationId });
-
-    // Set up processing state manually and call runAgentLoop directly,
-    // bypassing processMessage to avoid duplicating the user message
-    // in both this.messages and the DB.
-    this.processing = true;
-    this.abortController = new AbortController();
-    this.currentRequestId = requestId ?? uuid();
-
-    await this.runAgentLoop(content, existingUserMessageId, onEvent, { skipPreMessageRollback: true });
-  }
-
-  /**
-   * Delete Qdrant vector entries for the given segment and item IDs.
-   * Individual deletion failures are logged and enqueued as retry jobs
-   * to prevent silently orphaned vectors.
-   */
-  private async cleanupQdrantVectors(segmentIds: string[], orphanedItemIds: string[]): Promise<void> {
-    let qdrant: ReturnType<typeof getQdrantClient>;
-    try {
-      qdrant = getQdrantClient();
-    } catch {
-      return; // Qdrant not initialized — nothing to clean up.
-    }
-
-    if (segmentIds.length === 0 && orphanedItemIds.length === 0) return;
-
-    const targets: Array<{ targetType: string; targetId: string }> = [];
-    for (const segId of segmentIds) {
-      targets.push({ targetType: 'segment', targetId: segId });
-    }
-    for (const itemId of orphanedItemIds) {
-      targets.push({ targetType: 'item', targetId: itemId });
-    }
-
-    const results = await Promise.allSettled(
-      targets.map((t) => qdrant.deleteByTarget(t.targetType, t.targetId)),
-    );
-
-    let succeeded = 0;
-    let failed = 0;
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      if (result.status === 'fulfilled') {
-        succeeded++;
-      } else {
-        failed++;
-        const { targetType, targetId } = targets[i];
-        log.warn(
-          { err: result.reason, targetType, targetId, conversationId: this.conversationId },
-          'Qdrant vector deletion failed, enqueuing retry job',
-        );
-        enqueueMemoryJob('delete_qdrant_vectors', { targetType, targetId });
-      }
-    }
-
-    if (succeeded > 0) {
-      log.info(
-        { conversationId: this.conversationId, succeeded, failed, segments: segmentIds.length, items: orphanedItemIds.length },
-        'Cleaned up Qdrant vectors after regenerate',
-      );
-    }
+    return regenerateImpl(this as HistorySessionContext, onEvent, requestId);
   }
 
   // ── Workspace Top-Level Context ──────────────────────────────────
 
-  /** Refresh workspace top-level directory context if needed. */
   refreshWorkspaceTopLevelContextIfNeeded(): void {
-    if (!this.workspaceTopLevelDirty && this.workspaceTopLevelContext !== null) return;
-    const snapshot = scanTopLevelDirectories(this.workingDir);
-    this.workspaceTopLevelContext = renderWorkspaceTopLevelContext(snapshot);
-    this.workspaceTopLevelDirty = false;
+    refreshWorkspaceImpl(this);
   }
 
-  /** Mark workspace top-level context for refresh on next turn. */
   markWorkspaceTopLevelDirty(): void {
     this.workspaceTopLevelDirty = true;
   }
 
-  /** Get the current cached workspace context (for testing). */
   getWorkspaceTopLevelContext(): string | null {
     return this.workspaceTopLevelContext;
   }
 
-  /** Check if workspace context is marked dirty (for testing). */
   isWorkspaceTopLevelDirty(): boolean {
     return this.workspaceTopLevelDirty;
   }
@@ -1806,115 +1444,14 @@ export class Session {
     actor: UsageActor,
     requestId: string | null = null,
   ): void {
-    if (inputTokens <= 0 && outputTokens <= 0) return;
-
-    const estimatedCost = estimateCost(inputTokens, outputTokens, model, this.provider.name);
-    this.usageStats = {
-      inputTokens: this.usageStats.inputTokens + inputTokens,
-      outputTokens: this.usageStats.outputTokens + outputTokens,
-      estimatedCost: this.usageStats.estimatedCost + estimatedCost,
-    };
-    conversationStore.updateConversationUsage(
-      this.conversationId,
-      this.usageStats.inputTokens,
-      this.usageStats.outputTokens,
-      this.usageStats.estimatedCost,
+    recordUsage(
+      { conversationId: this.conversationId, providerName: this.provider.name, assistantId: this.assistantId, usageStats: this.usageStats },
+      inputTokens, outputTokens, model, onEvent, actor, requestId,
     );
-    onEvent({
-      type: 'usage_update',
-      inputTokens,
-      outputTokens,
-      totalInputTokens: this.usageStats.inputTokens,
-      totalOutputTokens: this.usageStats.outputTokens,
-      estimatedCost,
-      model,
-    });
-
-    // Dual-write: persist per-turn usage event to the new ledger table
-    try {
-      const config = getConfig();
-      const pricing = resolvePricingWithOverrides(this.provider.name, model, inputTokens, outputTokens, config.pricingOverrides);
-      recordUsageEvent(
-        {
-          actor,
-          provider: this.provider.name,
-          model,
-          inputTokens,
-          outputTokens,
-          cacheCreationInputTokens: null,
-          cacheReadInputTokens: null,
-          assistantId: this.assistantId,
-          conversationId: this.conversationId,
-          runId: null,
-          requestId,
-        },
-        pricing,
-      );
-    } catch (err) {
-      log.warn({ err, conversationId: this.conversationId }, 'Failed to persist usage event (non-fatal)');
-    }
   }
 
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
-    const config = getConfig();
-    const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return;
-
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 20,
-      messages: [{
-        role: 'user',
-        content: `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`,
-      }],
-    });
-
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (textBlock && textBlock.type === 'text') {
-      let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
-      const words = title.split(/\s+/);
-      if (words.length > 5) title = words.slice(0, 5).join(' ');
-      if (title.length > 40) title = title.slice(0, 40).trimEnd();
-      conversationStore.updateConversationTitle(this.conversationId, title);
-      log.info({ conversationId: this.conversationId, title }, 'Auto-generated conversation title');
-    }
+    return generateTitle(this.conversationId, userMessage, assistantResponse);
   }
 
-}
-
-function isUndoableUserMessage(message: Message): boolean {
-  if (message.role !== 'user') return false;
-  if (getSummaryFromContextMessage(message) !== null) return false;
-  // A user message is undoable if it contains user-authored content (non-tool_result
-  // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
-  // responses) are not undoable. Messages that have both tool_result and text blocks
-  // (e.g. after repairHistory merges a tool_result turn with a user prompt) are still
-  // undoable because they contain real user content.
-  const hasNonToolResultContent = message.content.some(
-    (block) => block.type !== 'tool_result',
-  );
-  if (!hasNonToolResultContent) return false;
-  return true;
-}
-
-export function findLastUndoableUserMessageIndex(messages: Message[]): number {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (isUndoableUserMessage(messages[i])) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-const ORDERING_ERROR_PATTERNS = [
-  /tool_result.*not immediately after.*tool_use/i,
-  /tool_use.*must have.*tool_result/i,
-  /tool_use_id.*without.*tool_result/i,
-  /tool_result.*tool_use_id.*not found/i,
-  /messages.*invalid.*order/i,
-];
-
-function isProviderOrderingError(message: string): boolean {
-  return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }

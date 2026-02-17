@@ -25,6 +25,85 @@ function classifyKind(mimeType: string): string {
   return 'document';
 }
 
+// ---------------------------------------------------------------------------
+// Inbound attachment MIME validation
+// ---------------------------------------------------------------------------
+
+/**
+ * MIME types accepted for inbound attachment uploads.
+ * Files with types not on this list are rejected at the API boundary.
+ */
+const ALLOWED_MIME_TYPES = new Set([
+  // Images
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+  'image/svg+xml', 'image/bmp', 'image/tiff', 'image/x-icon',
+  // Audio
+  'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/flac',
+  'audio/aac', 'audio/x-m4a', 'audio/mp4',
+  // Video
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg',
+  // Documents
+  'application/pdf', 'text/plain', 'text/csv', 'text/markdown',
+  'text/html', 'text/css', 'application/json', 'application/xml', 'text/xml',
+  // Source code
+  'text/javascript', 'text/typescript',
+  // Archives
+  'application/zip', 'application/gzip', 'application/x-tar',
+  'application/x-7z-compressed',
+  // Office
+  'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Fallback for unknown-but-not-dangerous files (Telegram often uses this)
+  'application/octet-stream',
+]);
+
+/**
+ * File extensions that are always rejected regardless of claimed MIME type.
+ */
+const DANGEROUS_EXTENSIONS = new Set([
+  'exe', 'sh', 'bat', 'cmd', 'com', 'msi', 'iso',
+  'dmg', 'app', 'scr', 'pif', 'vbs', 'ps1', 'jar',
+  'cpl', 'inf', 'reg', 'hta', 'wsf', 'wsh',
+]);
+
+export type AttachmentValidationResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/**
+ * Validate a filename + MIME type pair for inbound attachment uploads.
+ *
+ * Rejects files whose extension is in the dangerous blocklist or whose
+ * MIME type is not on the allowlist.
+ */
+export function validateAttachmentUpload(
+  filename: string,
+  mimeType: string,
+): AttachmentValidationResult {
+  const dot = filename.lastIndexOf('.');
+  if (dot !== -1) {
+    const ext = filename.slice(dot + 1).toLowerCase();
+    if (DANGEROUS_EXTENSIONS.has(ext)) {
+      return {
+        ok: false,
+        error: `Dangerous file type rejected: .${ext} files are not allowed`,
+      };
+    }
+  }
+
+  const normalised = mimeType.toLowerCase().trim();
+  if (!ALLOWED_MIME_TYPES.has(normalised)) {
+    return {
+      ok: false,
+      error: `Unsupported MIME type: ${mimeType}`,
+    };
+  }
+
+  return { ok: true };
+}
+
 export function uploadAttachment(
   assistantId: string,
   filename: string,

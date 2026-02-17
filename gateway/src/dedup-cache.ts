@@ -1,0 +1,75 @@
+import { getLogger } from "./logger.js";
+
+const log = getLogger("dedup-cache");
+
+interface CacheEntry {
+  body: string;
+  status: number;
+  expiresAt: number;
+}
+
+/**
+ * In-memory TTL cache for Telegram update_id deduplication.
+ * Prevents redundant normalization, routing, attachment downloads,
+ * and runtime forwarding when Telegram retries a webhook on timeout.
+ */
+export class DedupCache {
+  private cache = new Map<number, CacheEntry>();
+  private readonly ttlMs: number;
+  private readonly maxSize: number;
+
+  constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
+    this.ttlMs = ttlMs;
+    this.maxSize = maxSize;
+  }
+
+  /** Returns the cached response body+status if the update_id was already seen. */
+  get(updateId: number): { body: string; status: number } | undefined {
+    const entry = this.cache.get(updateId);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(updateId);
+      return undefined;
+    }
+    return { body: entry.body, status: entry.status };
+  }
+
+  /** Store a response for the given update_id. */
+  set(updateId: number, body: string, status: number): void {
+    // Evict expired entries if we're at capacity
+    if (this.cache.size >= this.maxSize) {
+      this.evictExpired();
+    }
+    // If still at capacity after eviction, drop the oldest entry
+    if (this.cache.size >= this.maxSize) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+      }
+    }
+
+    this.cache.set(updateId, {
+      body,
+      status,
+      expiresAt: Date.now() + this.ttlMs,
+    });
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  private evictExpired(): void {
+    const now = Date.now();
+    let evicted = 0;
+    for (const [key, entry] of this.cache) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      log.debug({ evicted }, "Evicted expired dedup cache entries");
+    }
+  }
+}

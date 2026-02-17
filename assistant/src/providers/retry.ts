@@ -32,9 +32,10 @@ function isRetryableError(error: unknown): boolean {
 }
 
 function getRetryDelay(attempt: number): number {
-  const exponential = BASE_DELAY_MS * Math.pow(2, attempt);
-  const jitter = Math.random() * BASE_DELAY_MS;
-  return exponential + jitter;
+  // Full jitter: uniform random in [0, exponential cap] prevents synchronized
+  // retry storms when many sessions hit the same transient failure.
+  const cap = BASE_DELAY_MS * Math.pow(2, attempt);
+  return Math.random() * cap;
 }
 
 function sleep(ms: number): Promise<void> {
