@@ -1527,19 +1527,32 @@ private func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []
     var i = 0
-    var inCodeFence = false
+    var fenceDelimiter: (character: Character, length: Int)? = nil
 
     while i < lines.count {
         // Track fenced code blocks so we don't parse tables inside them
-        if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-            inCodeFence.toggle()
+        let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+        if let fence = fenceDelimiter {
+            // Inside a fence — only close if matching character with >= length
+            let closeCount = trimmed.prefix(while: { $0 == fence.character }).count
+            if closeCount >= fence.length && trimmed.drop(while: { $0 == fence.character }).allSatisfy(\.isWhitespace) {
+                fenceDelimiter = nil
+            }
+            currentText.append(lines[i])
+            i += 1
+            continue
+        } else if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            // Opening a new fence — record delimiter character and length
+            let fenceChar = trimmed.first!
+            let fenceLen = trimmed.prefix(while: { $0 == fenceChar }).count
+            fenceDelimiter = (fenceChar, fenceLen)
             currentText.append(lines[i])
             i += 1
             continue
         }
 
         // Check for table: need header row + separator row + at least one data row
-        if !inCodeFence,
+        if fenceDelimiter == nil,
            i + 2 < lines.count,
            isTableRow(lines[i]),
            isTableSeparator(lines[i + 1]),
