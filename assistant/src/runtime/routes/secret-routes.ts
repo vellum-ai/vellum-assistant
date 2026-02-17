@@ -43,7 +43,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
 
     if (type === 'credential') {
       const colonIdx = name.indexOf(':');
-      if (colonIdx < 1) {
+      if (colonIdx < 1 || colonIdx === name.length - 1) {
         return Response.json(
           { error: 'For credential type, name must be in "service:field" format (e.g. "github:api_token")' },
           { status: 400 },
