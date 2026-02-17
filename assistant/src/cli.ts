@@ -20,8 +20,8 @@ import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLa
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
-const RECONNECT_DELAY_MS = 1_000;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === 'string' ? rawUrl : String(rawUrl ?? '');
@@ -53,6 +53,7 @@ export async function startCli(): Promise<void> {
   let pendingCopySession = false;
   let toolStreaming = false;
   let reconnecting = false;
+  let reconnectDelay = RECONNECT_BASE_DELAY_MS;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
   const spinner = new Spinner();
@@ -629,23 +630,25 @@ export async function startCli(): Promise<void> {
     rl.removeAllListeners('line');
     rl.on('line', handleLine);
 
-    for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
-      process.stdout.write(`\n  Reconnecting to daemon (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})...\n`);
-      await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
+    // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
+    while (true) {
+      const delaySec = (reconnectDelay / 1000).toFixed(0);
+      process.stdout.write(`\n  Reconnecting to daemon in ${delaySec}s...\n`);
+      await new Promise((r) => setTimeout(r, reconnectDelay));
+
+      // Increase backoff for next attempt before trying
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_DELAY_MS);
 
       try {
         if (shouldAutoStartDaemon()) await ensureDaemonRunning();
         await connect();
+        reconnectDelay = RECONNECT_BASE_DELAY_MS;
         reconnecting = false;
         return;
       } catch {
-        // Will retry
+        // Will retry with increased backoff
       }
     }
-
-    process.stderr.write('\n  Failed to reconnect after multiple attempts.\n  Check that the daemon is running (vellum daemon start) and the socket at ~/.vellum/vellum.sock is accessible.\n');
-    reconnecting = false;
-    process.exit(1);
   }
 
   function connect(): Promise<void> {
