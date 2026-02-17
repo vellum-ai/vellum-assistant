@@ -194,50 +194,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let onStartWithAPIKey: () -> Void = { [weak self] in
-            self?.proceedToApp()
-        }
-        let onContinueWithVellum: () -> Void = { [weak self] in
-            Task {
-                await self?.authManager.startWorkOSLogin()
-                if self?.authManager.isAuthenticated == true {
-                    self?.proceedToApp()
-                }
-            }
-        }
-        let authView = ZStack {
-            VColor.background.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer()
-
-                Group {
-                    if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
-                       let nsImage = NSImage(contentsOf: url) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .interpolation(.none)
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        Image("VellyLogo")
-                            .resizable()
-                            .interpolation(.none)
-                            .aspectRatio(contentMode: .fit)
-                    }
-                }
-                .frame(width: 128, height: 128)
-                .padding(.bottom, VSpacing.xxl)
-
-                WakeUpStepView(
-                    authManager: authManager,
-                    title: "Sign in to continue",
-                    subtitle: "Sign in with your Vellum account to get started.",
-                    onStartWithAPIKey: onStartWithAPIKey,
-                    onContinueWithVellum: onContinueWithVellum
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        let state = OnboardingState()
+        let authView = OnboardingFlowView(
+            state: state,
+            daemonClient: daemonClient,
+            authManager: authManager,
+            onComplete: { [weak self] in
+                self?.proceedToApp()
+            },
+            onOpenSettings: {}
+        )
 
         let hostingController = NSHostingController(rootView: authView)
         let window = NSWindow(
