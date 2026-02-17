@@ -102,6 +102,29 @@ export function getSessionTokenPath(): string {
   return join(getRootDir(), 'session-token');
 }
 
+/**
+ * Returns the TCP port the daemon should listen on for iOS clients.
+ * Reads VELLUM_DAEMON_TCP_PORT env var; defaults to 8765.
+ */
+export function getTCPPort(): number {
+  const override = process.env.VELLUM_DAEMON_TCP_PORT?.trim();
+  if (override) {
+    const port = parseInt(override, 10);
+    if (!isNaN(port) && port > 0 && port <= 65535) return port;
+  }
+  return 8765;
+}
+
+/**
+ * Returns whether the daemon TCP listener should be enabled.
+ * Reads VELLUM_DAEMON_TCP_ENABLED env var; defaults to true.
+ */
+export function isTCPEnabled(): boolean {
+  const override = process.env.VELLUM_DAEMON_TCP_ENABLED?.trim();
+  if (override === 'false' || override === '0') return false;
+  return true;
+}
+
 export function getHttpTokenPath(): string {
   return join(getRootDir(), 'http-token');
 }

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -8,16 +9,27 @@ import VellumAssistantShared
 struct IOSThread: Identifiable {
     let id: UUID
     var title: String
+    let createdAt: Date
 
-    init(id: UUID = UUID(), title: String = "New Chat") {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date()) {
         self.id = id
         self.title = title
+        self.createdAt = createdAt
     }
+}
+
+// MARK: - PersistedThread
+
+/// Codable representation of IOSThread for UserDefaults persistence.
+private struct PersistedThread: Codable {
+    var id: UUID
+    var title: String
+    var createdAt: Date
 }
 
 // MARK: - IOSThreadStore
 
-/// Manages a list of local in-memory chat threads for iOS.
+/// Manages a list of local chat threads for iOS with JSON persistence via UserDefaults.
 /// Each thread owns an independent ChatViewModel instance so threads
 /// do not share message history or sending state.
 @MainActor
@@ -27,11 +39,20 @@ class IOSThreadStore: ObservableObject {
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private let daemonClient: any DaemonClientProtocol
+    private static let persistenceKey = "ios_threads_v1"
+    private var cancellables: Set<AnyCancellable> = []
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
-        // Start with one default thread.
-        newThread()
+        let loaded = Self.load()
+        if loaded.isEmpty {
+            // First launch: create a default thread without persisting yet
+            let thread = IOSThread()
+            threads = [thread]
+            save()
+        } else {
+            threads = loaded
+        }
     }
 
     /// Return the ChatViewModel for the given thread, creating it if necessary.
@@ -41,12 +62,50 @@ class IOSThreadStore: ObservableObject {
         }
         let vm = ChatViewModel(daemonClient: daemonClient)
         viewModels[threadId] = vm
+        observeForTitleGeneration(vm: vm, threadId: threadId)
         return vm
     }
 
-    func newThread() {
+    /// Watch for the first completed assistant reply to auto-title the thread.
+    private func observeForTitleGeneration(vm: ChatViewModel, threadId: UUID) {
+        // Find the thread's default title; skip if already customized.
+        guard threads.first(where: { $0.id == threadId })?.title == "New Chat" else { return }
+
+        vm.$messages
+            .dropFirst()
+            .compactMap { messages -> String? in
+                // Trigger once we have at least one user message and the first assistant
+                // reply has finished streaming (isStreaming == false).
+                guard let firstUser = messages.first(where: { $0.role == .user }),
+                      !firstUser.text.isEmpty,
+                      messages.contains(where: { $0.role == .assistant && !$0.isStreaming }) else {
+                    return nil
+                }
+                return firstUser.text
+            }
+            .first()
+            .sink { [weak self] firstUserMessage in
+                guard let self else { return }
+                Task {
+                    if let title = await TitleGenerator.shared.generateTitle(
+                        for: threadId,
+                        firstUserMessage: firstUserMessage
+                    ) {
+                        await MainActor.run {
+                            self.updateTitle(title, for: threadId)
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    @discardableResult
+    func newThread() -> IOSThread {
         let thread = IOSThread()
         threads.append(thread)
+        save()
+        return thread
     }
 
     func deleteThread(_ thread: IOSThread) {
@@ -55,7 +114,32 @@ class IOSThreadStore: ObservableObject {
         // Always keep at least one thread.
         if threads.isEmpty {
             newThread()
+        } else {
+            save()
         }
+    }
+
+    func updateTitle(_ title: String, for threadId: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        threads[idx].title = title
+        save()
+    }
+
+    // MARK: - Persistence
+
+    private func save() {
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
+        if let data = try? JSONEncoder().encode(persisted) {
+            UserDefaults.standard.set(data, forKey: Self.persistenceKey)
+        }
+    }
+
+    private static func load() -> [IOSThread] {
+        guard let data = UserDefaults.standard.data(forKey: persistenceKey),
+              let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
+            return []
+        }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
     }
 }
 

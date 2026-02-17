@@ -1,0 +1,269 @@
+import os
+import SwiftUI
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "MessageBubbleView"
+)
+
+public struct MessageBubbleView: View {
+    public let message: ChatMessage
+    public let onConfirmationResponse: ((String, String) -> Void)?
+    public let onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
+    /// When non-nil, a "Regenerate" option appears in the long-press context menu
+    /// for the last assistant message. Pass nil when generation is in-flight.
+    public let onRegenerate: (() -> Void)?
+
+    public init(
+        message: ChatMessage,
+        onConfirmationResponse: ((String, String) -> Void)?,
+        onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?,
+        onRegenerate: (() -> Void)?
+    ) {
+        self.message = message
+        self.onConfirmationResponse = onConfirmationResponse
+        self.onSurfaceAction = onSurfaceAction
+        self.onRegenerate = onRegenerate
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            if message.role == .user {
+                Spacer(minLength: 60)
+            }
+
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: VSpacing.xs) {
+                // Tool confirmation request (replaces message bubble for approval prompts)
+                if let confirmation = message.confirmation {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        onAllow: {
+                            onConfirmationResponse?(confirmation.requestId, "allow")
+                        },
+                        onDeny: {
+                            onConfirmationResponse?(confirmation.requestId, "deny")
+                        },
+                        onAddTrustRule: { _, _, _, _ in
+                            log.debug("Add trust rule not yet implemented")
+                            return false
+                        }
+                    )
+                } else if message.role == .assistant && hasInterleavedContent {
+                    interleavedContent
+                } else {
+                    // Pre-text tool calls render above the bubble
+                    let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
+                    if !preTextCalls.isEmpty {
+                        ToolCallProgressBar(toolCalls: preTextCalls)
+                    }
+
+                    // Message text (only shown for non-confirmation messages)
+                    if !message.text.isEmpty {
+                        messageBubble(text: message.text, role: message.role)
+                    }
+
+                    // Post-text tool calls render below the bubble
+                    let postTextCalls = message.toolCalls.filter { !$0.arrivedBeforeText }
+                    if !postTextCalls.isEmpty {
+                        ToolCallProgressBar(toolCalls: postTextCalls)
+                    }
+
+                    // Inline surfaces (cards, tables, interactive widgets)
+                    if !message.inlineSurfaces.isEmpty {
+                        ForEach(message.inlineSurfaces) { surface in
+                            InlineSurfaceRouter(
+                                surface: surface,
+                                onAction: { surfaceId, actionId, data in
+                                    onSurfaceAction?(surfaceId, actionId, data)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Streaming indicator
+                if message.isStreaming {
+                    TimelineView(.animation(minimumInterval: 0.05)) { context in
+                        HStack(spacing: VSpacing.xs) {
+                            ForEach(0..<3, id: \.self) { index in
+                                Circle()
+                                    .fill(VColor.textSecondary)
+                                    .frame(width: 4, height: 4)
+                                    .scaleEffect(streamingScale(for: index, at: context.date))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                }
+            }
+
+            if message.role == .assistant {
+                Spacer(minLength: 60)
+            }
+        }
+    }
+
+    private var hasInterleavedContent: Bool {
+        guard message.contentOrder.count > 1 else { return false }
+        var hasText = false
+        var hasNonText = false
+        for ref in message.contentOrder {
+            switch ref {
+            case .text: hasText = true
+            case .toolCall, .surface: hasNonText = true
+            }
+            if hasText && hasNonText { return true }
+        }
+        return false
+    }
+
+    private enum ContentGroup {
+        case text(Int)
+        case toolCalls([Int])
+        case surface(Int)
+    }
+
+    private func groupContentBlocks() -> [ContentGroup] {
+        var groups: [ContentGroup] = []
+        for ref in message.contentOrder {
+            switch ref {
+            case .text(let i):
+                groups.append(.text(i))
+            case .toolCall(let i):
+                if case .toolCalls(let indices) = groups.last {
+                    groups[groups.count - 1] = .toolCalls(indices + [i])
+                } else {
+                    groups.append(.toolCalls([i]))
+                }
+            case .surface(let i):
+                groups.append(.surface(i))
+            }
+        }
+        return groups
+    }
+
+    @ViewBuilder
+    private var interleavedContent: some View {
+        let groups = groupContentBlocks()
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            switch group {
+            case .text(let i):
+                if i < message.textSegments.count {
+                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !segmentText.isEmpty {
+                        messageBubble(text: segmentText, role: message.role)
+                    }
+                }
+            case .toolCalls(let indices):
+                let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
+                if !calls.isEmpty {
+                    ToolCallProgressBar(toolCalls: calls)
+                }
+            case .surface(let i):
+                if i < message.inlineSurfaces.count {
+                    InlineSurfaceRouter(
+                        surface: message.inlineSurfaces[i],
+                        onAction: { surfaceId, actionId, data in
+                            onSurfaceAction?(surfaceId, actionId, data)
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    /// Render a message text bubble with markdown for assistant messages.
+    @ViewBuilder
+    private func messageBubble(text: String, role: ChatRole) -> some View {
+        let isUser = role == .user
+        if isUser {
+            Text(text)
+                .font(VFont.body)
+                .foregroundColor(VColor.userBubbleText)
+                .padding(VSpacing.md)
+                .background(VColor.userBubble)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .textSelection(.enabled)
+        } else {
+            MarkdownRenderer(text: text)
+                .padding(VSpacing.md)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .contextMenu {
+                    if let onRegenerate {
+                        Button {
+                            onRegenerate()
+                        } label: {
+                            Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                        }
+                    }
+                }
+        }
+    }
+
+    /// Parse markdown in text using SwiftUI's native AttributedString support.
+    /// Kept for backward compatibility (used by macOS ChatView and other callers).
+    public static func markdownString(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+    }
+
+    private func streamingScale(for index: Int, at date: Date) -> CGFloat {
+        let time = date.timeIntervalSince1970
+        let phase = (time + Double(index) * 0.3).truncatingRemainder(dividingBy: 1.2)
+        let normalized = phase / 1.2
+        return 1.0 + 0.4 * sin(normalized * 2 * .pi)
+    }
+}
+
+#Preview("User Message") {
+    VStack(spacing: VSpacing.md) {
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .user,
+                text: "Hello! Can you help me with something?"
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil,
+            onRegenerate: nil
+        )
+    }
+    .padding()
+    .background(VColor.background)
+}
+
+#Preview("Assistant Message") {
+    VStack(spacing: VSpacing.md) {
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .assistant,
+                text: "Of course! I'd be happy to help. What do you need assistance with?\n\n**Bold text** and _italic_ and `code` all render via markdown."
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil,
+            onRegenerate: { log.debug("Preview: Regenerate tapped") }
+        )
+    }
+    .padding()
+    .background(VColor.background)
+}
+
+#Preview("Streaming") {
+    VStack(spacing: VSpacing.md) {
+        MessageBubbleView(
+            message: ChatMessage(
+                role: .assistant,
+                text: "I'm thinking about",
+                isStreaming: true
+            ),
+            onConfirmationResponse: nil,
+            onSurfaceAction: nil,
+            onRegenerate: nil
+        )
+    }
+    .padding()
+    .background(VColor.background)
+}

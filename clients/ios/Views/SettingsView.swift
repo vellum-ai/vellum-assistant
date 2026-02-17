@@ -8,6 +8,7 @@ enum ConnectionMode: String, CaseIterable {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var clientProvider: ClientProvider
     @AppStorage("connection_mode") private var connectionMode: String = ConnectionMode.standalone.rawValue
     @AppStorage("daemon_tls_enabled") private var tlsEnabled: Bool = false
     @State private var apiKey: String = ""
@@ -30,6 +31,9 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: connectionMode) { _, newMode in
+                        switchClient(to: newMode)
+                    }
                 }
 
                 if connectionMode == ConnectionMode.standalone.rawValue {
@@ -121,6 +125,18 @@ struct SettingsView: View {
         }
     }
 
+    private func switchClient(to mode: String) {
+        clientProvider.client.disconnect()
+        let newClient: any DaemonClientProtocol
+        if mode == ConnectionMode.connected.rawValue {
+            newClient = DaemonClient(config: .fromUserDefaults())
+        } else {
+            newClient = DirectClaudeClient()
+        }
+        clientProvider.client = newClient
+        Task { try? await clientProvider.client.connect() }
+    }
+
     private func loadSettings() {
         apiKey = APIKeyManager.shared.getAPIKey() ?? ""
         daemonHostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
@@ -204,5 +220,6 @@ extension Bundle {
 
 #Preview {
     SettingsView()
+        .environmentObject(ClientProvider(client: DirectClaudeClient()))
 }
 #endif

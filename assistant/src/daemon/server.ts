@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile } from '../util/platform.js';
+import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, isTCPEnabled } from '../util/platform.js';
 import { hasNoAuthOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
@@ -38,6 +38,7 @@ const log = getLogger('server');
 
 export class DaemonServer {
   private server: net.Server | null = null;
+  private tcpServer: net.Server | null = null;
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
@@ -163,6 +164,21 @@ export class DaemonServer {
         });
         chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
+
+        // Start TCP listener for iOS clients (alongside the Unix socket)
+        if (isTCPEnabled()) {
+          const tcpPort = getTCPPort();
+          this.tcpServer = net.createServer((socket) => {
+            this.handleConnection(socket);
+          });
+          this.tcpServer.on('error', (err) => {
+            log.error({ err, tcpPort }, 'TCP server error');
+          });
+          this.tcpServer.listen(tcpPort, '0.0.0.0', () => {
+            log.info({ tcpPort }, 'TCP listener started');
+          });
+        }
+
         resolve();
       });
     });
@@ -206,6 +222,15 @@ export class DaemonServer {
       }
     });
 
+    const tcpServerClosed = new Promise<void>((resolve) => {
+      if (this.tcpServer) {
+        this.tcpServer.close(() => resolve());
+        this.tcpServer = null;
+      } else {
+        resolve();
+      }
+    });
+
     // 2. Now dispose sessions and destroy sockets. This lets server.close()
     //    finish promptly since all connections will be ended.
     for (const session of this.sessions.values()) {
@@ -227,7 +252,7 @@ export class DaemonServer {
     this.socketSandboxOverride.clear();
     this.cuObservationParseSequence.clear();
 
-    await serverClosed;
+    await Promise.all([serverClosed, tcpServerClosed]);
     log.info('Daemon server stopped');
   }
 
