@@ -363,13 +363,21 @@ struct MainWindowView: View {
                     windowState.activePanel = nil
                 }
             }) {
-                Text(thread.title)
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: VSpacing.xs) {
+                    if thread.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(-45))
+                    }
+                    Text(thread.title)
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -404,6 +412,20 @@ struct MainWindowView: View {
                 NSCursor.pop()
             }
         }
+        .contextMenu {
+            Button(thread.isPinned ? "Unpin" : "Pin to Top") {
+                if thread.isPinned {
+                    threadManager.unpinThread(id: thread.id)
+                } else {
+                    threadManager.pinThread(id: thread.id)
+                }
+            }
+            Divider()
+            Button("Archive", role: .destructive) {
+                threadPendingDeletion = thread.id
+            }
+        }
+        .draggable(thread.id.uuidString)
     }
 
     private var displayedThreads: [ThreadModel] {
@@ -444,6 +466,13 @@ struct MainWindowView: View {
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
+                                .dropDestination(for: String.self) { items, _ in
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          sourceUUID != thread.id else { return false }
+                                    threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                    return true
+                                } isTargeted: { _ in }
                         }
 
                         if threadManager.visibleThreads.count > 5 {
@@ -468,6 +497,12 @@ struct MainWindowView: View {
 
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
+                                    .dropDestination(for: String.self) { items, _ in
+                                        guard let droppedId = items.first,
+                                              droppedId != app.id else { return false }
+                                        appListManager.moveApp(sourceId: droppedId, beforeId: app.id)
+                                        return true
+                                    } isTargeted: { _ in }
                             }
 
                             if appListManager.displayApps.count > 5 {
@@ -521,6 +556,13 @@ struct MainWindowView: View {
                 try? daemonClient.sendAppOpen(appId: app.id)
             }) {
                 HStack(spacing: VSpacing.sm) {
+                    if app.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 14)
+                    }
                     if let icon = app.icon, !icon.isEmpty {
                         Text(icon)
                             .font(.system(size: 14))
@@ -566,6 +608,23 @@ struct MainWindowView: View {
                 NSCursor.pop()
             }
         }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                try? daemonClient.sendAppOpen(appId: app.id)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
+        }
+        .draggable(app.id)
     }
 
     // MARK: - Drawer Drag Helpers
