@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -102,18 +102,26 @@ describe('Claude Code skill migration regression', () => {
 
   test('wrapper run() delegates to claudeCodeTool.execute()', async () => {
     // Verifies the wrapper is not a stale stub but actually calls through
-    // to the canonical execute method.
+    // to the canonical execute method with the exact input and context.
+    const spy = spyOn(claudeCodeTool, 'execute');
+
     const wrapperPath = path.join(SKILL_DIR, 'tools/claude-code.ts');
     const mod = await import(wrapperPath);
 
+    const input = { prompt: 'hello' };
     const ctx = {
       sessionId: 'test',
       workingDir: '/tmp',
       onOutput: () => {},
     };
 
-    // Calling with a valid profile should succeed (SDK mock returns success)
-    const result = await mod.run({ prompt: 'hello' }, ctx);
+    const result = await mod.run(input, ctx);
     expect(result.isError).toBeFalsy();
+
+    // The wrapper must delegate to the canonical execute method
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(input, ctx);
+
+    spy.mockRestore();
   });
 });
