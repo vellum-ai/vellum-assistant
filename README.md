@@ -155,7 +155,7 @@ The assistant can store and use credentials (API keys, tokens, passwords) withou
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
 - **No plaintext read API**: There is no tool-layer function that returns a stored secret as plaintext. Secrets are only consumed by the broker for scoped tool execution.
 
-See [`docs/security/credential-storage.md`](docs/security/credential-storage.md) for the full security model and [`ARCHITECTURE.md`](ARCHITECTURE.md) for data flow diagrams.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full security model and data flow diagrams.
 
 ## Dynamic Skill Authoring
 
