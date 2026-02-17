@@ -402,6 +402,38 @@ describe('projectSkillTools', () => {
     expect(mockRegisteredTools.has('deploy')).toBe(true);
   });
 
+  test('previously-registered skill that transiently fails is unregistered to prevent refcount leak', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: skill registered successfully
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.has('deploy')).toBe(true);
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Turn 2: manifest transiently fails — skill should be unregistered
+    mockManifests = {};
+    mockUnregisteredSkillIds = [];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.has('deploy')).toBe(false);
+    expect(mockUnregisteredSkillIds).toContain('deploy');
+    // Ref count should be 0 (properly decremented)
+    expect(mockSkillRefCount.has('deploy')).toBe(false);
+
+    // Turn 3: manifest recovers — skill re-registered with correct ref count
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+    mockUnregisteredSkillIds = [];
+    const result3 = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    expect(result3.toolDefinitions).toHaveLength(1);
+    expect(sessionState.has('deploy')).toBe(true);
+    // Ref count should be exactly 1, not 2
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+  });
+
   test('preactivated IDs merge with context-derived IDs (dedup)', () => {
     mockCatalog = [makeSkill('deploy')];
     mockManifests = { deploy: makeManifest(['deploy_run']) };

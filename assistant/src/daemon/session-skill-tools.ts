@@ -156,6 +156,17 @@ export function projectSkillTools(
     }
   }
 
+  // Unregister skills that were previously active but failed processing this
+  // turn (catalog miss, manifest failure, empty tools). Without this, the
+  // skill would be re-registered when it recovers next turn, inflating the
+  // refcount since the prior registration was never decremented.
+  for (const id of prevActive) {
+    if (activeIds.has(id) && !successfulIds.has(id)) {
+      log.info({ skillId: id }, 'Unregistering tools for transiently-failed skill');
+      unregisterSkillTools(id);
+    }
+  }
+
   // Update the session-scoped tracking set in-place — only include skills
   // that were successfully processed so failed skills can be retried next turn.
   prevActive.clear();
