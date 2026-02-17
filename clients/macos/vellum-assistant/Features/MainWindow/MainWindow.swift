@@ -3,6 +3,33 @@ import Combine
 import VellumAssistantShared
 import SwiftUI
 
+/// NSWindow subclass that restores double-click-to-zoom on the title bar.
+/// With `fullSizeContentView` + `titlebarAppearsTransparent`, the system
+/// title bar becomes invisible and stops handling double-clicks. This
+/// subclass detects double-clicks in the title bar zone and performs the
+/// action configured in System Settings (zoom or minimize).
+class TitleBarZoomableWindow: NSWindow {
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard event.clickCount == 2 else { return }
+
+        // Check if the click landed in the title bar zone (above contentLayoutRect)
+        let clickY = event.locationInWindow.y
+        guard clickY >= contentLayoutRect.maxY else { return }
+
+        // Respect "Double-click a window's title bar to" system preference
+        let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+        switch action {
+        case "Minimize":
+            miniaturize(nil)
+        case "None":
+            break
+        default: // "Maximize"
+            zoom(nil)
+        }
+    }
+}
+
 @MainActor
 final class MainWindow {
     private let services: AppServices
@@ -101,7 +128,7 @@ final class MainWindow {
             height: windowHeight
         )
 
-        let window = NSWindow(
+        let window = TitleBarZoomableWindow(
             contentRect: windowRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
