@@ -308,6 +308,16 @@ extension IPCCuSessionAbort {
     }
 }
 
+/// Authenticate to the daemon on initial socket connect.
+/// Backed by generated `IPCAuthMessage`.
+public typealias AuthMessage = IPCAuthMessage
+
+extension IPCAuthMessage {
+    public init(token: String) {
+        self.init(type: "auth", token: token)
+    }
+}
+
 /// Keepalive ping.
 /// Backed by generated `IPCPingMessage`.
 public typealias PingMessage = IPCPingMessage
