@@ -945,6 +945,15 @@ public extension Surface {
 
     // MARK: - Browser View Helpers
 
+    /// Convert an untyped value to Double, accepting both Int and Double.
+    /// AnyCodable decodes whole-number JSON numbers as Int before Double,
+    /// so we need to handle both types.
+    private static func asDouble(_ value: Any?) -> Double? {
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        return nil
+    }
+
     private static func parseBrowserViewData(_ dict: [String: Any?]) -> BrowserViewSurfaceData? {
         guard let sessionId = dict["sessionId"] as? String,
               let currentUrl = dict["currentUrl"] as? String,
@@ -958,10 +967,10 @@ public extension Surface {
         var highlights: [BrowserHighlight]?
         if let highlightsArray = dict["highlights"] as? [[String: Any?]] {
             highlights = highlightsArray.compactMap { item in
-                guard let x = item["x"] as? Double,
-                      let y = item["y"] as? Double,
-                      let w = item["w"] as? Double,
-                      let h = item["h"] as? Double,
+                guard let x = asDouble(item["x"]),
+                      let y = asDouble(item["y"]),
+                      let w = asDouble(item["w"]),
+                      let h = asDouble(item["h"]),
                       let label = item["label"] as? String else { return nil }
                 return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
             }
@@ -999,10 +1008,10 @@ public extension Surface {
         if update.keys.contains("highlights") {
             if let highlightsArray = update["highlights"] as? [[String: Any?]] {
                 highlights = highlightsArray.compactMap { item in
-                    guard let x = item["x"] as? Double,
-                          let y = item["y"] as? Double,
-                          let w = item["w"] as? Double,
-                          let h = item["h"] as? Double,
+                    guard let x = asDouble(item["x"]),
+                          let y = asDouble(item["y"]),
+                          let w = asDouble(item["w"]),
+                          let h = asDouble(item["h"]),
                           let label = item["label"] as? String else { return nil }
                     return BrowserHighlight(x: x, y: y, w: w, h: h, label: label)
                 }
