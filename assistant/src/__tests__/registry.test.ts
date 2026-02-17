@@ -5,7 +5,17 @@ import type { ToolDefinition } from '../providers/types.js';
 
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
-import { registerTool, registerLazyTool, getTool, getAllTools, getAllToolDefinitions, initializeTools } from '../tools/registry.js';
+import {
+  registerTool,
+  registerLazyTool,
+  getTool,
+  getAllTools,
+  getAllToolDefinitions,
+  initializeTools,
+  registerSkillTools,
+  unregisterSkillTools,
+  getSkillToolNames,
+} from '../tools/registry.js';
 import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
 function makeFakeTool(name: string): Tool {
@@ -24,6 +34,14 @@ function makeFakeTool(name: string): Tool {
     async execute(_input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
       return { content: 'ok', isError: false };
     },
+  };
+}
+
+function makeSkillTool(name: string, ownerSkillId: string): Tool {
+  return {
+    ...makeFakeTool(name),
+    origin: 'skill' as const,
+    ownerSkillId,
   };
 }
 
@@ -235,5 +253,111 @@ describe('tool origin metadata', () => {
     expect(coreTool).toBeDefined();
     expect(coreTool?.origin).toBeUndefined();
     expect(coreTool?.ownerSkillId).toBeUndefined();
+  });
+});
+
+describe('dynamic skill tool registry', () => {
+  test('registers skill tools and retrieves them', () => {
+    const tools = [
+      makeSkillTool('sk_tool_a', 'my-skill'),
+      makeSkillTool('sk_tool_b', 'my-skill'),
+    ];
+    registerSkillTools(tools);
+
+    expect(getTool('sk_tool_a')).toBeDefined();
+    expect(getTool('sk_tool_a')?.origin).toBe('skill');
+    expect(getTool('sk_tool_a')?.ownerSkillId).toBe('my-skill');
+
+    expect(getTool('sk_tool_b')).toBeDefined();
+    expect(getTool('sk_tool_b')?.origin).toBe('skill');
+  });
+
+  test('rejects skill tool that collides with a core tool', async () => {
+    await initializeTools();
+
+    // host_file_read is a core tool registered during init
+    const colliding = makeSkillTool('host_file_read', 'rogue-skill');
+    expect(() => registerSkillTools([colliding])).toThrow(
+      'collides with core tool',
+    );
+  });
+
+  test('allows replacement within the same owning skill', () => {
+    const original = makeSkillTool('sk_replaceable', 'owner-skill');
+    registerSkillTools([original]);
+
+    const replacement: Tool = {
+      ...makeSkillTool('sk_replaceable', 'owner-skill'),
+      description: 'Updated description',
+    };
+    // Should not throw
+    registerSkillTools([replacement]);
+
+    const retrieved = getTool('sk_replaceable');
+    expect(retrieved?.description).toBe('Updated description');
+  });
+
+  test('rejects replacement from a different owning skill', () => {
+    const original = makeSkillTool('sk_owned', 'skill-alpha');
+    registerSkillTools([original]);
+
+    const intruder = makeSkillTool('sk_owned', 'skill-beta');
+    expect(() => registerSkillTools([intruder])).toThrow(
+      'already registered by skill "skill-alpha"',
+    );
+  });
+
+  test('unregisterSkillTools removes all tools for a skill', () => {
+    const tools = [
+      makeSkillTool('sk_rm_1', 'removable-skill'),
+      makeSkillTool('sk_rm_2', 'removable-skill'),
+    ];
+    registerSkillTools(tools);
+    expect(getTool('sk_rm_1')).toBeDefined();
+    expect(getTool('sk_rm_2')).toBeDefined();
+
+    unregisterSkillTools('removable-skill');
+
+    expect(getTool('sk_rm_1')).toBeUndefined();
+    expect(getTool('sk_rm_2')).toBeUndefined();
+  });
+
+  test('unregisterSkillTools does not affect tools from other skills', () => {
+    registerSkillTools([makeSkillTool('sk_keep', 'keep-skill')]);
+    registerSkillTools([makeSkillTool('sk_remove', 'nuke-skill')]);
+
+    unregisterSkillTools('nuke-skill');
+
+    expect(getTool('sk_keep')).toBeDefined();
+    expect(getTool('sk_remove')).toBeUndefined();
+  });
+
+  test('getSkillToolNames returns only skill tool names', async () => {
+    await initializeTools();
+
+    registerSkillTools([
+      makeSkillTool('sk_names_a', 'names-skill'),
+      makeSkillTool('sk_names_b', 'names-skill'),
+    ]);
+
+    const skillNames = getSkillToolNames();
+    expect(skillNames).toContain('sk_names_a');
+    expect(skillNames).toContain('sk_names_b');
+    // Core tools should not appear
+    expect(skillNames).not.toContain('host_file_read');
+    expect(skillNames).not.toContain('bash');
+  });
+
+  test('registerSkillTools is atomic — no partial registration on collision', async () => {
+    await initializeTools();
+
+    const tools = [
+      makeSkillTool('sk_atomic_ok', 'atomic-skill'),
+      makeSkillTool('host_file_read', 'atomic-skill'), // collides with core
+    ];
+
+    expect(() => registerSkillTools(tools)).toThrow('collides with core tool');
+    // The first tool should NOT have been registered either
+    expect(getTool('sk_atomic_ok')).toBeUndefined();
   });
 });

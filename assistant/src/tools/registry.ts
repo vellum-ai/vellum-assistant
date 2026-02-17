@@ -94,6 +94,59 @@ export function getAllTools(): Tool[] {
   return Array.from(tools.values());
 }
 
+/**
+ * Register multiple skill-origin tools at once.
+ * Throws if any tool name collides with a core tool (origin !== 'skill' or undefined origin).
+ * Allows replacement when the incoming tool has the same ownerSkillId as the existing one,
+ * which supports hot-reloading a skill without tearing down first.
+ */
+export function registerSkillTools(newTools: Tool[]): void {
+  // Validate all tools before mutating the registry so we get atomic-or-nothing behavior.
+  for (const tool of newTools) {
+    const existing = tools.get(tool.name);
+    if (existing) {
+      const existingIsCore = existing.origin !== 'skill';
+      if (existingIsCore) {
+        throw new Error(
+          `Skill tool "${tool.name}" collides with core tool of the same name`,
+        );
+      }
+      // Existing is also a skill tool — only allow replacement from the same owner.
+      if (existing.ownerSkillId !== tool.ownerSkillId) {
+        throw new Error(
+          `Skill tool "${tool.name}" is already registered by skill "${existing.ownerSkillId}"`,
+        );
+      }
+    }
+  }
+
+  for (const tool of newTools) {
+    tools.set(tool.name, tool);
+    log.info({ name: tool.name, ownerSkillId: tool.ownerSkillId }, 'Skill tool registered');
+  }
+}
+
+/**
+ * Remove all tools owned by the given skill.
+ */
+export function unregisterSkillTools(skillId: string): void {
+  for (const [name, tool] of tools) {
+    if (tool.origin === 'skill' && tool.ownerSkillId === skillId) {
+      tools.delete(name);
+      log.info({ name, skillId }, 'Skill tool unregistered');
+    }
+  }
+}
+
+/**
+ * Return the names of all currently registered skill-origin tools.
+ */
+export function getSkillToolNames(): string[] {
+  return Array.from(tools.values())
+    .filter((t) => t.origin === 'skill')
+    .map((t) => t.name);
+}
+
 export function getAllToolDefinitions(): ToolDefinition[] {
   // Exclude proxy tools (e.g. computer_use_* tools) — they are only used
   // by ComputerUseSession which builds its own tool definitions list.
