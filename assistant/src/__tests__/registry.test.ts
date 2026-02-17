@@ -169,7 +169,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(16);
+    expect(eagerModules.length).toBe(15);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -190,7 +190,7 @@ describe('tool manifest', () => {
 });
 
 describe('baseline characterization: hardcoded tool loading', () => {
-  test('gmail tools are registered via eager module after initializeTools()', async () => {
+  test('gmail tools are NOT registered in the global registry after initializeTools()', async () => {
     await initializeTools();
     const allTools = getAllTools();
     const toolNames = allTools.map(t => t.name);
@@ -199,12 +199,12 @@ describe('baseline characterization: hardcoded tool loading', () => {
       'gmail_draft', 'gmail_archive', 'gmail_batch_archive', 'gmail_label', 'gmail_batch_label',
       'gmail_trash', 'gmail_send', 'gmail_unsubscribe'];
     for (const name of gmailTools) {
-      expect(toolNames).toContain(name);
+      expect(toolNames).not.toContain(name);
     }
   });
 
-  test('gmail eager module is in eagerModules manifest', () => {
-    expect(eagerModules).toContain('./gmail/executors.js');
+  test('gmail eager module is NOT in eagerModules manifest', () => {
+    expect(eagerModules).not.toContain('./gmail/executors.js');
   });
 
   test('weather tool is registered via eager module after initializeTools()', async () => {
