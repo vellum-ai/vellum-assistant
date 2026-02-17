@@ -77,11 +77,19 @@ export async function runSkillToolScriptSandbox(
 
   // Block execution if the skill has been modified since approval.
   if (options?.expectedSkillVersionHash) {
-    const resolver = options.skillDirHashResolver ?? computeSkillVersionHash;
-    const currentHash = resolver(resolvedSkillDir);
-    if (currentHash !== options.expectedSkillVersionHash) {
+    try {
+      const resolver = options.skillDirHashResolver ?? computeSkillVersionHash;
+      const currentHash = resolver(resolvedSkillDir);
+      if (currentHash !== options.expectedSkillVersionHash) {
+        return {
+          content: `Skill version mismatch: expected ${options.expectedSkillVersionHash} but current is ${currentHash}. The skill has been modified since it was approved. Please reload the skill to re-approve.`,
+          isError: true,
+        };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       return {
-        content: `Skill version mismatch: expected ${options.expectedSkillVersionHash} but current is ${currentHash}. The skill has been modified since it was approved. Please reload the skill to re-approve.`,
+        content: `Failed to verify skill version hash for "${executorPath}": ${message}`,
         isError: true,
       };
     }
