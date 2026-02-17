@@ -1143,6 +1143,7 @@ private struct ChatBubble: View {
                             .foregroundColor(VColor.textPrimary)
                             .tint(VColor.accent)
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: 520, alignment: .leading)
                     case .table(let headers, let rows):
                         MarkdownTableView(headers: headers, rows: rows)
@@ -1160,6 +1161,7 @@ private struct ChatBubble: View {
                 .foregroundColor(VColor.textPrimary)
                 .tint(VColor.accent)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 520, alignment: .leading)
         }
     }
