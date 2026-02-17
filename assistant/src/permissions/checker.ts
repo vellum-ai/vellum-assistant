@@ -7,7 +7,7 @@ import { getConfig } from '../config/loader.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
-import { normalizeFilePath } from '../skills/path-classifier.js';
+import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -210,8 +210,13 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
 
 export async function classifyRisk(toolName: string, input: Record<string, unknown>): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
-  if (toolName === 'file_write') return RiskLevel.Medium;
-  if (toolName === 'file_edit') return RiskLevel.Medium;
+  if (toolName === 'file_write' || toolName === 'file_edit') {
+    const filePath = getStringField(input, 'path', 'file_path');
+    if (filePath && isSkillSourcePath(resolve(filePath))) {
+      return RiskLevel.High;
+    }
+    return RiskLevel.Medium;
+  }
   if (toolName === 'web_search') return RiskLevel.Low;
   if (toolName === 'web_fetch') {
     return input.allow_private_network === true ? RiskLevel.Medium : RiskLevel.Low;
@@ -222,6 +227,17 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
   if (toolName === 'skill_load') return RiskLevel.Low;
+
+  // Escalate host file mutations targeting skill source paths to High risk.
+  // The host variants fall through to the tool registry (Medium) by default,
+  // but writing to skill source code is a privilege-escalation vector.
+  if (toolName === 'host_file_write' || toolName === 'host_file_edit') {
+    const filePath = getStringField(input, 'path', 'file_path');
+    if (filePath && isSkillSourcePath(resolve(filePath))) {
+      return RiskLevel.High;
+    }
+    // Fall through to the tool registry default (Medium) below.
+  }
 
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = (input.command as string) ?? '';

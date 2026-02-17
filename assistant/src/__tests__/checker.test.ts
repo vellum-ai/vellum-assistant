@@ -1042,56 +1042,109 @@ describe('Permission Checker', () => {
     });
   });
 
-  // ── baseline: skill directory mutation is currently possible ──
-  // These tests lock the current behavior where file_write/file_edit
-  // targeting skill source directories are treated identically to any
-  // other workspace file — no special risk escalation or default ask
-  // rules exist for skill paths yet.
+  // ── skill source mutation risk escalation (PR 29) ──────────────
+  // File mutations targeting skill source directories are escalated to
+  // High risk, requiring explicit high-risk approval. Reads remain Low.
 
-  describe('baseline: skill directory mutation (PR 1)', () => {
-    test('file_write to skill directory is Medium risk (same as any file_write)', async () => {
+  describe('skill source mutation risk escalation (PR 29)', () => {
+    // Ensure the managed skills directory exists so that symlink-resolved
+    // paths (e.g. /private/var on macOS) match between normalizeFilePath
+    // and getManagedSkillsRoot.
+    function ensureSkillsDir(): void {
+      mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
+    }
+
+    test('file_write to skill directory is High risk', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
       const risk = await classifyRisk('file_write', { path: skillPath });
-      expect(risk).toBe(RiskLevel.Medium);
+      expect(risk).toBe(RiskLevel.High);
     });
 
-    test('file_edit of skill file is Medium risk (same as any file_edit)', async () => {
+    test('file_edit of skill file is High risk', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
       const risk = await classifyRisk('file_edit', { path: skillPath });
-      expect(risk).toBe(RiskLevel.Medium);
+      expect(risk).toBe(RiskLevel.High);
     });
 
-    test('file_read of skill file is Low risk (same as any file_read)', async () => {
+    test('file_read of skill file is still Low risk (reads not escalated)', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'TOOLS.json');
       const risk = await classifyRisk('file_read', { path: skillPath });
       expect(risk).toBe(RiskLevel.Low);
     });
 
-    test('file_write to skill directory has no special default ask rule', async () => {
+    test('file_write to skill directory prompts as High risk', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
       const result = await check('file_write', { path: skillPath }, '/tmp');
-      // Medium risk with no matching rule → prompt via risk-based fallback,
-      // NOT via a dedicated skill-path ask rule.
       expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('risk');
-      expect(result.matchedRule).toBeUndefined();
+      expect(result.reason).toContain('High risk');
     });
 
-    test('file_write to skill directory is allowed with a generic file_write allow rule', async () => {
+    test('file_write to skill directory is NOT allowed by a generic file_write allow rule (High risk)', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
       addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp');
       const result = await check('file_write', { path: skillPath }, '/tmp');
-      // A broad file_write allow rule currently permits skill-dir writes
-      // without any special approval — this is the gap we want to close.
-      expect(result.decision).toBe('allow');
+      // High risk requires explicit allowHighRisk — a plain allow rule is insufficient.
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('High risk');
     });
 
-    test('host_file_write to skill directory prompts via generic host ask rule (not skill-specific)', async () => {
+    test('file_write to skill directory is allowed with allowHighRisk: true rule', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+      addRule('file_write', `file_write:${checkerTestDir}/skills/**`, '/tmp', 'allow', 2000, { allowHighRisk: true });
+      const result = await check('file_write', { path: skillPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('high-risk trust rule');
+    });
+
+    test('host_file_write to skill directory prompts (High risk overrides host ask rule)', async () => {
+      ensureSkillsDir();
       const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
       const result = await check('host_file_write', { path: skillPath }, '/tmp');
       expect(result.decision).toBe('prompt');
-      // Should match the generic host_file_write ask rule, not a skill-specific one
-      expect(result.matchedRule?.id).toBe('default:ask-host_file_write-global');
+    });
+
+    test('host_file_edit of skill file is High risk', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'SKILL.md');
+      const risk = await classifyRisk('host_file_edit', { path: skillPath });
+      expect(risk).toBe(RiskLevel.High);
+    });
+
+    test('host_file_write to skill directory is High risk', async () => {
+      ensureSkillsDir();
+      const skillPath = join(checkerTestDir, 'skills', 'my-skill', 'executor.ts');
+      const risk = await classifyRisk('host_file_write', { path: skillPath });
+      expect(risk).toBe(RiskLevel.High);
+    });
+
+    test('file_write to non-skill path remains Medium risk', async () => {
+      const normalPath = '/tmp/some-file.txt';
+      const risk = await classifyRisk('file_write', { path: normalPath });
+      expect(risk).toBe(RiskLevel.Medium);
+    });
+
+    test('file_edit of non-skill path remains Medium risk', async () => {
+      const normalPath = '/tmp/some-file.txt';
+      const risk = await classifyRisk('file_edit', { path: normalPath });
+      expect(risk).toBe(RiskLevel.Medium);
+    });
+
+    test('host_file_write to non-skill path remains Medium risk (via registry)', async () => {
+      const normalPath = '/tmp/some-file.txt';
+      const risk = await classifyRisk('host_file_write', { path: normalPath });
+      expect(risk).toBe(RiskLevel.Medium);
+    });
+
+    test('host_file_edit of non-skill path remains Medium risk (via registry)', async () => {
+      const normalPath = '/tmp/some-file.txt';
+      const risk = await classifyRisk('host_file_edit', { path: normalPath });
+      expect(risk).toBe(RiskLevel.Medium);
     });
   });
 
