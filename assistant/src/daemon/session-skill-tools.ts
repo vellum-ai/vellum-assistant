@@ -134,7 +134,8 @@ export function projectSkillTools(
       continue;
     }
 
-    // Create runtime Tool objects and register them
+    // Create runtime Tool objects — only register if this skill is newly active
+    // to avoid inflating the registry refcount on every turn.
     const tools = createSkillToolsFromManifest(
       manifest.tools,
       skillId,
@@ -142,7 +143,9 @@ export function projectSkillTools(
     );
 
     if (tools.length > 0) {
-      registerSkillTools(tools);
+      if (!prevActive.has(skillId)) {
+        registerSkillTools(tools);
+      }
 
       for (const tool of tools) {
         allToolDefinitions.push(tool.getDefinition());
