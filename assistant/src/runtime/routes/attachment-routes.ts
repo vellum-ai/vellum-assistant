@@ -2,7 +2,7 @@
  * Route handlers for attachment upload, download, and deletion.
  */
 import * as attachmentsStore from '../../memory/attachments-store.js';
-import { validateAttachmentUpload } from '../../memory/attachments-store.js';
+import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
 
 export async function handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
   const body = await req.json() as {
@@ -42,12 +42,21 @@ export async function handleUploadAttachment(assistantId: string, req: Request):
     );
   }
 
-  const attachment = attachmentsStore.uploadAttachment(
-    assistantId,
-    filename,
-    mimeType,
-    data,
-  );
+  let attachment: attachmentsStore.StoredAttachment;
+  try {
+    attachment = attachmentsStore.uploadAttachment(
+      assistantId,
+      filename,
+      mimeType,
+      data,
+    );
+  } catch (err) {
+    if (err instanceof AttachmentUploadError) {
+      const status = err.message.startsWith('Attachment too large') ? 413 : 400;
+      return Response.json({ error: err.message }, { status });
+    }
+    throw err;
+  }
 
   return Response.json({
     id: attachment.id,

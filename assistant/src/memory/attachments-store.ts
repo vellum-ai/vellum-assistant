@@ -25,6 +25,39 @@ function classifyKind(mimeType: string): string {
   return 'document';
 }
 
+export class AttachmentUploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AttachmentUploadError';
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ---------------------------------------------------------------------------
+// Size and encoding limits
+// ---------------------------------------------------------------------------
+
+/** Hard ceiling on a single uploaded attachment (20 MB, matching assistant limits). */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Validate that a string contains only characters from the standard base64
+ * alphabet (plus padding `=`). Rejects payloads with clearly non-base64
+ * content while staying lenient on padding/length so callers don't need to
+ * pre-pad truncated previews or test fixtures.
+ */
+const INVALID_BASE64_RE = /[^A-Za-z0-9+/=]/;
+
+export function isValidBase64(data: string): boolean {
+  if (data.length === 0) return true;
+  return !INVALID_BASE64_RE.test(data);
+}
+
 // ---------------------------------------------------------------------------
 // Inbound attachment MIME validation
 // ---------------------------------------------------------------------------
@@ -123,6 +156,19 @@ export function uploadAttachment(
   mimeType: string,
   dataBase64: string,
 ): StoredAttachment {
+  if (!isValidBase64(dataBase64)) {
+    throw new AttachmentUploadError('Invalid base64 encoding');
+  }
+
+  const padding = dataBase64.endsWith('==') ? 2 : (dataBase64.endsWith('=') ? 1 : 0);
+  const sizeBytes = Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
+
+  if (sizeBytes > MAX_UPLOAD_BYTES) {
+    throw new AttachmentUploadError(
+      `Attachment too large: ${formatBytes(sizeBytes)} exceeds ${formatBytes(MAX_UPLOAD_BYTES)} limit`,
+    );
+  }
+
   const db = getDb();
   const contentHash = computeContentHash(dataBase64);
 
@@ -152,8 +198,6 @@ export function uploadAttachment(
   }
 
   const now = Date.now();
-  const padding = dataBase64.endsWith('==') ? 2 : (dataBase64.endsWith('=') ? 1 : 0);
-  const sizeBytes = Math.max(0, Math.floor((dataBase64.length * 3) / 4) - padding);
   const kind = classifyKind(mimeType);
 
   const record = {
