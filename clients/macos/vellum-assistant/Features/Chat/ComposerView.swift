@@ -985,8 +985,8 @@ private struct SlashCommandPopup: View {
     let selectedIndex: Int
     let onSelect: (SlashCommand) -> Void
     private let avatarSeed: String
-    private let avatarPalette: DinoFaceView.Palette
-    private let avatarOutfit: DinoFaceView.Outfit
+    private let avatarPalette: DinoPalette
+    private let avatarOutfit: DinoOutfit
 
     init(commands: [SlashCommand], selectedIndex: Int, onSelect: @escaping (SlashCommand) -> Void) {
         self.commands = commands
@@ -1028,8 +1028,8 @@ private struct SlashCommandRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let avatarSeed: String
-    let avatarPalette: DinoFaceView.Palette
-    let avatarOutfit: DinoFaceView.Outfit
+    let avatarPalette: DinoPalette
+    let avatarOutfit: DinoOutfit
     @State private var isHovered = false
 
     var body: some View {
