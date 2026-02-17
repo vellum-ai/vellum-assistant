@@ -169,6 +169,9 @@ export class ComputerUseSession {
       this.pendingObservation = null;
     }
 
+    // Dispose prompter to clear pending permission timers and reject promises
+    this.prompter?.dispose();
+
     // Resolve any pending surface actions
     for (const [, pending] of this.pendingSurfaceActions) {
       pending.resolve({ content: 'Session aborted', isError: true });
