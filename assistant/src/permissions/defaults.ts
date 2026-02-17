@@ -95,5 +95,39 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 1000,
   }));
 
-  return [...protectedFileRules, ...hostFileRules, hostShellRule, ...computerUseRules, ...managedSkillRules];
+  // Workspace prompt files — the agent should always be able to read, edit,
+  // and write these without prompting.  Also allow `rm BOOTSTRAP.md` so the
+  // agent can delete it at the end of the onboarding ritual.
+  const workspaceDir = join(getRootDir(), 'workspace').replaceAll('\\', '/');
+  const WORKSPACE_PROMPT_FILES = ['IDENTITY.md', 'USER.md', 'SOUL.md', 'BOOTSTRAP.md'] as const;
+  const WORKSPACE_FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
+  const workspacePromptRules = WORKSPACE_FILE_TOOLS.flatMap((tool) =>
+    WORKSPACE_PROMPT_FILES.map((file) => ({
+      id: `default:allow-${tool}-${file.toLowerCase().replace('.md', '')}`,
+      tool,
+      pattern: `${tool}:${workspaceDir}/${file}`,
+      scope: 'everywhere',
+      decision: 'allow' as const,
+      priority: 100,
+    })),
+  );
+
+  const bootstrapDeleteRule: DefaultRuleTemplate = {
+    id: 'default:allow-bash-rm-bootstrap',
+    tool: 'bash',
+    pattern: 'rm BOOTSTRAP.md',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
+  return [
+    ...protectedFileRules,
+    ...hostFileRules,
+    hostShellRule,
+    ...computerUseRules,
+    ...managedSkillRules,
+    ...workspacePromptRules,
+    bootstrapDeleteRule,
+  ];
 }

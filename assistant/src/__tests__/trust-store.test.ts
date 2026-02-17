@@ -573,12 +573,11 @@ describe('Trust Store', () => {
   // ── default rules ─────────────────────────────────────────────
 
   describe('default rules', () => {
-    test('backfills default ask rules for protected directory on first load', () => {
+    test('backfills default rules on first load', () => {
       const rules = getAllRules();
       const defaults = rules.filter((r) => r.id.startsWith('default:'));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
-        expect(rule.decision).toBe('ask');
         expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
         expect(rule.scope).toBe('everywhere');
       }
@@ -590,13 +589,15 @@ describe('Trust Store', () => {
       }
     });
 
-    test('default rules cover file, host file, and host shell tools', () => {
+    test('default rules cover file, host file, host shell, and workspace prompt tools', () => {
       const rules = getAllRules();
-      const defaultTools = rules
-        .filter((r) => r.id.startsWith('default:'))
-        .map((r) => r.tool)
-        .sort();
+      const defaultTools = [...new Set(
+        rules
+          .filter((r) => r.id.startsWith('default:'))
+          .map((r) => r.tool),
+      )].sort();
       expect(defaultTools).toEqual([
+        'bash',
         'computer_use_click',
         'computer_use_double_click',
         'computer_use_drag',
