@@ -53,6 +53,7 @@ public final class ChatViewModel: ObservableObject {
 
     let daemonClient: DaemonClient
     public var sessionId: String?
+    private var reconnectObserver: NSObjectProtocol?
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -161,6 +162,14 @@ public final class ChatViewModel: ObservableObject {
     public init(daemonClient: DaemonClient, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.onToolCallsComplete = onToolCallsComplete
+        reconnectObserver = NotificationCenter.default.addObserver(
+            forName: .daemonDidReconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pendingQueuedCount = 0
+            self?.pendingMessageIds.removeAll()
+        }
     }
 
     // MARK: - Sending
@@ -949,5 +958,8 @@ public final class ChatViewModel: ObservableObject {
 
     deinit {
         messageLoopTask?.cancel()
+        if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 }

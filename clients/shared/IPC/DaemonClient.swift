@@ -61,6 +61,11 @@ public protocol DaemonClientProtocol {
     func send<T: Encodable>(_ message: T) throws
 }
 
+extension Notification.Name {
+    /// Posted by `DaemonClient` on the main actor immediately after `isConnected` transitions to `true`.
+    public static let daemonDidReconnect = Notification.Name("daemonDidReconnect")
+}
+
 /// Platform-agnostic client for communicating with the Vellum daemon.
 ///
 /// **macOS**: Connects via Unix domain socket at `~/.vellum/vellum.sock` (or `VELLUM_DAEMON_SOCKET` env override).
@@ -420,6 +425,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                                     self.isAuthenticated = true
                                     #endif
                                     self.isConnected = true
+                                    NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
                                     self.reconnectDelay = 1.0
                                     self.startPingTimer()
                                     #if os(macOS)
