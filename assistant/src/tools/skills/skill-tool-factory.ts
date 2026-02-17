@@ -37,7 +37,9 @@ export function createSkillTool(
     },
 
     async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-      return runSkillToolScript(skillDir, entry.executor, input, context);
+      return runSkillToolScript(skillDir, entry.executor, input, context, {
+        target: entry.execution_target,
+      });
     },
   };
 }
