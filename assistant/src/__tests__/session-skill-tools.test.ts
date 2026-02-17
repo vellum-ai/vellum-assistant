@@ -13,6 +13,7 @@ let mockCatalog: SkillSummary[] = [];
 let mockManifests: Record<string, SkillToolManifest | null> = {};
 let mockRegisteredTools: Map<string, Tool[]> = new Map();
 let mockUnregisteredSkillIds: string[] = [];
+let mockSkillRefCount: Map<string, number> = new Map();
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -84,15 +85,26 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
 
 mock.module('../tools/registry.js', () => ({
   registerSkillTools: (tools: Tool[]) => {
+    const skillIds = new Set<string>();
     for (const tool of tools) {
       const skillId = tool.ownerSkillId!;
+      skillIds.add(skillId);
       const existing = mockRegisteredTools.get(skillId) ?? [];
       existing.push(tool);
       mockRegisteredTools.set(skillId, existing);
     }
+    for (const id of skillIds) {
+      mockSkillRefCount.set(id, (mockSkillRefCount.get(id) ?? 0) + 1);
+    }
   },
   unregisterSkillTools: (skillId: string) => {
     mockUnregisteredSkillIds.push(skillId);
+    const current = mockSkillRefCount.get(skillId) ?? 0;
+    if (current > 1) {
+      mockSkillRefCount.set(skillId, current - 1);
+      return;
+    }
+    mockSkillRefCount.delete(skillId);
     mockRegisteredTools.delete(skillId);
   },
   getSkillToolNames: () => {
@@ -187,6 +199,8 @@ describe('projectSkillTools', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -370,6 +384,56 @@ describe('projectSkillTools', () => {
     expect(sessionA.has('deploy')).toBe(true);
     expect(sessionB.has('oncall')).toBe(true);
   });
+
+  test('disposing session A while session B uses the same skill does NOT remove tools', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const sessionA = new Set<string>();
+    const sessionB = new Set<string>();
+
+    const history: Message[] = [toolResultMsg('<loaded_skill id="deploy" />')];
+
+    // Both sessions activate deploy
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionA });
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionB });
+
+    // Ref count should be 2
+    expect(mockSkillRefCount.get('deploy')).toBe(2);
+
+    // Session A tears down
+    resetSkillToolProjection(sessionA);
+
+    // Tools should still be registered (ref count decremented but > 0)
+    expect(mockRegisteredTools.has('deploy')).toBe(true);
+    expect(mockSkillRefCount.get('deploy')).toBe(1);
+
+    // Session B can still project the skill tools
+    const resultB = projectSkillTools(history, { previouslyActiveSkillIds: sessionB });
+    expect(resultB.allowedToolNames.has('deploy_run')).toBe(true);
+  });
+
+  test('tools ARE removed when the last session using them disposes', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const sessionA = new Set<string>();
+    const sessionB = new Set<string>();
+
+    const history: Message[] = [toolResultMsg('<loaded_skill id="deploy" />')];
+
+    // Both sessions activate deploy
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionA });
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionB });
+
+    // Both sessions tear down
+    resetSkillToolProjection(sessionA);
+    expect(mockRegisteredTools.has('deploy')).toBe(true);
+
+    resetSkillToolProjection(sessionB);
+    expect(mockRegisteredTools.has('deploy')).toBe(false);
+    expect(mockSkillRefCount.has('deploy')).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -398,6 +462,8 @@ describe('resolveTools callback (session wiring)', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -484,6 +550,8 @@ describe('allowed tool set merging', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -610,6 +678,8 @@ describe('mid-run skill tool activation (end-to-end)', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -799,6 +869,8 @@ describe('context-derived deactivation regression', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -981,6 +1053,8 @@ describe('slash preactivation through session processing', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -1079,6 +1153,8 @@ describe('bundled skill: gmail', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -1124,6 +1200,8 @@ describe('bundled skill: claude-code', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -1165,6 +1243,8 @@ describe('bundled skill: weather', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockSkillRefCount = new Map();
     sessionState = new Set<string>();
   });
 
@@ -1208,6 +1288,7 @@ describe('resetSkillToolProjection', () => {
     mockManifests = {};
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
   });
 
   test('unregisters all tracked skills and clears the set', () => {
