@@ -35,5 +35,9 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/scrub` | Kill the running Vellum app (non-fatal if not running), wipe all persistent data, and relaunch the daemon and macOS app for a clean first-run experience. |
 
 
+## Track merged PRs
+
+Whenever you merge a PR, you MUST append its URL to `.private/UNREVIEWED_PRS.md` so that `/check-reviews` can pick it up for review triage.
+
 ## Implementing new functionality
 Before implementing new functionality do a quick check to see if the new feature has already been implemented
