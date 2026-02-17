@@ -124,7 +124,7 @@ struct APIKeyStepView: View {
                         saveKeyAndShowModels()
                     }
                 }) {
-                    Text(showModelSelector ? "Save & Continue" : "Select a model")
+                    Text(showModelSelector ? "Select model" : "Save API key")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(adaptiveColor(light: .white, dark: .white))
                         .frame(maxWidth: .infinity)
