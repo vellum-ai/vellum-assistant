@@ -35,6 +35,37 @@ struct IdentityInfo {
         return IdentityInfo(name: name, role: role, vibe: vibe, emoji: emoji)
     }
 
+    /// Parses an optional `## Greetings` section from SOUL.md.
+    /// The assistant is expected to maintain this section as part of its personality.
+    static func loadGreetings() -> [String] {
+        let path = NSHomeDirectory() + "/.vellum/workspace/SOUL.md"
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+
+        var greetings: [String] = []
+        var inGreetingsSection = false
+
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## ") || trimmed.hasPrefix("# ") {
+                inGreetingsSection = trimmed.lowercased().contains("greetings")
+                continue
+            }
+            if inGreetingsSection {
+                if trimmed.hasPrefix("- ") {
+                    var greeting = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                    // Strip surrounding quotes if present
+                    if greeting.count >= 2,
+                       (greeting.hasPrefix("\"") && greeting.hasSuffix("\""))
+                        || (greeting.hasPrefix("\u{201C}") && greeting.hasSuffix("\u{201D}")) {
+                        greeting = String(greeting.dropFirst().dropLast())
+                    }
+                    if !greeting.isEmpty { greetings.append(greeting) }
+                }
+            }
+        }
+        return greetings
+    }
+
     /// Deterministic 8-character hex agent ID derived from the identity name.
     var agentID: String {
         var hash: UInt64 = 0xcbf29ce484222325 // FNV-1a offset basis

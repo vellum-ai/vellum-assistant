@@ -96,21 +96,54 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
+    @State private var emptyStateTitle: String = emptyStateTitles.randomElement()!
+    @State private var emptyStatePlaceholder: String = placeholderTexts.randomElement()!
+    @State private var emptyStateVisible = false
+    @State private var identity: IdentityInfo? = IdentityInfo.load()
     @AppStorage("useThreadDrawer") private var useThreadDrawer: Bool = false
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
+
+    private static let defaultGreetings = [
+        "What are we working on?",
+        "I'm here whenever you need me.",
+        "What's on your mind?",
+        "Let's make something happen.",
+        "Ready when you are.",
+    ]
+
+    private static var emptyStateTitles: [String] {
+        let custom = IdentityInfo.loadGreetings()
+        return custom.isEmpty ? defaultGreetings : custom
+    }
+
+    private static let placeholderTexts = [
+        "Ask me anything...",
+        "Tell me what you need...",
+        "Say the word...",
+        "Go ahead, I'm listening...",
+        "Type or hold Fn to talk...",
+    ]
+
+    private var isEmptyState: Bool {
+        messages.isEmpty && !isThinking
+    }
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
-                ZStack(alignment: .bottom) {
-                    messageList
-                        .safeAreaInset(edge: .bottom) {
-                            Color.clear.frame(height: composerReservedHeight)
-                                .animation(VAnimation.fast, value: editorContentHeight)
-                        }
+                if isEmptyState {
+                    emptyStateView
+                } else {
+                    ZStack(alignment: .bottom) {
+                        messageList
+                            .safeAreaInset(edge: .bottom) {
+                                Color.clear.frame(height: composerReservedHeight)
+                                    .animation(VAnimation.fast, value: editorContentHeight)
+                            }
 
-                    composerOverlay
+                        composerOverlay
+                    }
                 }
             }
             .background(alignment: .bottom) {
@@ -141,8 +174,86 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
+        .onChange(of: messages.isEmpty) {
+            if messages.isEmpty {
+                emptyStateTitle = Self.emptyStateTitles.randomElement()!
+                emptyStatePlaceholder = Self.placeholderTexts.randomElement()!
+            }
+        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Spacer()
+
+            DinoFaceView(seed: identity?.name ?? "default")
+                .frame(width: 80, height: 80)
+                .allowsHitTesting(false)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .scaleEffect(emptyStateVisible ? 1 : 0.8)
+                .padding(.bottom, VSpacing.lg)
+
+            Text(emptyStateTitle)
+                .font(.system(size: 28, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 500)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .offset(y: emptyStateVisible ? 0 : 8)
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.bottom, VSpacing.xl)
+
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                placeholderText: emptyStatePlaceholder,
+                editorContentHeight: $editorContentHeight,
+                isComposerExpanded: $isComposerExpanded
+            )
+            .opacity(emptyStateVisible ? 1 : 0)
+            .offset(y: emptyStateVisible ? 0 : 10)
+
+            Spacer()
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    VColor.accent.opacity(0.07),
+                    VColor.accent.opacity(0.02),
+                    Color.clear,
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 350
+            )
+            .offset(y: -40)
+            .opacity(emptyStateVisible ? 1 : 0)
+        )
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) {
+                emptyStateVisible = true
+            }
+        }
+        .onDisappear {
+            emptyStateVisible = false
         }
     }
 
