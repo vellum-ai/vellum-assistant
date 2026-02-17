@@ -31,6 +31,19 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+// Stub the local embedding backend so the real ONNX model (2.5 GB RSS) never
+// loads — avoids a Bun v1.3.9 panic on process exit.
+mock.module('../memory/embedding-local.js', () => ({
+  LocalEmbeddingBackend: class {
+    readonly provider = 'local' as const;
+    readonly model: string;
+    constructor(model: string) { this.model = model; }
+    async embed(texts: string[]): Promise<number[][]> {
+      return texts.map(() => new Array(384).fill(0));
+    }
+  },
+}));
+
 // Mock Qdrant client so semantic search returns empty results instead of
 // throwing "Qdrant client not initialized" (which would discard lexical results
 // due to the single try-catch in buildMemoryRecall).
