@@ -179,7 +179,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return candidates;
   }
 
-  const resolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
+  const resolved = fileTarget ? resolve(workingDir, fileTarget).replaceAll('\\', '/') : fileTarget;
   const candidates = [`${toolName}:${resolved}`];
   // Also include the raw path if it differs, so user-created rules with
   // raw paths still match.

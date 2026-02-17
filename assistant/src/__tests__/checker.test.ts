@@ -772,6 +772,49 @@ describe('Permission Checker', () => {
     });
   });
 
+  // ── default workspace prompt file allow rules ──────────────────
+
+  describe('default workspace prompt file allow rules', () => {
+    test('file_edit of workspace IDENTITY.md is auto-allowed', async () => {
+      const identityPath = join(checkerTestDir, 'workspace', 'IDENTITY.md');
+      const result = await check('file_edit', { path: identityPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_edit-identity');
+    });
+
+    test('file_read of workspace USER.md is auto-allowed', async () => {
+      const userPath = join(checkerTestDir, 'workspace', 'USER.md');
+      const result = await check('file_read', { path: userPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_read-user');
+    });
+
+    test('file_write of workspace SOUL.md is auto-allowed', async () => {
+      const soulPath = join(checkerTestDir, 'workspace', 'SOUL.md');
+      const result = await check('file_write', { path: soulPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_write-soul');
+    });
+
+    test('file_write of workspace BOOTSTRAP.md is auto-allowed', async () => {
+      const bootstrapPath = join(checkerTestDir, 'workspace', 'BOOTSTRAP.md');
+      const result = await check('file_write', { path: bootstrapPath }, '/tmp');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe('default:allow-file_write-bootstrap');
+    });
+
+    test('file_write of non-workspace file is not auto-allowed', async () => {
+      const otherPath = join(checkerTestDir, 'workspace', 'OTHER.md');
+      const result = await check('file_write', { path: otherPath }, '/tmp');
+      // Medium risk with no matching allow rule → prompt
+      expect(result.decision).toBe('prompt');
+    });
+  });
+
   // ── generateAllowlistOptions ───────────────────────────────────
 
   describe('generateAllowlistOptions', () => {
