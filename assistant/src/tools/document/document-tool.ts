@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import * as appStore from '../../memory/app-store.js';
 import { randomUUID } from 'node:crypto';
+import { generateEditorHTML } from './editor-template.js';
 
 // ── document_create ──────────────────────────────────────────────────
 
@@ -39,20 +40,8 @@ export class DocumentCreateTool implements Tool {
     const initialContent = (input.initial_content as string | undefined) || '';
     const appId = `doc-${randomUUID()}`;
 
-    // Note: HTML template generation will be implemented in PR 2
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <title>${escapeHtml(title)}</title>
-  <meta charset="UTF-8">
-</head>
-<body>
-  <h1>Document Editor Placeholder</h1>
-  <p>Full editor implementation coming in PR 2</p>
-  <p>Title: ${escapeHtml(title)}</p>
-  <pre>${escapeHtml(initialContent)}</pre>
-</body>
-</html>`;
+    // Generate the Toast UI Editor HTML
+    const html = generateEditorHTML(title, initialContent);
 
     // Create the document app in the app store
     const wordCount = initialContent.split(/\s+/).filter((w) => w.length > 0).length;
@@ -203,17 +192,6 @@ export class DocumentUpdateTool implements Tool {
       isError: true,
     };
   }
-}
-
-// ── Utilities ────────────────────────────────────────────────────────
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
 
 // ── Exported tool instances ──────────────────────────────────────────
