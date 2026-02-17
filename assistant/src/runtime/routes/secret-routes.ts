@@ -1,6 +1,6 @@
 import { API_KEY_PROVIDERS, invalidateConfigCache } from '../../config/loader.js';
 import { setSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { assertMetadataWritable, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('runtime-http');
@@ -49,6 +49,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
           { status: 400 },
         );
       }
+      assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = `credential:${service}:${field}`;
