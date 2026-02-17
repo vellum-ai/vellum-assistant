@@ -88,7 +88,7 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
             echo "(No Apple Developer account required - takes ~5 seconds)"
             echo ""
             echo -n "Create certificate? [Y/n]: "
-            read -r response
+            read -r response || response=""
             case "$response" in
                 [nN]|[nN][oO])
                     echo ""
