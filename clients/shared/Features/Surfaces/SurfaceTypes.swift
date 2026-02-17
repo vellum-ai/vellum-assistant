@@ -271,7 +271,7 @@ public struct FileUploadSurfaceData: Sendable {
 }
 
 public struct BrowserHighlight: Sendable, Identifiable {
-    public var id: String { label }
+    public var id: String { "\(x),\(y),\(w),\(h):\(label)" }
     public let x: Double
     public let y: Double
     public let w: Double
