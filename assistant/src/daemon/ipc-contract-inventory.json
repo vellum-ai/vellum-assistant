@@ -1,5 +1,6 @@
 {
   "clientMessageTypes": [
+    "AcceptStarterBundle",
     "AddTrustRule",
     "AppDataRequest",
     "AppOpenRequest",
@@ -73,6 +74,7 @@
     "WatchObservation"
   ],
   "serverMessageTypes": [
+    "AcceptStarterBundleResponse",
     "AppDataResponse",
     "AppFilesChanged",
     "AppUpdatePreviewResponse",
@@ -154,6 +156,7 @@
     "WatchStarted"
   ],
   "clientWireTypes": [
+    "accept_starter_bundle",
     "add_trust_rule",
     "app_data_request",
     "app_open_request",
@@ -227,6 +230,7 @@
     "watch_observation"
   ],
   "serverWireTypes": [
+    "accept_starter_bundle_response",
     "app_data_response",
     "app_files_changed",
     "app_update_preview_response",

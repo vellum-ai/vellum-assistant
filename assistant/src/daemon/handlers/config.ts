@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { initializeProviders } from '../../providers/registry.js';
-import { addRule, removeRule, updateRule, getAllRules } from '../../permissions/trust-store.js';
+import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -138,6 +138,25 @@ export function handleUpdateTrustRule(
     log.info({ id: msg.id }, 'Trust rule updated via client');
   } catch (err) {
     log.error({ err }, 'Failed to update trust rule');
+  }
+}
+
+export function handleAcceptStarterBundle(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const result = acceptStarterBundle();
+    ctx.send(socket, {
+      type: 'accept_starter_bundle_response',
+      accepted: result.accepted,
+      rulesAdded: result.rulesAdded,
+      alreadyAccepted: result.alreadyAccepted,
+    });
+    log.info({ rulesAdded: result.rulesAdded, alreadyAccepted: result.alreadyAccepted }, 'Starter bundle accepted via client');
+  } catch (err) {
+    log.error({ err }, 'Failed to accept starter bundle');
+    ctx.send(socket, { type: 'error', message: 'Failed to accept starter bundle' });
   }
 }
 

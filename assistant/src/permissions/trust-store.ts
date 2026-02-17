@@ -14,9 +14,12 @@ const TRUST_FILE_VERSION = 3;
 interface TrustFile {
   version: number;
   rules: TrustRule[];
+  /** Set to true when the user explicitly accepts the starter approval bundle. */
+  starterBundleAccepted?: boolean;
 }
 
 let cachedRules: TrustRule[] | null = null;
+let cachedStarterBundleAccepted: boolean | null = null;
 
 function getTrustPath(): string {
   return join(getRootDir(), 'protected', 'trust.json');
@@ -122,6 +125,9 @@ function loadFromDisk(): TrustRule[] {
       // Guard: ensure rules is an array (protects against hand-edited files)
       const rawRules = Array.isArray(data.rules) ? data.rules : [];
 
+      // Restore persisted starter bundle flag
+      cachedStarterBundleAccepted = data.starterBundleAccepted === true;
+
       if (data.version === 1) {
         // Migration: v1 → v2. All existing rules are user-created → priority 100.
         rules = rawRules.map((r) => ({
@@ -184,6 +190,9 @@ function saveToDisk(rules: TrustRule[]): void {
     mkdirSync(dir, { recursive: true });
   }
   const data: TrustFile = { version: TRUST_FILE_VERSION, rules };
+  if (cachedStarterBundleAccepted) {
+    data.starterBundleAccepted = true;
+  }
   const tmpPath = path + '.tmp.' + process.pid;
   writeFileSync(tmpPath, JSON.stringify(data, null, 2));
   renameSync(tmpPath, path);
@@ -398,4 +407,93 @@ export function clearAllRules(): void {
 
 export function clearCache(): void {
   cachedRules = null;
+  cachedStarterBundleAccepted = null;
+}
+
+// ─── Starter approval bundle ────────────────────────────────────────────────
+//
+// A curated set of low-risk tool rules that most users would approve
+// individually during normal use.  Accepting the bundle seeds them all at
+// once, reducing prompt noise in strict mode while keeping the action
+// explicitly opt-in.
+
+export interface StarterBundleRule {
+  id: string;
+  tool: string;
+  pattern: string;
+  scope: string;
+  decision: 'allow';
+  priority: number;
+}
+
+/**
+ * Returns the starter bundle rule definitions.  These cover read-only and
+ * information-gathering tools that never mutate the filesystem or execute
+ * arbitrary code.
+ */
+export function getStarterBundleRules(): StarterBundleRule[] {
+  return [
+    { id: 'starter:allow-file_read', tool: 'file_read', pattern: 'file_read:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-glob', tool: 'glob', pattern: 'glob:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-grep', tool: 'grep', pattern: 'grep:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-list_directory', tool: 'list_directory', pattern: 'list_directory:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-web_search', tool: 'web_search', pattern: 'web_search:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+    { id: 'starter:allow-web_fetch', tool: 'web_fetch', pattern: 'web_fetch:**', scope: 'everywhere', decision: 'allow', priority: 90 },
+  ];
+}
+
+/** Whether the user has previously accepted the starter bundle. */
+export function isStarterBundleAccepted(): boolean {
+  // Ensure rules are loaded (which also loads the flag from disk)
+  getRules();
+  return cachedStarterBundleAccepted === true;
+}
+
+export interface AcceptStarterBundleResult {
+  accepted: boolean;
+  rulesAdded: number;
+  alreadyAccepted: boolean;
+}
+
+/**
+ * Seed the trust store with the starter bundle rules.
+ *
+ * Idempotent: if the bundle was already accepted, no rules are added and
+ * `alreadyAccepted` is returned as true.  Rules whose IDs already exist
+ * (e.g. from a previous partial acceptance) are skipped individually.
+ */
+export function acceptStarterBundle(): AcceptStarterBundleResult {
+  // Re-read from disk to avoid lost updates
+  cachedRules = null;
+  cachedStarterBundleAccepted = null;
+  const rules = [...getRules()];
+
+  if (cachedStarterBundleAccepted === true) {
+    return { accepted: true, rulesAdded: 0, alreadyAccepted: true };
+  }
+
+  const existingIds = new Set(rules.map((r) => r.id));
+  let added = 0;
+
+  for (const template of getStarterBundleRules()) {
+    if (existingIds.has(template.id)) continue;
+    rules.push({
+      id: template.id,
+      tool: template.tool,
+      pattern: template.pattern,
+      scope: template.scope,
+      decision: template.decision,
+      priority: template.priority,
+      createdAt: Date.now(),
+    });
+    added++;
+  }
+
+  cachedStarterBundleAccepted = true;
+  rules.sort(ruleOrder);
+  cachedRules = rules;
+  saveToDisk(rules);
+  log.info({ rulesAdded: added }, 'Starter approval bundle accepted');
+
+  return { accepted: true, rulesAdded: added, alreadyAccepted: false };
 }

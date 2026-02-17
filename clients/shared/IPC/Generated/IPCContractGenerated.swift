@@ -10,6 +10,17 @@ import Foundation
 
 // MARK: - Generated IPC types
 
+public struct IPCAcceptStarterBundle: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCAcceptStarterBundleResponse: Codable, Sendable {
+    public let type: String
+    public let accepted: Bool
+    public let rulesAdded: Double
+    public let alreadyAccepted: Bool
+}
+
 public struct IPCAddTrustRule: Codable, Sendable {
     public let type: String
     public let toolName: String
