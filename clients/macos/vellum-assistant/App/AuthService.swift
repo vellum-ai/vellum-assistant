@@ -191,7 +191,9 @@ final class AuthService {
             "code_verifier": codeVerifier,
             "redirect_uri": redirectURI,
         ]
-        request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+        var formAllowed = CharacterSet.alphanumerics
+        formAllowed.insert(charactersIn: "-._~")
+        request.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: formAllowed) ?? $0.value)" }
             .joined(separator: "&")
             .data(using: .utf8)
 
