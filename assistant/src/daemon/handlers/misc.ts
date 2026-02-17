@@ -1,10 +1,11 @@
 import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
-import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { getConfig } from '../../config/loader.js';
+import { getFailoverProvider, listProviders } from '../../providers/registry.js';
+import type { Provider } from '../../providers/types.js';
 import { classifyInteraction } from '../classifier.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
@@ -170,13 +171,14 @@ export async function handleSuggestionRequest(
       return;
     }
 
-    // Try LLM suggestion if an Anthropic API key is configured
-    const apiKey = getConfig().apiKeys.anthropic;
-    if (apiKey) {
+    // Try LLM suggestion using the configured provider
+    const config = getConfig();
+    if (listProviders().length > 0) {
       try {
+        const provider = getFailoverProvider(config.provider, config.providerOrder);
         let promise = suggestionInFlight.get(m.id);
         if (!promise) {
-          promise = generateSuggestion(apiKey, text);
+          promise = generateSuggestion(provider, text);
           suggestionInFlight.set(m.id, promise);
         }
         const llmSuggestion = await promise;
@@ -210,22 +212,16 @@ export async function handleSuggestionRequest(
   noSuggestion();
 }
 
-async function generateSuggestion(apiKey: string, assistantText: string): Promise<string | null> {
-  const client = new Anthropic({ apiKey });
+async function generateSuggestion(provider: Provider, assistantText: string): Promise<string | null> {
   const truncated = assistantText.length > 2000
     ? assistantText.slice(-2000)
     : assistantText;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 30,
-    messages: [
-      {
-        role: 'user',
-        content: `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`,
-      },
-    ],
-  });
+  const prompt = `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const response = await provider.sendMessage(
+    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [], // no tools
+  );
 
   const textBlock = response.content.find((b) => b.type === 'text');
   const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';

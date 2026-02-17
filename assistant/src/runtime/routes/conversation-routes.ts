@@ -3,7 +3,6 @@
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -12,6 +11,8 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js';
 import { getConfig } from '../../config/loader.js';
+import { getFailoverProvider, listProviders } from '../../providers/registry.js';
+import type { Provider } from '../../providers/types.js';
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
@@ -207,23 +208,16 @@ export async function handleSendMessage(
   }
 }
 
-async function generateLlmSuggestion(apiKey: string, assistantText: string): Promise<string | null> {
-  const client = new Anthropic({ apiKey });
-
+async function generateLlmSuggestion(provider: Provider, assistantText: string): Promise<string | null> {
   const truncated = assistantText.length > 2000
     ? assistantText.slice(-2000)
     : assistantText;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 30,
-    messages: [
-      {
-        role: 'user',
-        content: `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`,
-      },
-    ],
-  });
+  const prompt = `Given this assistant message, write a very short tab-complete suggestion (max 50 chars) the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const response = await provider.sendMessage(
+    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [], // no tools
+  );
 
   const textBlock = response.content.find((b) => b.type === 'text');
   const raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
@@ -308,14 +302,15 @@ export async function handleGetSuggestion(
       });
     }
 
-    // Try LLM suggestion if an Anthropic API key is configured
-    const apiKey = getConfig().apiKeys.anthropic;
-    if (apiKey) {
+    // Try LLM suggestion using the configured provider
+    const config = getConfig();
+    if (listProviders().length > 0) {
       try {
+        const provider = getFailoverProvider(config.provider, config.providerOrder);
         // Deduplicate concurrent requests
         let promise = suggestionInFlight.get(msg.id);
         if (!promise) {
-          promise = generateLlmSuggestion(apiKey, text);
+          promise = generateLlmSuggestion(provider, text);
           suggestionInFlight.set(msg.id, promise);
         }
 
