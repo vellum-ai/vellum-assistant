@@ -66,12 +66,10 @@ ALL work happens here. Do NOT touch the main repo.
 ## Workflow
 1. Make the changes in your worktree.
 2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
-3. Commit with a descriptive message.
-4. Push and create a PR:
-   gh pr create --base main --title "<concise title>" --body "<what changed and why>" --assignee @me
-5. Merge immediately: gh pr merge <number> --squash
-6. Send a message to "lead" with:
-   - The PR link
+3. Ship it (stages, commits, pushes, creates PR, and merges in one step):
+   .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
+4. Send a message to "lead" with:
+   - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
    - Which files were modified
    - Any issues or concerns

@@ -34,48 +34,23 @@ Working entirely inside the worktree directory, implement what was requested. Ex
 cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
 ```
 
-### 3. Stage and commit
+### 3. Ship (do NOT merge)
+
+Review what changed, draft a commit message and PR title, then ship:
 
 ```bash
-cd <worktree>
-git add -A
-git diff --cached
-```
-
-Review the staged diff. Draft a clear commit message. Commit:
-
-```bash
-git commit -m "$(cat <<'EOF'
-<commit message>
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-```
-
-### 4. Push and create PR (do NOT merge)
-
-```bash
-git push -u origin HEAD
-```
-
-Infer a concise PR title from the changes.
-
-```bash
-gh pr create --base main --title "<title>" --body "$(cat <<'EOF'
-## Summary
+.claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<PR title>" \
+  --body "## Summary
 <1-3 bullet points>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+  --base main \
+  --track-unreviewed
 ```
 
-### 5. Add to unreviewed list
-
-Read `.private/UNREVIEWED_PRS.md`, append the new PR link, write it back.
-
-### 6. Notify the user and stop
+### 4. Notify the user and stop
 
 Tell the user:
 
