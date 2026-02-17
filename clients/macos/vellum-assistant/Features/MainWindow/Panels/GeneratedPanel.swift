@@ -28,6 +28,8 @@ struct GeneratedPanel: View {
     let daemonClient: DaemonClient
     /// When set, app opens route to the workspace instead of a floating NSPanel.
     var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
+    /// Called to record an app open in the sidebar's recent apps list.
+    var onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)?
 
     @State private var searchText = ""
     @State private var displayItems: [DisplayAppItem] = []
@@ -46,11 +48,12 @@ struct GeneratedPanel: View {
     @State private var slackSharingAppId: String?
     @State private var slackShareResult: (appId: String, success: Bool)?
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
         self.onOpenApp = onOpenApp
+        self.onRecordAppOpen = onRecordAppOpen
     }
 
     var body: some View {
@@ -569,6 +572,7 @@ struct GeneratedPanel: View {
             // Local apps: ask the daemon to open via ui_surface_show.
             // When onOpenApp is set, the daemon's response will be intercepted
             // by SurfaceManager and routed to the workspace (see PR 5).
+            onRecordAppOpen?(localId, item.name, item.icon, item.appType)
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             // Shared apps: construct surface from unpacked files on disk

@@ -144,6 +144,11 @@ struct MainWindowView: View {
             if let activePanel = self.windowState.activePanel, activePanel != .generated {
                 return
             }
+            self.appListManager.recordAppOpen(
+                id: homeBase.appId,
+                name: homeBase.preview.title,
+                icon: homeBase.preview.icon
+            )
             try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
         }
 
@@ -481,8 +486,7 @@ struct MainWindowView: View {
                                     guard let droppedId = items.first,
                                           let sourceUUID = UUID(uuidString: droppedId),
                                           sourceUUID != thread.id else { return false }
-                                    threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
-                                    return true
+                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
                                 } isTargeted: { _ in }
                         }
 
@@ -511,8 +515,7 @@ struct MainWindowView: View {
                                     .dropDestination(for: String.self) { items, _ in
                                         guard let droppedId = items.first,
                                               droppedId != app.id else { return false }
-                                        appListManager.moveApp(sourceId: droppedId, beforeId: app.id)
-                                        return true
+                                        return appListManager.moveApp(sourceId: droppedId, beforeId: app.id)
                                     } isTargeted: { _ in }
                             }
 
@@ -630,7 +633,7 @@ struct MainWindowView: View {
                 }
             }
             Button("Open") {
-                try? daemonClient.sendAppOpen(appId: app.id)
+                openAppInWorkspace(app: app)
             }
             Divider()
             Button("Remove from Recents", role: .destructive) {
@@ -790,6 +793,9 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     windowState.activePanel = .generated
                     windowState.isDynamicExpanded = true
+                },
+                onRecordAppOpen: { id, name, icon, appType in
+                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                 }
             )
         case .generated:
@@ -800,6 +806,9 @@ struct MainWindowView: View {
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                },
+                onRecordAppOpen: { id, name, icon, appType in
+                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                 }
             )
         case .threadList:
@@ -849,6 +858,9 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
                     windowState.activePanel = .generated
                     windowState.isDynamicExpanded = true
+                },
+                onRecordAppOpen: { id, name, icon, appType in
+                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                 }
             )
         } else if windowState.isDynamicExpanded && windowState.activePanel == .generated {
@@ -873,6 +885,9 @@ struct MainWindowView: View {
                     onOpenApp: { surfaceMsg in
                         windowState.activeDynamicSurface = surfaceMsg
                         windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    },
+                    onRecordAppOpen: { id, name, icon, appType in
+                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                     }
                 )
             }

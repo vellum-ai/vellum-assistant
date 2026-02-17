@@ -92,6 +92,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
             self?.updateThreadTitle(id: threadId, title: "Untitled")
+            self?.updateLastInteracted(threadId: threadId)
             Task { @MainActor in
                 await self?.generateTitle(for: threadId, userMessage: text)
             }
@@ -218,6 +219,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id
+        updateLastInteracted(threadId: id)
     }
 
     /// Returns true if the thread has at least one user message.
@@ -283,27 +285,29 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Move a thread to a new position in the visible list (for drag-and-drop reorder).
     /// If the source thread is pinned, reorder among pinned items.
     /// If unpinned, pin it and insert at the target position.
-    func moveThread(sourceId: UUID, beforeId: UUID) {
+    @discardableResult
+    func moveThread(sourceId: UUID, beforeId: UUID) -> Bool {
         guard let sourceIdx = threads.firstIndex(where: { $0.id == sourceId }),
-              let targetIdx = threads.firstIndex(where: { $0.id == beforeId }) else { return }
+              let targetIdx = threads.firstIndex(where: { $0.id == beforeId }) else { return false }
         let targetThread = threads[targetIdx]
 
-        // If dropping onto a pinned item, pin the source too and reorder
-        if targetThread.isPinned {
-            if !threads[sourceIdx].isPinned {
-                threads[sourceIdx].isPinned = true
-            }
-            // Set pinnedOrder to place before the target
-            let targetOrder = targetThread.pinnedOrder ?? 0
-            threads[sourceIdx].pinnedOrder = targetOrder
-            // Bump all pinned items at or after targetOrder (except source)
-            for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
-                if let order = threads[i].pinnedOrder, order >= targetOrder {
-                    threads[i].pinnedOrder = order + 1
-                }
-            }
-            recompactPinnedOrders()
+        // Only reorder when the drop target is pinned
+        guard targetThread.isPinned else { return false }
+
+        if !threads[sourceIdx].isPinned {
+            threads[sourceIdx].isPinned = true
         }
+        // Set pinnedOrder to place before the target
+        let targetOrder = targetThread.pinnedOrder ?? 0
+        threads[sourceIdx].pinnedOrder = targetOrder
+        // Bump all pinned items at or after targetOrder (except source)
+        for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
+            if let order = threads[i].pinnedOrder, order >= targetOrder {
+                threads[i].pinnedOrder = order + 1
+            }
+        }
+        recompactPinnedOrders()
+        return true
     }
 
     private func recompactPinnedOrders() {

@@ -6,6 +6,8 @@ struct AppDirectoryView: View {
     let daemonClient: DaemonClient
     let onBack: () -> Void
     let onOpenApp: (UiSurfaceShowMessage) -> Void
+    /// Called to record an app open in the sidebar's recent apps list.
+    var onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)?
 
     @State private var searchText = ""
     @State private var displayItems: [DirectoryAppItem] = []
@@ -302,6 +304,7 @@ struct AppDirectoryView: View {
 
     @MainActor private func openApp(_ item: DirectoryAppItem) {
         if let localId = item.localAppId {
+            onRecordAppOpen?(localId, item.name, item.icon, item.appType)
             try? daemonClient.sendAppOpen(appId: localId)
         } else if let uuid = item.sharedUUID {
             let safeName = htmlEscape(item.name)
