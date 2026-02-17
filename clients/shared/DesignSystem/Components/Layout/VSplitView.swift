@@ -112,11 +112,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
     private func resetDragState() {
         isDragging = false
-        // Explicitly schedule state reset on next run loop to ensure clean state
-        DispatchQueue.main.async {
-            self.dragStartWidth = nil
-            self.dragStartAvailableWidth = nil
-        }
+        dragStartWidth = nil
+        dragStartAvailableWidth = nil
     }
 
     // MARK: - Initialization

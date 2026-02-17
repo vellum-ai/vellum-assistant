@@ -481,6 +481,14 @@ struct MainWindowView: View {
         .background(VColor.backgroundSubtle)
     }
 
+    // MARK: - Drawer Drag Helpers
+
+    private func resetDrawerDragState() {
+        isDrawerDragging = false
+        drawerDragStartWidth = nil
+        drawerDragStartAvailableWidth = nil
+    }
+
     private func drawerDragDivider(availableWidth: CGFloat) -> some View {
         Rectangle()
             .fill(Color.clear)
@@ -513,7 +521,7 @@ struct MainWindowView: View {
                         // does not feed back into gesture translation while dragging.
                         let deltaX = value.location.x - value.startLocation.x
                         let newWidth = initialWidth + Double(deltaX)
-                        let minDrawerWidth: CGFloat = 200  // Increased from 180 for better usability
+                        let minDrawerWidth: CGFloat = 180
                         let minMainContent: CGFloat = 300
                         let sidePanelVisible =
                             (windowState.activePanel != nil &&
@@ -531,20 +539,11 @@ struct MainWindowView: View {
                         }
                     }
                     .onEnded { _ in
-                        isDrawerDragging = false
-                        // Explicitly schedule state reset on next run loop to ensure clean state
-                        DispatchQueue.main.async {
-                            self.drawerDragStartWidth = nil
-                            self.drawerDragStartAvailableWidth = nil
-                        }
+                        resetDrawerDragState()
                     }
             )
             .onDisappear {
-                isDrawerDragging = false
-                DispatchQueue.main.async {
-                    self.drawerDragStartWidth = nil
-                    self.drawerDragStartAvailableWidth = nil
-                }
+                resetDrawerDragState()
             }
     }
 
