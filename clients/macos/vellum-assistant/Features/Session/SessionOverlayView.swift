@@ -171,6 +171,7 @@ struct SessionOverlayView: View {
         case .running, .thinking:
             HStack(spacing: 8) {
                 undoButton
+                autoApproveButton
                 Spacer()
                 Button("Pause") {
                     session.pause()
@@ -212,6 +213,20 @@ struct SessionOverlayView: View {
         default:
             EmptyView()
         }
+    }
+
+    private var autoApproveButton: some View {
+        Button {
+            session.autoApproveTools.toggle()
+        } label: {
+            Label(
+                session.autoApproveTools ? "Auto-approve" : "Auto-approve",
+                systemImage: session.autoApproveTools ? "checkmark.shield.fill" : "shield"
+            )
+        }
+        .buttonStyle(.bordered)
+        .tint(session.autoApproveTools ? .green : nil)
+        .controlSize(.small)
     }
 
     private var undoButton: some View {
