@@ -49,10 +49,24 @@ export class ToolExecutor {
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      return {
-        content: `Tool "${name}" is not currently active. Load the skill that provides this tool first.`,
-        isError: true,
-      };
+      const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'error',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'error',
+        durationMs,
+        errorMessage: msg,
+        isExpected: true,
+      });
+      return { content: msg, isError: true };
     }
 
     const tool = getTool(name);
