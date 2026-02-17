@@ -1,16 +1,38 @@
 import type { Message } from '../providers/types.js';
 
-const LOADED_SKILL_RE = /<loaded_skill\s+id="([^"]+)"\s*\/>/g;
+/** Matches both old (`<loaded_skill id="..." />`) and new versioned
+ *  (`<loaded_skill id="..." version="v1:hex" />`) marker formats.
+ *  Group 1 = skill ID, group 2 = version string (optional). */
+const LOADED_SKILL_RE =
+  /<loaded_skill\s+id="([^"]+)"(?:\s+version="([^"]+)")?\s*\/>/g;
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export interface ActiveSkillEntry {
+  id: string;
+  /** Present only when the marker includes a `version` attribute. */
+  version?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /**
- * Scans conversation history for `<loaded_skill id="..." />` markers and
- * returns an ordered, deduplicated list of active skill IDs.
+ * Scans conversation history for `<loaded_skill>` markers and returns an
+ * ordered, deduplicated list of active skill entries (ID + optional version).
+ *
+ * Supports two marker formats:
+ *   - Legacy:     `<loaded_skill id="skill-id" />`
+ *   - Versioned:  `<loaded_skill id="skill-id" version="v1:hexhash" />`
  *
  * Only `tool_result` blocks whose corresponding `tool_use` has
  * `name === 'skill_load'` are considered.  This prevents user messages or
  * arbitrary tool outputs from injecting fake skill activations.
  */
-export function deriveActiveSkillIds(messages: Message[]): string[] {
+export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
   // First pass: collect tool_use IDs that belong to skill_load calls.
   const skillLoadUseIds = new Set<string>();
   for (const msg of messages) {
@@ -23,7 +45,7 @@ export function deriveActiveSkillIds(messages: Message[]): string[] {
 
   // Second pass: parse markers only from matching tool_result blocks.
   const seen = new Set<string>();
-  const ids: string[] = [];
+  const entries: ActiveSkillEntry[] = [];
 
   for (const msg of messages) {
     for (const block of msg.content) {
@@ -37,11 +59,23 @@ export function deriveActiveSkillIds(messages: Message[]): string[] {
         const id = match[1];
         if (!seen.has(id)) {
           seen.add(id);
-          ids.push(id);
+          const entry: ActiveSkillEntry = { id };
+          if (match[2]) {
+            entry.version = match[2];
+          }
+          entries.push(entry);
         }
       }
     }
   }
 
-  return ids;
+  return entries;
+}
+
+/**
+ * Convenience wrapper that returns only the skill IDs (no version info).
+ * Kept for backward compatibility with callers that only need IDs.
+ */
+export function deriveActiveSkillIds(messages: Message[]): string[] {
+  return deriveActiveSkills(messages).map((e) => e.id);
 }

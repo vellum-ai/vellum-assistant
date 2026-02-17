@@ -11,7 +11,8 @@
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import { loadSkillCatalog } from '../config/skills.js';
-import { deriveActiveSkillIds } from '../skills/active-skill-tools.js';
+import { deriveActiveSkills } from '../skills/active-skill-tools.js';
+import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';
@@ -88,11 +89,22 @@ export function projectSkillTools(
   history: Message[],
   options?: ProjectSkillToolsOptions,
 ): SkillToolProjection {
-  const contextIds = deriveActiveSkillIds(history);
+  const contextEntries = deriveActiveSkills(history);
   const preactivated = options?.preactivatedSkillIds ?? [];
   const prevActive = options?.previouslyActiveSkillIds ?? new Map<string, string>();
 
+  // Index marker versions by skill ID so we can use them during registration.
+  // When a marker carries a version, it records the hash that was active at
+  // load time — useful for detecting drift without re-hashing the directory.
+  const markerVersionById = new Map<string, string>();
+  for (const entry of contextEntries) {
+    if (entry.version) {
+      markerVersionById.set(entry.id, entry.version);
+    }
+  }
+
   // Union of context-derived and preactivated IDs
+  const contextIds = contextEntries.map((e) => e.id);
   const activeIds = new Set<string>([...contextIds, ...preactivated]);
 
   // Determine which skills were removed since last projection

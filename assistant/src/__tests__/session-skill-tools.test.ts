@@ -25,8 +25,9 @@ mock.module('../config/skills.js', () => ({
   loadSkillCatalog: () => mockCatalog,
 }));
 
-mock.module('../skills/active-skill-tools.js', () => ({
-  deriveActiveSkillIds: (messages: Message[]) => {
+mock.module('../skills/active-skill-tools.js', () => {
+  // Shared parsing logic for both deriveActiveSkills and deriveActiveSkillIds
+  const parseMarkers = (messages: Message[]) => {
     // Two-pass approach matching real implementation:
     // 1. Collect tool_use IDs where name === 'skill_load'
     const skillLoadUseIds = new Set<string>();
@@ -39,9 +40,9 @@ mock.module('../skills/active-skill-tools.js', () => ({
     }
 
     // 2. Parse markers only from tool_result blocks whose tool_use_id matches
-    const re = /<loaded_skill\s+id="([^"]+)"\s*\/>/g;
+    const re = /<loaded_skill\s+id="([^"]+)"(?:\s+version="([^"]+)")?\s*\/>/g;
     const seen = new Set<string>();
-    const ids: string[] = [];
+    const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
         if (block.type !== 'tool_result') continue;
@@ -51,14 +52,24 @@ mock.module('../skills/active-skill-tools.js', () => ({
         for (const match of text.matchAll(re)) {
           if (!seen.has(match[1])) {
             seen.add(match[1]);
-            ids.push(match[1]);
+            const entry: { id: string; version?: string } = { id: match[1] };
+            if (match[2]) {
+              entry.version = match[2];
+            }
+            entries.push(entry);
           }
         }
       }
     }
-    return ids;
-  },
-}));
+    return entries;
+  };
+
+  return {
+    deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
+    deriveActiveSkillIds: (messages: Message[]) =>
+      parseMarkers(messages).map((e) => e.id),
+  };
+});
 
 mock.module('../skills/tool-manifest.js', () => ({
   parseToolManifestFile: (filePath: string) => {
@@ -1684,5 +1695,74 @@ describe('resetSkillToolProjection', () => {
     mockUnregisteredSkillIds = [];
     resetSkillToolProjection(new Map());
     expect(mockUnregisteredSkillIds).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Versioned marker integration tests
+// ---------------------------------------------------------------------------
+
+describe('versioned markers through session projection', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    sessionState = new Map<string, string>();
+  });
+
+  test('versioned marker activates skill tools the same as legacy marker', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" version="v1:abc123" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(1);
+    expect(result.toolDefinitions[0].name).toBe('deploy_run');
+    expect(result.allowedToolNames).toEqual(new Set(['deploy_run']));
+  });
+
+  test('mixed legacy and versioned markers both project tools', () => {
+    mockCatalog = [makeSkill('deploy'), makeSkill('oncall')];
+    mockManifests = {
+      deploy: makeManifest(['deploy_run']),
+      oncall: makeManifest(['oncall_page']),
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="oncall" version="v1:deadbeef" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(2);
+    expect(result.allowedToolNames).toEqual(new Set(['deploy_run', 'oncall_page']));
+  });
+
+  test('versioned marker skill deactivates when removed from history', () => {
+    mockCatalog = [makeSkill('deploy')];
+    mockManifests = { deploy: makeManifest(['deploy_run']) };
+
+    // Turn 1: versioned skill active
+    const history1: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" version="v1:abc123" />'),
+    ];
+    projectSkillTools(history1, { previouslyActiveSkillIds: sessionState });
+    expect(sessionState.has('deploy')).toBe(true);
+
+    // Turn 2: marker removed
+    mockUnregisteredSkillIds = [];
+    const result2 = projectSkillTools([], { previouslyActiveSkillIds: sessionState });
+    expect(result2.toolDefinitions).toEqual([]);
+    expect(mockUnregisteredSkillIds).toContain('deploy');
   });
 });
