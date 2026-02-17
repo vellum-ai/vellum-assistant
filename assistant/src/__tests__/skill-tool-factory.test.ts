@@ -230,3 +230,45 @@ describe('createSkillToolsFromManifest', () => {
     expect(tools[0].ownerSkillVersionHash).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// createSkillTool — expectedSkillVersionHash plumbing
+// ---------------------------------------------------------------------------
+
+describe('createSkillTool — version hash plumbing to runner', () => {
+  test('execute() works correctly when versionHash is provided', async () => {
+    const hash = 'v1:abc123';
+    const tool = createSkillTool(
+      makeEntry({ executor: 'echo.ts' }),
+      'my-skill',
+      tempDir,
+      hash,
+    );
+    const ctx = makeContext({ workingDir: '/my/project' });
+    const input = { query: 'test' };
+
+    const result = await tool.execute(input, ctx);
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.input).toEqual({ query: 'test' });
+    expect(parsed.workingDir).toBe('/my/project');
+    // Confirm the tool still has the hash stored
+    expect(tool.ownerSkillVersionHash).toBe(hash);
+  });
+
+  test('execute() works correctly when no versionHash is provided', async () => {
+    const tool = createSkillTool(
+      makeEntry({ executor: 'echo.ts' }),
+      'my-skill',
+      tempDir,
+    );
+    const ctx = makeContext();
+    const input = { query: 'no-hash' };
+
+    const result = await tool.execute(input, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(tool.ownerSkillVersionHash).toBeUndefined();
+  });
+});

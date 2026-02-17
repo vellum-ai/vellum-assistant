@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
+import type { RunSkillToolScriptOptions } from '../tools/skills/skill-script-runner.js';
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -133,5 +134,44 @@ describe('runSkillToolScript — errors', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('escapes the skill directory');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runner options — expectedSkillVersionHash & skillDirHashResolver
+// ---------------------------------------------------------------------------
+
+describe('runSkillToolScript — version hash options', () => {
+  test('accepts expectedSkillVersionHash option without affecting execution', async () => {
+    const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:abc123',
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('hello from world');
+  });
+
+  test('accepts skillDirHashResolver option without affecting execution', async () => {
+    const resolver = (_dir: string) => 'v1:custom-hash';
+    const result = await runSkillToolScript(tempDir, 'success.ts', { name: 'world' }, makeContext(), {
+      expectedSkillVersionHash: 'v1:abc123',
+      skillDirHashResolver: resolver,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('hello from world');
+  });
+
+  test('RunSkillToolScriptOptions type accepts all new fields', () => {
+    const options: RunSkillToolScriptOptions = {
+      target: 'host',
+      timeoutMs: 5000,
+      expectedSkillVersionHash: 'v1:deadbeef',
+      skillDirHashResolver: (dir: string) => `v1:hash-of-${dir}`,
+    };
+
+    expect(options.expectedSkillVersionHash).toBe('v1:deadbeef');
+    expect(options.skillDirHashResolver).toBeInstanceOf(Function);
+    expect(options.skillDirHashResolver!('/some/dir')).toBe('v1:hash-of-/some/dir');
   });
 });

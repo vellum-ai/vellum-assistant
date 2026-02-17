@@ -8,6 +8,14 @@ export interface RunSkillToolScriptOptions {
   target?: ExecutionTarget;
   /** Timeout in ms for sandbox execution. Ignored for host execution. */
   timeoutMs?: number;
+  /** The skill version hash that was valid at approval time. When set, the runner
+   *  can verify the skill hasn't changed since the user approved it. Actual
+   *  verification is deferred to a follow-up PR. */
+  expectedSkillVersionHash?: string;
+  /** Function to compute the current version hash for a skill directory. Defaults
+   *  to `computeSkillVersionHash` from the version-hash module. Provided as an
+   *  option to support testing and custom resolution strategies. */
+  skillDirHashResolver?: (skillDir: string) => string;
 }
 
 /**
