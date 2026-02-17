@@ -87,7 +87,7 @@ struct WakeUpStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: 0)
+        OnboardingFooter(currentStep: state.currentStep)
             .padding(.bottom, VSpacing.lg)
     }
 
