@@ -196,6 +196,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         OnboardingState.clearPersistedState()
         let state = OnboardingState()
+        state.shouldPersist = false
         let authView = OnboardingFlowView(
             state: state,
             daemonClient: daemonClient,
@@ -203,7 +204,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onComplete: { [weak self] in
                 self?.proceedToApp()
             },
-            onOpenSettings: {}
+            onOpenSettings: {},
+            wakeUpTitle: "Sign in to continue",
+            wakeUpSubtitle: "Sign in with your Vellum account to get started."
         )
 
         let hostingController = NSHostingController(rootView: authView)

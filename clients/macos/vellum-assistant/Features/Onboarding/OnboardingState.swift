@@ -39,6 +39,9 @@ final class OnboardingState {
     var interviewCompleted: Bool = false
     var onboardingVariant: OnboardingVariant = .default
 
+    /// When false, step changes are not written to UserDefaults (used by auth gate).
+    var shouldPersist: Bool = true
+
     // First-meeting-specific state
     var firstMeetingCrackProgress: CGFloat = 0.0
     var conversationCompleted: Bool = false
@@ -122,7 +125,7 @@ final class OnboardingState {
             // Previous flow skipped step 1 (naming) with: if currentStep == 1 { currentStep = 2 }
             // Trimmed flow uses step 1 for APIKey, so no skip needed.
         }
-        persist()
+        if shouldPersist { persist() }
     }
 
     /// Persist progress so we can resume after a forced restart.
