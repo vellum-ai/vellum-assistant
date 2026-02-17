@@ -8,15 +8,15 @@ import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/at
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 
 export async function handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
-  const rawText = await req.text();
-  if (rawText.length > MAX_UPLOAD_BODY_BYTES) {
+  const rawBody = await req.arrayBuffer();
+  if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
     return Response.json(
       { error: `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)` },
       { status: 413 },
     );
   }
 
-  const body = JSON.parse(rawText) as {
+  const body = JSON.parse(new TextDecoder().decode(rawBody)) as {
     filename?: string;
     mimeType?: string;
     data?: string;
