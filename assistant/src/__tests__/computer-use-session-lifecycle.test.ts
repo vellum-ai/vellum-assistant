@@ -1,4 +1,19 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
+
+// Mock config before importing modules that depend on it.
+// The permissions mode must be 'legacy' so computer-use tools
+// (which have no trust rules in test) don't trigger approval prompts.
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    provider: 'mock-provider',
+    permissions: { mode: 'legacy' },
+    apiKeys: {},
+    sandbox: { enabled: false },
+    timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
+  }),
+  invalidateConfigCache: () => {},
+}));
+
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
 import type { Provider, ProviderResponse } from '../providers/types.js';
 import type { CuObservation, ServerMessage } from '../daemon/ipc-protocol.js';

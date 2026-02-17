@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSkillTool, createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';
 import { RiskLevel } from '../permissions/types.js';
+import { computeSkillVersionHash } from '../skills/version-hash.js';
 import type { SkillToolEntry } from '../config/skills.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -237,7 +238,8 @@ describe('createSkillToolsFromManifest', () => {
 
 describe('createSkillTool — version hash plumbing to runner', () => {
   test('execute() works correctly when versionHash is provided', async () => {
-    const hash = 'v1:abc123';
+    // Use the real hash of the temp directory so the runner's integrity check passes.
+    const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(
       makeEntry({ executor: 'echo.ts' }),
       'my-skill',
