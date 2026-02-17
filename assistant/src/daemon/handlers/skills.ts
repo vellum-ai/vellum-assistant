@@ -209,6 +209,28 @@ export async function handleSkillsInstall(
     // Reload skill catalog so the newly installed skill is picked up
     loadSkillCatalog();
 
+    // Auto-enable the newly installed skill so it's immediately usable
+    const skillId = result.skillName ?? msg.slug;
+    try {
+      const raw = loadRawConfig();
+      ensureSkillEntry(raw, skillId).enabled = true;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig(raw);
+      } catch (err) {
+        ctx.setSuppressConfigReload(false);
+        throw err;
+      }
+      invalidateConfigCache();
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.updateConfigFingerprint();
+    } catch (err) {
+      log.warn({ err, skillId }, 'Failed to auto-enable installed skill');
+    }
+
     ctx.send(socket, {
       type: 'skills_operation_response',
       operation: 'install',
@@ -216,8 +238,8 @@ export async function handleSkillsInstall(
     });
     ctx.broadcast({
       type: 'skills_state_changed',
-      name: result.skillName ?? msg.slug,
-      state: 'installed',
+      name: skillId,
+      state: 'enabled',
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

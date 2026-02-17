@@ -33,8 +33,8 @@ export function resolveSkillStates(
     if (entry && typeof entry.enabled === 'boolean') {
       isEnabled = entry.enabled;
     } else {
-      // Default: bundled skills are enabled, others are disabled
-      isEnabled = skill.source === 'bundled';
+      // Default: bundled and managed (user-installed) skills are enabled, others are disabled
+      isEnabled = skill.source === 'bundled' || skill.source === 'managed';
     }
 
     if (!isEnabled) {
