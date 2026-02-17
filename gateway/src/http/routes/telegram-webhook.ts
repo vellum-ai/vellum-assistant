@@ -236,6 +236,7 @@ export function createTelegramWebhookHandler(
       });
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
+      if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     } finally {
       clearTyping();
@@ -243,6 +244,7 @@ export function createTelegramWebhookHandler(
 
     if (!result.forwarded && !result.rejected) {
       log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
+      if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
 

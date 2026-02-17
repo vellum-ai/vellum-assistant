@@ -55,6 +55,14 @@ export class DedupCache {
     return true;
   }
 
+  /** Remove a reserved entry so Telegram can retry. */
+  unreserve(updateId: number): void {
+    const entry = this.cache.get(updateId);
+    if (entry?.processing) {
+      this.cache.delete(updateId);
+    }
+  }
+
   /** Store a response for the given update_id. */
   set(updateId: number, body: string, status: number): void {
     // Evict expired entries if we're at capacity
