@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ToolExecutionResult, ToolContext } from '../types.js';
 import { getConfig } from '../../config/loader.js';
@@ -64,7 +64,12 @@ export async function runSkillToolScriptSandbox(
   context: ToolContext,
   options?: { timeoutMs?: number },
 ): Promise<ToolExecutionResult> {
-  const scriptPath = join(skillDir, executorPath);
+  const scriptPath = resolve(join(skillDir, executorPath));
+  const resolvedSkillDir = resolve(skillDir) + '/';
+  if (!scriptPath.startsWith(resolvedSkillDir)) {
+    return { content: `Skill tool script path "${executorPath}" escapes the skill directory`, isError: true };
+  }
+
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const runDir = join(skillDir, '.vellum-skill-run', randomUUID());

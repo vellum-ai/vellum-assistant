@@ -1,6 +1,6 @@
 import type { ToolExecutionResult, ToolContext, ExecutionTarget } from '../types.js';
 import type { SkillToolScript } from './script-contract.js';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { runSkillToolScriptSandbox } from './sandbox-runner.js';
 
 export interface RunSkillToolScriptOptions {
@@ -27,7 +27,11 @@ export async function runSkillToolScript(
     });
   }
 
-  const scriptPath = join(skillDir, executorPath);
+  const scriptPath = resolve(join(skillDir, executorPath));
+  const resolvedSkillDir = resolve(skillDir) + '/';
+  if (!scriptPath.startsWith(resolvedSkillDir)) {
+    return { content: `Skill tool script path "${executorPath}" escapes the skill directory`, isError: true };
+  }
 
   let module: SkillToolScript;
   try {
