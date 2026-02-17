@@ -579,7 +579,11 @@ describe('Trust Store', () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
         expect(rule.priority).toBe(DEFAULT_PRIORITY_BY_ID.get(rule.id)!);
-        expect(rule.scope).toBe('everywhere');
+        if (rule.id === 'default:allow-bash-rm-bootstrap') {
+          expect(rule.scope).toBe(join(testDir, 'workspace'));
+        } else {
+          expect(rule.scope).toBe('everywhere');
+        }
       }
 
       const protectedDefaults = defaults.filter((rule) => rule.id.endsWith('-protected'));
@@ -740,6 +744,18 @@ describe('Trust Store', () => {
       expect(match!.id).toBe('default:ask-request_computer_control-global');
       expect(match!.decision).toBe('ask');
       expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-request_computer_control-global')!);
+    });
+
+    test('bootstrap delete rule matches only when workingDir is the workspace dir', () => {
+      const workspaceDir = join(testDir, 'workspace');
+      // Should match when workingDir is the workspace directory
+      const match = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], workspaceDir);
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:allow-bash-rm-bootstrap');
+      expect(match!.decision).toBe('allow');
+      // Should NOT match when workingDir is somewhere else
+      const noMatch = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], '/tmp/other-project');
+      expect(noMatch).toBeNull();
     });
 
     test('default ask does not affect files outside protected directory', () => {
