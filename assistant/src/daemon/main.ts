@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import '../instrument.js';
 import * as Sentry from '@sentry/node';
 import { runDaemon } from './lifecycle.js';
 

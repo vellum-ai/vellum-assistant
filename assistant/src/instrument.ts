@@ -30,28 +30,31 @@ function redactObject(obj: unknown): unknown {
   return obj;
 }
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  release: `vellum-assistant@${APP_VERSION}`,
-  environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
-  sendDefaultPii: false,
-  beforeSend(event) {
-    if (event.exception?.values) {
-      event.exception.values = event.exception.values.map((ex) => ({
-        ...ex,
-        value: ex.value ? redactString(ex.value) : ex.value,
-      }));
-    }
-    if (event.breadcrumbs) {
-      event.breadcrumbs = event.breadcrumbs.map((bc) => ({
-        ...bc,
-        message: bc.message ? redactString(bc.message) : bc.message,
-        data: bc.data ? (redactObject(bc.data) as Record<string, unknown>) : bc.data,
-      }));
-    }
-    if (event.extra) {
-      event.extra = redactObject(event.extra) as Record<string, unknown>;
-    }
-    return event;
-  },
-});
+/** Call after dotenv has loaded so process.env.SENTRY_DSN is available. */
+export function initSentry(): void {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    release: `vellum-assistant@${APP_VERSION}`,
+    environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
+    sendDefaultPii: false,
+    beforeSend(event) {
+      if (event.exception?.values) {
+        event.exception.values = event.exception.values.map((ex) => ({
+          ...ex,
+          value: ex.value ? redactString(ex.value) : ex.value,
+        }));
+      }
+      if (event.breadcrumbs) {
+        event.breadcrumbs = event.breadcrumbs.map((bc) => ({
+          ...bc,
+          message: bc.message ? redactString(bc.message) : bc.message,
+          data: bc.data ? (redactObject(bc.data) as Record<string, unknown>) : bc.data,
+        }));
+      }
+      if (event.extra) {
+        event.extra = redactObject(event.extra) as Record<string, unknown>;
+      }
+      return event;
+    },
+  });
+}
