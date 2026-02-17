@@ -121,8 +121,7 @@ struct OnboardingFlowView: View {
                         )
                         .id(state.currentStep)
 
-                        OnboardingProgressDots(currentStep: state.currentStep)
-                            .padding(.top, VSpacing.xs)
+                        OnboardingFooter(currentStep: state.currentStep)
                     }
                     .padding(.horizontal, VSpacing.xxl)
                     .padding(.top, VSpacing.xl)

@@ -71,7 +71,7 @@ struct WakeUpStepView: View {
                 .foregroundColor(VColor.textMuted.opacity(0.5))
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
         .opacity(showButtons ? 1 : 0)
         .offset(y: showButtons ? 0 : 12)
         .disabled(isAdvancing)
@@ -86,6 +86,9 @@ struct WakeUpStepView: View {
                 showButtons = true
             }
         }
+
+        OnboardingFooter(currentStep: 0)
+            .padding(.bottom, VSpacing.lg)
     }
 
     // MARK: - Option Card

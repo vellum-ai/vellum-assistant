@@ -162,7 +162,7 @@ struct FnKeyStepView: View {
             .padding(.top, VSpacing.xs)
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .animation(.spring(duration: 0.4, bounce: 0.1), value: permissionsRequested)
@@ -182,6 +182,9 @@ struct FnKeyStepView: View {
         .onDisappear {
             stopPolling()
         }
+
+        OnboardingFooter(currentStep: 3)
+            .padding(.bottom, VSpacing.lg)
     }
 
     // MARK: - Subviews

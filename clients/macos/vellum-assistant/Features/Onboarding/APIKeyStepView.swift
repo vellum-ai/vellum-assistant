@@ -119,7 +119,7 @@ struct APIKeyStepView: View {
             .padding(.top, VSpacing.xs)
         }
         .padding(.horizontal, VSpacing.xxl)
-        .padding(.bottom, VSpacing.xxl)
+        .padding(.bottom, VSpacing.lg)
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
@@ -137,6 +137,9 @@ struct APIKeyStepView: View {
                 keyFieldFocused = true
             }
         }
+
+        OnboardingFooter(currentStep: 2)
+            .padding(.bottom, VSpacing.lg)
     }
 
     // MARK: - Helpers
