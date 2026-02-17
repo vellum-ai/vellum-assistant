@@ -61,4 +61,41 @@ describe("DedupCache", () => {
     cache.set(2, "y", 200);
     expect(cache.size).toBe(2);
   });
+
+  test("reserve returns true for unseen update_id and populates cache", () => {
+    expect(cache.reserve(50)).toBe(true);
+    expect(cache.size).toBe(1);
+    const hit = cache.get(50);
+    expect(hit).toBeDefined();
+    expect(hit!.status).toBe(200);
+  });
+
+  test("reserve returns false for already-reserved update_id", () => {
+    cache.reserve(60);
+    expect(cache.reserve(60)).toBe(false);
+  });
+
+  test("reserve returns false for already-cached update_id", () => {
+    cache.set(70, '{"done":true}', 200);
+    expect(cache.reserve(70)).toBe(false);
+  });
+
+  test("set overwrites a reserved entry with the final response", () => {
+    cache.reserve(80);
+    cache.set(80, '{"final":true}', 201);
+    const hit = cache.get(80);
+    expect(hit).toEqual({ body: '{"final":true}', status: 201 });
+  });
+
+  test("reserve succeeds after a reserved entry expires", () => {
+    const shortCache = new DedupCache(1, 100);
+    shortCache.reserve(90);
+
+    const start = Date.now();
+    while (Date.now() - start < 5) {
+      // busy-wait for expiry
+    }
+
+    expect(shortCache.reserve(90)).toBe(true);
+  });
 });

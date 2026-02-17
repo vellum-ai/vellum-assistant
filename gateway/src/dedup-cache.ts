@@ -6,6 +6,8 @@ interface CacheEntry {
   body: string;
   status: number;
   expiresAt: number;
+  /** When true, the first handler is still processing this update_id. */
+  processing?: boolean;
 }
 
 /**
@@ -32,6 +34,25 @@ export class DedupCache {
       return undefined;
     }
     return { body: entry.body, status: entry.status };
+  }
+
+  /**
+   * Checks whether this update_id is already reserved or cached.
+   * If not, immediately reserves it with a "processing" sentinel so that
+   * concurrent retries are blocked before the handler finishes.
+   * Returns true if a new reservation was created (caller should proceed),
+   * false if the update_id was already present (caller should short-circuit).
+   */
+  reserve(updateId: number): boolean {
+    const existing = this.cache.get(updateId);
+    if (existing && Date.now() <= existing.expiresAt) {
+      return false;
+    }
+    // Clean up expired entry if present
+    if (existing) this.cache.delete(updateId);
+    this.set(updateId, '{"ok":true}', 200);
+    this.cache.get(updateId)!.processing = true;
+    return true;
   }
 
   /** Store a response for the given update_id. */
