@@ -16,9 +16,11 @@ const EXCLUDED_NAMES = new Set([
 
 /**
  * Collect all files under `dir` in sorted order, excluding transient entries.
- * Uses a `visited` set of real directory paths to prevent all symlink cycle types.
+ * Uses an `ancestors` set of real directory paths currently on the recursion
+ * stack to detect symlink cycles without suppressing legitimate duplicate
+ * symlink targets reached via different paths.
  */
-function collectFiles(dir: string, base: string, visited: Set<string> = new Set()): string[] {
+function collectFiles(dir: string, base: string, ancestors: Set<string> = new Set()): string[] {
   const entries: string[] = [];
 
   let realDir: string;
@@ -27,13 +29,14 @@ function collectFiles(dir: string, base: string, visited: Set<string> = new Set(
   } catch {
     return entries;
   }
-  if (visited.has(realDir)) return entries;
-  visited.add(realDir);
+  if (ancestors.has(realDir)) return entries;
+  ancestors.add(realDir);
 
   let items: string[];
   try {
     items = readdirSync(dir).sort();
   } catch {
+    ancestors.delete(realDir);
     return entries;
   }
 
@@ -60,19 +63,20 @@ function collectFiles(dir: string, base: string, visited: Set<string> = new Set(
         continue;
       }
       if (resolvedStat.isDirectory()) {
-        entries.push(...collectFiles(full, base, visited));
+        entries.push(...collectFiles(full, base, ancestors));
       } else if (resolvedStat.isFile()) {
         entries.push(relative(base, full));
       }
       continue;
     }
     if (stat.isDirectory()) {
-      entries.push(...collectFiles(full, base, visited));
+      entries.push(...collectFiles(full, base, ancestors));
     } else if (stat.isFile()) {
       entries.push(relative(base, full));
     }
   }
 
+  ancestors.delete(realDir);
   return entries;
 }
 

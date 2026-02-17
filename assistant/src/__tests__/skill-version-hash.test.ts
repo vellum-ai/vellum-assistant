@@ -163,4 +163,20 @@ describe('computeSkillVersionHash', () => {
 
     expect(hash1).not.toBe(hash2);
   });
+
+  test('two symlinks to same external dir both contribute to hash', () => {
+    const dir = makeTempSkill();
+    const external = makeTempSkill();
+    writeFileSync(join(external, 'lib.ts'), 'export const x = 1;');
+
+    // Only one symlink alias
+    symlinkSync(external, join(dir, 'alias-a'));
+    const hash1 = computeSkillVersionHash(dir);
+
+    // Add a second symlink alias to the same external dir
+    symlinkSync(external, join(dir, 'alias-b'));
+    const hash2 = computeSkillVersionHash(dir);
+
+    expect(hash1).not.toBe(hash2);
+  });
 });
