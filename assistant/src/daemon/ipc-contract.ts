@@ -389,6 +389,17 @@ export interface AppUpdatePreviewResponse {
   appId: string;
 }
 
+export interface AppPreviewRequest {
+  type: 'app_preview_request';
+  appId: string;
+}
+
+export interface AppPreviewResponse {
+  type: 'app_preview_response';
+  appId: string;
+  preview?: string;
+}
+
 export interface OpenBundleRequest {
   type: 'open_bundle';
   filePath: string;
@@ -840,6 +851,7 @@ export type ClientMessage =
   | GalleryListRequest
   | GalleryInstallRequest
   | AppUpdatePreviewRequest
+  | AppPreviewRequest
   | PublishPageRequest
   | UnpublishPageRequest
   | DiagnosticsExportRequest
@@ -1975,6 +1987,7 @@ export type ServerMessage =
   | VercelApiConfigResponse
   | OpenUrl
   | AppUpdatePreviewResponse
+  | AppPreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse
   | DiagnosticsExportResponse

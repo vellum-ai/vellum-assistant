@@ -402,6 +402,14 @@ extension IPCAppUpdatePreviewRequest {
 /// Backed by generated `IPCAppUpdatePreviewResponse`.
 public typealias AppUpdatePreviewResponseMessage = IPCAppUpdatePreviewResponse
 
+/// Sent to request a single app's preview screenshot.
+/// Backed by generated `IPCAppPreviewRequest`.
+public typealias AppPreviewRequestMessage = IPCAppPreviewRequest
+
+/// Response with a single app's preview screenshot.
+/// Backed by generated `IPCAppPreviewResponse`.
+public typealias AppPreviewResponseMessage = IPCAppPreviewResponse
+
 /// Sent to request the list of all apps.
 /// Backed by generated `IPCAppsListRequest`.
 public typealias AppsListRequestMessage = IPCAppsListRequest
@@ -1720,6 +1728,7 @@ public enum ServerMessage: Decodable, Sendable {
     case appsListResponse(AppsListResponseMessage)
     case homeBaseGetResponse(HomeBaseGetResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
+    case appPreviewResponse(AppPreviewResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case forkSharedAppResponse(ForkSharedAppResponseMessage)
@@ -1930,6 +1939,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "app_update_preview_response":
             let message = try AppUpdatePreviewResponseMessage(from: decoder)
             self = .appUpdatePreviewResponse(message)
+        case "app_preview_response":
+            let message = try AppPreviewResponseMessage(from: decoder)
+            self = .appPreviewResponse(message)
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
             self = .sharedAppsListResponse(message)

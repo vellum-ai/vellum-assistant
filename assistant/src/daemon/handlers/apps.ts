@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, createApp, updateApp } from '../../memory/app-store.js';
+import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, getAppPreview, createApp, updateApp } from '../../memory/app-store.js';
 import { computeContentId } from '../../util/content-id.js';
 import { packageApp } from '../../bundler/app-bundler.js';
 import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
@@ -118,7 +118,6 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
           name: a.name,
           description: a.description,
           icon: a.icon,
-          preview: a.preview,
           createdAt: a.createdAt,
           version,
           contentId,
@@ -130,6 +129,25 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to list apps');
     ctx.send(socket, { type: 'error', message: `Failed to list apps: ${message}` });
+  }
+}
+
+export function handleAppPreview(
+  msg: { appId: string },
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const preview = getAppPreview(msg.appId);
+    ctx.send(socket, {
+      type: 'app_preview_response',
+      appId: msg.appId,
+      preview: preview ?? undefined,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to get app preview');
+    ctx.send(socket, { type: 'error', message: `Failed to get app preview: ${message}` });
   }
 }
 

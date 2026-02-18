@@ -310,6 +310,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     appId: 'app-001',
     preview: 'base64-png-data',
   },
+  app_preview_request: {
+    type: 'app_preview_request',
+    appId: 'app-001',
+  },
   share_app_cloud: {
     type: 'share_app_cloud',
     appId: 'app-001',
@@ -1079,6 +1083,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_update_preview_response',
     success: true,
     appId: 'app-001',
+  },
+  app_preview_response: {
+    type: 'app_preview_response',
+    appId: 'app-001',
+    preview: 'base64-png-data',
   },
   ui_surface_undo_result: {
     type: 'ui_surface_undo_result',
