@@ -39,15 +39,15 @@ final class MediaEmbedResolverTests: XCTestCase {
 
     // MARK: - Feature gate: disabled
 
-    func testDisabledSettingsReturnsEmpty() {
+    func testDisabledSettingsReturnsEmpty() async {
         let message = makeMessage("Check https://www.youtube.com/watch?v=abc123")
-        let result = MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - Feature gate: enabledSince
 
-    func testMessageBeforeEnabledSinceReturnsEmpty() {
+    func testMessageBeforeEnabledSinceReturnsEmpty() async {
         let cutoff = Date()
         let oldTimestamp = cutoff.addingTimeInterval(-60)
         let message = makeMessage(
@@ -55,18 +55,18 @@ final class MediaEmbedResolverTests: XCTestCase {
             timestamp: oldTimestamp
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result, [])
     }
 
-    func testMessageAfterEnabledSinceResolves() {
+    func testMessageAfterEnabledSinceResolves() async {
         let cutoff = Date().addingTimeInterval(-120)
         let message = makeMessage(
             "https://www.youtube.com/watch?v=abc123",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result.count, 1)
         if case .video(let provider, let videoID, _) = result.first {
             XCTAssertEqual(provider, "youtube")
@@ -76,22 +76,22 @@ final class MediaEmbedResolverTests: XCTestCase {
         }
     }
 
-    func testNilEnabledSinceAllowsAllMessages() {
+    func testNilEnabledSinceAllowsAllMessages() async {
         let veryOld = Date.distantPast
         let message = makeMessage(
             "https://www.youtube.com/watch?v=old123",
             timestamp: veryOld
         )
         let settings = enabledSettings(enabledSince: nil)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result.count, 1)
     }
 
     // MARK: - Video providers
 
-    func testYouTubeURLResolvesToVideoIntent() {
+    func testYouTubeURLResolvesToVideoIntent() async {
         let message = makeMessage("Watch this: https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .video(let provider, let videoID, let embedURL) = result.first {
             XCTAssertEqual(provider, "youtube")
@@ -102,9 +102,9 @@ final class MediaEmbedResolverTests: XCTestCase {
         }
     }
 
-    func testVimeoURLResolvesToVideoIntent() {
+    func testVimeoURLResolvesToVideoIntent() async {
         let message = makeMessage("See https://vimeo.com/76979871")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .video(let provider, let videoID, let embedURL) = result.first {
             XCTAssertEqual(provider, "vimeo")
@@ -115,9 +115,9 @@ final class MediaEmbedResolverTests: XCTestCase {
         }
     }
 
-    func testLoomURLResolvesToVideoIntent() {
+    func testLoomURLResolvesToVideoIntent() async {
         let message = makeMessage("Recording: https://www.loom.com/share/abc123def456")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .video(let provider, let videoID, let embedURL) = result.first {
             XCTAssertEqual(provider, "loom")
@@ -130,9 +130,9 @@ final class MediaEmbedResolverTests: XCTestCase {
 
     // MARK: - Image classification
 
-    func testImageURLResolvesToImageIntent() {
+    func testImageURLResolvesToImageIntent() async {
         let message = makeMessage("Here's a screenshot: https://example.com/photo.png")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .image(let url) = result.first {
             XCTAssertEqual(url.absoluteString, "https://example.com/photo.png")
@@ -143,7 +143,7 @@ final class MediaEmbedResolverTests: XCTestCase {
 
     // MARK: - Domain allowlist
 
-    func testNonAllowedDomainVideoURLIsSkipped() {
+    func testNonAllowedDomainVideoURLIsSkipped() async {
         let message = makeMessage("https://www.youtube.com/watch?v=abc123")
         // Settings with no allowed domains for video providers
         let settings = MediaEmbedResolverSettings(
@@ -151,17 +151,17 @@ final class MediaEmbedResolverTests: XCTestCase {
             enabledSince: nil,
             allowedDomains: ["example.com"]
         )
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result, [])
     }
 
     // MARK: - Mixed URLs
 
-    func testMixedImageAndVideoURLs() {
+    func testMixedImageAndVideoURLs() async {
         let message = makeMessage(
             "Video: https://www.youtube.com/watch?v=abc123 and image: https://cdn.example.com/pic.jpg"
         )
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 2)
 
         if case .video(let provider, _, _) = result[0] {
@@ -179,43 +179,43 @@ final class MediaEmbedResolverTests: XCTestCase {
 
     // MARK: - Deduplication
 
-    func testDuplicateURLsAreDeduped() {
+    func testDuplicateURLsAreDeduped() async {
         let message = makeMessage(
             "https://www.youtube.com/watch?v=abc123 and again https://www.youtube.com/watch?v=abc123"
         )
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
     }
 
     // MARK: - Code blocks excluded
 
-    func testURLsInCodeBlocksAreExcluded() {
+    func testURLsInCodeBlocksAreExcluded() async {
         let message = makeMessage("""
         Here is some code:
         ```
         https://www.youtube.com/watch?v=abc123
         ```
         """)
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - Plain text, no URLs
 
-    func testPlainTextWithNoURLsReturnsEmpty() {
+    func testPlainTextWithNoURLsReturnsEmpty() async {
         let message = makeMessage("Just a regular message with no links.")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - Role-agnostic
 
-    func testUserMessageResolves() {
+    func testUserMessageResolves() async {
         let message = makeMessage(
             "https://www.youtube.com/watch?v=user123",
             role: .user
         )
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "user123")
@@ -224,12 +224,12 @@ final class MediaEmbedResolverTests: XCTestCase {
         }
     }
 
-    func testAssistantMessageResolves() {
+    func testAssistantMessageResolves() async {
         let message = makeMessage(
             "https://www.youtube.com/watch?v=asst456",
             role: .assistant
         )
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result.count, 1)
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "asst456")

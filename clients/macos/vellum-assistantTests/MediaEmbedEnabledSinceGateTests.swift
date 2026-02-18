@@ -35,27 +35,27 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Message BEFORE enabledSince returns no embeds
 
-    func testMessageBeforeEnabledSinceReturnsEmpty() {
+    func testMessageBeforeEnabledSinceReturnsEmpty() async {
         let cutoff = Date()
         let oldMessage = makeMessage(
             "https://www.youtube.com/watch?v=abc123",
             timestamp: cutoff.addingTimeInterval(-60)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
         XCTAssertEqual(result, [], "Messages created before enabledSince must produce no embeds")
     }
 
     // MARK: - Message AFTER enabledSince returns embeds
 
-    func testMessageAfterEnabledSinceReturnsEmbeds() {
+    func testMessageAfterEnabledSinceReturnsEmbeds() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newMessage = makeMessage(
             "https://www.youtube.com/watch?v=abc123",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "Messages created after enabledSince must resolve embeds")
         if case .video(let provider, let videoID, _) = result.first {
             XCTAssertEqual(provider, "youtube")
@@ -67,7 +67,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Message EXACTLY at enabledSince boundary
 
-    func testMessageExactlyAtEnabledSinceBoundaryIsAllowed() {
+    func testMessageExactlyAtEnabledSinceBoundaryIsAllowed() async {
         let boundary = Date()
         let message = makeMessage(
             "https://www.youtube.com/watch?v=edge123",
@@ -76,7 +76,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
         // The resolver uses `<` — a message whose timestamp equals enabledSince is NOT
         // less-than, so it should pass the gate and produce embeds.
         let settings = enabledSettings(enabledSince: boundary)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result.count, 1, "Message at exact boundary should be allowed (not strictly less-than)")
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "edge123")
@@ -87,39 +87,39 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - nil enabledSince allows all messages
 
-    func testNilEnabledSinceAllowsAllMessages() {
+    func testNilEnabledSinceAllowsAllMessages() async {
         let veryOldMessage = makeMessage(
             "https://www.youtube.com/watch?v=old123",
             timestamp: Date.distantPast
         )
         let settings = enabledSettings(enabledSince: nil)
-        let result = MediaEmbedResolver.resolve(message: veryOldMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: veryOldMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "nil enabledSince should allow messages regardless of timestamp")
     }
 
     // MARK: - Very old enabledSince allows recent messages
 
-    func testVeryOldEnabledSinceAllowsRecentMessages() {
+    func testVeryOldEnabledSinceAllowsRecentMessages() async {
         let ancientCutoff = Date.distantPast
         let recentMessage = makeMessage(
             "https://www.youtube.com/watch?v=recent123",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: ancientCutoff)
-        let result = MediaEmbedResolver.resolve(message: recentMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: recentMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "Very old enabledSince should allow recent messages")
     }
 
     // MARK: - Future enabledSince blocks all current messages
 
-    func testFutureEnabledSinceBlocksAllCurrentMessages() {
+    func testFutureEnabledSinceBlocksAllCurrentMessages() async {
         let futureCutoff = Date.distantFuture
         let currentMessage = makeMessage(
             "https://www.youtube.com/watch?v=blocked123",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: futureCutoff)
-        let result = MediaEmbedResolver.resolve(message: currentMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: currentMessage, settings: settings)
         XCTAssertEqual(result, [], "Future enabledSince should block all current messages")
     }
 
@@ -153,25 +153,25 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Image embeds respect enabledSince
 
-    func testImageEmbedRespectsEnabledSince_Blocked() {
+    func testImageEmbedRespectsEnabledSince_Blocked() async {
         let cutoff = Date()
         let oldMessage = makeMessage(
             "Here is a screenshot: https://example.com/photo.png",
             timestamp: cutoff.addingTimeInterval(-30)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
         XCTAssertEqual(result, [], "Image embed should be blocked when message predates enabledSince")
     }
 
-    func testImageEmbedRespectsEnabledSince_Allowed() {
+    func testImageEmbedRespectsEnabledSince_Allowed() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newMessage = makeMessage(
             "Here is a screenshot: https://example.com/photo.png",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "Image embed should be allowed when message is after enabledSince")
         if case .image(let url) = result.first {
             XCTAssertTrue(url.absoluteString.contains("photo.png"))
@@ -182,25 +182,25 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Video embeds respect enabledSince
 
-    func testVideoEmbedRespectsEnabledSince_Blocked() {
+    func testVideoEmbedRespectsEnabledSince_Blocked() async {
         let cutoff = Date()
         let oldMessage = makeMessage(
             "Watch this: https://vimeo.com/76979871",
             timestamp: cutoff.addingTimeInterval(-45)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
         XCTAssertEqual(result, [], "Video embed should be blocked when message predates enabledSince")
     }
 
-    func testVideoEmbedRespectsEnabledSince_Allowed() {
+    func testVideoEmbedRespectsEnabledSince_Allowed() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newMessage = makeMessage(
             "Watch this: https://vimeo.com/76979871",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "Video embed should be allowed when message is after enabledSince")
         if case .video(let provider, let videoID, _) = result.first {
             XCTAssertEqual(provider, "vimeo")
@@ -212,31 +212,31 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Mixed image+video message respects enabledSince
 
-    func testMixedImageVideoRespectsEnabledSince_Blocked() {
+    func testMixedImageVideoRespectsEnabledSince_Blocked() async {
         let cutoff = Date()
         let oldMessage = makeMessage(
             "Video: https://www.youtube.com/watch?v=mix123 and image: https://cdn.example.com/pic.jpg",
             timestamp: cutoff.addingTimeInterval(-10)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
         XCTAssertEqual(result, [], "Mixed message should be blocked entirely when it predates enabledSince")
     }
 
-    func testMixedImageVideoRespectsEnabledSince_Allowed() {
+    func testMixedImageVideoRespectsEnabledSince_Allowed() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newMessage = makeMessage(
             "Video: https://www.youtube.com/watch?v=mix456 and image: https://cdn.example.com/pic.jpg",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newMessage, settings: settings)
         XCTAssertEqual(result.count, 2, "Mixed message should produce both embeds when after enabledSince")
     }
 
     // MARK: - User messages respect enabledSince
 
-    func testUserMessageRespectsEnabledSince_Blocked() {
+    func testUserMessageRespectsEnabledSince_Blocked() async {
         let cutoff = Date()
         let oldUserMessage = makeMessage(
             "https://www.youtube.com/watch?v=user123",
@@ -244,11 +244,11 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
             timestamp: cutoff.addingTimeInterval(-60)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldUserMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldUserMessage, settings: settings)
         XCTAssertEqual(result, [], "User messages before enabledSince should produce no embeds")
     }
 
-    func testUserMessageRespectsEnabledSince_Allowed() {
+    func testUserMessageRespectsEnabledSince_Allowed() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newUserMessage = makeMessage(
             "https://www.youtube.com/watch?v=user456",
@@ -256,7 +256,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newUserMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newUserMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "User messages after enabledSince should produce embeds")
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "user456")
@@ -267,7 +267,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Assistant messages respect enabledSince
 
-    func testAssistantMessageRespectsEnabledSince_Blocked() {
+    func testAssistantMessageRespectsEnabledSince_Blocked() async {
         let cutoff = Date()
         let oldAssistantMessage = makeMessage(
             "https://www.youtube.com/watch?v=asst123",
@@ -275,11 +275,11 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
             timestamp: cutoff.addingTimeInterval(-60)
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: oldAssistantMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: oldAssistantMessage, settings: settings)
         XCTAssertEqual(result, [], "Assistant messages before enabledSince should produce no embeds")
     }
 
-    func testAssistantMessageRespectsEnabledSince_Allowed() {
+    func testAssistantMessageRespectsEnabledSince_Allowed() async {
         let cutoff = Date().addingTimeInterval(-120)
         let newAssistantMessage = makeMessage(
             "https://www.youtube.com/watch?v=asst456",
@@ -287,7 +287,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: newAssistantMessage, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: newAssistantMessage, settings: settings)
         XCTAssertEqual(result.count, 1, "Assistant messages after enabledSince should produce embeds")
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "asst456")

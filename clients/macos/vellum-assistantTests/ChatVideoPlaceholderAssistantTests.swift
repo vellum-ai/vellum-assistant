@@ -31,9 +31,9 @@ final class ChatVideoPlaceholderAssistantTests: XCTestCase {
 
     // MARK: - Video intents for assistant messages
 
-    func testAssistantMessageWithYouTubeURLReturnsVideoIntent() {
+    func testAssistantMessageWithYouTubeURLReturnsVideoIntent() async {
         let message = makeAssistantMessage("Check this out: https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos.count, 1)
         if case .video(let provider, let videoID, _) = videos.first {
@@ -44,9 +44,9 @@ final class ChatVideoPlaceholderAssistantTests: XCTestCase {
         }
     }
 
-    func testAssistantMessageWithVimeoURLReturnsVideoIntent() {
+    func testAssistantMessageWithVimeoURLReturnsVideoIntent() async {
         let message = makeAssistantMessage("Watch this: https://vimeo.com/76979871")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos.count, 1)
         if case .video(let provider, let videoID, _) = videos.first {
@@ -57,9 +57,9 @@ final class ChatVideoPlaceholderAssistantTests: XCTestCase {
         }
     }
 
-    func testAssistantMessageWithLoomURLReturnsVideoIntent() {
+    func testAssistantMessageWithLoomURLReturnsVideoIntent() async {
         let message = makeAssistantMessage("Here's my recording: https://www.loom.com/share/abc123def456")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos.count, 1)
         if case .video(let provider, let videoID, _) = videos.first {
@@ -72,24 +72,24 @@ final class ChatVideoPlaceholderAssistantTests: XCTestCase {
 
     // MARK: - Non-video URLs
 
-    func testAssistantMessageWithNonVideoURLReturnsNoVideoIntents() {
+    func testAssistantMessageWithNonVideoURLReturnsNoVideoIntents() async {
         let message = makeAssistantMessage("Check https://example.com/page for details")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos, [])
     }
 
     // MARK: - Feature disabled
 
-    func testDisabledSettingsReturnsEmptyForVideo() {
+    func testDisabledSettingsReturnsEmptyForVideo() async {
         let message = makeAssistantMessage("Watch: https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        let result = MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - enabledSince gating
 
-    func testAssistantVideoBeforeEnabledSinceReturnsEmpty() {
+    func testAssistantVideoBeforeEnabledSinceReturnsEmpty() async {
         let cutoff = Date()
         let oldTimestamp = cutoff.addingTimeInterval(-60)
         let message = makeAssistantMessage(
@@ -97,29 +97,29 @@ final class ChatVideoPlaceholderAssistantTests: XCTestCase {
             timestamp: oldTimestamp
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result, [])
     }
 
-    func testAssistantVideoAfterEnabledSinceReturnsVideoIntent() {
+    func testAssistantVideoAfterEnabledSinceReturnsVideoIntent() async {
         let cutoff = Date().addingTimeInterval(-120)
         let message = makeAssistantMessage(
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos.count, 1)
     }
 
     // MARK: - Domain allowlist
 
-    func testNonAllowedDomainIsSkipped() {
+    func testNonAllowedDomainIsSkipped() async {
         let message = makeAssistantMessage("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         // Only allow vimeo.com — youtube.com should be skipped
         let settings = enabledSettings(allowedDomains: ["vimeo.com"])
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         let videos = result.filter { if case .video = $0 { return true } else { return false } }
         XCTAssertEqual(videos, [])
     }

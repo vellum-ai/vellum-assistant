@@ -39,10 +39,10 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Complete YouTube embed pipeline
 
-    func testCompleteYouTubePipeline() {
+    func testCompleteYouTubePipeline() async {
         let text = "Check this out: https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         guard case .video(let provider, let videoID, let embedURL) = intents.first else {
@@ -55,10 +55,10 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Complete Vimeo embed pipeline
 
-    func testCompleteVimeoPipeline() {
+    func testCompleteVimeoPipeline() async {
         let text = "Great video: https://vimeo.com/76979871"
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         guard case .video(let provider, let videoID, let embedURL) = intents.first else {
@@ -71,10 +71,10 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Complete Loom embed pipeline
 
-    func testCompleteLoomPipeline() {
+    func testCompleteLoomPipeline() async {
         let text = "See my recording: https://www.loom.com/share/abc123def456"
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         guard case .video(let provider, let videoID, let embedURL) = intents.first else {
@@ -87,10 +87,10 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Complete image embed pipeline
 
-    func testCompleteImagePipeline() {
+    func testCompleteImagePipeline() async {
         let text = "Screenshot: https://cdn.example.com/screenshot.png"
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         guard case .image(let url) = intents.first else {
@@ -101,17 +101,17 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Settings toggle OFF disables all embeds
 
-    func testSettingsToggleOffDisablesAllEmbeds() {
+    func testSettingsToggleOffDisablesAllEmbeds() async {
         let text = "https://www.youtube.com/watch?v=abc123 https://cdn.example.com/photo.jpg"
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
 
         XCTAssertEqual(intents, [], "No embeds should resolve when the feature is disabled")
     }
 
     // MARK: - Settings toggle ON with fresh enabledSince
 
-    func testSettingsToggleOnWithFreshEnabledSince() {
+    func testSettingsToggleOnWithFreshEnabledSince() async {
         let enabledMoment = Date()
         let futureMessage = makeMessage(
             "https://www.youtube.com/watch?v=future1",
@@ -123,8 +123,8 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
         )
         let settings = enabledSettings(enabledSince: enabledMoment)
 
-        let futureIntents = MediaEmbedResolver.resolve(message: futureMessage, settings: settings)
-        let pastIntents = MediaEmbedResolver.resolve(message: pastMessage, settings: settings)
+        let futureIntents = await MediaEmbedResolver.resolve(message: futureMessage, settings: settings)
+        let pastIntents = await MediaEmbedResolver.resolve(message: pastMessage, settings: settings)
 
         XCTAssertEqual(futureIntents.count, 1, "Messages after enabledSince should resolve")
         XCTAssertEqual(pastIntents.count, 0, "Messages before enabledSince should be gated out")
@@ -156,7 +156,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Code block exclusion
 
-    func testCodeBlockExclusionStillWorks() {
+    func testCodeBlockExclusionStillWorks() async {
         let text = """
         Here is a fenced block:
         ```
@@ -165,7 +165,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
         And inline code: `https://vimeo.com/12345678`
         """
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents, [], "URLs inside code regions must be excluded")
     }
@@ -193,9 +193,9 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - User and assistant messages both produce embeds
 
-    func testUserMessageProducesEmbeds() {
+    func testUserMessageProducesEmbeds() async {
         let message = makeMessage("https://vimeo.com/11111111", role: .user)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         if case .video(let provider, _, _) = intents.first {
@@ -205,9 +205,9 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
         }
     }
 
-    func testAssistantMessageProducesEmbeds() {
+    func testAssistantMessageProducesEmbeds() async {
         let message = makeMessage("https://vimeo.com/22222222", role: .assistant)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 1)
         if case .video(let provider, _, _) = intents.first {
@@ -219,7 +219,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
 
     // MARK: - Multiple providers in single message
 
-    func testMultipleProvidersInSingleMessage() {
+    func testMultipleProvidersInSingleMessage() async {
         let text = """
         YouTube: https://www.youtube.com/watch?v=yt1 \
         Vimeo: https://vimeo.com/33333333 \
@@ -227,7 +227,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
         Image: https://cdn.example.com/pic.webp
         """
         let message = makeMessage(text)
-        let intents = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let intents = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
 
         XCTAssertEqual(intents.count, 4, "Should resolve one intent per distinct embeddable URL")
 

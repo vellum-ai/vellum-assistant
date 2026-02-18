@@ -30,9 +30,9 @@ final class ChatImageEmbedUserTests: XCTestCase {
 
     // MARK: - User message with image URL
 
-    func testUserMessageWithImageURLReturnsImageIntent() {
+    func testUserMessageWithImageURLReturnsImageIntent() async {
         let message = makeUserMessage("Check this out: https://example.com/photo.png")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
             .filter { if case .image = $0 { return true } else { return false } }
         XCTAssertEqual(result.count, 1)
         if case .image(let url) = result.first {
@@ -44,23 +44,23 @@ final class ChatImageEmbedUserTests: XCTestCase {
 
     // MARK: - User message with no URLs
 
-    func testUserMessageWithNoURLsReturnsEmpty() {
+    func testUserMessageWithNoURLsReturnsEmpty() async {
         let message = makeUserMessage("Just a plain text message, no links here.")
-        let result = MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: enabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - Disabled feature returns empty for user messages
 
-    func testUserMessageWithDisabledSettingsReturnsEmpty() {
+    func testUserMessageWithDisabledSettingsReturnsEmpty() async {
         let message = makeUserMessage("Here is an image: https://example.com/img.jpg")
-        let result = MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
+        let result = await MediaEmbedResolver.resolve(message: message, settings: disabledSettings())
         XCTAssertEqual(result, [])
     }
 
     // MARK: - enabledSince gating for user messages
 
-    func testUserMessageBeforeEnabledSinceReturnsEmpty() {
+    func testUserMessageBeforeEnabledSinceReturnsEmpty() async {
         let cutoff = Date()
         let oldTimestamp = cutoff.addingTimeInterval(-60)
         let message = makeUserMessage(
@@ -68,18 +68,18 @@ final class ChatImageEmbedUserTests: XCTestCase {
             timestamp: oldTimestamp
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result, [])
     }
 
-    func testUserMessageAfterEnabledSinceReturnsImageIntent() {
+    func testUserMessageAfterEnabledSinceReturnsImageIntent() async {
         let cutoff = Date().addingTimeInterval(-120)
         let message = makeUserMessage(
             "https://example.com/new-screenshot.png",
             timestamp: Date()
         )
         let settings = enabledSettings(enabledSince: cutoff)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
             .filter { if case .image = $0 { return true } else { return false } }
         XCTAssertEqual(result.count, 1)
         if case .image(let url) = result.first {

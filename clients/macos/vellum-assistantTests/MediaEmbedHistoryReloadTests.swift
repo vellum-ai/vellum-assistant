@@ -35,7 +35,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
     // MARK: - Old messages (before enabledSince) loaded from history produce no embeds
 
-    func testOldHistoryMessagesProduceNoEmbeds() {
+    func testOldHistoryMessagesProduceNoEmbeds() async {
         let enabledAt = Date()
         let historicMessages = [
             makeMessage("https://www.youtube.com/watch?v=hist1", timestamp: enabledAt.addingTimeInterval(-3600)),
@@ -45,14 +45,14 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
         let settings = enabledSettings(enabledSince: enabledAt)
 
         for message in historicMessages {
-            let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+            let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
             XCTAssertEqual(result, [], "Historic message before enabledSince should produce no embeds")
         }
     }
 
     // MARK: - New messages (after enabledSince) loaded from history produce embeds
 
-    func testNewHistoryMessagesProduceEmbeds() {
+    func testNewHistoryMessagesProduceEmbeds() async {
         let enabledAt = Date().addingTimeInterval(-3600)
         let recentMessages = [
             makeMessage("https://www.youtube.com/watch?v=new1", timestamp: enabledAt.addingTimeInterval(60)),
@@ -62,14 +62,14 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
         let settings = enabledSettings(enabledSince: enabledAt)
 
         for message in recentMessages {
-            let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+            let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
             XCTAssertEqual(result.count, 1, "Message after enabledSince should produce exactly one embed")
         }
     }
 
     // MARK: - Mixed old and new messages — only new ones get embeds
 
-    func testMixedHistoryOnlyNewMessagesGetEmbeds() {
+    func testMixedHistoryOnlyNewMessagesGetEmbeds() async {
         let enabledAt = Date().addingTimeInterval(-1800)
         let settings = enabledSettings(enabledSince: enabledAt)
 
@@ -82,8 +82,8 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
             timestamp: enabledAt.addingTimeInterval(300)
         )
 
-        let oldResult = MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
-        let newResult = MediaEmbedResolver.resolve(message: newMessage, settings: settings)
+        let oldResult = await MediaEmbedResolver.resolve(message: oldMessage, settings: settings)
+        let newResult = await MediaEmbedResolver.resolve(message: newMessage, settings: settings)
 
         XCTAssertEqual(oldResult, [], "Old message in mixed history should produce no embeds")
         XCTAssertEqual(newResult.count, 1, "New message in mixed history should produce embeds")
@@ -97,7 +97,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
     // MARK: - Re-enabling embeds (new enabledSince) doesn't affect old history
 
-    func testReEnablingEmbedsDoesNotAffectOldHistory() {
+    func testReEnablingEmbedsDoesNotAffectOldHistory() async {
         // Simulate: embeds were first enabled at T-7200, disabled, then re-enabled at T-60.
         // Messages between T-7200 and T-60 should NOT get embeds under the new enabledSince.
         let reEnabledAt = Date().addingTimeInterval(-60)
@@ -112,8 +112,8 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
             timestamp: reEnabledAt.addingTimeInterval(10)
         )
 
-        let firstResult = MediaEmbedResolver.resolve(message: messageDuringFirstEnable, settings: settings)
-        let secondResult = MediaEmbedResolver.resolve(message: messageAfterReEnable, settings: settings)
+        let firstResult = await MediaEmbedResolver.resolve(message: messageDuringFirstEnable, settings: settings)
+        let secondResult = await MediaEmbedResolver.resolve(message: messageAfterReEnable, settings: settings)
 
         XCTAssertEqual(firstResult, [], "Message from first era should be blocked by new enabledSince")
         XCTAssertEqual(secondResult.count, 1, "Message after re-enable should produce embeds")
@@ -121,7 +121,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
     // MARK: - Messages at exact boundary timestamp
 
-    func testMessageAtExactBoundaryTimestamp() {
+    func testMessageAtExactBoundaryTimestamp() async {
         let boundary = Date()
         let message = makeMessage(
             "https://www.youtube.com/watch?v=boundary1",
@@ -130,7 +130,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
         // The resolver uses `<` — a message whose timestamp equals enabledSince is NOT
         // less-than, so it should pass the gate and produce embeds.
         let settings = enabledSettings(enabledSince: boundary)
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         XCTAssertEqual(result.count, 1, "Message at exact boundary should be allowed (not strictly less-than)")
         if case .video(_, let videoID, _) = result.first {
             XCTAssertEqual(videoID, "boundary1")
@@ -141,7 +141,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
     // MARK: - Image and video embeds both respect history gating
 
-    func testImageEmbedRespectsHistoryGating() {
+    func testImageEmbedRespectsHistoryGating() async {
         let enabledAt = Date()
         let settings = enabledSettings(enabledSince: enabledAt)
 
@@ -154,8 +154,8 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
             timestamp: enabledAt.addingTimeInterval(120)
         )
 
-        let oldResult = MediaEmbedResolver.resolve(message: oldImage, settings: settings)
-        let newResult = MediaEmbedResolver.resolve(message: newImage, settings: settings)
+        let oldResult = await MediaEmbedResolver.resolve(message: oldImage, settings: settings)
+        let newResult = await MediaEmbedResolver.resolve(message: newImage, settings: settings)
 
         XCTAssertEqual(oldResult, [], "Old image should be blocked by history gate")
         XCTAssertEqual(newResult.count, 1, "New image should pass history gate")
@@ -166,7 +166,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
         }
     }
 
-    func testVideoEmbedRespectsHistoryGating() {
+    func testVideoEmbedRespectsHistoryGating() async {
         let enabledAt = Date()
         let settings = enabledSettings(enabledSince: enabledAt)
 
@@ -179,8 +179,8 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
             timestamp: enabledAt.addingTimeInterval(300)
         )
 
-        let oldResult = MediaEmbedResolver.resolve(message: oldVideo, settings: settings)
-        let newResult = MediaEmbedResolver.resolve(message: newVideo, settings: settings)
+        let oldResult = await MediaEmbedResolver.resolve(message: oldVideo, settings: settings)
+        let newResult = await MediaEmbedResolver.resolve(message: newVideo, settings: settings)
 
         XCTAssertEqual(oldResult, [], "Old video should be blocked by history gate")
         XCTAssertEqual(newResult.count, 1, "New video should pass history gate")
@@ -194,7 +194,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
     // MARK: - Sequence of messages spanning the enabledSince boundary
 
-    func testMessageSequenceSpanningBoundary() {
+    func testMessageSequenceSpanningBoundary() async {
         let enabledAt = Date().addingTimeInterval(-1000)
         let settings = enabledSettings(enabledSince: enabledAt)
 
@@ -211,7 +211,7 @@ final class MediaEmbedHistoryReloadTests: XCTestCase {
 
         for (index, entry) in messages.enumerated() {
             let message = makeMessage(entry.text, timestamp: enabledAt.addingTimeInterval(entry.offset))
-            let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+            let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
 
             if entry.shouldEmbed {
                 XCTAssertEqual(

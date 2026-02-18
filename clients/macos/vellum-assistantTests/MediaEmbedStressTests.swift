@@ -31,11 +31,11 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - No artificial cap on image embeds
 
-    func testFiftyImageURLsProducesFiftyImageIntents() {
+    func testFiftyImageURLsProducesFiftyImageIntents() async {
         let urls = (0..<50).map { "https://cdn.example.com/img\($0).png" }
         let text = urls.joined(separator: "\n")
         let message = makeMessage(text)
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -53,11 +53,11 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Video intent count
 
-    func testTwentyVideoURLsProducesCorrectCount() {
+    func testTwentyVideoURLsProducesCorrectCount() async {
         let urls = (0..<20).map { "https://www.youtube.com/watch?v=vid\($0)" }
         let text = urls.joined(separator: "\n")
         let message = makeMessage(text)
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -75,7 +75,7 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Large mixed URL set doesn't crash
 
-    func testOneHundredMixedURLsProcessesWithoutCrashing() {
+    func testOneHundredMixedURLsProcessesWithoutCrashing() async {
         var lines: [String] = []
         for i in 0..<100 {
             switch i % 3 {
@@ -91,7 +91,7 @@ final class MediaEmbedStressTests: XCTestCase {
         let message = makeMessage(text)
 
         // Should not crash; just verify we get a non-empty result.
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -100,7 +100,7 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Very long text with embedded URLs
 
-    func testVeryLongTextWithEmbeddedURLsExtractsCorrectly() {
+    func testVeryLongTextWithEmbeddedURLsExtractsCorrectly() async {
         // Build a message over 10,000 characters with URLs scattered throughout.
         let filler = String(repeating: "Lorem ipsum dolor sit amet. ", count: 200)
         let url1 = "https://cdn.example.com/longtext1.png"
@@ -111,7 +111,7 @@ final class MediaEmbedStressTests: XCTestCase {
         XCTAssertGreaterThan(text.count, 10_000, "Test text should exceed 10k chars")
 
         let message = makeMessage(text)
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -133,14 +133,14 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Duplicate URL deduplication
 
-    func testDuplicateURLsAreDeduplicatedProperly() {
+    func testDuplicateURLsAreDeduplicatedProperly() async {
         // Repeat the same image URL 10 times.
         let repeatedImage = (0..<10).map { _ in "https://cdn.example.com/same.png" }
         // Repeat the same video URL 5 times.
         let repeatedVideo = (0..<5).map { _ in "https://www.youtube.com/watch?v=dup1" }
         let text = (repeatedImage + repeatedVideo).joined(separator: "\n")
         let message = makeMessage(text)
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -151,14 +151,14 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - URLs in various formats all resolve
 
-    func testURLsInVariousFormatsAllResolve() {
+    func testURLsInVariousFormatsAllResolve() async {
         let text = """
         Plain URL: https://cdn.example.com/plain.png
         Markdown link: [click here](https://cdn.example.com/markdown.jpg)
         Mixed with text https://cdn.example.com/inline.gif end of line
         """
         let message = makeMessage(text)
-        let result = MediaEmbedResolver.resolve(
+        let result = await MediaEmbedResolver.resolve(
             message: message,
             settings: enabledSettings()
         )
@@ -175,7 +175,7 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Performance: 100 URLs under 1 second
 
-    func testPerformanceResolverCompletesFor100URLsInReasonableTime() {
+    func testPerformanceResolverCompletesFor100URLsInReasonableTime() async {
         var lines: [String] = []
         for i in 0..<100 {
             if i % 2 == 0 {
@@ -189,7 +189,7 @@ final class MediaEmbedStressTests: XCTestCase {
         let settings = enabledSettings()
 
         let start = CFAbsoluteTimeGetCurrent()
-        let result = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let result = await MediaEmbedResolver.resolve(message: message, settings: settings)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         XCTAssertEqual(result.count, 100)
@@ -201,7 +201,7 @@ final class MediaEmbedStressTests: XCTestCase {
 
     // MARK: - Deterministic output
 
-    func testURLExtractionFromLargeTextIsDeterministic() {
+    func testURLExtractionFromLargeTextIsDeterministic() async {
         var lines: [String] = []
         for i in 0..<50 {
             lines.append("https://cdn.example.com/det\(i).png")
@@ -211,9 +211,9 @@ final class MediaEmbedStressTests: XCTestCase {
         let settings = enabledSettings()
 
         // Run resolution multiple times and verify identical output.
-        let first = MediaEmbedResolver.resolve(message: message, settings: settings)
+        let first = await MediaEmbedResolver.resolve(message: message, settings: settings)
         for run in 1...5 {
-            let again = MediaEmbedResolver.resolve(message: message, settings: settings)
+            let again = await MediaEmbedResolver.resolve(message: message, settings: settings)
             XCTAssertEqual(
                 first, again,
                 "Run \(run): resolver output should be deterministic"

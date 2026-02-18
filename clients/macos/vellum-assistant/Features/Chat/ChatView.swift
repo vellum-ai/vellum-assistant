@@ -812,6 +812,8 @@ private struct ChatBubble: View {
 
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
+    @State private var imageEmbedIntents: [MediaEmbedIntent] = []
+    @State private var videoEmbedIntents: [MediaEmbedIntent] = []
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -879,20 +881,6 @@ private struct ChatBubble: View {
             if !allCompleted { return false }
         }
         return hasText || !message.attachments.isEmpty
-    }
-
-    /// Image embed intents resolved for the message when the feature is enabled.
-    private var imageEmbedIntents: [MediaEmbedIntent] {
-        guard let settings = mediaEmbedSettings else { return [] }
-        return MediaEmbedResolver.resolve(message: message, settings: settings)
-            .filter { if case .image = $0 { return true } else { return false } }
-    }
-
-    /// Video embed intents resolved for the message when the feature is enabled.
-    private var videoEmbedIntents: [MediaEmbedIntent] {
-        guard let settings = mediaEmbedSettings else { return [] }
-        return MediaEmbedResolver.resolve(message: message, settings: settings)
-            .filter { if case .video = $0 { return true } else { return false } }
     }
 
     var body: some View {
@@ -983,6 +971,16 @@ private struct ChatBubble: View {
             } else if isHovered {
                 isHovered = false
             }
+        }
+        .task(id: message.text) {
+            guard let settings = mediaEmbedSettings else {
+                imageEmbedIntents = []
+                videoEmbedIntents = []
+                return
+            }
+            let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
+            imageEmbedIntents = resolved.filter { if case .image = $0 { return true } else { return false } }
+            videoEmbedIntents = resolved.filter { if case .video = $0 { return true } else { return false } }
         }
     }
 

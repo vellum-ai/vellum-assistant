@@ -34,10 +34,14 @@ enum MediaEmbedResolver {
     /// Returns an empty array when the feature is disabled, when the
     /// message predates `enabledSince`, or when no embeddable URLs
     /// are found.
+    ///
+    /// Uses a two-stage image detection approach: first tries extension-based
+    /// classification via `ImageURLClassifier`, then falls back to an async
+    /// HTTP HEAD probe via `ImageMIMEProbe` for extensionless URLs.
     static func resolve(
         message: ChatMessage,
         settings: MediaEmbedResolverSettings
-    ) -> [MediaEmbedIntent] {
+    ) async -> [MediaEmbedIntent] {
         guard settings.enabled else { return [] }
 
         if let enabledSince = settings.enabledSince,
@@ -65,13 +69,22 @@ enum MediaEmbedResolver {
                 continue
             }
 
-            // Fall back to image classification (extension-based only).
+            // Two-stage image detection: try extension first, then MIME probe.
             let classification = ImageURLClassifier.classify(url)
             if classification == .image {
                 let canonical = url.absoluteString
                 guard !seen.contains(canonical) else { continue }
                 seen.insert(canonical)
                 intents.append(.image(url: url))
+            } else if classification == .unknown {
+                // Extensionless URL — fall back to async HTTP HEAD probe.
+                let probeResult = await ImageMIMEProbe.shared.probe(url)
+                if probeResult == .image {
+                    let canonical = url.absoluteString
+                    guard !seen.contains(canonical) else { continue }
+                    seen.insert(canonical)
+                    intents.append(.image(url: url))
+                }
             }
         }
 
