@@ -986,7 +986,7 @@ graph LR
         C1["cu_session_create<br/>task, attachments"]
         C2["cu_observation<br/>axTree, axDiff, screenshot,<br/>secondaryWindows, result/error,<br/>axTreeBlob?, screenshotBlob?"]
         C3["ambient_observation<br/>screenContent, requestId"]
-        C4["session_create<br/>title"]
+        C4["session_create<br/>title, threadType?"]
         C5["user_message<br/>text, attachments"]
         C6["confirmation_response<br/>decision"]
         C7["cancel / undo"]
@@ -1017,6 +1017,8 @@ graph LR
         S15["trace_event<br/>eventId, sessionId, requestId?,<br/>timestampMs, sequence, kind,<br/>status?, summary, attributes?"]
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
+        S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
+        S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
     end
 
     C0 --> SOCKET
@@ -1049,6 +1051,8 @@ graph LR
     SOCKET --> S15
     SOCKET --> S16
     SOCKET --> S17
+    SOCKET --> S18
+    SOCKET --> S19
 ```
 
 ---
