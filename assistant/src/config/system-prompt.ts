@@ -116,6 +116,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildSystemPermissionSection());
   parts.push(buildChannelAwarenessSection());
   parts.push(buildSwarmGuidanceSection());
+  parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildPostToolResponseSection());
@@ -463,6 +464,31 @@ export function buildSwarmGuidanceSection(): string {
     '## Parallel Task Orchestration',
     '',
     'Use `swarm_delegate` only when a task has **multiple independent parts** that benefit from parallel execution (e.g. "research X, implement Y, and review Z"). For single-focus tasks, work directly — do not decompose them into a swarm.',
+  ].join('\n');
+}
+
+function buildAccessPreferenceSection(): string {
+  return [
+    '## External Service Access Preference',
+    '',
+    'When interacting with external services (GitHub, Slack, Linear, Jira, cloud providers, etc.),',
+    'follow this priority order:',
+    '',
+    '1. **CLI tools via host_bash** — If a CLI is installed on the user\'s machine (gh, slack, linear,',
+    '   jira, aws, gcloud, etc.), use it. CLIs handle auth, pagination, and output formatting.',
+    '   Use --json or equivalent flags for structured output when available.',
+    '2. **Direct API calls via host_bash** — Use curl/httpie with API tokens from credential_store.',
+    '   Faster and more reliable than browser automation.',
+    '3. **web_fetch** — For public endpoints or simple API calls that don\'t need auth.',
+    '4. **Browser automation as last resort** — Only when the task genuinely requires a browser',
+    '   (e.g., no API exists, visual interaction needed, or OAuth consent screen).',
+    '',
+    'Before using browser tools for a business system, ask yourself:',
+    '- Is there a CLI installed? (Check with `cli_discover` or `which <tool>` via host_bash)',
+    '- Does the service have a public API I can call with curl?',
+    '- Can I get the data via web_fetch?',
+    '',
+    'If yes to any of these, use that path instead of the browser.',
   ].join('\n');
 }
 

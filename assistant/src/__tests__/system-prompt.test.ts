@@ -160,6 +160,13 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('swarm_delegate');
   });
 
+  test('includes external service access preference section', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('## External Service Access Preference');
+    expect(result).toContain('CLI tools via host_bash');
+    expect(result).toContain('Browser automation as last resort');
+  });
+
   test('config section uses workspace directory from platform util', () => {
     const result = buildSystemPrompt();
     expect(result).toContain(`Your workspace is mounted at \`/workspace/\` inside the Docker sandbox (host path: \`${TEST_DIR}/\`)`);
