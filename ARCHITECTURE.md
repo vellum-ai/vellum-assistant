@@ -421,7 +421,7 @@ graph LR
 
     subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
         direction TB
-        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)"]
+        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>thread_type: 'standard' | 'private'<br/>memory_scope_id: 'default' | 'private:&lt;uuid&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
@@ -681,7 +681,7 @@ graph TB
         ENTITY_SEARCH["Entity Search<br/>Seed name/alias matching"]
         REL_EXPAND["Relation Expansion<br/>1-hop via memory_entity_relations<br/>→ neighbor item links"]
         DIRECT["Direct Item Search<br/>LIKE on subject/statement"]
-        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)"]
+        SCOPE["Scope Filter<br/>scope_id filtering<br/>(strict | global_fallback)<br/>Private threads: own scope + 'default'"]
         MERGE["RRF Merge<br/>+ Trust Weighting<br/>+ Freshness Decay"]
         CAPS["Source Caps<br/>bound per-source candidate count"]
         RERANK["LLM Re-ranking<br/>(Haiku, optional)"]
@@ -821,6 +821,98 @@ Runtime profile flow (per turn):
 1. `ProfileCompiler` builds a trusted profile block from active `profile` / `preference` / `constraint` / `instruction` items under strict token cap.
 2. Session injects that block only into runtime prompt state.
 3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
+
+---
+
+## Private Threads — Isolated Memory and Strict Side-Effect Controls
+
+Private threads provide per-conversation memory isolation and stricter tool execution controls. When a conversation is created with `threadType: 'private'`, the daemon assigns it a unique memory scope and enforces additional safeguards to prevent unintended side effects.
+
+### Schema Columns
+
+Two columns on the `conversations` table drive the feature:
+
+| Column | Type | Values | Purpose |
+|---|---|---|---|
+| `thread_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'` | Determines whether the conversation uses shared or isolated memory and permission policies |
+| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments, embeddings) to this namespace |
+
+### Memory Isolation
+
+```mermaid
+graph TB
+    subgraph "Standard Thread"
+        STD_WRITE["Memory writes<br/>→ scope_id = 'default'"]
+        STD_READ["Memory recall<br/>reads scope_id = 'default' only"]
+    end
+
+    subgraph "Private Thread"
+        PVT_WRITE["Memory writes<br/>→ scope_id = 'private:&lt;uuid&gt;'"]
+        PVT_READ["Memory recall<br/>reads scope_id = 'private:&lt;uuid&gt;'<br/>+ fallback to 'default'"]
+    end
+
+    subgraph "Shared Memory Pool"
+        DEFAULT_SCOPE["'default' scope<br/>(all standard thread memories)"]
+        PRIVATE_SCOPE["'private:&lt;uuid&gt;' scope<br/>(isolated to one thread)"]
+    end
+
+    STD_WRITE --> DEFAULT_SCOPE
+    STD_READ --> DEFAULT_SCOPE
+    PVT_WRITE --> PRIVATE_SCOPE
+    PVT_READ --> PRIVATE_SCOPE
+    PVT_READ -.->|"fallback"| DEFAULT_SCOPE
+```
+
+**Write isolation**: All memory items, segments, and embeddings created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). They are invisible to standard threads and other private threads.
+
+**Read fallback**: When recalling memories for a private thread, the retriever queries both the thread's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard threads, while private-thread-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
+
+**Profile compilation**: The `ProfileCompiler` also respects this dual-scope behavior for private threads — it includes profile/preference/constraint items from both the private scope and the default scope when building the runtime profile block.
+
+### SessionMemoryPolicy
+
+The daemon derives a `SessionMemoryPolicy` from the conversation's `thread_type` and `memory_scope_id` when creating or restoring a session:
+
+```typescript
+interface SessionMemoryPolicy {
+  scopeId: string;                // 'default' or 'private:<uuid>'
+  includeDefaultFallback: boolean; // true for private threads
+  strictSideEffects: boolean;      // true for private threads
+}
+```
+
+Standard threads use `DEFAULT_MEMORY_POLICY` (`{ scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }`). Private threads set all three fields: the private scope ID, default-fallback enabled, and strict side-effect controls enabled.
+
+### Strict Side-Effect Prompt Gate
+
+When `strictSideEffects` is `true` (all private threads), the `ToolExecutor` promotes any `allow` permission decision to `prompt` for side-effect tools — even when a trust rule would normally auto-allow the invocation. Deny decisions are preserved unchanged; only `allow` -> `prompt` promotion occurs.
+
+```mermaid
+graph TB
+    TOOL["Tool invocation in<br/>private thread"] --> PERM["Normal permission check<br/>(trust rules + risk level)"]
+    PERM --> DECISION{"Decision?"}
+    DECISION -->|"deny"| DENY["Blocked<br/>(unchanged)"]
+    DECISION -->|"prompt"| PROMPT["Prompt user<br/>(unchanged)"]
+    DECISION -->|"allow"| SIDE_CHECK{"isSideEffectTool()?"}
+    SIDE_CHECK -->|"no"| ALLOW["Auto-allow<br/>(read-only tools pass)"]
+    SIDE_CHECK -->|"yes"| FORCE_PROMPT["Promote to prompt<br/>'Private thread: side-effect<br/>tools require explicit approval'"]
+```
+
+This ensures that file writes, bash commands, host operations, and other mutating tools always require explicit user confirmation in private threads, providing an additional safety layer for sensitive conversations.
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/memory/schema.ts` | `conversations` table: `threadType` and `memoryScopeId` column definitions |
+| `assistant/src/daemon/session.ts` | `SessionMemoryPolicy` interface and `DEFAULT_MEMORY_POLICY` constant |
+| `assistant/src/daemon/server.ts` | `deriveMemoryPolicy()` — maps thread type to memory policy |
+| `assistant/src/daemon/session-tool-setup.ts` | Propagates `memoryPolicy.strictSideEffects` as `forcePromptSideEffects` into `ToolContext` |
+| `assistant/src/tools/executor.ts` | `forcePromptSideEffects` gate — promotes allow to prompt for side-effect tools |
+| `assistant/src/memory/search/types.ts` | `ScopePolicyOverride` interface for per-call scope control |
+| `assistant/src/memory/retriever.ts` | `buildScopeFilter()` — builds scope ID list from override or global config |
+| `assistant/src/memory/profile-compiler.ts` | Dual-scope profile compilation with `includeDefaultFallback` |
+| `assistant/src/daemon/session-memory.ts` | Wires `scopeId` and `includeDefaultFallback` into recall and profile compilation |
 
 ---
 
