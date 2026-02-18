@@ -1432,6 +1432,41 @@ public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCSubagentAbortRequest: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+}
+
+public struct IPCSubagentMessageRequest: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+    public let content: String
+}
+
+public struct IPCSubagentSpawned: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+    public let parentSessionId: String
+    public let label: String
+    public let objective: String
+}
+
+public struct IPCSubagentStatusChanged: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+    public let status: String
+    public let summary: String?
+    public let error: String?
+    public let usage: IPCUsageStats?
+}
+
+public struct IPCSubagentStatusRequest: Codable, Sendable {
+    public let type: String
+    /// If omitted, returns all subagents for the session.
+    public let subagentId: String?
+    public let sessionId: String
+}
+
 public struct IPCSuggestionRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
