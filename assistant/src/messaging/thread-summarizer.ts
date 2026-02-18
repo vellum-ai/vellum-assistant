@@ -106,9 +106,21 @@ function truncateMessages(
   const first = messages.slice(0, KEEP_FIRST);
   const last = messages.slice(-KEEP_LAST);
 
-  // If the thread is short enough that first+last overlap, just return all
+  // If the thread is short enough that first+last windows overlap, we can't
+  // split into first/middle/last — but we still need to honor the token budget.
+  // Progressively drop the oldest messages until we fit.
   if (KEEP_FIRST + KEEP_LAST >= messages.length) {
-    return messages;
+    const budgetChars = maxTokens * CHARS_PER_TOKEN;
+    const kept = [...messages];
+    while (kept.length > 1) {
+      const transcript = formatTranscript(kept);
+      if (transcript.length / CHARS_PER_TOKEN <= maxTokens) {
+        return kept;
+      }
+      // Drop the second message (preserve the first for context, trim from the front)
+      kept.splice(1, 1);
+    }
+    return kept;
   }
 
   // Try adding middle messages until budget is exceeded
@@ -283,7 +295,7 @@ export async function summarizeThread(
   options?: { maxTokens?: number },
 ): Promise<ThreadSummary> {
   if (messages.length === 0) {
-    return { ...EMPTY_SUMMARY };
+    return { ...EMPTY_SUMMARY, participants: [], openQuestions: [] };
   }
 
   // Sort chronologically
