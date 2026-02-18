@@ -9,5 +9,13 @@ struct VellumAssistantApp: App {
         Settings {
             SettingsView(store: appDelegate.services.settingsStore, daemonClient: appDelegate.services.daemonClient)
         }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    appDelegate.updateManager.checkForUpdates()
+                }
+                .disabled(!appDelegate.updateManager.canCheckForUpdates)
+            }
+        }
     }
 }
