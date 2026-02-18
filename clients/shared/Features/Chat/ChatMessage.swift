@@ -80,6 +80,14 @@ public struct ToolConfirmationData: Equatable {
                 return "The assistant wants to open \(host)"
             }
             return "The assistant wants to open a page"
+        case "skill_load":
+            let skillName = (input["skill"]?.value as? String) ?? ""
+            if skillName.isEmpty { return "The assistant wants to load a skill" }
+            return "The assistant wants to load the \(skillName) skill"
+        case "integration_manage":
+            let service = (input["service"]?.value as? String) ?? ""
+            if service.isEmpty { return "The assistant wants to manage an integration" }
+            return "The assistant wants to manage the \(service) integration"
         default:
             return "The assistant wants to use \(toolName)"
         }
@@ -100,6 +108,14 @@ public struct ToolConfirmationData: Equatable {
             return "fetch \((input["url"]?.value as? String) ?? "")"
         case "browser_navigate":
             return "navigate \((input["url"]?.value as? String) ?? "")"
+        case "skill_load":
+            return "load skill: \((input["skill"]?.value as? String) ?? "")"
+        case "integration_manage":
+            let service = (input["service"]?.value as? String) ?? ""
+            let action = (input["action"]?.value as? String) ?? ""
+            if !service.isEmpty && !action.isEmpty { return "\(action) \(service) integration" }
+            if !service.isEmpty { return "manage \(service) integration" }
+            return "manage integration"
         case "request_system_permission":
             return (input["permission_type"]?.value as? String) ?? "system permission"
         default:
@@ -126,8 +142,9 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("schedule_"): return "Scheduling"
         case _ where toolName.hasPrefix("watcher_"):  return "Watcher"
         case _ where toolName.hasPrefix("memory_"):   return "Memory"
-        case "skill_load":                            return "Skill"
+        case "skill_load":                            return "Load Skill"
         case "evaluate_typescript_code":              return "Code Sandbox"
+        case "integration_manage":                    return "Integration"
         case "reminder":                              return "Reminder"
         case "document_create", "document_update":    return "Document"
         default:
@@ -156,6 +173,7 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "brain"
         case "skill_load":                            return "puzzlepiece.extension"
         case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
+        case "integration_manage":                    return "link"
         case "reminder":                              return "bell"
         case "document_create", "document_update":    return "doc.richtext"
         default:                                      return "puzzlepiece.extension"
@@ -289,6 +307,20 @@ public struct ToolConfirmationData: Equatable {
             default:
                 return "I would like to access secure storage."
             }
+        case "skill_load":
+            let skillName = (input["skill"]?.value as? String) ?? ""
+            if skillName.isEmpty { return "I would like to load a skill." }
+            let displayName = skillName
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+            return "I would like to load the \(displayName) skill."
+        case "integration_manage":
+            let service = (input["service"]?.value as? String) ?? ""
+            if service.isEmpty { return "I would like to manage an integration." }
+            return "I would like to manage the \(service.capitalized) integration."
         default:
             return "I would like to use \(toolCategory)."
         }
