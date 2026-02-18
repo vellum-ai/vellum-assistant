@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema.js';
@@ -532,6 +533,7 @@ export function initializeDb(): void {
   migrateToolInvocationsFk(database);
   migrateMemoryEntityRelationDedup(database);
   migrateMemoryItemsFingerprintScopeUnique(database);
+  migrateMemoryItemsScopeSaltedFingerprints(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
@@ -954,5 +956,66 @@ function migrateMemoryItemsFingerprintScopeUnique(database: ReturnType<typeof dr
     throw e;
   } finally {
     raw.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+/**
+ * One-shot migration: recompute fingerprints for existing memory items to
+ * include the scope_id prefix introduced in the scope-salted fingerprint PR.
+ *
+ * Old format: sha256(`${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`)
+ * New format: sha256(`${scopeId}|${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`)
+ *
+ * Without this migration, pre-upgrade items would never match on re-extraction,
+ * causing duplicates and broken deduplication.
+ */
+function migrateMemoryItemsScopeSaltedFingerprints(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_memory_items_scope_salted_fingerprints_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  interface ItemRow {
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+    scope_id: string;
+  }
+
+  const items = raw.query(
+    `SELECT id, kind, subject, statement, scope_id FROM memory_items`,
+  ).all() as ItemRow[];
+
+  if (items.length === 0) {
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
+  try {
+    raw.exec('BEGIN');
+
+    const updateStmt = raw.prepare(
+      `UPDATE memory_items SET fingerprint = ? WHERE id = ?`,
+    );
+
+    for (const item of items) {
+      const normalized = `${item.scope_id}|${item.kind}|${item.subject.toLowerCase()}|${item.statement.toLowerCase()}`;
+      const fingerprint = createHash('sha256').update(normalized).digest('hex');
+      updateStmt.run(fingerprint, item.id);
+    }
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
   }
 }
