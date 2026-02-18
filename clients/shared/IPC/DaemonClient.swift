@@ -408,7 +408,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         disconnectInternal(triggerReconnect: false)
 
         shouldReconnect = true
-        startNetworkMonitor()
 
         #if os(macOS)
         log.info("Connecting to daemon socket at \(self.config.socketPath)")
@@ -495,6 +494,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                                     self.isAuthenticated = true
                                     #endif
                                     self.isConnected = true
+                                    self.startNetworkMonitor()
                                     NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
                                     self.reconnectDelay = 1.0
                                     self.startPingTimer()
