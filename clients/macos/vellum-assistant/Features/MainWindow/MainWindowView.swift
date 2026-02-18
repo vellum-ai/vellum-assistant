@@ -514,6 +514,8 @@ struct MainWindowView: View {
                             .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(Circle())
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -526,6 +528,8 @@ struct MainWindowView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(VColor.textSecondary)
                             .frame(width: 20, height: 20)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(Circle())
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -538,6 +542,8 @@ struct MainWindowView: View {
                     .foregroundColor(VColor.textMuted)
                     .rotationEffect(.degrees(-45))
                     .frame(width: 20, height: 20)
+                    .background(VColor.backgroundSubtle)
+                    .clipShape(Circle())
                     .padding(.trailing, VSpacing.xs)
             }
         }
