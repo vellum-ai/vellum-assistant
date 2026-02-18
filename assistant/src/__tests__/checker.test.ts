@@ -1018,7 +1018,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips fragments when generating allowlist options', () => {
@@ -1026,7 +1026,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips trailing-dot hostnames when generating allowlist options', () => {
@@ -1034,7 +1034,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips userinfo when generating allowlist options', () => {
@@ -1047,7 +1047,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
       expect(options[0].pattern).not.toContain('demo:cred123@');
     });
 
@@ -1056,14 +1056,14 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com:8443/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com:8443/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: does not coerce path-only urls to https hostnames in allowlist options', () => {
       const options = generateAllowlistOptions('web_fetch', { url: '/docs/getting-started' });
       expect(options).toHaveLength(2);
       expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
-      expect(options[1].pattern).toBe('web_fetch:*');
+      expect(options[1].pattern).toBe('**');
     });
 
     test('scaffold_managed_skill: generates per-skill and wildcard options', () => {
@@ -1097,7 +1097,7 @@ describe('Permission Checker', () => {
       expect(options[0].label).toBe('https://[2001:db8::1]/search?q=test');
       expect(options[0].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/search\\?q=test');
       expect(options[1].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     // ── network_request allowlist options ─────────────────────────
@@ -1107,7 +1107,8 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('network_request:https://api.example.com/v1/data');
       expect(options[1].pattern).toBe('network_request:https://api.example.com/*');
-      expect(options[2].pattern).toBe('network_request:*');
+      expect(options[2].pattern).toBe('**');
+      expect(options[2].label).toBe('network_request:*');
       expect(options[2].description).toBe('All network requests');
     });
 
@@ -1121,7 +1122,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('network_request:https://api.example.com:8443/v1/data');
       expect(options[1].pattern).toBe('network_request:https://api.example.com:8443/*');
-      expect(options[2].pattern).toBe('network_request:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('network_request: strips fragments and userinfo', () => {
@@ -1147,7 +1148,7 @@ describe('Permission Checker', () => {
     test('network_request: empty url produces only tool wildcard', () => {
       const options = generateAllowlistOptions('network_request', { url: '' });
       expect(options).toHaveLength(1);
-      expect(options[0].pattern).toBe('network_request:*');
+      expect(options[0].pattern).toBe('**');
     });
   });
 

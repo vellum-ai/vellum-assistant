@@ -533,7 +533,10 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
       });
     }
     const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
-    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
+    // Use standalone "**" globstar — minimatch only treats ** as globstar when
+    // it is its own path segment, so "${toolName}:*" would fail to match URL
+    // candidates containing "/".  The tool field is already filtered separately.
+    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `**` });
 
     const seen = new Set<string>();
     return options.filter((o) => {
