@@ -417,6 +417,7 @@ export class WorkspaceGitService {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
         timeout: 30_000,
+        env: { ...process.env, GIT_CEILING_DIRECTORIES: this.workspaceDir },
       });
       return { stdout, stderr };
     } catch (err) {

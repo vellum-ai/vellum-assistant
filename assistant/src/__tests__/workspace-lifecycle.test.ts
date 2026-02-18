@@ -40,26 +40,33 @@ describe('Workspace git lifecycle (integration)', () => {
     }
   });
 
+  // Git helpers use GIT_CEILING_DIRECTORIES to prevent discovering parent
+  // repos on CI where /tmp may resolve inside a git worktree.
+  function gitEnv(cwd: string) {
+    return { ...process.env, GIT_CEILING_DIRECTORIES: cwd };
+  }
+
   // Helper to read git log output
   function gitLog(cwd: string, format = '--oneline'): string {
-    return execFileSync('git', ['log', format], { cwd, encoding: 'utf-8' }).trim();
+    return execFileSync('git', ['log', format], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim();
   }
 
   function commitCount(cwd: string): number {
     return parseInt(
-      execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd, encoding: 'utf-8' }).trim(),
+      execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim(),
       10,
     );
   }
 
   function lastCommitMessage(cwd: string): string {
-    return execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd, encoding: 'utf-8' }).trim();
+    return execFileSync('git', ['log', '-1', '--pretty=%B'], { cwd, encoding: 'utf-8', env: gitEnv(cwd) }).trim();
   }
 
   function lastCommitFiles(cwd: string): string[] {
     return execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
       cwd,
       encoding: 'utf-8',
+      env: gitEnv(cwd),
     })
       .trim()
       .split('\n')
