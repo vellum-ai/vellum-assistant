@@ -1086,8 +1086,9 @@ private struct ChatBubble: View {
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
             // All done (or denied) — show chips + regenerate on one line
+            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
             HStack(spacing: VSpacing.sm) {
-                if hasCompletedTools {
+                if hasCompletedTools && !onlyPermissionTools {
                     compactToolChip
                 } else if hasInProgressTools && permissionWasDenied {
                     compactFailedToolChip

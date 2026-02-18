@@ -267,11 +267,11 @@ public struct ToolConfirmationBubble: View {
                     updateTruncation(truncatedHeight: truncatedHeight)
                 }
 
-            if isTruncated && !isPreviewExpanded {
+            if isTruncated {
                 HStack(spacing: 2) {
-                    Image(systemName: "chevron.down")
+                    Image(systemName: isPreviewExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
-                    Text("Show more")
+                    Text(isPreviewExpanded ? "Show less" : "Show more")
                         .font(.system(size: 10))
                 }
                 .foregroundColor(VColor.textMuted)
