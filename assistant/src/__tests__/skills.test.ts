@@ -474,3 +474,51 @@ describe('includes frontmatter parsing', () => {
     expect(skill!.includes).toBeUndefined();
   });
 });
+
+describe('bundled browser skill', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('browser skill appears in full catalog (including bundled)', () => {
+    const catalog = loadSkillCatalog();
+    const browserSkill = catalog.find((s) => s.id === 'browser');
+    expect(browserSkill).toBeDefined();
+    expect(browserSkill!.name).toBe('Browser');
+    expect(browserSkill!.bundled).toBe(true);
+  });
+
+  test('browser skill has correct metadata', () => {
+    const catalog = loadSkillCatalog();
+    const browserSkill = catalog.find((s) => s.id === 'browser');
+    expect(browserSkill).toBeDefined();
+    expect(browserSkill!.description).toBe('Navigate and interact with web pages using a headless browser');
+  });
+
+  test('browser skill is not user-invocable in staging mode', () => {
+    const catalog = loadSkillCatalog();
+    const browserSkill = catalog.find((s) => s.id === 'browser');
+    expect(browserSkill).toBeDefined();
+    expect(browserSkill!.userInvocable).toBe(false);
+  });
+
+  test('browser skill has model invocation disabled in staging mode', () => {
+    const catalog = loadSkillCatalog();
+    const browserSkill = catalog.find((s) => s.id === 'browser');
+    expect(browserSkill).toBeDefined();
+    expect(browserSkill!.disableModelInvocation).toBe(true);
+  });
+
+  test('browser skill has no tool manifest yet (no TOOLS.json)', () => {
+    const catalog = loadSkillCatalog();
+    const browserSkill = catalog.find((s) => s.id === 'browser');
+    expect(browserSkill).toBeDefined();
+    expect(browserSkill!.toolManifest).toBeUndefined();
+  });
+});
