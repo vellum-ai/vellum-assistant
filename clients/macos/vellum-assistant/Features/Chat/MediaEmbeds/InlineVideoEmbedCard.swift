@@ -3,15 +3,31 @@ import VellumAssistantShared
 
 /// Card for a video embed that transitions through click-to-play states.
 ///
-/// Shows a play-button placeholder, a loading spinner while initializing,
-/// a "playing" label once active, or an error with retry. Actual WebView
-/// playback will be wired in a later PR.
+/// Shows a play-button placeholder, then builds an embed URL with autoplay
+/// parameters via `VideoEmbedURLBuilder` and displays the video inside an
+/// `InlineVideoWebView`. The card expands to 16:9 aspect ratio when playing.
 struct InlineVideoEmbedCard: View {
     let provider: String
     let videoID: String
     let embedURL: URL
 
     @StateObject private var stateManager = InlineVideoEmbedStateManager()
+
+    /// The embed URL enriched with autoplay/rel query parameters, built on
+    /// first play request. Falls back to the raw `embedURL` if the provider
+    /// is unrecognised by `VideoEmbedURLBuilder`.
+    private var playerURL: URL {
+        VideoEmbedURLBuilder.buildEmbedURL(provider: provider, videoID: videoID) ?? embedURL
+    }
+
+    private var isExpanded: Bool {
+        switch stateManager.state {
+        case .playing, .initializing:
+            return true
+        case .placeholder, .failed:
+            return false
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -25,7 +41,8 @@ struct InlineVideoEmbedCard: View {
             stateContent
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 180)
+        .frame(height: isExpanded ? 315 : 180)
+        .animation(.easeInOut(duration: 0.25), value: isExpanded)
     }
 
     // MARK: - State-driven content
@@ -61,15 +78,18 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var initializingView: some View {
-        ProgressView()
-            .controlSize(.large)
+        // The webview loads asynchronously, so we transition straight to
+        // .playing and let the embedded player handle its own loading UI.
+        InlineVideoWebView(url: playerURL)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .onAppear {
+                stateManager.didStartPlaying()
+            }
     }
 
     private var playingView: some View {
-        // Placeholder for the future WebView player mount point
-        Text("Playing")
-            .font(VFont.caption)
-            .foregroundStyle(VColor.textSecondary)
+        InlineVideoWebView(url: playerURL)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     private func failedView(_ message: String) -> some View {
