@@ -111,12 +111,12 @@ export function fakeDeny(): FakeApprovalResponse {
 }
 
 /** Returns an "always allow" decision with a pattern for the trust rule. */
-export function fakeAlwaysAllow(pattern: string, scope = 'project'): FakeApprovalResponse {
+export function fakeAlwaysAllow(pattern: string, scope = '/tmp/test-project'): FakeApprovalResponse {
   return { decision: 'always_allow', pattern, scope };
 }
 
 /** Returns an "always allow high risk" decision. */
-export function fakeAlwaysAllowHighRisk(pattern: string, scope = 'project'): FakeApprovalResponse {
+export function fakeAlwaysAllowHighRisk(pattern: string, scope = '/tmp/test-project'): FakeApprovalResponse {
   return { decision: 'always_allow_high_risk', pattern, scope };
 }
 
