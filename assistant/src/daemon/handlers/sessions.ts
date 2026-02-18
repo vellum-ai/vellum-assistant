@@ -196,6 +196,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void
       id: c.id,
       title: c.title ?? 'Untitled',
       updatedAt: c.updatedAt,
+      threadType: c.threadType,
     })),
   });
 }
@@ -215,9 +216,10 @@ export async function handleSessionCreate(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const conversation = conversationStore.createConversation(
-    msg.title ?? 'New Conversation',
-  );
+  const conversation = conversationStore.createConversation({
+    title: msg.title ?? 'New Conversation',
+    threadType: msg.threadType as 'standard' | 'private' | undefined,
+  });
   const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
@@ -236,6 +238,7 @@ export async function handleSessionCreate(
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
+    threadType: conversation.threadType,
   });
 
   // Auto-send the initial message if provided, kick-starting the skill.
