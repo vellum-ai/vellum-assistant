@@ -196,7 +196,7 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
 ## Important
 
-- `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
+- `.private/TODO.md` and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
 - If an agent reports failure, put the item back in TODO.md and note the failure.
 - If an agent hits merge conflicts, tell it to rebase: `git pull --rebase origin main`.

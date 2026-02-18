@@ -37,8 +37,7 @@ If you can implement it in a single PR:
 
 After you've handled the item:
 
-- Append a deatiled description of what was done to the end of .private/DONE.md, separated by a horizontal rule.
 - If the handled task exists in `.private/TODO.md`, remove that exact item from the list. Be very careful to not accidentally overwrite other changes or remove other items unless you're absolutely sure you're doing the right thing.
 - Provide a detailed description of what you did.
 
-IMPORTANT: .private/TODO.md, .private/DONE.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md, .private/DONE.md and .private/UNREVIEWED_PRS.md are gitignored.
+IMPORTANT: .private/TODO.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md and .private/UNREVIEWED_PRS.md are gitignored.

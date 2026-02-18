@@ -90,7 +90,6 @@ For "Address the feedback on <PR URL>" tasks:
 1. Read its completion message.
 2. Update tracking files (read fresh each time, write back carefully):
    - Remove the completed item from .private/TODO.md.
-   - Append a deatiled description of what was done to the end of .private/DONE.md, separated by a horizontal rule.
    - Append the PR link to .private/UNREVIEWED_PRS.md.
 3. Mark the TaskCreate entry as completed.
 4. Increment the **completed count**.
@@ -107,7 +106,7 @@ For "Address the feedback on <PR URL>" tasks:
 When the user says to stop, the max-tasks limit is reached, or TODO.md is empty (and all agents have finished):
 
 1. Let all in-progress agents finish their current task. Do NOT interrupt them.
-2. Process all remaining results (update TODO.md, DONE.md, UNREVIEWED_PRS.md, clean up worktrees).
+2. Process all remaining results (update TODO.md, UNREVIEWED_PRS.md, clean up worktrees).
 3. Delete the team with `TeamDelete`.
 4. Print a final summary table:
 
@@ -120,6 +119,6 @@ When the user says to stop, the max-tasks limit is reached, or TODO.md is empty 
 ## Important
 
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
-- .private/TODO.md, .private/DONE.md, and .private/UNREVIEWED_PRS.md are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
+- .private/TODO.md and .private/UNREVIEWED_PRS.md are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
 - If an agent reports failure, put the item back in TODO.md at its original priority position and note the failure in the summary.
 - If an agent hits merge conflicts after another agent's PR landed, tell it to rebase: `git pull --rebase origin main`.

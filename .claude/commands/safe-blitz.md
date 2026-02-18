@@ -219,7 +219,6 @@ For "Address the feedback on <PR URL>" tasks:
 1. Read its completion message.
 2. Update tracking files (read fresh each time, write back carefully):
    - Remove the completed item from .private/TODO.md.
-   - Append a detailed description of what was done to the end of .private/DONE.md, separated by a horizontal rule.
    - Append the PR link to .private/UNREVIEWED_PRS.md.
 3. Mark the TaskCreate entry as completed.
 4. Increment the **completed count**.
@@ -323,7 +322,7 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
 ## Important
 
-- `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
+- `.private/TODO.md` and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
 - If an agent reports failure, put the item back in TODO.md and note the failure.
 - If an agent hits merge conflicts after another agent's PR landed, tell it to rebase against the **feature branch**: `git pull --rebase origin <feature-branch-name>`.
