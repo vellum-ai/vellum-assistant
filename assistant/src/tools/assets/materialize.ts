@@ -160,12 +160,14 @@ class AssetMaterializeTool implements Tool {
     if (sources.length > 0) {
       const hasStandard = sources.some((s) => s.threadType !== 'private');
       if (!hasStandard) {
-        // All sources are private — check if the caller is in one of those threads
-        const attachmentContext: AttachmentContext = {
-          conversationId: sources[0].conversationId,
-          isPrivate: true,
-        };
-        if (!isAttachmentVisible(attachmentContext, currentContext)) {
+        // All sources are private — check if the caller is in any of those threads
+        const callerInSourceThread = sources.some(
+          (s) => isAttachmentVisible(
+            { conversationId: s.conversationId, isPrivate: true },
+            currentContext,
+          ),
+        );
+        if (!callerInSourceThread) {
           return {
             content:
               `Error: Attachment "${attachment.originalFilename}" is from a private thread ` +
