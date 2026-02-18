@@ -198,7 +198,7 @@ struct APIKeyStepView: View {
         Button(action: { saveAndContinue() }) {
             Text(userHostedEnabled ? "Continue" : "Save API key")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(adaptiveColor(light: .white, dark: .white))
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, VSpacing.lg)
                 .background(
@@ -229,7 +229,7 @@ struct APIKeyStepView: View {
             Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
                 Text("Get an API key")
                     .font(.system(size: 13))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: .white))
+                    .foregroundColor(VColor.accent)
             }
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
