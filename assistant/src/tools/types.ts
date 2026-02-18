@@ -126,6 +126,8 @@ export interface ToolContext {
   }) => Promise<SecretPromptResult>;
   /** Optional callback to send a message to the connected IPC client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
+  /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
+  memoryScopeId?: string;
 }
 
 export interface DiffInfo {
