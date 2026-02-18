@@ -58,8 +58,14 @@ mock.module('../security/secret-scanner.js', () => ({
   redactSecrets: (s: string) => s,
 }));
 
+// Track wrapCommand calls to verify networkMode is forwarded
+let wrapCommandCalls: { cmd: string; workingDir: string; config: unknown; options: unknown }[] = [];
+
 mock.module('../tools/terminal/sandbox.js', () => ({
-  wrapCommand: (cmd: string) => ({ command: '/bin/sh', args: ['-c', cmd], sandboxed: false }),
+  wrapCommand: (cmd: string, workingDir: string, config: unknown, options?: unknown) => {
+    wrapCommandCalls.push({ cmd, workingDir, config, options });
+    return { command: '/bin/sh', args: ['-c', cmd], sandboxed: false };
+  },
 }));
 
 mock.module('../util/platform.js', () => ({
@@ -124,6 +130,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
 
 afterEach(() => {
   spawnCalls.length = 0;
+  wrapCommandCalls = [];
   createSessionCalls = [];
   startSessionCalls = [];
   stopSessionCalls = [];
@@ -236,5 +243,38 @@ describe('shell tool proxy mode', () => {
     const props = (def.input_schema as { properties: Record<string, unknown> }).properties;
     expect(props.network_mode).toBeDefined();
     expect(props.credential_ids).toBeDefined();
+  });
+
+  test('wrapCommand receives { networkMode: "proxied" } when network_mode=proxied', async () => {
+    const result = await shellTool.execute(
+      { command: 'echo proxied-wrap', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(wrapCommandCalls).toHaveLength(1);
+    expect(wrapCommandCalls[0].options).toEqual({ networkMode: 'proxied' });
+  });
+
+  test('wrapCommand receives { networkMode: "off" } when network_mode is absent', async () => {
+    const result = await shellTool.execute(
+      { command: 'echo default-wrap' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(wrapCommandCalls).toHaveLength(1);
+    expect(wrapCommandCalls[0].options).toEqual({ networkMode: 'off' });
+  });
+
+  test('wrapCommand receives { networkMode: "off" } when network_mode=off', async () => {
+    const result = await shellTool.execute(
+      { command: 'echo off-wrap', network_mode: 'off' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(wrapCommandCalls).toHaveLength(1);
+    expect(wrapCommandCalls[0].options).toEqual({ networkMode: 'off' });
   });
 });
