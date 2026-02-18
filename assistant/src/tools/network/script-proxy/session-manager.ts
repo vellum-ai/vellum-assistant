@@ -23,13 +23,22 @@ interface ManagedSession {
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
 
+/** Return a defensive copy so callers cannot mutate internal state. */
+function cloneSession(s: ProxySession): ProxySession {
+  return {
+    ...s,
+    credentialIds: [...s.credentialIds],
+    createdAt: new Date(s.createdAt.getTime()),
+  };
+}
+
 function resetIdleTimer(managed: ManagedSession): void {
   if (managed.idleTimer !== null) {
     clearTimeout(managed.idleTimer);
   }
   managed.idleTimer = setTimeout(() => {
     if (managed.session.status === 'active') {
-      stopSession(managed.session.id);
+      stopSession(managed.session.id).catch(() => {});
     }
   }, managed.config.idleTimeoutMs);
 }
@@ -74,7 +83,7 @@ export function createSession(
     dataDir: dataDir ?? null,
   });
 
-  return { ...session };
+  return cloneSession(session);
 }
 
 /**
@@ -105,7 +114,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
       managed.session.port = addr.port;
       managed.session.status = 'active';
       resetIdleTimer(managed);
-      resolve({ ...managed.session });
+      resolve(cloneSession(managed.session));
     });
     server.on('error', reject);
   });
@@ -117,7 +126,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status === 'stopped') return;
+  if (managed.session.status === 'stopped' || managed.session.status === 'stopping') return;
 
   managed.session.status = 'stopping';
 
@@ -174,7 +183,7 @@ export function getActiveSession(conversationId: string): ProxySession | undefin
       managed.session.conversationId === conversationId &&
       managed.session.status === 'active'
     ) {
-      return { ...managed.session };
+      return cloneSession(managed.session);
     }
   }
   return undefined;
@@ -187,7 +196,7 @@ export function getSessionsForConversation(conversationId: string): ProxySession
   const result: ProxySession[] = [];
   for (const managed of sessions.values()) {
     if (managed.session.conversationId === conversationId) {
-      result.push({ ...managed.session });
+      result.push(cloneSession(managed.session));
     }
   }
   return result;
