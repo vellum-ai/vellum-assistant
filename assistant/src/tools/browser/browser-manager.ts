@@ -101,9 +101,18 @@ class BrowserManager {
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
+  private sessionSenders = new Map<string, (msg: { type: string; sessionId: string }) => void>();
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
+  }
+
+  registerSender(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): void {
+    this.sessionSenders.set(sessionId, sendToClient);
+  }
+
+  unregisterSender(sessionId: string): void {
+    this.sessionSenders.delete(sessionId);
   }
 
   setBrowserMode(mode: 'headless' | 'cdp', cdpUrl?: string): void {
@@ -166,19 +175,52 @@ class BrowserManager {
     }
   }
 
-  private async ensureContext(): Promise<BrowserContext> {
+  private async ensureContext(invokingSessionId?: string): Promise<BrowserContext> {
     if (this.context) return this.context;
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      if (this._browserMode === 'cdp') {
-        const pw = await import('playwright');
-        const browser = await pw.chromium.connectOverCDP(this.cdpUrl);
-        this.cdpBrowser = browser;
-        const contexts = browser.contexts();
-        const ctx = contexts[0] || await browser.newContext();
-        log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
-        return ctx as unknown as BrowserContext;
+      // If not already in CDP mode, try to detect or negotiate CDP
+      let useCdp = this._browserMode === 'cdp';
+      if (!useCdp) {
+        const cdpAvailable = await this.detectCDP();
+        if (cdpAvailable) {
+          useCdp = true;
+        } else {
+          // Try requesting Chrome restart from the client using the invoking session's sender
+          const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
+          if (invokingSessionId && sender) {
+            log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
+            const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
+            if (accepted) {
+              // Verify CDP is now available after client confirmed restart
+              const nowAvailable = await this.detectCDP();
+              if (nowAvailable) {
+                useCdp = true;
+              } else {
+                log.warn('Client accepted CDP request but CDP not detected, falling back to headless');
+              }
+            } else {
+              log.info('Client declined CDP request, falling back to headless');
+            }
+          }
+        }
+      }
+
+      if (useCdp) {
+        try {
+          const pw = await import('playwright');
+          const browser = await pw.chromium.connectOverCDP(this.cdpUrl);
+          this.cdpBrowser = browser;
+          const contexts = browser.contexts();
+          const ctx = contexts[0] || await browser.newContext();
+          this.setBrowserMode('cdp');
+          log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
+          return ctx as unknown as BrowserContext;
+        } catch (err) {
+          log.warn({ err }, 'CDP connection failed, falling back to headless');
+          this._browserMode = 'headless';
+        }
       }
 
       const profileDir = getProfileDir();
@@ -260,7 +302,7 @@ class BrowserManager {
   }
 
   async getOrCreateSessionPage(sessionId: string): Promise<Page> {
-    const context = await this.ensureContext();
+    const context = await this.ensureContext(sessionId);
 
     const existing = this.pages.get(sessionId);
     if (existing && !existing.isClosed()) {
@@ -370,8 +412,8 @@ class BrowserManager {
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: 60,
-      maxWidth: 800,
-      maxHeight: 600,
+      maxWidth: 1280,
+      maxHeight: 960,
       everyNthFrame: 1,
     });
   }
