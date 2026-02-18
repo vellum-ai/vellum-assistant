@@ -1,0 +1,4 @@
+# System prompt ownership
+assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
