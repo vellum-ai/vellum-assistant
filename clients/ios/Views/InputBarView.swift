@@ -80,6 +80,18 @@ struct InputBarView: View {
                     .background(VColor.surface)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     .focused(isInputFocused)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .strokeBorder(VColor.surfaceBorder, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isInputFocused.wrappedValue)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .strokeBorder(VColor.surfaceBorder.opacity(0.12), lineWidth: 3)
+                            .opacity(isInputFocused.wrappedValue ? 1 : 0)
+                            .animation(.easeInOut(duration: 0.15), value: isInputFocused.wrappedValue)
+                    )
+                    .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
 
                 // Stop button (shown while generating but not yet cancelling)
                 if isGenerating && !isCancelling {
