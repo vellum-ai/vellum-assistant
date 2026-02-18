@@ -35,9 +35,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        Task {
-            try? await clientProvider.client.connect()
-        }
+        // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
+        // during launch and on every background→foreground transition. Calling connect() here
+        // too would race with the scene's connect() since isConnected is false while in-flight.
 
         // Register for push notifications
         UNUserNotificationCenter.current().requestAuthorization(

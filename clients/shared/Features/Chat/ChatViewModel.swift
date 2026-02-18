@@ -181,6 +181,7 @@ public final class ChatViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
+                self?.requestIdToMessageId.removeAll()
             }
         }
     }
