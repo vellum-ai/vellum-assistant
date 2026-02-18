@@ -48,7 +48,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
     var visibleThreads: [ThreadModel] {
-        threads.filter { !$0.isArchived }.sorted { a, b in
+        threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
             if a.isPinned && b.isPinned {
                 return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
             }
