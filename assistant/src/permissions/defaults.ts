@@ -207,11 +207,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   }));
 
-  // UI surface tools are purely local rendering operations with no security
-  // implications — they just display content in the user's client.  Default
-  // allow rules ensure they never trigger permission prompts (including in
-  // strict mode).
-  const UI_SURFACE_TOOLS = ['ui_show', 'ui_update', 'ui_dismiss'] as const;
+  // ui_update and ui_dismiss are purely passive operations (modify/remove existing
+  // surfaces). ui_show is excluded because it can create forms that collect user
+  // input — it goes through normal permission checking instead.
+  const UI_SURFACE_TOOLS = ['ui_update', 'ui_dismiss'] as const;
   const uiSurfaceRules: DefaultRuleTemplate[] = UI_SURFACE_TOOLS.map((tool) => ({
     id: `default:allow-${tool}-global`,
     tool,
