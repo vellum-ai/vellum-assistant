@@ -10,14 +10,14 @@ import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
-import type { ToolExecutionResult } from '../tools/types.js';
+import type { Tool, ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
-import { registerComputerUseActionTools } from '../tools/computer-use/registry.js';
+import { registerSkillTools } from '../tools/registry.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
@@ -279,9 +279,20 @@ export class ComputerUseSession {
 
     let cuToolDefs = this.getProjectedCuToolDefinitions();
     if (!cuToolDefs) {
-      // Fallback: register the legacy hardcoded CU tools in the global
-      // registry so ToolExecutor can resolve them, then use their definitions.
-      registerComputerUseActionTools();
+      // Fallback: register the legacy CU tools as skill-origin tools so
+      // ToolExecutor can resolve them via getTool(), but using the same
+      // ownerSkillId as the bundled computer-use skill. This avoids
+      // core-vs-skill collisions that would permanently block skill
+      // projection recovery on subsequent sessions.
+      const fallbackSkillId = this.preactivatedSkillIds[0] ?? 'computer-use';
+      const fallbackTools: Tool[] = allComputerUseTools.map((t) => ({
+        ...t,
+        origin: 'skill' as const,
+        ownerSkillId: fallbackSkillId,
+      }));
+      registerSkillTools(fallbackTools);
+      // Track in the session map so resetSkillToolProjection cleans up
+      this.skillProjectionState.set(fallbackSkillId, 'fallback');
       cuToolDefs = allComputerUseTools.map((t) => t.getDefinition());
     }
 
