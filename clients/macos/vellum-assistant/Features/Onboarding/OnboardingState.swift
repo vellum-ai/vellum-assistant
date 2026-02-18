@@ -121,7 +121,7 @@ final class OnboardingState {
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
         // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
-        let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local" && cloudProvider != "customHardware"
+        let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
         let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
         if currentStep > maxStep {
             currentStep = maxStep

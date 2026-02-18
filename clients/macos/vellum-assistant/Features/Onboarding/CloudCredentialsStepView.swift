@@ -11,25 +11,31 @@ struct CloudCredentialsStepView: View {
     @State private var awsRoleArn: String = ""
     @State private var gcpProjectId: String = ""
     @State private var gcpServiceAccountKey: String = ""
+    @State private var sshHost: String = ""
+    @State private var sshUser: String = ""
+    @State private var sshPrivateKey: String = ""
 
     @FocusState private var arnFieldFocused: Bool
     @FocusState private var projectIdFieldFocused: Bool
+    @FocusState private var sshHostFieldFocused: Bool
 
     private var isAws: Bool {
         state.cloudProvider == "aws"
     }
 
+    private var isCustomHardware: Bool {
+        state.cloudProvider == "customHardware"
+    }
+
     var body: some View {
-        Text(isAws ? "Connect your AWS account" : "Connect your GCP project")
+        Text(titleText)
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        Text(isAws
-             ? "Provide your IAM Role ARN so we can provision resources in your AWS account."
-             : "Provide your project details so we can provision resources in your GCP project.")
+        Text(subtitleText)
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
@@ -39,7 +45,9 @@ struct CloudCredentialsStepView: View {
         Spacer()
 
         VStack(spacing: VSpacing.md) {
-            if isAws {
+            if isCustomHardware {
+                customHardwareFields
+            } else if isAws {
                 awsFields
             } else {
                 gcpFields
@@ -64,7 +72,9 @@ struct CloudCredentialsStepView: View {
                 showContent = true
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                if isAws {
+                if isCustomHardware {
+                    sshHostFieldFocused = true
+                } else if isAws {
                     arnFieldFocused = true
                 } else {
                     projectIdFieldFocused = true
@@ -98,6 +108,66 @@ struct CloudCredentialsStepView: View {
             }
 
             Text("Create an IAM role that grants Vellum permission to provision and manage EC2 instances in your account.")
+                .font(.system(size: 12))
+                .foregroundColor(VColor.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Custom Hardware Fields
+
+    private var customHardwareFields: some View {
+        VStack(spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Host")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                TextField("192.168.1.100 or my-mac-mini.local", text: $sshHost)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .focused($sshHostFieldFocused)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Username")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                TextField("admin", text: $sshUser)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("SSH Private Key")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                TextEditor(text: $sshPrivateKey)
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.sm)
+                    .frame(height: 120)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+            }
+
+            Text("Provide SSH credentials so we can connect to your machine and run the assistant remotely.")
                 .font(.system(size: 12))
                 .foregroundColor(VColor.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,8 +263,32 @@ struct CloudCredentialsStepView: View {
 
     // MARK: - Helpers
 
+    private var titleText: String {
+        if isCustomHardware {
+            return "Connect your hardware"
+        } else if isAws {
+            return "Connect your AWS account"
+        } else {
+            return "Connect your GCP project"
+        }
+    }
+
+    private var subtitleText: String {
+        if isCustomHardware {
+            return "Provide SSH details so we can connect to your machine and run the assistant."
+        } else if isAws {
+            return "Provide your IAM Role ARN so we can provision resources in your AWS account."
+        } else {
+            return "Provide your project details so we can provision resources in your GCP project."
+        }
+    }
+
     private var continueDisabled: Bool {
-        if isAws {
+        if isCustomHardware {
+            return sshHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || sshUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || sshPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } else if isAws {
             return awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         } else {
             return gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -222,7 +316,12 @@ struct CloudCredentialsStepView: View {
         try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
 
         var credentials: [String: Any] = [:]
-        if isAws {
+        if isCustomHardware {
+            credentials["provider"] = "customHardware"
+            credentials["sshHost"] = sshHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            credentials["sshUser"] = sshUser.trimmingCharacters(in: .whitespacesAndNewlines)
+            credentials["sshPrivateKey"] = sshPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if isAws {
             credentials["provider"] = "aws"
             credentials["roleArn"] = awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
@@ -262,6 +361,15 @@ struct CloudCredentialsStepView: View {
         }
         if let key = creds["serviceAccountKey"] as? String {
             gcpServiceAccountKey = key
+        }
+        if let host = creds["sshHost"] as? String {
+            sshHost = host
+        }
+        if let user = creds["sshUser"] as? String {
+            sshUser = user
+        }
+        if let privKey = creds["sshPrivateKey"] as? String {
+            sshPrivateKey = privKey
         }
     }
 }
@@ -303,6 +411,28 @@ struct CloudCredentialsStepView: View {
                 let s = OnboardingState()
                 s.currentStep = 2
                 s.cloudProvider = "gcp"
+                return s
+            }())
+        }
+    }
+    .frame(width: 460, height: 620)
+}
+
+#Preview("Custom Hardware") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 0) {
+            Spacer()
+            Image("VellyLogo")
+                .resizable()
+                .interpolation(.none)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 128, height: 128)
+                .padding(.bottom, VSpacing.xxl)
+            CloudCredentialsStepView(state: {
+                let s = OnboardingState()
+                s.currentStep = 2
+                s.cloudProvider = "customHardware"
                 return s
             }())
         }

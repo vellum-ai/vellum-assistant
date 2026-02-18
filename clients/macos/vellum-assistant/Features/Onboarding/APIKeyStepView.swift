@@ -278,7 +278,7 @@ struct APIKeyStepView: View {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
 
-        if userHostedEnabled && (hostingMode == .local || hostingMode == .customHardware) {
+        if userHostedEnabled && hostingMode == .local {
             state.advance(by: 2)
         } else {
             state.advance()
