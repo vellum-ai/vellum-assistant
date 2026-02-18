@@ -114,6 +114,18 @@ public struct IPCAuthResult: Codable, Sendable {
     public let message: String?
 }
 
+public struct IPCBrowserCDPRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+}
+
+public struct IPCBrowserCDPResponse: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let success: Bool
+    public let declined: Bool?
+}
+
 public struct IPCBrowserFrame: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -128,6 +140,59 @@ public struct IPCBrowserFrameMetadata: Codable, Sendable {
     public let scrollOffsetX: Double
     public let scrollOffsetY: Double
     public let timestamp: Double
+}
+
+public struct IPCBrowserHandoffRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let reason: String
+    public let message: String
+    public let bringToFront: Bool?
+}
+
+public struct IPCBrowserInteractiveMode: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+}
+
+public struct IPCBrowserInteractiveModeChanged: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+    public let reason: String?
+    public let message: String?
+}
+
+public struct IPCBrowserUserClick: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let x: Double
+    public let y: Double
+    public let button: String?
+    public let doubleClick: Bool?
+}
+
+public struct IPCBrowserUserKeypress: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let key: String
+    public let modifiers: [String]?
+}
+
+public struct IPCBrowserUserScroll: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let deltaX: Double
+    public let deltaY: Double
+    public let x: Double
+    public let y: Double
 }
 
 public struct IPCBrowserViewSurfaceData: Codable, Sendable {
