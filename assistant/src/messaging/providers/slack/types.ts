@@ -108,8 +108,8 @@ export interface SlackSearchMatch {
   thread_ts?: string;
 }
 
-export interface SlackReactionAddResponse extends SlackApiResponse {}
+export type SlackReactionAddResponse = SlackApiResponse;
 
-export interface SlackConversationLeaveResponse extends SlackApiResponse {}
+export type SlackConversationLeaveResponse = SlackApiResponse;
 
-export interface SlackConversationMarkResponse extends SlackApiResponse {}
+export type SlackConversationMarkResponse = SlackApiResponse;
