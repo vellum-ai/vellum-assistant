@@ -244,9 +244,11 @@ struct MainWindowView: View {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
-                // Close activity panel if the referenced message no longer exists
-                // (e.g., after regenerate, undo, or message rebuild flows)
+            .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
+                // Close activity panel if the referenced message no longer exists.
+                // Watch message IDs (not just count) so that regenerate/undo flows
+                // that replace a message with a new ID at the same array position
+                // also trigger a close.
                 if let messageId = windowState.activityMessageId,
                    windowState.activePanel == .activity,
                    let viewModel = threadManager.activeViewModel {
