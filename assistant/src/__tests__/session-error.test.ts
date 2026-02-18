@@ -194,6 +194,24 @@ describe('classifySessionError', () => {
     });
   });
 
+  describe('authentication errors', () => {
+    const cases = [
+      'invalid api key',
+      'invalid x-api-key',
+      'Authentication failed',
+      'Unauthorized access',
+      'Error 401: Unauthorized',
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as PROVIDER_AUTH`, () => {
+        const result = classifySessionError(new Error(msg), baseCtx);
+        expect(result.code).toBe('PROVIDER_AUTH');
+        expect(result.retryable).toBe(false);
+      });
+    }
+  });
+
   describe('generic errors', () => {
     it('classifies unknown errors as SESSION_PROCESSING_FAILED', () => {
       const result = classifySessionError(new Error('something completely unexpected'), baseCtx);
@@ -244,10 +262,17 @@ describe('classifySessionError', () => {
       expect(result.retryable).toBe(true);
     });
 
-    it('classifies ProviderError with 401 as PROVIDER_API (not retryable)', () => {
+    it('classifies ProviderError with 401 as PROVIDER_AUTH (not retryable)', () => {
       const err = new ProviderError('Unauthorized', 'anthropic', 401);
       const result = classifySessionError(err, baseCtx);
-      expect(result.code).toBe('PROVIDER_API');
+      expect(result.code).toBe('PROVIDER_AUTH');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('classifies ProviderError with 403 as PROVIDER_AUTH (not retryable)', () => {
+      const err = new ProviderError('Forbidden', 'anthropic', 403);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_AUTH');
       expect(result.retryable).toBe(false);
     });
 

@@ -1169,6 +1169,7 @@ export interface CuError {
 export type SessionErrorCode =
   | 'PROVIDER_NETWORK'
   | 'PROVIDER_RATE_LIMIT'
+  | 'PROVIDER_AUTH'
   | 'PROVIDER_API'
   | 'CONTEXT_TOO_LARGE'
   | 'QUEUE_FULL'

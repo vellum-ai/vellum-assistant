@@ -44,6 +44,15 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /max_tokens/i,
 ];
 
+// Authentication / invalid API key patterns
+const AUTH_PATTERNS = [
+  /invalid.*api.?key/i,
+  /invalid.*x-api-key/i,
+  /authentication/i,
+  /unauthorized/i,
+  /\b401\b/,
+];
+
 // Provider API error patterns (5xx, server error, etc.)
 const PROVIDER_API_PATTERNS = [
   /\b5\d{2}\b/,
@@ -156,6 +165,13 @@ function classifyCore(
         retryable: true,
       };
     }
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      return {
+        code: 'PROVIDER_AUTH',
+        userMessage: 'Your API key is invalid or expired. Please check your provider settings.',
+        retryable: false,
+      };
+    }
     if (error.statusCode >= 500) {
       return {
         code: 'PROVIDER_API',
@@ -163,7 +179,7 @@ function classifyCore(
         retryable: true,
       };
     }
-    // 4xx (non-429) — check for context-too-large before generic fallback
+    // 4xx (non-429, non-auth) — check for context-too-large before generic fallback
     if (error.statusCode >= 400) {
       if (isContextTooLarge(message)) {
         return {
@@ -197,6 +213,17 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
       userMessage: 'The conversation is too long for the model to process. Start a new conversation or try a shorter message.',
       retryable: false,
     };
+  }
+
+  // Authentication / invalid API key
+  for (const pattern of AUTH_PATTERNS) {
+    if (pattern.test(message)) {
+      return {
+        code: 'PROVIDER_AUTH',
+        userMessage: 'Your API key is invalid or expired. Please check your provider settings.',
+        retryable: false,
+      };
+    }
   }
 
   // Check rate limit first (before network, since 429 could match both)
