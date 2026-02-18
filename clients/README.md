@@ -124,25 +124,14 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 **~45-50% code reuse** between macOS and iOS achieved through:
 
 1. **Shared IPC layer** - Both platforms communicate with daemon (different transport)
-2. **Shared design system** (PR 2) - Tokens and components with conditional compilation
-3. **Shared ViewModels** (PR 3) - ChatViewModel, message models work on both platforms
+2. **Shared design system** - Tokens and components with conditional compilation
+3. **Shared ViewModels** - ChatViewModel, message models work on both platforms
 
 **Platform-specific**:
 - **UI frameworks**: AppKit (macOS) vs UIKit (iOS)
 - **Computer-use**: AXUIElement + CGEvent (macOS only, sandboxing prevents on iOS)
 - **Screen recording**: ScreenCaptureKit (macOS) vs ReplayKit (iOS)
 - **App lifecycle**: NSStatusItem (macOS) vs UIScene (iOS)
-
-## Migration from Single-Platform
-
-This structure was introduced in PR #1821 (iOS shared library foundation). Before this:
-- `clients/macos/Package.swift` - Single-platform package
-- `clients/macos/vellum-assistant/IPC/` - macOS-only IPC code
-
-After migration:
-- `clients/Package.swift` - Multi-platform package
-- `clients/shared/IPC/` - Cross-platform IPC code
-- All 25+ IPC message types have `public` access and explicit `public init()`
 
 ## Development
 

@@ -6,7 +6,7 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to a network-accessible daemon via TCP.
 
-**Status:** Fully functional. The iOS target requires xcodebuild with iOS SDK to build — it cannot be built with `swift build` on macOS due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
+**Status:** Fully functional. Build via Xcode (recommended) or `xcodebuild` from the command line — `swift build` on macOS cannot compile the iOS target due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
 
 **Code organization:**
 - `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)
@@ -179,13 +179,10 @@ The macOS app is a frontend — all inference (chat, computer-use sessions, ambi
 
 ```bash
 # Start the daemon (from the repo root)
-cd assistant && bun run dev
-
-# Or use the CLI
 cd assistant && bun run src/index.ts daemon start
 ```
 
-The app will auto-reconnect if the daemon restarts. For development, `bun run dev` runs in the foreground with auto-restart on file changes.
+The app will auto-reconnect if the daemon restarts.
 
 ## Permissions
 

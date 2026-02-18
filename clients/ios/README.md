@@ -103,10 +103,10 @@ Requires the Vellum daemon running on your Mac (either as the macOS desktop app 
 ```bash
 cd assistant
 # For simulator (localhost only):
-VELLUM_DAEMON_TCP_ENABLED=1 bun run src/daemon/main.ts
+VELLUM_DAEMON_TCP_ENABLED=1 bun run src/index.ts daemon start
 
 # For real device (all network interfaces):
-VELLUM_DAEMON_TCP_ENABLED=1 VELLUM_DAEMON_TCP_HOST=0.0.0.0 bun run src/daemon/main.ts
+VELLUM_DAEMON_TCP_ENABLED=1 VELLUM_DAEMON_TCP_HOST=0.0.0.0 bun run src/index.ts daemon start
 ```
 
 TCP is opt-in (`VELLUM_DAEMON_TCP_ENABLED=1`) for security — the Unix socket default binds only to the local filesystem. By default the TCP listener binds to `127.0.0.1` (simulator use). Set `VELLUM_DAEMON_TCP_HOST=0.0.0.0` to accept LAN connections from a real device.
