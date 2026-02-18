@@ -6,6 +6,15 @@ import VellumAssistantShared
 struct VellumAssistantApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("onboarding_completed") private var onboardingCompleted = false
+    @AppStorage("appearance_mode") private var appearanceMode: String = "system"
+
+    var preferredScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil  // system default
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -16,7 +25,7 @@ struct VellumAssistantApp: App {
                 OnboardingView(isCompleted: $onboardingCompleted)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(preferredScheme)
     }
 }
 #else

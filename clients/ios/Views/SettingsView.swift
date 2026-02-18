@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @AppStorage("connection_mode") private var connectionMode: String = ConnectionMode.standalone.rawValue
     @AppStorage("daemon_tls_enabled") private var tlsEnabled: Bool = false
+    @AppStorage("appearance_mode") private var appearanceMode: String = "system"
     @State private var apiKey: String = ""
     @State private var daemonHostname: String = ""
     @State private var daemonPort: String = ""
@@ -114,6 +115,15 @@ struct SettingsView: View {
                     } message: {
                         Text(daemonAlertMessage)
                     }
+                }
+
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearanceMode) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
                 }
 
                 Section("Permissions") {
