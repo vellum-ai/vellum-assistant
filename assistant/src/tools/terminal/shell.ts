@@ -36,10 +36,12 @@ function getDockerProxyHost(): string {
   } catch {
     // docker0 interface may not exist (e.g. rootless Docker, custom networks)
   }
-  // Fallback: bind to all interfaces when docker0 is unavailable
-  // (e.g. rootless Docker, custom networks). Less restrictive but avoids
-  // EADDRNOTAVAIL failures.
-  return '0.0.0.0';
+  // Fallback: bind to localhost when docker0 is unavailable (e.g. rootless
+  // Docker, custom networks). This avoids EADDRNOTAVAIL from 172.17.0.1 while
+  // keeping the proxy off public interfaces — 0.0.0.0 would expose the
+  // unauthenticated credential proxy to the network. Docker containers won't
+  // be able to reach localhost on the host, but that's a safer failure mode.
+  return '127.0.0.1';
 }
 
 class ShellTool implements Tool {
