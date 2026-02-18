@@ -1,6 +1,28 @@
 import VellumAssistantShared
 import SwiftUI
 
+private enum HostingMode: String, CaseIterable {
+    case local
+    case aws
+    case gcp
+
+    var displayName: String {
+        switch self {
+        case .local: return "Local"
+        case .aws: return "AWS"
+        case .gcp: return "GCP"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .local: return "Run on your machine with an API key"
+        case .aws: return "Host on your AWS account"
+        case .gcp: return "Host on your GCP account"
+        }
+    }
+}
+
 @MainActor
 struct APIKeyStepView: View {
     @Bindable var state: OnboardingState
@@ -10,19 +32,24 @@ struct APIKeyStepView: View {
     @State private var isEditing = false
     @State private var showTitle = false
     @State private var showContent = false
+    @State private var hostingMode: HostingMode = .local
     @FocusState private var keyFieldFocused: Bool
 
+    private var userHostedEnabled: Bool {
+        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+    }
+
     var body: some View {
-        // Title
-        Text("Add your API key")
+        Text(userHostedEnabled ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
-        // Subtitle
-        Text("Enter your Anthropic API key to get started.")
+        Text(userHostedEnabled
+             ? "Choose how to run your assistant."
+             : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
             .opacity(showTitle ? 1 : 0)
@@ -30,93 +57,18 @@ struct APIKeyStepView: View {
 
         Spacer()
 
-        // Content
         VStack(spacing: VSpacing.md) {
-            Group {
-                if hasExistingKey && !isEditing {
-                    Text(maskedKey)
-                        .font(.system(size: 16, weight: .medium, design: .monospaced))
-                        .foregroundColor(VColor.textPrimary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, VSpacing.lg)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
-                        .onTapGesture {
-                            isEditing = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                keyFieldFocused = true
-                            }
-                        }
-                } else {
-                    SecureField("sk-ant-\u{2026}", text: $apiKey)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 16, weight: .medium, design: .monospaced))
-                        .foregroundColor(VColor.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, VSpacing.lg)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
-                        .focused($keyFieldFocused)
-                        .onSubmit {
-                            saveKeyAndContinue()
-                        }
-                }
+            if userHostedEnabled {
+                hostingModeSelector
             }
 
-            // Primary button
-            Button(action: { saveKeyAndContinue() }) {
-                Text("Save API key")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: .white, dark: .white))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(primaryButtonDisabled
-                                ? adaptiveColor(
-                                    light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)),
-                                    dark: Violet._600.opacity(0.3)
-                                )
-                                : adaptiveColor(
-                                    light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
-                                    dark: Violet._600
-                                )
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(primaryButtonDisabled)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if !userHostedEnabled || hostingMode == .local {
+                apiKeyField
             }
 
-            HStack(spacing: VSpacing.lg) {
-                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                    Text("Get an API key")
-                        .font(.system(size: 13))
-                        .foregroundColor(adaptiveColor(light: VColor.accent, dark: .white))
-                }
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+            primaryButton
 
-                Button(action: { goBack() }) {
-                    Text("Back")
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
-            }
-            .padding(.top, VSpacing.xs)
+            footerLinks
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
@@ -127,6 +79,9 @@ struct APIKeyStepView: View {
                 apiKey = existingKey
                 hasExistingKey = true
             }
+            if userHostedEnabled, let saved = loadHostingModeFromConfig() {
+                hostingMode = saved
+            }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -134,7 +89,9 @@ struct APIKeyStepView: View {
                 showContent = true
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                keyFieldFocused = true
+                if !userHostedEnabled || hostingMode == .local {
+                    keyFieldFocused = true
+                }
             }
         }
 
@@ -142,10 +99,165 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.lg)
     }
 
+    // MARK: - Hosting Mode Selector
+
+    private var hostingModeSelector: some View {
+        VStack(spacing: VSpacing.sm) {
+            ForEach(HostingMode.allCases, id: \.rawValue) { mode in
+                hostingModeCard(mode: mode)
+            }
+        }
+    }
+
+    private func hostingModeCard(mode: HostingMode) -> some View {
+        let isSelected = hostingMode == mode
+        return Button(action: { hostingMode = mode }) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode.displayName)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(VColor.textPrimary)
+                    Text(mode.detail)
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                Spacer()
+                Circle()
+                    .fill(isSelected ? Violet._600 : Color.clear)
+                    .overlay(
+                        Circle().stroke(isSelected ? Violet._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                    )
+                    .overlay(
+                        isSelected
+                            ? Circle().fill(Color.white).frame(width: 6, height: 6)
+                            : nil
+                    )
+                    .frame(width: 18, height: 18)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isSelected ? Violet._600.opacity(0.1) : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(isSelected ? Violet._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+
+    // MARK: - API Key Field
+
+    private var apiKeyField: some View {
+        Group {
+            if hasExistingKey && !isEditing {
+                Text(maskedKey)
+                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, VSpacing.lg)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .onTapGesture {
+                        isEditing = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            keyFieldFocused = true
+                        }
+                    }
+            } else {
+                SecureField("sk-ant-\u{2026}", text: $apiKey)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, VSpacing.lg)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .focused($keyFieldFocused)
+                    .onSubmit {
+                        saveAndContinue()
+                    }
+            }
+        }
+    }
+
+    // MARK: - Primary Button
+
+    private var primaryButton: some View {
+        Button(action: { saveAndContinue() }) {
+            Text(userHostedEnabled && hostingMode != .local ? "Continue" : "Save API key")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(adaptiveColor(light: .white, dark: .white))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.lg)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(primaryButtonDisabled
+                            ? adaptiveColor(
+                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)),
+                                dark: Violet._600.opacity(0.3)
+                            )
+                            : adaptiveColor(
+                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                dark: Violet._600
+                            )
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(primaryButtonDisabled)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+
+    // MARK: - Footer Links
+
+    private var footerLinks: some View {
+        HStack(spacing: VSpacing.lg) {
+            if !userHostedEnabled || hostingMode == .local {
+                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                    Text("Get an API key")
+                        .font(.system(size: 13))
+                        .foregroundColor(adaptiveColor(light: VColor.accent, dark: .white))
+                }
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+
+            Button(action: { goBack() }) {
+                Text("Back")
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(.top, VSpacing.xs)
+    }
+
     // MARK: - Helpers
 
     private var primaryButtonDisabled: Bool {
-        apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if userHostedEnabled && hostingMode != .local {
+            return false
+        }
+        return apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var maskedKey: String {
@@ -162,15 +274,56 @@ struct APIKeyStepView: View {
         }
     }
 
-    private func saveKeyAndContinue() {
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
+    private func saveAndContinue() {
+        if userHostedEnabled {
+            saveHostingModeToConfig(hostingMode)
+        }
+
+        if !userHostedEnabled || hostingMode == .local {
+            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            APIKeyManager.setKey(trimmed)
+        }
+
         state.advance()
+    }
+
+    private func saveHostingModeToConfig(_ mode: HostingMode) {
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/config.json")
+
+        let dirURL = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        do {
+            let data = try Data(contentsOf: configURL)
+            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json["hostingMode"] = mode.rawValue
+                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+                try updated.write(to: configURL)
+            }
+        } catch {
+            let json: [String: Any] = ["hostingMode": mode.rawValue]
+            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+                try? data.write(to: configURL)
+            }
+        }
+    }
+
+    private func loadHostingModeFromConfig() -> HostingMode? {
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = json["hostingMode"] as? String,
+              let mode = HostingMode(rawValue: raw) else {
+            return nil
+        }
+        return mode
     }
 }
 
-#Preview {
+#Preview("Default - API Key Only") {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 0) {
@@ -189,4 +342,28 @@ struct APIKeyStepView: View {
         }
     }
     .frame(width: 460, height: 620)
+}
+
+#Preview("User Hosted Enabled") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        VStack(spacing: 0) {
+            Spacer()
+            Image("VellyLogo")
+                .resizable()
+                .interpolation(.none)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 128, height: 128)
+                .padding(.bottom, VSpacing.xxl)
+            APIKeyStepView(state: {
+                let s = OnboardingState()
+                s.currentStep = 2
+                return s
+            }())
+        }
+    }
+    .frame(width: 460, height: 620)
+    .onAppear {
+        FeatureFlagManager.shared.setOverride(.userHostedEnabled, enabled: true)
+    }
 }
