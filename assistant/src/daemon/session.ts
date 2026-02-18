@@ -96,6 +96,18 @@ import {
 import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
 import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 
+export interface SessionMemoryPolicy {
+  scopeId: string;
+  includeDefaultFallback: boolean;
+  strictSideEffects: boolean;
+}
+
+export const DEFAULT_MEMORY_POLICY: SessionMemoryPolicy = {
+  scopeId: 'default',
+  includeDefaultFallback: false,
+  strictSideEffects: false,
+};
+
 const log = getLogger('session');
 
 export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
@@ -168,6 +180,7 @@ export class Session {
   /** @internal — exposed for session-workspace.ts module functions. */
   workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
+  public memoryPolicy: SessionMemoryPolicy;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -182,6 +195,7 @@ export class Session {
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
     broadcastToAllClients?: (msg: ServerMessage) => void,
+    memoryPolicy?: SessionMemoryPolicy,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -189,6 +203,7 @@ export class Session {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.broadcastToAllClients = broadcastToAllClients;
+    this.memoryPolicy = memoryPolicy ?? DEFAULT_MEMORY_POLICY;
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
