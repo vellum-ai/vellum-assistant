@@ -6,7 +6,7 @@ const log = getLogger('logfire');
 
 type LogfireModule = typeof import('@pydantic/logfire-node');
 
-const LOGFIRE_ENABLED: boolean =
+export const LOGFIRE_ENABLED: boolean =
   APP_VERSION === '0.0.0-dev' &&
   !!process.env.LOGFIRE_TOKEN &&
   process.env.VELLUM_ENABLE_MONITORING === '1';
