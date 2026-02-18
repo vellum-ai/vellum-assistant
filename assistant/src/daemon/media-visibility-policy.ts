@@ -12,7 +12,8 @@
 
 export interface AttachmentContext {
   conversationId: string;
-  isPrivate?: boolean;
+  /** Callers must always resolve this — omitting it would silently fail open. */
+  isPrivate: boolean;
 }
 
 /**

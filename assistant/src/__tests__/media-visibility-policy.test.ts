@@ -32,7 +32,7 @@ describe('isAttachmentVisible', () => {
     });
 
     test('visible from a different standard thread', () => {
-      const ctx: AttachmentContext = { conversationId: 'conv-standard-002' };
+      const ctx: AttachmentContext = { conversationId: 'conv-standard-002', isPrivate: false };
       expect(isAttachmentVisible(standardAttachment, ctx)).toBe(true);
     });
 
@@ -41,9 +41,9 @@ describe('isAttachmentVisible', () => {
       expect(isAttachmentVisible(standardAttachment, ctx)).toBe(true);
     });
 
-    test('visible when isPrivate is undefined (defaults to standard)', () => {
-      const attachment: AttachmentContext = { conversationId: 'conv-001' };
-      const ctx: AttachmentContext = { conversationId: 'conv-002' };
+    test('visible when isPrivate is explicitly false', () => {
+      const attachment: AttachmentContext = { conversationId: 'conv-001', isPrivate: false };
+      const ctx: AttachmentContext = { conversationId: 'conv-002', isPrivate: false };
       expect(isAttachmentVisible(attachment, ctx)).toBe(true);
     });
   });
@@ -70,8 +70,8 @@ describe('isAttachmentVisible', () => {
       expect(isAttachmentVisible(privateAttachmentA, ctx)).toBe(false);
     });
 
-    test('NOT visible when context isPrivate is undefined (standard)', () => {
-      const ctx: AttachmentContext = { conversationId: privateAttachmentA.conversationId };
+    test('NOT visible when context is standard (isPrivate false)', () => {
+      const ctx: AttachmentContext = { conversationId: privateAttachmentA.conversationId, isPrivate: false };
       expect(isAttachmentVisible(privateAttachmentA, ctx)).toBe(false);
     });
 
