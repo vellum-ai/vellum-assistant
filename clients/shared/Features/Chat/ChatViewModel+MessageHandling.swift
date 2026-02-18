@@ -258,7 +258,11 @@ extension ChatViewModel {
                 }
             } else {
                 // Create new assistant message
-                let msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
+                var msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
+                if messages.last(where: { $0.role == .user })?.text
+                    .trimmingCharacters(in: .whitespacesAndNewlines) == "/models" {
+                    msg.modelList = ModelListData()
+                }
                 currentAssistantMessageId = msg.id
                 messages.append(msg)
                 lastContentWasToolCall = false
@@ -346,18 +350,6 @@ extension ChatViewModel {
                 let toolCalls = messages[index].toolCalls
                 if !toolCalls.isEmpty && toolCalls.allSatisfy({ $0.isComplete }) {
                     completedToolCalls = toolCalls
-                }
-            }
-            // Tag assistant message with modelList if the preceding user message is "/models".
-            // Use currentAssistantMessageId to find the correct assistant message and look
-            // backwards for the user message that triggered it, avoiding false matches when
-            // a newer message is queued.
-            if let assistantId = currentAssistantMessageId,
-               let assistantIdx = messages.firstIndex(where: { $0.id == assistantId }) {
-                let precedingUser = messages[..<assistantIdx].last(where: { $0.role == .user })
-                let userText = precedingUser?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if userText == "/models" {
-                    messages[assistantIdx].modelList = ModelListData()
                 }
             }
             currentAssistantMessageId = nil
