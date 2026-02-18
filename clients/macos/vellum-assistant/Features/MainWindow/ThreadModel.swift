@@ -1,5 +1,10 @@
 import Foundation
 
+enum ThreadKind: String, Hashable, Sendable {
+    case standard
+    case `private`
+}
+
 struct ThreadModel: Identifiable, Hashable {
     let id: UUID
     var title: String
@@ -11,8 +16,9 @@ struct ThreadModel: Identifiable, Hashable {
     var isPinned: Bool
     var pinnedOrder: Int?
     var lastInteractedAt: Date
+    var kind: ThreadKind
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -21,5 +27,6 @@ struct ThreadModel: Identifiable, Hashable {
         self.isPinned = isPinned
         self.pinnedOrder = pinnedOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
+        self.kind = kind
     }
 }
