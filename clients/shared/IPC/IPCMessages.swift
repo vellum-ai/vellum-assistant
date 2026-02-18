@@ -828,20 +828,77 @@ public struct UiSurfaceCompleteMessage: Decodable, Sendable {
 }
 
 /// Document editor show command from daemon.
-/// Backed by generated `IPCDocumentEditorShow`.
-public typealias DocumentEditorShowMessage = IPCDocumentEditorShow
+/// Defined inline — removed from the IPC contract but still used by the macOS client.
+public struct DocumentEditorShowMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let title: String
+    public let initialContent: String
+}
 
 /// Document editor update command from daemon.
-/// Backed by generated `IPCDocumentEditorUpdate`.
-public typealias DocumentEditorUpdateMessage = IPCDocumentEditorUpdate
+public struct DocumentEditorUpdateMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let markdown: String
+    public let mode: String
+}
 
-/// Document persistence messages
-public typealias DocumentSaveRequestMessage = IPCDocumentSaveRequest
-public typealias DocumentSaveResponseMessage = IPCDocumentSaveResponse
-public typealias DocumentLoadRequestMessage = IPCDocumentLoadRequest
-public typealias DocumentLoadResponseMessage = IPCDocumentLoadResponse
-public typealias DocumentListRequestMessage = IPCDocumentListRequest
-public typealias DocumentListResponseMessage = IPCDocumentListResponse
+/// Document persistence messages — defined inline (removed from IPC contract).
+public struct DocumentSaveRequestMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let content: String
+    public let wordCount: Int
+}
+
+public struct DocumentSaveResponseMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let success: Bool
+    public let error: String?
+}
+
+public struct DocumentLoadRequestMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+}
+
+public struct DocumentLoadResponseMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let content: String
+    public let wordCount: Int
+    public let createdAt: Int
+    public let updatedAt: Int
+    public let success: Bool
+    public let error: String?
+}
+
+public struct DocumentListRequestMessage: Codable, Sendable {
+    public let type: String
+    public let conversationId: String?
+}
+
+public struct DocumentListResponseMessage: Codable, Sendable {
+    public let type: String
+    public let documents: [DocumentListResponseDocument]
+}
+
+public struct DocumentListResponseDocument: Codable, Sendable {
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let wordCount: Int
+    public let createdAt: Int
+    public let updatedAt: Int
+}
 
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
