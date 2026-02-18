@@ -3,7 +3,9 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
   setSecureKey,
+  getSecureKey,
   deleteSecureKey,
+  getBackendType,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
@@ -223,24 +225,36 @@ class CredentialStoreTool implements Tool {
       }
 
       case 'list': {
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot list credentials', isError: true };
+        }
+
         const allMetadata = listCredentialMetadata();
-        const entries = allMetadata.map((m) => {
-          const entry: Record<string, unknown> = {
-            credential_id: m.credentialId,
-            service: m.service,
-            field: m.field,
-          };
-          if (m.alias) {
-            entry.alias = m.alias;
-          }
-          if (m.injectionTemplates && m.injectionTemplates.length > 0) {
-            entry.injection_templates = {
-              count: m.injectionTemplates.length,
-              host_patterns: m.injectionTemplates.map((t) => t.hostPattern),
+        // On the encrypted backend we can cheaply verify each secret still exists,
+        // filtering out stale metadata left by divergent store/delete failures.
+        // On keychain we trust metadata since individual lookups are expensive.
+        const verifySecrets = getBackendType() === 'encrypted';
+        const entries = allMetadata
+          .filter((m) => !verifySecrets || getSecureKey(`credential:${m.service}:${m.field}`) !== undefined)
+          .map((m) => {
+            const entry: Record<string, unknown> = {
+              credential_id: m.credentialId,
+              service: m.service,
+              field: m.field,
             };
-          }
-          return entry;
-        });
+            if (m.alias) {
+              entry.alias = m.alias;
+            }
+            if (m.injectionTemplates && m.injectionTemplates.length > 0) {
+              entry.injection_templates = {
+                count: m.injectionTemplates.length,
+                host_patterns: m.injectionTemplates.map((t) => t.hostPattern),
+              };
+            }
+            return entry;
+          });
         return { content: JSON.stringify(entries, null, 2), isError: false };
       }
 
