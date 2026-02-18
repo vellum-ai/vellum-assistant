@@ -54,6 +54,9 @@ export function handleWorkItemCreate(
     sortIndex: msg.sortIndex,
   });
   ctx.send(socket, { type: 'work_item_create_response', item });
+
+  // Notify all connected clients so open Task Queue views refresh immediately
+  broadcastWorkItemStatus(ctx, item.id);
 }
 
 export function handleWorkItemUpdate(
