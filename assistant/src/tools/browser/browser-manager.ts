@@ -99,6 +99,8 @@ class BrowserManager {
   private cdpUrl: string = 'http://localhost:9222';
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
+  private interactiveModeSessions = new Set<string>();
+  private handoffResolvers = new Map<string, () => void>();
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
@@ -236,6 +238,12 @@ class BrowserManager {
           this.context = null;
           this.contextCloseHandler = null;
           this.cdpBrowser = null;
+          // Resolve any pending handoffs before clearing state
+          for (const resolver of this.handoffResolvers.values()) {
+            resolver();
+          }
+          this.handoffResolvers.clear();
+          this.interactiveModeSessions.clear();
           this.pages.clear();
           this.rawPages.clear();
           this.cdpSessions.clear();
@@ -272,6 +280,13 @@ class BrowserManager {
 
   async closeSessionPage(sessionId: string): Promise<void> {
     await this.stopScreencast(sessionId);
+    // Clean up any pending handoff for this session
+    this.interactiveModeSessions.delete(sessionId);
+    const handoffResolver = this.handoffResolvers.get(sessionId);
+    if (handoffResolver) {
+      handoffResolver();
+      this.handoffResolvers.delete(sessionId);
+    }
     const page = this.pages.get(sessionId);
     if (page && !page.isClosed()) {
       await page.close();
@@ -389,6 +404,53 @@ class BrowserManager {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;
     return map.get(elementId) ?? null;
+  }
+
+  isInteractive(sessionId: string): boolean {
+    return this.interactiveModeSessions.has(sessionId);
+  }
+
+  setInteractiveMode(sessionId: string, enabled: boolean): void {
+    if (enabled) {
+      this.interactiveModeSessions.add(sessionId);
+    } else {
+      this.interactiveModeSessions.delete(sessionId);
+      const resolver = this.handoffResolvers.get(sessionId);
+      if (resolver) {
+        resolver();
+        this.handoffResolvers.delete(sessionId);
+      }
+    }
+  }
+
+  async waitForHandoffComplete(sessionId: string, timeoutMs: number = 300_000): Promise<void> {
+    if (!this.interactiveModeSessions.has(sessionId)) return;
+
+    // Cancel any existing pending handoff for this session
+    const existing = this.handoffResolvers.get(sessionId);
+    if (existing) {
+      existing();
+    }
+
+    return new Promise<void>((resolve) => {
+      const resolver = () => {
+        clearTimeout(timer);
+        if (this.handoffResolvers.get(sessionId) === resolver) {
+          this.handoffResolvers.delete(sessionId);
+        }
+        resolve();
+      };
+
+      const timer = setTimeout(() => {
+        if (this.handoffResolvers.get(sessionId) === resolver) {
+          this.handoffResolvers.delete(sessionId);
+        }
+        this.interactiveModeSessions.delete(sessionId);
+        resolve();
+      }, timeoutMs);
+
+      this.handoffResolvers.set(sessionId, resolver);
+    });
   }
 
   hasContext(): boolean {

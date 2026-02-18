@@ -208,3 +208,8 @@ export function isScreencastActive(sessionId: string): boolean {
 }
 
 export { getSender };
+
+export function getScreencastSurfaceId(sessionId: string): string | null {
+  const state = activeScreencasts.get(sessionId);
+  return state?.surfaceId ?? null;
+}
