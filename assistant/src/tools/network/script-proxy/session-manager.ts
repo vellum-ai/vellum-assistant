@@ -162,11 +162,16 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         shouldIntercept: (hostname: string, port: number) =>
           routeConnection(hostname, port, managed.session.credentialIds, templates),
         rewriteCallback: async (req) => {
-          // Collect all matching candidates to detect ambiguity before
-          // injecting any secrets — mirrors the HTTP policyCallback guard.
+          // Collect matching header-injection candidates to detect ambiguity
+          // before injecting any secrets — mirrors the HTTP policyCallback
+          // guard. Query templates are excluded because the MITM
+          // RewriteCallback can't rewrite URL paths; counting them would
+          // cause false ambiguity when a host has both query and header
+          // templates.
           const candidates: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
           for (const [credId, tpls] of templates) {
             for (const tpl of tpls) {
+              if (tpl.injectionType === 'query') continue;
               if (minimatch(req.hostname, tpl.hostPattern, { nocase: true })) {
                 candidates.push({ credId, tpl });
               }
@@ -179,12 +184,6 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
           if (candidates.length > 1) return null;
 
           const { credId, tpl } = candidates[0];
-
-          // Query param injection requires URL path rewriting, which the
-          // current RewriteCallback interface doesn't support. Pass through
-          // unchanged — query injection will be wired once the MITM handler
-          // gains path-rewrite capability.
-          if (tpl.injectionType === 'query') return req.headers;
 
           if (tpl.injectionType === 'header' && tpl.headerName) {
             const resolved = resolveById(credId);
