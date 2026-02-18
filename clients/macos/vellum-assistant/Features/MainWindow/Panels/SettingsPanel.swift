@@ -10,6 +10,7 @@ struct SettingsPanel: View {
 
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
+    @State private var perplexityKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingScheduledTasks = false
     @State private var showingReminders = false
@@ -153,6 +154,61 @@ struct SettingsPanel: View {
                     .animation(VAnimation.fast, value: showModelDropdown)
                     .zIndex(showModelDropdown ? 1 : 0)
                 }
+
+                // PERPLEXITY SEARCH section
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("PERPLEXITY SEARCH")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    if store.hasPerplexityKey {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 14))
+                            Text(store.maskedPerplexityKey)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            VButton(label: "Clear", style: .danger) {
+                                store.clearPerplexityKey()
+                                perplexityKeyText = ""
+                            }
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.xs) {
+                            Text("Enter Perplexity API Key")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 12))
+                                .foregroundColor(VColor.textMuted)
+                        }
+
+                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        Text("Get your API key at perplexity.ai/settings/api")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+
+                        VButton(label: "Save", style: .primary) {
+                            store.savePerplexityKey(perplexityKeyText)
+                            perplexityKeyText = ""
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
 
                 // BRAVE SEARCH section
                 VStack(alignment: .leading, spacing: VSpacing.md) {

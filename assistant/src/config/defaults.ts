@@ -5,6 +5,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   provider: 'anthropic',
   model: 'claude-opus-4-6', // alias: claude-opus-4
   apiKeys: {},
+  webSearchProvider: 'perplexity',
   providerOrder: [],
   maxTokens: 64000,
   thinking: {
