@@ -136,21 +136,20 @@ enum ChatMediaAssertions {
         )
     }
 
-    /// Asserts that the message has an inline surface whose ID or type indicates
-    /// an embed intent for the given URL. This is a placeholder that will gain
-    /// real logic once embed surfaces are introduced in later PRs.
+    /// Asserts that the message has an inline surface whose ID contains the
+    /// given URL, indicating an embed intent for that specific resource.
     static func assertContainsEmbedIntent(
         _ url: String,
         in message: ChatMessage,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        // Future PRs will check for a specific InlineSurfaceData entry
-        // whose embed URL matches `url`. For now, verify the surface list
-        // is non-empty as a structural stand-in.
-        XCTAssertFalse(
-            message.inlineSurfaces.isEmpty,
-            "Expected at least one inline surface (embed intent) for URL \"\(url)\" but found none",
+        let match = message.inlineSurfaces.contains { surface in
+            surface.id.contains(url)
+        }
+        XCTAssertTrue(
+            match,
+            "Expected an inline surface with ID containing URL \"\(url)\" but found: \(message.inlineSurfaces.map(\.id))",
             file: file,
             line: line
         )
