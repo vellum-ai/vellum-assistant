@@ -891,13 +891,14 @@ function migrateMemoryItemsFingerprintScopeUnique(database: ReturnType<typeof dr
   ).get(checkpointKey);
   if (checkpoint) return;
 
-  // Check if the old column-level UNIQUE constraint still exists — indicated
-  // by the sqlite_autoindex on fingerprint alone.
-  const autoIdx = raw.query(
-    `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'memory_items' AND name LIKE 'sqlite_autoindex_%'`,
-  ).get() as { name: string } | null;
-  if (!autoIdx) {
-    // No auto-index — either fresh DB (no UNIQUE in CREATE TABLE) or already migrated.
+  // Check if the old column-level UNIQUE constraint still exists by inspecting
+  // the CREATE TABLE DDL for the word UNIQUE (the PK also creates an autoindex,
+  // so we cannot rely on sqlite_autoindex_* presence alone).
+  const tableDdl = raw.query(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+  ).get() as { sql: string } | null;
+  if (!tableDdl || !tableDdl.sql.match(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i)) {
+    // No column-level UNIQUE on fingerprint — either fresh DB or already migrated.
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
     ).run(checkpointKey, Date.now());
