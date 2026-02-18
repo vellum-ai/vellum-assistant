@@ -3002,4 +3002,262 @@ describe('Memory regressions', () => {
     expect(rows[0].lastSeenAt).toBe(1_700_000_200_000);
     expect(rows[0].evidence).toBe('Atlas currently depends on Qdrant');
   });
+
+  // ── scopePolicyOverride tests ───────────────────────────────────────
+
+  test('scopePolicyOverride with fallbackToDefault includes both scopes even when global policy is strict', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-override-fallback';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-override-fallback',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'override fallback test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-default', 'msg-override-fallback', '${convId}', 'user', 0, 'Global memory about microservices architecture patterns', 10, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-default', 'Global memory about microservices architecture patterns')`);
+
+    // Insert segment in private thread scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-private', 'msg-override-fallback', '${convId}', 'user', 1, 'Private thread memory about microservices architecture patterns', 10, 'private-thread-42', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-private', 'Private thread memory about microservices architecture patterns')`);
+
+    // Global policy is strict, but override requests fallback to default
+    const strictConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          scopePolicy: 'strict' as const,
+        },
+      },
+    };
+
+    const result = await buildMemoryRecall('microservices architecture', convId, strictConfig, {
+      scopePolicyOverride: {
+        scopeId: 'private-thread-42',
+        fallbackToDefault: true,
+      },
+    });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Override should include both private and default scope despite strict global policy
+    expect(keys).toContain('segment:seg-ovr-default');
+    expect(keys).toContain('segment:seg-ovr-private');
+  });
+
+  test('scopePolicyOverride without fallback excludes default scope even when global policy is allow_global_fallback', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-override-nofallback';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-override-nofallback',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'override no fallback' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-nf-default', 'msg-override-nofallback', '${convId}', 'user', 0, 'Global memory about container orchestration strategies', 10, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-nf-default', 'Global memory about container orchestration strategies')`);
+
+    // Insert segment in isolated scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-nf-isolated', 'msg-override-nofallback', '${convId}', 'user', 1, 'Isolated memory about container orchestration strategies', 10, 'isolated-scope', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-nf-isolated', 'Isolated memory about container orchestration strategies')`);
+
+    // Global policy allows fallback, but override says no fallback
+    const fallbackConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          scopePolicy: 'allow_global_fallback' as const,
+        },
+      },
+    };
+
+    const result = await buildMemoryRecall('container orchestration', convId, fallbackConfig, {
+      scopePolicyOverride: {
+        scopeId: 'isolated-scope',
+        fallbackToDefault: false,
+      },
+    });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    // Override disables fallback — only isolated scope should appear
+    expect(keys).not.toContain('segment:seg-ovr-nf-default');
+    expect(keys).toContain('segment:seg-ovr-nf-isolated');
+  });
+
+  test('scopePolicyOverride takes precedence over scopeId option', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-override-precedence';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-override-precedence',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'precedence test' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in scope-a (what scopeId would resolve to)
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-prec-a', 'msg-override-precedence', '${convId}', 'user', 0, 'Scope A memory about distributed caching patterns', 10, 'scope-a', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-prec-a', 'Scope A memory about distributed caching patterns')`);
+
+    // Insert segment in scope-b (what the override targets)
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-prec-b', 'msg-override-precedence', '${convId}', 'user', 1, 'Scope B memory about distributed caching patterns', 10, 'scope-b', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-prec-b', 'Scope B memory about distributed caching patterns')`);
+
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          scopePolicy: 'strict' as const,
+        },
+      },
+    };
+
+    // scopeId says 'scope-a', but override says 'scope-b' — override wins
+    const result = await buildMemoryRecall('distributed caching', convId, config, {
+      scopeId: 'scope-a',
+      scopePolicyOverride: {
+        scopeId: 'scope-b',
+        fallbackToDefault: false,
+      },
+    });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    expect(keys).not.toContain('segment:seg-ovr-prec-a');
+    expect(keys).toContain('segment:seg-ovr-prec-b');
+  });
+
+  test('scopePolicyOverride with default as primary scope and fallback=true returns only default', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const convId = 'conv-scope-override-default-primary';
+
+    db.insert(conversations).values({
+      id: convId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-override-default-primary',
+      conversationId: convId,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'default primary' }]),
+      createdAt: now,
+    }).run();
+
+    // Insert segment in default scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-dp-default', 'msg-override-default-primary', '${convId}', 'user', 0, 'Default scope memory about event driven design', 10, 'default', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-dp-default', 'Default scope memory about event driven design')`);
+
+    // Insert segment in other scope
+    db.run(`
+      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
+      VALUES ('seg-ovr-dp-other', 'msg-override-default-primary', '${convId}', 'user', 1, 'Other scope memory about event driven design', 10, 'other-scope', ${now}, ${now})
+    `);
+    db.run(`INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-ovr-dp-other', 'Other scope memory about event driven design')`);
+
+    const config = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    // When primary scope IS 'default' with fallback=true, no duplication —
+    // just ['default'] is used
+    const result = await buildMemoryRecall('event driven design', convId, config, {
+      scopePolicyOverride: {
+        scopeId: 'default',
+        fallbackToDefault: true,
+      },
+    });
+    const keys = result.topCandidates.map((c) => c.key);
+
+    expect(keys).toContain('segment:seg-ovr-dp-default');
+    expect(keys).not.toContain('segment:seg-ovr-dp-other');
+  });
 });

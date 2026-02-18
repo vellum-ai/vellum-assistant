@@ -57,10 +57,30 @@ export interface MemoryRecallResult {
   topCandidates: MemoryRecallCandiateDebug[];
 }
 
+/**
+ * Override the global scope policy for a single retrieval call.
+ * Private threads use this to guarantee they always read from their own
+ * scope AND fall back to 'default', regardless of what the global config says.
+ */
+export interface ScopePolicyOverride {
+  /** The primary scope to query (e.g. a private thread's scope ID). */
+  scopeId: string;
+  /** When true, results from the 'default' scope are included alongside
+   *  the primary scope. Equivalent to 'allow_global_fallback' behavior
+   *  but controlled per-call instead of globally. */
+  fallbackToDefault: boolean;
+}
+
 export interface MemoryRecallOptions {
   excludeMessageIds?: string[];
   signal?: AbortSignal;
   scopeId?: string;
+  /**
+   * When set, overrides both `scopeId` and the global `scopePolicy` config
+   * for this retrieval call. Designed for private threads that need to
+   * guarantee private+default fallback independent of global settings.
+   */
+  scopePolicyOverride?: ScopePolicyOverride;
   maxInjectTokensOverride?: number;
 }
 

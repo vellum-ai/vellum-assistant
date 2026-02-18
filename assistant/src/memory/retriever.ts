@@ -12,6 +12,7 @@ import type {
   MemoryRecallOptions,
   MemoryRecallResult,
   MemorySearchResult,
+  ScopePolicyOverride,
 } from './search/types.js';
 import { lexicalSearch, recencySearch, directItemSearch } from './search/lexical.js';
 import { semanticSearch, isQdrantConnectionError } from './search/semantic.js';
@@ -24,6 +25,7 @@ export type {
   MemoryRecallCandiateDebug,
   MemoryRecallResult,
   MemorySearchResult,
+  ScopePolicyOverride,
 } from './search/types.js';
 export {
   escapeXmlTags,
@@ -35,6 +37,10 @@ const log = getLogger('memory-retriever');
 
 /**
  * Build the list of scope IDs to include in queries.
+ * - If a `scopePolicyOverride` is provided, it takes precedence over both
+ *   `scopeId` and `scopePolicy` — the override's `scopeId` is used as the
+ *   primary scope and `fallbackToDefault` controls whether 'default' is
+ *   included.
  * - If no scopeId is provided, returns undefined (no filtering).
  * - If scopePolicy is 'allow_global_fallback', includes both the
  *   requested scope and the 'default' scope.
@@ -43,7 +49,17 @@ const log = getLogger('memory-retriever');
 function buildScopeFilter(
   scopeId: string | undefined,
   scopePolicy: string,
+  scopePolicyOverride?: ScopePolicyOverride,
 ): string[] | undefined {
+  // Per-call override takes precedence over global config
+  if (scopePolicyOverride) {
+    const primary = scopePolicyOverride.scopeId;
+    if (scopePolicyOverride.fallbackToDefault && primary !== 'default') {
+      return [primary, 'default'];
+    }
+    return [primary];
+  }
+
   if (!scopeId) return undefined;
   if (scopePolicy === 'allow_global_fallback') {
     return scopeId === 'default' ? ['default'] : [scopeId, 'default'];
@@ -67,14 +83,16 @@ async function collectAndMergeCandidates(
     conversationId?: string;
     excludeMessageIds?: string[];
     scopeId?: string;
+    scopePolicyOverride?: ScopePolicyOverride;
   },
 ): Promise<CollectedCandidates> {
   const queryVector = opts?.queryVector ?? null;
   const excludeMessageIds = opts?.excludeMessageIds ?? [];
   const scopeId = opts?.scopeId;
   const scopePolicy = config.memory.retrieval.scopePolicy;
-  // Build the list of scope IDs to include in queries
-  const scopeIds = buildScopeFilter(scopeId, scopePolicy);
+  // Build the list of scope IDs to include in queries.
+  // A per-call scopePolicyOverride takes precedence over the global policy.
+  const scopeIds = buildScopeFilter(scopeId, scopePolicy, opts?.scopePolicyOverride);
 
   // -- Phase 1: cheap local searches (always run) --
   const lexical = lexicalSearch(query, config.memory.retrieval.lexicalTopK, excludeMessageIds, scopeIds);
@@ -274,6 +292,7 @@ export async function buildMemoryRecall(
       conversationId,
       excludeMessageIds,
       scopeId: options?.scopeId,
+      scopePolicyOverride: options?.scopePolicyOverride,
     });
   } catch (err) {
     if (signal?.aborted || isAbortError(err)) {
