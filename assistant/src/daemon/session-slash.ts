@@ -50,6 +50,11 @@ const PROVIDER_MODEL_SHORTCUTS: Record<string, { provider: string; model: string
   'fireworks': { provider: 'fireworks', model: 'accounts/fireworks/models/kimi-k2p5', displayName: 'Kimi K2.5' },
 };
 
+/** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_SHORTCUTS. */
+export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
+  Object.values(PROVIDER_MODEL_SHORTCUTS).map(({ model, provider }) => [model, provider]),
+);
+
 /** Read the assistant's name from IDENTITY.md for personalized responses. */
 function getAssistantName(): string | null {
   try {

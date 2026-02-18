@@ -259,7 +259,9 @@ extension ChatViewModel {
             } else {
                 // Create new assistant message
                 var msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
-                if currentTurnUserText == "/models" {
+                if currentTurnUserText == "/model" {
+                    msg.modelPicker = ModelPickerData()
+                } else if currentTurnUserText == "/models" {
                     msg.modelList = ModelListData()
                 }
                 currentAssistantMessageId = msg.id

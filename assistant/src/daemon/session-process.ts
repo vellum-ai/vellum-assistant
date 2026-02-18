@@ -14,9 +14,29 @@ import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { resolveSlash } from './session-slash.js';
+import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session-process');
+
+/** Build a model_info event with fresh config data. */
+function buildModelInfoEvent(): ServerMessage {
+  const config = getConfig();
+  const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
+  if (!configured.includes('ollama')) configured.push('ollama');
+  return {
+    type: 'model_info',
+    model: config.model,
+    provider: config.provider,
+    configuredProviders: configured,
+  };
+}
+
+/** True when the trimmed content is a /model or /models slash command. */
+function isModelSlashCommand(content: string): boolean {
+  const trimmed = content.trim();
+  return trimmed === '/model' || trimmed === '/models' || trimmed.startsWith('/model ');
+}
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -96,6 +116,11 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
       );
       session.messages.push(assistantMsg);
 
+      // Emit fresh model info before the text delta so the client has
+      // up-to-date configuredProviders when rendering /model or /models UI.
+      if (isModelSlashCommand(next.content)) {
+        next.onEvent(buildModelInfoEvent());
+      }
       next.onEvent({ type: 'assistant_text_delta', text: slashResult.message });
       session.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
         requestId: next.requestId,
@@ -202,6 +227,11 @@ export async function processMessage(
     );
     session.messages.push(assistantMsg);
 
+    // Emit fresh model info before the text delta so the client has
+    // up-to-date configuredProviders when rendering /model or /models UI.
+    if (isModelSlashCommand(content)) {
+      onEvent(buildModelInfoEvent());
+    }
     onEvent({ type: 'assistant_text_delta', text: slashResult.message });
     session.traceEmitter.emit('message_complete', 'Unknown slash command handled', {
       requestId,

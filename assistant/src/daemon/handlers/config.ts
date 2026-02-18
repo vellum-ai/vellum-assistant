@@ -21,6 +21,7 @@ import type {
   VercelApiConfigRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
+import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -40,9 +41,25 @@ export function handleModelSet(
   ctx: HandlerContext,
 ): void {
   try {
+    // Validate API key before switching
+    const provider = MODEL_TO_PROVIDER[msg.model];
+    if (provider && provider !== 'ollama') {
+      const currentConfig = getConfig();
+      if (!currentConfig.apiKeys[provider]) {
+        // Send current model_info so the client resyncs its optimistic state
+        // (don't use generic 'error' type — it would interrupt in-flight chat)
+        const configured = Object.keys(currentConfig.apiKeys).filter((k) => !!currentConfig.apiKeys[k]);
+        if (!configured.includes('ollama')) configured.push('ollama');
+        ctx.send(socket, { type: 'model_info', model: currentConfig.model, provider: currentConfig.provider, configuredProviders: configured });
+        return;
+      }
+    }
+
     // Use raw config to avoid persisting env-var API keys to disk
     const raw = loadRawConfig();
     raw.model = msg.model;
+    // Infer provider from model ID to keep provider and model in sync
+    raw.provider = provider ?? raw.provider;
 
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload

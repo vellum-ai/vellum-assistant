@@ -1405,13 +1405,7 @@ private struct ActiveChatViewWrapper: View {
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
             onModelPickerSelect: { messageId, modelId in
-                // Send "/model <id>" through the daemon silently (no user bubble)
-                // so the switch is persisted and confirmed by the daemon.
-                // Only update UI if the command was actually accepted; sendSilently
-                // returns false when a session bootstrap is already in flight.
-                if viewModel.sendSilently("/model \(modelId)") {
-                    settingsStore.selectedModel = modelId
-                }
+                settingsStore.setModel(modelId)
             },
             selectedModel: settingsStore.selectedModel,
             configuredProviders: settingsStore.configuredProviders,

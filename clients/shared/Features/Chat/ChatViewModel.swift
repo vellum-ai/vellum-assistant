@@ -194,26 +194,14 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
-        // Intercept bare "/model" command — show inline picker instead of sending to daemon
-        if text == "/model" && !hasSkillInvocation {
-            // Refresh model state from daemon in case it was changed via a text command
-            // (e.g. "/model opus") which doesn't notify the client.
-            try? daemonClient.send(ModelGetRequestMessage())
-            messages.append(ChatMessage(role: .user, text: "/model"))
-            var pickerMessage = ChatMessage(role: .assistant, text: "")
-            pickerMessage.modelPicker = ModelPickerData()
-            messages.append(pickerMessage)
-            inputText = ""
-            return
-        }
-
-        // When "/models" is sent, also refresh configuredProviders so the table UI has fresh data
-        if text == "/models" && !hasSkillInvocation {
+        // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
+        if (text == "/model" || text == "/models") && !hasSkillInvocation {
             try? daemonClient.send(ModelGetRequestMessage())
         }
 
-        // Fire auto-title callback on the first user message
-        if !text.isEmpty, let callback = onFirstUserMessage {
+        // Fire auto-title callback on the first user message (skip slash commands
+        // like /model so the thread title isn't set to a command string)
+        if !text.isEmpty, !text.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(text)
         }
@@ -228,7 +216,8 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide
+        let isModelCommand = text == "/model" || text == "/models" || text.hasPrefix("/model ")
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !isModelCommand
 
         let willBeQueued = isSending && sessionId != nil
         var queuedMessageId: UUID?
@@ -1018,13 +1007,24 @@ public final class ChatViewModel: ObservableObject {
             chatMessages.append(chatMsg)
         }
 
-        // Tag assistant messages that follow a "/models" user message so
-        // the client renders the table UI instead of plain markdown.
+        // Tag assistant messages that follow "/model" or "/models" user messages
+        // so the client renders the picker/table UI instead of plain text.
+        var hasModelCommand = false
         for i in chatMessages.indices {
-            if chatMessages[i].role == .user && chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines) == "/models",
-               i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant {
+            guard chatMessages[i].role == .user,
+                  i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
+            let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if userText == "/model" {
+                chatMessages[i + 1].modelPicker = ModelPickerData()
+                hasModelCommand = true
+            } else if userText == "/models" {
                 chatMessages[i + 1].modelList = ModelListData()
+                hasModelCommand = true
             }
+        }
+        // Refresh model/provider state so the picker/table has correct data on restart
+        if hasModelCommand {
+            try? daemonClient.send(ModelGetRequestMessage())
         }
 
         let hasUserSentMessages = messages.contains { $0.role == .user }
