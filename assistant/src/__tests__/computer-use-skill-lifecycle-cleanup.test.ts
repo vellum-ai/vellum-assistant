@@ -95,6 +95,7 @@ describe('CU session skill tool lifecycle cleanup', () => {
     const hangingProvider: Provider = {
       name: 'mock',
       sendMessage: (_msgs, _tools, _sys, opts) => new Promise<ProviderResponse>((_, reject) => {
+        if (opts?.signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
         opts?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
       }),
     };
