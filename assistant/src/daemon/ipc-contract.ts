@@ -4,6 +4,11 @@ import type { GalleryManifest } from '../gallery/gallery-manifest.js';
 
 export type ThreadType = 'standard' | 'private';
 
+/** Runtime normalizer — collapses unknown/legacy DB values to 'standard'. */
+export function normalizeThreadType(raw: string | null | undefined): ThreadType {
+  return raw === 'private' ? 'private' : 'standard';
+}
+
 export interface IpcBlobRef {
   id: string;
   kind: 'ax_tree' | 'screenshot_jpeg';

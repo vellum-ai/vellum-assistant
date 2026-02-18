@@ -25,7 +25,7 @@ import {
   MAX_LINE_SIZE,
   type ClientMessage,
   type ServerMessage,
-  type ThreadType,
+  normalizeThreadType,
 } from './ipc-protocol.js';
 import { validateClientMessage } from './ipc-validate.js';
 import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
@@ -707,7 +707,7 @@ export class DaemonServer {
       type: 'session_info',
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
-      threadType: conversation.threadType as ThreadType,
+      threadType: normalizeThreadType(conversation.threadType),
     });
 
     this.send(socket, {

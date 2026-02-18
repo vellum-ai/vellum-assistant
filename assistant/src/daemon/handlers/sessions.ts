@@ -5,6 +5,7 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { getAttachmentsForMessageUnscoped } from '../../memory/attachments-store.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
+import { normalizeThreadType } from '../ipc-protocol.js';
 import type {
   UserMessage,
   ConfirmationResponse,
@@ -18,7 +19,6 @@ import type {
   UsageRequest,
   SandboxSetRequest,
   ServerMessage,
-  ThreadType,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
 import {
@@ -197,7 +197,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void
       id: c.id,
       title: c.title ?? 'Untitled',
       updatedAt: c.updatedAt,
-      threadType: c.threadType as ThreadType,
+      threadType: normalizeThreadType(c.threadType),
     })),
   });
 }
@@ -217,7 +217,7 @@ export async function handleSessionCreate(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const threadType: ThreadType = msg.threadType === 'private' ? 'private' : 'standard';
+  const threadType = normalizeThreadType(msg.threadType);
   const conversation = conversationStore.createConversation({
     title: msg.title ?? 'New Conversation',
     threadType,
@@ -240,7 +240,7 @@ export async function handleSessionCreate(
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
-    threadType: conversation.threadType as ThreadType,
+    threadType: normalizeThreadType(conversation.threadType),
   });
 
   // Auto-send the initial message if provided, kick-starting the skill.
@@ -278,7 +278,7 @@ export async function handleSessionSwitch(
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'Untitled',
-    threadType: conversation.threadType as ThreadType,
+    threadType: normalizeThreadType(conversation.threadType),
   });
 }
 
