@@ -1258,7 +1258,7 @@ private struct ControlCenterMenuButton: View {
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
                 .offset(y: -68)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
     }
