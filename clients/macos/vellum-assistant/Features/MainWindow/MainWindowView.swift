@@ -598,20 +598,6 @@ struct MainWindowView: View {
             } else if isHovered {
                 HStack(spacing: VSpacing.xs) {
                     Button {
-                        threadPendingDeletion = thread.id
-                    } label: {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Archive \(thread.title)")
-
-                    Button {
                         if thread.isPinned {
                             threadManager.unpinThread(id: thread.id)
                         } else {
@@ -629,6 +615,20 @@ struct MainWindowView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+
+                    Button {
+                        threadPendingDeletion = thread.id
+                    } label: {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 20, height: 20)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(Circle())
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Archive \(thread.title)")
                 }
                 .padding(.trailing, VSpacing.xs)
             } else if thread.isPinned {
@@ -639,7 +639,7 @@ struct MainWindowView: View {
                     .frame(width: 20, height: 20)
                     .background(VColor.backgroundSubtle)
                     .clipShape(Circle())
-                    .padding(.trailing, VSpacing.xs)
+                    .padding(.trailing, VSpacing.xs + 20 + VSpacing.xs)
             }
         }
         .padding(.horizontal, VSpacing.sm)
