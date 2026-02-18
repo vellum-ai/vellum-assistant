@@ -2,6 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
+  getSecureKey,
   setSecureKey,
   getSecureKey,
   deleteSecureKey,
@@ -19,6 +20,83 @@ import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-vault');
 
+// ---------------------------------------------------------------------------
+// Well-known OAuth configurations for auto-connect.
+// When oauth2_connect is called with just a service name, missing parameters
+// (auth_url, token_url, scopes, etc.) are filled from this registry.
+// ---------------------------------------------------------------------------
+
+interface WellKnownOAuthConfig {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  userinfoUrl?: string;
+  extraParams?: Record<string, string>;
+}
+
+const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
+  'integration:gmail': {
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scopes: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ],
+    userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
+    extraParams: { access_type: 'offline', prompt: 'consent' },
+  },
+  'integration:slack': {
+    authUrl: 'https://slack.com/oauth/v2/authorize',
+    tokenUrl: 'https://slack.com/api/oauth.v2.access',
+    scopes: [
+      'channels:read', 'channels:history',
+      'groups:read', 'groups:history',
+      'im:read', 'im:history',
+      'mpim:read', 'mpim:history',
+      'users:read', 'chat:write',
+      'search:read', 'reactions:write',
+    ],
+    extraParams: {
+      user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
+    },
+  },
+};
+
+/** Map shorthand aliases to canonical service names. */
+const SERVICE_ALIASES: Record<string, string> = {
+  gmail: 'integration:gmail',
+  slack: 'integration:slack',
+};
+
+/** Resolve a service name through aliases. */
+function resolveService(service: string): string {
+  return SERVICE_ALIASES[service] ?? service;
+}
+
+/**
+ * Look up a stored client_id or client_secret for a service.
+ * Checks common field names across both the canonical and alias service names.
+ */
+function findStoredOAuthField(service: string, fieldNames: string[]): string | undefined {
+  const servicesToCheck = [service];
+  // Also check the alias if the input is the canonical name, or vice versa
+  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
+    if (canonical === service) servicesToCheck.push(alias);
+    if (alias === service) servicesToCheck.push(canonical);
+  }
+  for (const svc of servicesToCheck) {
+    for (const field of fieldNames) {
+      const value = getSecureKey(`credential:${svc}:${field}`);
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
 class CredentialStoreTool implements Tool {
   name = 'credential_store';
   description = 'Store, list, delete, or prompt for credentials in the secure vault';
@@ -35,7 +113,7 @@ class CredentialStoreTool implements Tool {
           action: {
             type: 'string',
             enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
-            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization.',
+            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
             type: 'string',
@@ -77,20 +155,20 @@ class CredentialStoreTool implements Tool {
           },
           auth_url: {
             type: 'string',
-            description: 'OAuth2 authorization endpoint (only for oauth2_connect action)',
+            description: 'OAuth2 authorization endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           token_url: {
             type: 'string',
-            description: 'OAuth2 token endpoint (only for oauth2_connect action)',
+            description: 'OAuth2 token endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           scopes: {
             type: 'array',
             items: { type: 'string' },
-            description: 'OAuth2 scopes to request (only for oauth2_connect action)',
+            description: 'OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           client_id: {
             type: 'string',
-            description: 'OAuth2 client ID (only for oauth2_connect action)',
+            description: 'OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.',
           },
           extra_params: {
             type: 'object',
@@ -102,7 +180,7 @@ class CredentialStoreTool implements Tool {
           },
           client_secret: {
             type: 'string',
-            description: 'OAuth2 client secret for providers that require it (e.g. Slack). If omitted, PKCE is used (only for oauth2_connect action)',
+            description: 'OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)',
           },
           alias: {
             type: 'string',
@@ -428,20 +506,30 @@ class CredentialStoreTool implements Tool {
       }
 
       case 'oauth2_connect': {
-        const service = input.service as string | undefined;
-        const authUrl = input.auth_url as string | undefined;
-        const tokenUrl = input.token_url as string | undefined;
-        const scopes = input.scopes as string[] | undefined;
-        const clientId = input.client_id as string | undefined;
-        const extraParams = input.extra_params as Record<string, string> | undefined;
-        const userinfoUrl = input.userinfo_url as string | undefined;
-        const clientSecret = input.client_secret as string | undefined;
+        const rawService = input.service as string | undefined;
+        if (!rawService) return { content: 'Error: service is required for oauth2_connect action', isError: true };
 
-        if (!service) return { content: 'Error: service is required for oauth2_connect action', isError: true };
-        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action', isError: true };
-        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action', isError: true };
-        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action', isError: true };
-        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action', isError: true };
+        // Resolve aliases (e.g. "gmail" → "integration:gmail")
+        const service = resolveService(rawService);
+
+        // Fill missing params from well-known config
+        const wellKnown = WELL_KNOWN_OAUTH[service];
+        const authUrl = (input.auth_url as string | undefined) ?? wellKnown?.authUrl;
+        const tokenUrl = (input.token_url as string | undefined) ?? wellKnown?.tokenUrl;
+        const scopes = (input.scopes as string[] | undefined) ?? wellKnown?.scopes;
+        const extraParams = (input.extra_params as Record<string, string> | undefined) ?? wellKnown?.extraParams;
+        const userinfoUrl = (input.userinfo_url as string | undefined) ?? wellKnown?.userinfoUrl;
+
+        // Look up client_id/client_secret from stored credentials if not provided
+        const clientId = (input.client_id as string | undefined)
+          ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
+        const clientSecret = (input.client_secret as string | undefined)
+          ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
+
+        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
         if (!context.isInteractive) {
           return { content: 'Error: oauth2_connect action requires an interactive client session', isError: true };
