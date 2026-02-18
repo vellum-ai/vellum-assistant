@@ -17,6 +17,9 @@ import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { attachments } from '../../memory/schema.js';
 import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
+import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
+import { getConversationThreadType } from '../../memory/conversation-store.js';
+import { getAttachmentSourceConversations } from './search.js';
 
 // ---------------------------------------------------------------------------
 // Size limit — prevent materializing excessively large attachments
@@ -140,6 +143,37 @@ class AssetMaterializeTool implements Tool {
         content: `Error: Attachment "${attachmentId}" not found.`,
         isError: true,
       };
+    }
+
+    // --- Visibility check ---------------------------------------------------
+    // Reject materialization of attachments from private threads the caller
+    // does not belong to. This prevents cross-thread data leakage.
+
+    const currentThreadType = getConversationThreadType(context.conversationId);
+    const currentContext: AttachmentContext = {
+      conversationId: context.conversationId,
+      isPrivate: currentThreadType === 'private',
+    };
+
+    const sources = getAttachmentSourceConversations(attachmentId);
+    if (sources.length > 0) {
+      const hasStandard = sources.some((s) => s.threadType !== 'private');
+      if (!hasStandard) {
+        // All sources are private — check if the caller is in one of those threads
+        const attachmentContext: AttachmentContext = {
+          conversationId: sources[0].conversationId,
+          isPrivate: true,
+        };
+        if (!isAttachmentVisible(attachmentContext, currentContext)) {
+          return {
+            content:
+              `Error: Attachment "${attachment.originalFilename}" is from a private thread ` +
+              `and cannot be accessed from this context. You can only access this ` +
+              `attachment from within the private thread where it was shared.`,
+            isError: true,
+          };
+        }
+      }
     }
 
     // --- Size check ---------------------------------------------------------

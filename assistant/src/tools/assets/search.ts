@@ -13,8 +13,10 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
-import { attachments, messageAttachments, messages } from '../../memory/schema.js';
+import { attachments, messageAttachments, messages, conversations } from '../../memory/schema.js';
 import type { StoredAttachment } from '../../memory/attachments-store.js';
+import { filterVisibleAttachments, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
+import { getConversationThreadType } from '../../memory/conversation-store.js';
 
 // ---------------------------------------------------------------------------
 // Recency presets — map human-readable labels to epoch-ms cutoff offsets
@@ -47,6 +49,55 @@ function formatAttachment(a: StoredAttachment): string {
     `  Type: ${a.mimeType} | Kind: ${a.kind} | Size: ${formatBytes(a.sizeBytes)}`,
     `  Created: ${date}`,
   ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Attachment source conversation lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up which conversations an attachment belongs to, along with each
+ * conversation's thread type. An attachment can be linked to multiple
+ * messages across multiple conversations.
+ */
+export function getAttachmentSourceConversations(
+  attachmentId: string,
+): Array<{ conversationId: string; threadType: string }> {
+  const db = getDb();
+  return db
+    .select({
+      conversationId: messages.conversationId,
+      threadType: conversations.threadType,
+    })
+    .from(messageAttachments)
+    .innerJoin(messages, eq(messages.id, messageAttachments.messageId))
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(eq(messageAttachments.attachmentId, attachmentId))
+    .all();
+}
+
+/**
+ * Build an AttachmentContext for a given attachment by examining its
+ * source conversations. If ALL source conversations are private, the
+ * attachment is considered private (scoped to the first private
+ * conversation found). If any source conversation is standard, the
+ * attachment is considered visible everywhere.
+ */
+function getAttachmentVisibilityContext(attachmentId: string): AttachmentContext | null {
+  const sources = getAttachmentSourceConversations(attachmentId);
+  if (sources.length === 0) {
+    // No message linkage — treat as universally visible (orphan attachment)
+    return null;
+  }
+
+  const hasStandard = sources.some((s) => s.threadType !== 'private');
+  if (hasStandard) {
+    // At least one standard-thread source — attachment is globally visible
+    return { conversationId: sources[0].conversationId, isPrivate: false };
+  }
+
+  // All sources are private — scope to the first private conversation
+  return { conversationId: sources[0].conversationId, isPrivate: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +290,7 @@ class AssetSearchTool implements Tool {
     return definition;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const mimeType = input.mime_type as string | undefined;
     const filename = input.filename as string | undefined;
     const recency = input.recency as string | undefined;
@@ -271,12 +322,26 @@ class AssetSearchTool implements Tool {
         limit,
       });
 
-      if (results.length === 0) {
+      // Enforce private-thread visibility: filter out attachments that
+      // belong exclusively to private threads the caller cannot access.
+      const currentThreadType = getConversationThreadType(context.conversationId);
+      const currentContext: AttachmentContext = {
+        conversationId: context.conversationId,
+        isPrivate: currentThreadType === 'private',
+      };
+
+      const visible = filterVisibleAttachments(results, currentContext, (attachment) => {
+        const ctx = getAttachmentVisibilityContext(attachment.id);
+        // Orphan attachments (no message linkage) are treated as globally visible
+        return ctx ?? { conversationId: '', isPrivate: false };
+      });
+
+      if (visible.length === 0) {
         return { content: 'No assets found matching the search criteria.', isError: false };
       }
 
-      const lines = [`Found ${results.length} asset(s):\n`];
-      for (const attachment of results) {
+      const lines = [`Found ${visible.length} asset(s):\n`];
+      for (const attachment of visible) {
         lines.push(formatAttachment(attachment));
       }
 

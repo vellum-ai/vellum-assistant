@@ -38,6 +38,7 @@ import { initializeDb, getDb } from '../memory/db.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 import { searchAttachments } from '../tools/assets/search.js';
+import { assetSearchTool } from '../tools/assets/search.js';
 import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
@@ -349,5 +350,126 @@ describe('AssetSearchTool.execute', () => {
 
   test('tool category is assets', () => {
     expect(tool.category).toBe('assets');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visibility policy enforcement
+// ---------------------------------------------------------------------------
+
+describe('AssetSearchTool visibility policy', () => {
+  beforeEach(resetTables);
+
+  test('attachments from standard threads are visible from any context', async () => {
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const attachment = uploadAttachment('ast-1', 'public.png', 'image/png', 'AAAA');
+    const msg = addMessage(standardConv.id, 'user', 'standard message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Search from a different standard conversation
+    const otherConv = createConversation({ title: 'other-conv' });
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: otherConv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('public.png');
+  });
+
+  test('attachments from private threads are visible within the same private thread', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const attachment = uploadAttachment('ast-1', 'secret.png', 'image/png', 'AAAA');
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Search from the same private conversation
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: privateConv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('secret.png');
+  });
+
+  test('attachments from private threads are NOT visible from a different conversation', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const attachment = uploadAttachment('ast-1', 'secret.png', 'image/png', 'AAAA');
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Search from a different private conversation
+    const otherPrivateConv = createConversation({ title: 'other-private', threadType: 'private' });
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: otherPrivateConv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No assets found');
+  });
+
+  test('attachments from private threads are NOT visible from standard threads', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const attachment = uploadAttachment('ast-1', 'secret.png', 'image/png', 'AAAA');
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Search from a standard conversation
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: standardConv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No assets found');
+  });
+
+  test('attachment linked to both private and standard threads is visible everywhere', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const attachment = uploadAttachment('ast-1', 'shared.png', 'image/png', 'AAAA');
+
+    const msg1 = addMessage(privateConv.id, 'user', 'private message');
+    const msg2 = addMessage(standardConv.id, 'user', 'standard message');
+    linkAttachmentToMessage(msg1.id, attachment.id, 0);
+    linkAttachmentToMessage(msg2.id, attachment.id, 0);
+
+    // Should be visible from a third, unrelated standard conversation
+    const otherConv = createConversation({ title: 'other-conv' });
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: otherConv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('shared.png');
+  });
+
+  test('orphan attachments (no message linkage) remain visible', async () => {
+    uploadAttachment('ast-1', 'orphan.png', 'image/png', 'AAAA');
+
+    const conv = createConversation({ title: 'any-conv' });
+    const context: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'sess-test',
+      conversationId: conv.id,
+    };
+
+    const result = await assetSearchTool.execute({}, context);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('orphan.png');
   });
 });

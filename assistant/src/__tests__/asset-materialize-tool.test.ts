@@ -36,7 +36,8 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { initializeDb, getDb } from '../memory/db.js';
-import { uploadAttachment } from '../memory/attachments-store.js';
+import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
+import { createConversation, addMessage } from '../memory/conversation-store.js';
 import { assetMaterializeTool } from '../tools/assets/materialize.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -292,5 +293,158 @@ describe('AssetMaterializeTool metadata', () => {
 
   test('tool name is asset_materialize', () => {
     expect(assetMaterializeTool.name).toBe('asset_materialize');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visibility policy enforcement
+// ---------------------------------------------------------------------------
+
+describe('AssetMaterializeTool visibility policy', () => {
+  beforeEach(resetTables);
+
+  test('materializing from a standard thread works from any context', async () => {
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const base64Content = Buffer.from('standard content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'public.txt', 'text/plain', base64Content);
+    const msg = addMessage(standardConv.id, 'user', 'standard message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Materialize from a different standard conversation
+    const otherConv = createConversation({ title: 'other-conv' });
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: otherConv.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'public-output.txt' },
+      context,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Materialized');
+  });
+
+  test('materializing from a private thread works within the same private thread', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const base64Content = Buffer.from('private content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Materialize from the same private conversation
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: privateConv.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'private-output.txt' },
+      context,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Materialized');
+  });
+
+  test('materializing from a private thread is REJECTED from a different conversation', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const base64Content = Buffer.from('private content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Attempt to materialize from a different conversation
+    const otherConv = createConversation({ title: 'other-conv' });
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: otherConv.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'stolen.txt' },
+      context,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('private thread');
+    expect(result.content).toContain('cannot be accessed');
+  });
+
+  test('error message is user-actionable', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const base64Content = Buffer.from('private content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'confidential.pdf', 'application/pdf', base64Content);
+    const msg = addMessage(privateConv.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // From a standard conversation
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: standardConv.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'stolen.pdf' },
+      context,
+    );
+    expect(result.isError).toBe(true);
+    // Should mention the filename so the user knows which file
+    expect(result.content).toContain('confidential.pdf');
+    // Should explain how to access it
+    expect(result.content).toContain('from within the private thread');
+  });
+
+  test('materializing from a different private thread is REJECTED', async () => {
+    const privateConv1 = createConversation({ title: 'private-conv-1', threadType: 'private' });
+    const base64Content = Buffer.from('private content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const msg = addMessage(privateConv1.id, 'user', 'private message');
+    linkAttachmentToMessage(msg.id, attachment.id, 0);
+
+    // Attempt from a different private conversation
+    const privateConv2 = createConversation({ title: 'private-conv-2', threadType: 'private' });
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: privateConv2.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'cross-thread.txt' },
+      context,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('private thread');
+  });
+
+  test('attachment linked to both private and standard threads can be materialized from anywhere', async () => {
+    const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
+    const standardConv = createConversation({ title: 'standard-conv' });
+    const base64Content = Buffer.from('shared content').toString('base64');
+    const attachment = uploadAttachment('ast-1', 'shared.txt', 'text/plain', base64Content);
+
+    const msg1 = addMessage(privateConv.id, 'user', 'private message');
+    const msg2 = addMessage(standardConv.id, 'user', 'standard message');
+    linkAttachmentToMessage(msg1.id, attachment.id, 0);
+    linkAttachmentToMessage(msg2.id, attachment.id, 0);
+
+    // Should be materializable from a third, unrelated standard conversation
+    const otherConv = createConversation({ title: 'other-conv' });
+    const context: ToolContext = {
+      workingDir: sandboxDir,
+      sessionId: 'sess-test',
+      conversationId: otherConv.id,
+    };
+
+    const result = await assetMaterializeTool.execute(
+      { attachment_id: attachment.id, destination_path: 'shared-output.txt' },
+      context,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Materialized');
   });
 });
