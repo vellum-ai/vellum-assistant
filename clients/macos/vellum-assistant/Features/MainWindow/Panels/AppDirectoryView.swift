@@ -331,11 +331,6 @@ struct AppDirectoryView: View {
                     return
                 }
             }
-
-            // Stream ended or cancelled — cache empty sentinel to avoid retries
-            if self.previewCache[appId] == nil {
-                self.previewCache[appId] = ""
-            }
         }
 
         // Cancel after timeout
