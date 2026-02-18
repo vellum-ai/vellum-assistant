@@ -201,13 +201,13 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { status: string; disk: { path: string; totalBytes: number; usedBytes: number; freeBytes: number } | null };
+    const body = await res.json() as { status: string; disk: { path: string; totalMb: number; usedMb: number; freeMb: number } | null };
     expect(body.status).toBe('healthy');
     if (body.disk !== null) {
       expect(typeof body.disk.path).toBe('string');
-      expect(body.disk.totalBytes).toBeGreaterThan(0);
-      expect(body.disk.usedBytes).toBeGreaterThanOrEqual(0);
-      expect(body.disk.freeBytes).toBeGreaterThanOrEqual(0);
+      expect(body.disk.totalMb).toBeGreaterThan(0);
+      expect(body.disk.usedMb).toBeGreaterThanOrEqual(0);
+      expect(body.disk.freeMb).toBeGreaterThanOrEqual(0);
     }
 
     await stopServer();

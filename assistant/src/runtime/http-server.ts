@@ -71,9 +71,9 @@ const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
 
 interface DiskSpaceInfo {
   path: string;
-  totalBytes: number;
-  usedBytes: number;
-  freeBytes: number;
+  totalMb: number;
+  usedMb: number;
+  freeMb: number;
 }
 
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
@@ -83,11 +83,12 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;
     const freeBytes = stats.bsize * stats.bavail;
+    const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
     return {
       path: diskPath,
-      totalBytes,
-      usedBytes: totalBytes - freeBytes,
-      freeBytes,
+      totalMb: bytesToMb(totalBytes),
+      usedMb: bytesToMb(totalBytes - freeBytes),
+      freeMb: bytesToMb(freeBytes),
     };
   } catch {
     return null;
