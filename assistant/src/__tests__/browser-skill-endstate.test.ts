@@ -57,15 +57,20 @@ describe('browser skill migration end-state', () => {
 
   test('startup tool definition count is reduced (no browser tools)', () => {
     const definitions = getAllToolDefinitions();
-    // Previous baseline was ~41 definitions.  With 10 browser tools removed,
-    // expect ~31.  Use a range to tolerate minor additions/removals.
-    expect(definitions.length).toBeGreaterThanOrEqual(25);
-    expect(definitions.length).toBeLessThanOrEqual(40);
+    // Startup has exactly 36 definitions (no browser tools).
+    // Allow ±2 for minor additions/removals in unrelated modules.
+    expect(definitions.length).toBeGreaterThanOrEqual(34);
+    expect(definitions.length).toBeLessThanOrEqual(38);
 
     const defNames = definitions.map((d) => d.name);
     for (const name of BROWSER_TOOLS) {
       expect(defNames).not.toContain(name);
     }
+
+    // Payload ceiling: browser tools contribute ~4 640 chars.  If they leak
+    // back into startup definitions the payload would exceed 28 000.
+    const payloadSize = JSON.stringify(definitions).length;
+    expect(payloadSize).toBeLessThan(28_000);
   });
 
   // ── 2. Browser skill exists and is active ──────────────────────────
