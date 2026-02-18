@@ -348,75 +348,6 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     public let error: String?
 }
 
-public struct IPCDocumentEditorShow: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String
-    public let initialContent: String
-}
-
-public struct IPCDocumentEditorUpdate: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let markdown: String
-    public let mode: String
-}
-
-public struct IPCDocumentListRequest: Codable, Sendable {
-    public let type: String
-    public let conversationId: String?
-}
-
-public struct IPCDocumentListResponse: Codable, Sendable {
-    public let type: String
-    public let documents: [IPCDocumentListResponseDocument]
-}
-
-public struct IPCDocumentListResponseDocument: Codable, Sendable {
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let wordCount: Int
-    public let createdAt: Int
-    public let updatedAt: Int
-}
-
-public struct IPCDocumentLoadRequest: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-}
-
-public struct IPCDocumentLoadResponse: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let content: String
-    public let wordCount: Int
-    public let createdAt: Int
-    public let updatedAt: Int
-    public let success: Bool
-    public let error: String?
-}
-
-public struct IPCDocumentSaveRequest: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let content: String
-    public let wordCount: Int
-}
-
-public struct IPCDocumentSaveResponse: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let success: Bool
-    public let error: String?
-}
-
 public struct IPCDynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?
@@ -678,11 +609,8 @@ public struct IPCIntegrationConnectResult: Codable, Sendable {
     public let success: Bool
     public let accountInfo: String?
     public let error: String?
-    /// When true, the integration requires setup before connecting (e.g. missing clientId).
     public let setupRequired: Bool?
-    /// Skill ID that can automate the setup process.
     public let setupSkillId: String?
-    /// Human-readable hint for resolving the setup requirement.
     public let setupHint: String?
 }
 
@@ -1714,6 +1642,18 @@ public struct IPCWatchCompleteRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let watchId: String
+}
+
+public struct IPCWatcherEscalation: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+}
+
+public struct IPCWatcherNotification: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
 }
 
 public struct IPCWatchObservation: Codable, Sendable {
