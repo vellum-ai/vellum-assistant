@@ -80,7 +80,7 @@ struct MainWindowView: View {
         return URL(string: "http://localhost:\(port)/pages/\(appId)")
     }
 
-    private func publishPage(html: String, title: String?) {
+    private func publishPage(html: String, title: String?, appId: String? = nil) {
         guard !isPublishing else { return }
         isPublishing = true
         publishError = nil
@@ -104,7 +104,7 @@ struct MainWindowView: View {
             }
 
             do {
-                try daemonClient.sendPublishPage(html: html, title: title)
+                try daemonClient.sendPublishPage(html: html, title: title, appId: appId)
             } catch {
                 isPublishing = false
             }
@@ -1657,7 +1657,7 @@ private struct DynamicWorkspaceWrapper: View {
     @Binding var showSharePicker: Bool
     @Binding var shareFileURL: URL?
     @Binding var workspaceEditorContentHeight: CGFloat
-    let onPublishPage: (String, String?) -> Void
+    let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
@@ -1729,10 +1729,22 @@ private struct DynamicWorkspaceWrapper: View {
 
                     // Right: Share + Close ghost buttons
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Share", style: .ghost) {
-                            // Placeholder – no-op for now
+                        if isPublishing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(height: 24)
+                        } else if let url = publishedUrl {
+                            VButton(label: "Copied!", icon: "checkmark", style: .ghost) {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            }
+                            .controlSize(.small)
+                        } else {
+                            VButton(label: "Publish", icon: "arrow.up.right", style: .ghost) {
+                                onPublishPage(data.html, data.preview?.title, data.appId)
+                            }
+                            .controlSize(.small)
                         }
-                        .controlSize(.small)
 
                         VButton(label: "X", style: .ghost) {
                             showSharePicker = false
@@ -1747,6 +1759,20 @@ private struct DynamicWorkspaceWrapper: View {
                 .padding(.leading, (isSidebarOpen || isChatDockOpen) ? VSpacing.lg : trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.md)
+
+                if let error = publishError {
+                    HStack {
+                        Spacer()
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                            .padding(.horizontal, VSpacing.md)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(Rose._900.opacity(0.8))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .padding(.trailing, VSpacing.xl)
+                    }
+                }
 
                 Spacer()
             }
