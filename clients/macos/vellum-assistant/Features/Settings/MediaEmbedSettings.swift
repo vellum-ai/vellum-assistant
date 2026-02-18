@@ -23,16 +23,40 @@ public enum MediaEmbedSettings {
     }
 
     /// Normalizes a user-provided domain list: trims whitespace, lowercases,
-    /// removes empty strings, and deduplicates while preserving first-occurrence order.
+    /// strips URL schemes/paths/query strings/fragments, removes empty strings,
+    /// and deduplicates while preserving first-occurrence order.
     public static func normalizeDomains(_ domains: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         for domain in domains {
-            let normalized = domain.trimmingCharacters(in: .whitespaces).lowercased()
+            var normalized = domain.trimmingCharacters(in: .whitespaces).lowercased()
+            guard !normalized.isEmpty else { continue }
+            normalized = extractHost(from: normalized)
             guard !normalized.isEmpty, !seen.contains(normalized) else { continue }
             seen.insert(normalized)
             result.append(normalized)
         }
         return result
+    }
+
+    /// Extracts just the host component from a string that may be a full URL.
+    /// If the string has an http/https scheme, the host is pulled via URLComponents.
+    /// If it contains a `/` (e.g. `youtube.com/watch`), the part before the first `/` is returned.
+    /// Otherwise the string is returned as-is.
+    private static func extractHost(from value: String) -> String {
+        // If the value has an http(s) scheme, use URLComponents to extract the host.
+        if value.hasPrefix("http://") || value.hasPrefix("https://") {
+            if let components = URLComponents(string: value), let host = components.host, !host.isEmpty {
+                return host
+            }
+        }
+
+        // No scheme — strip anything after the first `/` (path, query, fragment).
+        if let slashIndex = value.firstIndex(of: "/") {
+            let host = String(value[value.startIndex..<slashIndex])
+            return host.isEmpty ? value : host
+        }
+
+        return value
     }
 }

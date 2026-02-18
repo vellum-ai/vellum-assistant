@@ -75,4 +75,55 @@ final class MediaEmbedSettingsDefaultsTests: XCTestCase {
         let result = MediaEmbedSettings.normalizeDomains(["  YouTube.com ", "youtube.com", " YOUTUBE.COM  "])
         XCTAssertEqual(result, ["youtube.com"])
     }
+
+    // MARK: - normalizeDomains — URL stripping
+
+    func testNormalizeDomainsStripsHttpsScheme() {
+        let result = MediaEmbedSettings.normalizeDomains(["https://youtube.com"])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsStripsHttpScheme() {
+        let result = MediaEmbedSettings.normalizeDomains(["http://youtube.com"])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsStripsSchemePathAndQuery() {
+        let result = MediaEmbedSettings.normalizeDomains(["https://www.youtube.com/watch?v=abc"])
+        XCTAssertEqual(result, ["www.youtube.com"])
+    }
+
+    func testNormalizeDomainsStripsPathWithoutScheme() {
+        let result = MediaEmbedSettings.normalizeDomains(["youtube.com/path"])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsStripsFragment() {
+        let result = MediaEmbedSettings.normalizeDomains(["https://vimeo.com/video#section"])
+        XCTAssertEqual(result, ["vimeo.com"])
+    }
+
+    func testNormalizeDomainsPlainDomainUnchanged() {
+        let result = MediaEmbedSettings.normalizeDomains(["vimeo.com"])
+        XCTAssertEqual(result, ["vimeo.com"])
+    }
+
+    func testNormalizeDomainsWhitespacePlusCaseNormalization() {
+        let result = MediaEmbedSettings.normalizeDomains(["  YOUTUBE.COM  "])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsDeduplicatesAfterURLStripping() {
+        let result = MediaEmbedSettings.normalizeDomains(["https://youtube.com", "youtube.com"])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsDeduplicatesFullURLAndPathVariants() {
+        let result = MediaEmbedSettings.normalizeDomains([
+            "https://youtube.com/watch?v=123",
+            "youtube.com/embed",
+            "youtube.com",
+        ])
+        XCTAssertEqual(result, ["youtube.com"])
+    }
 }
