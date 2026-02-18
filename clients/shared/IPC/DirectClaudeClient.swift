@@ -127,7 +127,27 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         var assistantText = ""
 
         do {
-            let (bytes, _) = try await URLSession.shared.bytes(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+            if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+                let body = try await { () async throws -> String in
+                    var raw = ""
+                    for try await line in bytes.lines { raw += line }
+                    return raw
+                }()
+                let userMessage: String
+                if let data = body.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? [String: Any],
+                   let msg = error["message"] as? String {
+                    userMessage = msg
+                } else {
+                    userMessage = "API error \(http.statusCode). Check your API key in Settings."
+                }
+                broadcast(.sessionError(SessionErrorMessage(sessionId: sessionId, code: .providerApi, userMessage: userMessage, retryable: false)))
+                activeTasks.removeValue(forKey: sessionId)
+                return
+            }
 
             for try await line in bytes.lines {
                 if Task.isCancelled { break }
