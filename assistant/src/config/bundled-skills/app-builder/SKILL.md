@@ -1201,8 +1201,7 @@ When the user requests changes to an existing app, prefer **`app_file_edit`** ov
 #### Metadata vs code changes
 
 - **`app_update`** — use for metadata changes only: `name`, `description`, and `schema_json`. Do not use it for code changes.
-- **`app_file_edit`** / **`app_file_write`** — use for all code changes (HTML, CSS, JS).
-- Call `app_open` after edits to refresh the view.
+- **`app_file_edit`** / **`app_file_write`** — use for all code changes (HTML, CSS, JS). The surface refreshes automatically after file edits.
 - If schema changes affect existing records, mention this.
 
 #### Multi-file apps
@@ -1333,7 +1332,7 @@ Every app should include: search/filter, toast notifications for all CRUD operat
 
 - If `app_create` fails, verify `schema_json` is valid JSON and `html` is a complete HTML document. Retry with fixes.
 - If `app_open` fails, verify `app_id` with `app_list`.
-- If the user reports visual issues, use `app_update` to fix the HTML and `app_open` to refresh.
+- If the user reports visual issues, use `app_file_edit` to fix the code. The surface refreshes automatically.
 - All `window.vellum.data` calls must be wrapped in `try/catch` with user-friendly error feedback:
   ```javascript
   try {

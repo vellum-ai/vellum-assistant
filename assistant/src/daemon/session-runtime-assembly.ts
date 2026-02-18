@@ -90,6 +90,8 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     lines.push(
       `The user is viewing app "${ctx.appName ?? 'Untitled'}" (app_id: "${ctx.appId}") in workspace mode.`,
       '',
+      'PREREQUISITE: If `app_file_edit` and other `app_*` tools are not yet available, call `skill_load` with `id: "app-builder"` first to load them.',
+      '',
       'RULES FOR WORKSPACE MODIFICATION:',
       `1. Use \`app_file_edit\` with app_id "${ctx.appId}" for surgical changes.`,
       '   Provide old_string (exact match) and new_string (replacement).',
