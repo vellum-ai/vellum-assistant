@@ -195,7 +195,7 @@ public struct FormSurfaceView: View {
                     placeholder: field.placeholder ?? "",
                     text: textBinding(for: field.id)
                 )
-                .onSubmit { doSubmit() }
+                .onSubmit { handleEnterKey() }
             case .textarea:
                 VTextEditor(
                     placeholder: field.placeholder ?? "",
@@ -206,7 +206,7 @@ public struct FormSurfaceView: View {
                     placeholder: field.placeholder ?? "",
                     text: textBinding(for: field.id)
                 )
-                .onSubmit { doSubmit() }
+                .onSubmit { handleEnterKey() }
             case .select:
                 selectField(for: field)
             case .password:
@@ -224,7 +224,7 @@ public struct FormSurfaceView: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .onSubmit { doSubmit() }
+                .onSubmit { handleEnterKey() }
             case .toggle:
                 Toggle(isOn: toggleBinding(for: field.id)) {
                     EmptyView()
@@ -311,6 +311,18 @@ public struct FormSurfaceView: View {
             case .select:
                 selectValues[field.id] = defaultValue.stringValue
             }
+        }
+    }
+
+    /// In multi-page forms, Enter advances to the next page instead of submitting.
+    /// Only submits on the last page or in single-page mode.
+    private func handleEnterKey() {
+        if let pages = data.pages, !pages.isEmpty, safePageIndex < pages.count - 1 {
+            withAnimation(VAnimation.fast) {
+                currentPageIndex += 1
+            }
+        } else {
+            doSubmit()
         }
     }
 
