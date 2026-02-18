@@ -1,6 +1,6 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, inArray } from 'drizzle-orm';
 import { getDb } from '../memory/db.js';
-import { tasks, taskRuns } from '../memory/schema.js';
+import { tasks, taskRuns, workItems } from '../memory/schema.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -67,6 +67,28 @@ export function getTask(id: string): Task | undefined {
 export function listTasks(): Task[] {
   const db = getDb();
   return db.select().from(tasks).orderBy(desc(tasks.createdAt)).all();
+}
+
+export function deleteTask(id: string): boolean {
+  const db = getDb();
+  const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
+  if (!existing) return false;
+  db.delete(workItems).where(eq(workItems.taskId, id)).run();
+  db.delete(taskRuns).where(eq(taskRuns.taskId, id)).run();
+  db.delete(tasks).where(eq(tasks.id, id)).run();
+  return true;
+}
+
+export function deleteTasks(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  const db = getDb();
+  const existing = db.select().from(tasks).where(inArray(tasks.id, ids)).all();
+  if (existing.length === 0) return 0;
+  const foundIds = existing.map((t) => t.id);
+  db.delete(workItems).where(inArray(workItems.taskId, foundIds)).run();
+  db.delete(taskRuns).where(inArray(taskRuns.taskId, foundIds)).run();
+  db.delete(tasks).where(inArray(tasks.id, foundIds)).run();
+  return existing.length;
 }
 
 // ── TaskRun CRUD ─────────────────────────────────────────────────────

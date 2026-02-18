@@ -18,7 +18,7 @@ import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
-import { taskSaveTool, taskRunTool, taskListTool } from './tasks/index.js';
+import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool } from './tasks/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -109,6 +109,7 @@ export const explicitTools: Tool[] = [
   taskSaveTool,
   taskRunTool,
   taskListTool,
+  taskDeleteTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
