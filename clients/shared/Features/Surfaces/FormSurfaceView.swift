@@ -145,7 +145,7 @@ public struct FormSurfaceView: View {
             HStack(spacing: VSpacing.xs) {
                 Image(systemName: "lock.shield.fill")
                     .font(VFont.caption)
-                Text("Stored securely")
+                Text("Secured input")
                     .font(VFont.caption)
             }
             .foregroundColor(VColor.textSecondary)
@@ -157,10 +157,10 @@ public struct FormSurfaceView: View {
         .buttonStyle(.plain)
         .popover(isPresented: $showingSecurityInfo) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Credential Security")
+                Text("Password Security")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textPrimary)
-                Text("Credentials are saved to the macOS Keychain. If unavailable, they're stored in an encrypted local file (~/.vellum/protected/). Values are never logged.")
+                Text("Password values are masked in the UI using a secure text field. Submitted values are sent to the assistant for processing and are not logged.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
