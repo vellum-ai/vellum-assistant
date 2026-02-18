@@ -381,4 +381,107 @@ describe('createProxyApprovalCallback', () => {
     const callback = createProxyApprovalCallback(prompter, ctx);
     await callback(makeAskUnauthenticatedRequest());
   });
+
+  // ── E2E persistence invariants (PR 32) ──────────────────────────────
+  // These tests verify the proxy approval path CAN save persistent rules,
+  // in contrast to the proxied bash activation path which CANNOT (tested
+  // in tool-executor.test.ts).
+
+  test('always_allow_high_risk persists rule with allowHighRisk flag', async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = prompterSendToClient.mock.calls[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, 'always_allow_high_risk', 'proxy:api.fal.ai', '/tmp/test-project');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    expect(addRuleMock).toHaveBeenCalledWith(
+      'proxy:missing_credential',
+      'proxy:api.fal.ai',
+      '/tmp/test-project',
+      'allow',
+      100,
+      { allowHighRisk: true },
+    );
+  });
+
+  test('one-time allow does NOT persist any rule', async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = prompterSendToClient.mock.calls[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, 'allow');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    // One-time allow should NOT save any persistent rule
+    expect(addRuleMock).not.toHaveBeenCalled();
+  });
+
+  test('one-time deny does NOT persist any rule', async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = prompterSendToClient.mock.calls[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, 'deny');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskUnauthenticatedRequest());
+
+    expect(result).toBe(false);
+    expect(addRuleMock).not.toHaveBeenCalled();
+  });
+
+  test('always_allow without selectedPattern does not persist a rule', async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = prompterSendToClient.mock.calls[0];
+      const msg = call[0] as { requestId: string };
+      // Resolve with always_allow but NO pattern/scope
+      prompter.resolveConfirmation(msg.requestId, 'always_allow');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    // No pattern/scope -> cannot save a rule
+    expect(addRuleMock).not.toHaveBeenCalled();
+  });
 });
