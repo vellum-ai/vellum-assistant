@@ -127,12 +127,35 @@ export class WorkspaceGitService {
         // subsequent git operations to fail with confusing errors.
         try {
           await this.execGit(['rev-parse', '--git-dir']);
-        } catch {
+        } catch (err: unknown) {
+          // Distinguish transient failures from genuine corruption.
+          // Transient errors (timeouts, permissions, missing git binary)
+          // should NOT destroy .git — they will resolve on retry via
+          // the initPromise clearing logic.
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const errAny = err as any;
+          const isTimeout = errAny.killed === true
+            || errAny.signal === 'SIGTERM'
+            || errMsg.includes('SIGTERM')
+            || errMsg.includes('timed out');
+          const isPermission = errAny.code === 'EACCES'
+            || errMsg.includes('EACCES')
+            || errMsg.toLowerCase().includes('permission denied');
+          const isMissingBinary = errAny.code === 'ENOENT'
+            || errMsg.includes('ENOENT');
+
+          if (isTimeout || isPermission || isMissingBinary) {
+            // Re-throw so initialization fails gracefully without
+            // destroying valid git history.
+            throw err;
+          }
+
+          // Genuine corruption (e.g. missing HEAD, broken refs) —
+          // remove corrupted .git and fall through to full init below.
           log.warn(
-            { workspaceDir: this.workspaceDir },
+            { workspaceDir: this.workspaceDir, err: errMsg },
             'Corrupted .git directory detected; reinitializing',
           );
-          // Remove corrupted .git and fall through to full init below
           const { rmSync } = await import('node:fs');
           rmSync(gitDir, { recursive: true, force: true });
         }
@@ -287,15 +310,25 @@ export class WorkspaceGitService {
       });
       return { stdout, stderr };
     } catch (err) {
-      // Enhance error with git command details
-      const gitErr = err as Error & { stdout?: string; stderr?: string; code?: string };
+      // Enhance error with git command details, preserving properties
+      // needed to distinguish transient failures from corruption.
+      const gitErr = err as Error & {
+        stdout?: string; stderr?: string;
+        code?: string; killed?: boolean; signal?: string;
+      };
       const isPermissionError = gitErr.code === 'EACCES' || gitErr.stderr?.includes('Permission denied');
       const prefix = isPermissionError ? 'Git permission error' : 'Git command failed';
-      throw new Error(
+      const enhanced = new Error(
         `${prefix}: git ${args.join(' ')}\n` +
         `Error: ${gitErr.message}\n` +
         `Stderr: ${gitErr.stderr || ''}`,
       );
+      // Preserve properties so callers can detect timeouts, permission
+      // errors, and missing-binary failures without parsing the message.
+      (enhanced as any).killed = gitErr.killed;
+      (enhanced as any).signal = gitErr.signal;
+      (enhanced as any).code = gitErr.code;
+      throw enhanced;
     }
   }
 
