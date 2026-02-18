@@ -541,7 +541,6 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'schedule_create',
   'schedule_update',
   'schedule_delete',
-  'credential_store',
 ]);
 
 /**
@@ -564,6 +563,10 @@ export function isSideEffectTool(toolName: string, input?: Record<string, unknow
   if (toolName === 'reminder') {
     const action = input?.action;
     return action === 'create' || action === 'cancel';
+  }
+  if (toolName === 'credential_store') {
+    const action = input?.action;
+    return action === 'store' || action === 'delete' || action === 'prompt' || action === 'oauth2_connect';
   }
 
   return false;
