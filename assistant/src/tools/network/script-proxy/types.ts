@@ -26,3 +26,38 @@ export interface ProxyEnvVars {
   NO_PROXY: string;
   SSL_CERT_FILE?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Policy engine types
+// ---------------------------------------------------------------------------
+
+import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
+
+/** A single credential matched — inject it. */
+export interface PolicyDecisionMatched {
+  kind: 'matched';
+  credentialId: string;
+  template: CredentialInjectionTemplate;
+}
+
+/** Multiple credentials match — caller must disambiguate. */
+export interface PolicyDecisionAmbiguous {
+  kind: 'ambiguous';
+  candidates: Array<{ credentialId: string; template: CredentialInjectionTemplate }>;
+}
+
+/** No credential matches the target host/path. */
+export interface PolicyDecisionMissing {
+  kind: 'missing';
+}
+
+/** No credential_ids were requested — pass-through. */
+export interface PolicyDecisionUnauthenticated {
+  kind: 'unauthenticated';
+}
+
+export type PolicyDecision =
+  | PolicyDecisionMatched
+  | PolicyDecisionAmbiguous
+  | PolicyDecisionMissing
+  | PolicyDecisionUnauthenticated;
