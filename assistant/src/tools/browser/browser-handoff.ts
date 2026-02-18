@@ -63,6 +63,20 @@ export async function startHandoff(
   // Wait for user to hand back control (5 min timeout)
   await browserManager.waitForHandoffComplete(sessionId);
 
+  // Move the browser window back offscreen so the user doesn't accidentally
+  // close the tab (which would kill the Playwright page/session).
+  if (options.bringToFront) {
+    try {
+      const page = await browserManager.getOrCreateSessionPage(sessionId);
+      await page.evaluate(() => {
+        window.moveTo(-9999, -9999);
+        window.resizeTo(1, 1);
+      }).catch(() => {});
+    } catch {
+      // Page may have been closed during handoff — that's fine
+    }
+  }
+
   sendToClient({
     type: 'browser_interactive_mode_changed',
     sessionId,
