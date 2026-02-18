@@ -278,10 +278,16 @@ struct ChatView: View {
     private var temporaryChatEmptyStateView: some View {
         VStack(spacing: 0) {
             Spacer()
+            Spacer()
+
+            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                .frame(width: 80, height: 80)
+                .allowsHitTesting(false)
+                .padding(.bottom, VSpacing.lg)
 
             Text("Temporary Chat")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
+                .font(.system(size: 28, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, VSpacing.sm)
 
@@ -314,9 +320,22 @@ struct ChatView: View {
 
             Spacer()
             Spacer()
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VColor.chatBackground)
+        .background(
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    VColor.accent.opacity(0.07),
+                    VColor.accent.opacity(0.02),
+                    Color.clear,
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 350
+            )
+            .offset(y: -40)
+        )
     }
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
