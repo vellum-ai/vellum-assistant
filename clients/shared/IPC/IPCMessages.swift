@@ -1762,8 +1762,8 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemsListResponse(IPCWorkItemsListResponse)
     case workItemStatusChanged(IPCWorkItemStatusChanged)
     case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
-    case subagentSpawned(SubagentSpawnedMessage)
-    case subagentStatusChanged(SubagentStatusChangedMessage)
+    case subagentSpawned(IPCSubagentSpawned)
+    case subagentStatusChanged(IPCSubagentStatusChanged)
     case pong
     case unknown(String)
 
@@ -2032,10 +2032,10 @@ public enum ServerMessage: Decodable, Sendable {
             let message = try IPCWorkItemRunTaskResponse(from: decoder)
             self = .workItemRunTaskResponse(message)
         case "subagent_spawned":
-            let message = try SubagentSpawnedMessage(from: decoder)
+            let message = try IPCSubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
         case "subagent_status_changed":
-            let message = try SubagentStatusChangedMessage(from: decoder)
+            let message = try IPCSubagentStatusChanged(from: decoder)
             self = .subagentStatusChanged(message)
         case "pong":
             self = .pong
@@ -2067,21 +2067,6 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
     }
 }
 
-// MARK: - Subagent Messages
-
-public struct SubagentSpawnedMessage: Decodable, Sendable {
-    public let subagentId: String
-    public let parentSessionId: String
-    public let label: String
-    public let objective: String
-}
-
-public struct SubagentStatusChangedMessage: Decodable, Sendable {
-    public let subagentId: String
-    public let status: String
-    public let summary: String?
-    public let error: String?
-}
 
 // MARK: - App Files Changed
 

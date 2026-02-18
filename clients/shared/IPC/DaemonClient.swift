@@ -271,10 +271,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     public var onError: ((ErrorMessage) -> Void)?
 
     /// Called when a subagent is spawned.
-    public var onSubagentSpawned: ((SubagentSpawnedMessage) -> Void)?
+    public var onSubagentSpawned: ((IPCSubagentSpawned) -> Void)?
 
     /// Called when a subagent's status changes (running, completed, failed, aborted).
-    public var onSubagentStatusChanged: ((SubagentStatusChangedMessage) -> Void)?
+    public var onSubagentStatusChanged: ((IPCSubagentStatusChanged) -> Void)?
 
     // MARK: - Broadcast Subscribers
 
