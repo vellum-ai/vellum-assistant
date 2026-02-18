@@ -6,6 +6,7 @@ import {
   deleteSecureKey,
   getBackendType,
   listSecureKeys,
+  isDowngradedFromKeychain,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
@@ -246,7 +247,10 @@ class CredentialStoreTool implements Tool {
         // all key names once (instead of per-entry getSecureKey calls that each
         // re-read/re-derive the store). On keychain we trust metadata since the
         // OS keychain has no batch list API.
-        const verifySecrets = getBackendType() === 'encrypted';
+        // In downgraded mode (keychain failed, switched to encrypted), skip
+        // strict filtering — credentials may still be readable from keychain
+        // via getSecureKey's fallback path, so we trust metadata instead.
+        const verifySecrets = getBackendType() === 'encrypted' && !isDowngradedFromKeychain();
         let secureKeySet: Set<string> | undefined;
         if (verifySecrets) {
           try {
