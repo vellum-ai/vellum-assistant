@@ -2,14 +2,20 @@ import { describe, test, expect } from 'bun:test';
 import { rankCredentialsForEndpoint } from '../tools/credentials/selection.js';
 import type { CredentialMetadata } from '../tools/credentials/metadata-store.js';
 
+// Realistic epoch-millisecond timestamps (similar to Date.now())
+const NOW = 1_770_000_000_000;
+const ONE_HOUR_AGO = NOW - 3_600_000;
+const ONE_DAY_AGO = NOW - 86_400_000;
+const ONE_WEEK_AGO = NOW - 604_800_000;
+
 function makeCred(overrides: Partial<CredentialMetadata> & { credentialId: string }): CredentialMetadata {
   return {
     service: 'test',
     field: 'api_key',
     allowedTools: [],
     allowedDomains: [],
-    createdAt: 1000000,
-    updatedAt: 1000000,
+    createdAt: ONE_DAY_AGO,
+    updatedAt: ONE_DAY_AGO,
     ...overrides,
   };
 }
@@ -27,10 +33,12 @@ describe('rankCredentialsForEndpoint', () => {
       makeCred({
         credentialId: 'wildcard',
         injectionTemplates: [{ hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: NOW,
       }),
       makeCred({
         credentialId: 'exact',
         injectionTemplates: [{ hostPattern: 'queue.fal.ai', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: ONE_WEEK_AGO,
       }),
     ];
 
@@ -42,10 +50,11 @@ describe('rankCredentialsForEndpoint', () => {
 
   test('wildcard match ranks higher than no template match', () => {
     const creds = [
-      makeCred({ credentialId: 'no-template' }),
+      makeCred({ credentialId: 'no-template', updatedAt: NOW }),
       makeCred({
         credentialId: 'wildcard',
         injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: ONE_WEEK_AGO,
       }),
     ];
 
@@ -69,8 +78,8 @@ describe('rankCredentialsForEndpoint', () => {
 
   test('alias set boosts score', () => {
     const creds = [
-      makeCred({ credentialId: 'no-alias', updatedAt: 2000000 }),
-      makeCred({ credentialId: 'with-alias', alias: 'primary-key', updatedAt: 1000000 }),
+      makeCred({ credentialId: 'no-alias', updatedAt: NOW }),
+      makeCred({ credentialId: 'with-alias', alias: 'primary-key', updatedAt: ONE_WEEK_AGO }),
     ];
 
     const result = rankCredentialsForEndpoint(creds, 'api.example.com');
@@ -79,8 +88,8 @@ describe('rankCredentialsForEndpoint', () => {
 
   test('recency breaks ties when host specificity and alias are equal', () => {
     const creds = [
-      makeCred({ credentialId: 'older', updatedAt: 1000000 }),
-      makeCred({ credentialId: 'newer', updatedAt: 2000000 }),
+      makeCred({ credentialId: 'older', updatedAt: ONE_DAY_AGO }),
+      makeCred({ credentialId: 'newer', updatedAt: NOW }),
     ];
 
     const result = rankCredentialsForEndpoint(creds, 'api.example.com');
@@ -104,11 +113,11 @@ describe('rankCredentialsForEndpoint', () => {
     expect(result.topChoice?.credentialId).toBe('unrestricted');
   });
 
-  test('allowedDomains with wildcard pattern allows matching hosts', () => {
+  test('allowedDomains with registrable-domain match allows subdomains', () => {
     const creds = [
       makeCred({
         credentialId: 'domain-match',
-        allowedDomains: ['*.fal.ai'],
+        allowedDomains: ['fal.ai'],
         injectionTemplates: [{ hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization' }],
       }),
     ];
@@ -123,12 +132,12 @@ describe('rankCredentialsForEndpoint', () => {
       makeCred({
         credentialId: 'a',
         injectionTemplates: [{ hostPattern: '*.api.com', injectionType: 'header' }],
-        updatedAt: 1000001,
+        updatedAt: NOW,
       }),
       makeCred({
         credentialId: 'b',
         injectionTemplates: [{ hostPattern: '*.api.com', injectionType: 'header' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_HOUR_AGO,
       }),
     ];
 
@@ -142,10 +151,12 @@ describe('rankCredentialsForEndpoint', () => {
       makeCred({
         credentialId: 'exact',
         injectionTemplates: [{ hostPattern: 'api.example.com', injectionType: 'header' }],
+        updatedAt: ONE_WEEK_AGO,
       }),
       makeCred({
         credentialId: 'wildcard',
         injectionTemplates: [{ hostPattern: '*.example.com', injectionType: 'header' }],
+        updatedAt: NOW,
       }),
     ];
 
@@ -156,17 +167,17 @@ describe('rankCredentialsForEndpoint', () => {
 
   test('candidates are sorted descending by score', () => {
     const creds = [
-      makeCred({ credentialId: 'low', updatedAt: 1000000 }),
+      makeCred({ credentialId: 'low', updatedAt: NOW }),
       makeCred({
         credentialId: 'high',
         injectionTemplates: [{ hostPattern: 'api.test.com', injectionType: 'header' }],
         alias: 'primary',
-        updatedAt: 2000000,
+        updatedAt: ONE_WEEK_AGO,
       }),
       makeCred({
         credentialId: 'mid',
         injectionTemplates: [{ hostPattern: '*.test.com', injectionType: 'header' }],
-        updatedAt: 1500000,
+        updatedAt: ONE_DAY_AGO,
       }),
     ];
 
@@ -221,6 +232,25 @@ describe('rankCredentialsForEndpoint', () => {
     expect(result.topChoice?.credentialId).toBe('case');
     expect(result.topChoice?.confidence).toBe('high');
   });
+
+  test('tier score always dominates recency even with real timestamps', () => {
+    const creds = [
+      makeCred({
+        credentialId: 'old-exact',
+        injectionTemplates: [{ hostPattern: 'api.example.com', injectionType: 'header' }],
+        updatedAt: ONE_WEEK_AGO,
+      }),
+      makeCred({
+        credentialId: 'new-no-match',
+        updatedAt: NOW,
+      }),
+    ];
+
+    const result = rankCredentialsForEndpoint(creds, 'api.example.com');
+    // Exact host match must always win over recency
+    expect(result.topChoice?.credentialId).toBe('old-exact');
+    expect(result.topChoice?.confidence).toBe('high');
+  });
 });
 
 describe('multi-key same-service selection', () => {
@@ -230,19 +260,18 @@ describe('multi-key same-service selection', () => {
         credentialId: 'openai-key-1',
         service: 'openai',
         injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_DAY_AGO,
       }),
       makeCred({
         credentialId: 'openai-key-2',
         service: 'openai',
         injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 2000000,
+        updatedAt: NOW,
       }),
     ];
 
     const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
-    // Both have exact host match (score 100), differ only by recency.
-    // Recency difference is small (< SCORE_ALIAS_SET=10), so this is ambiguous.
+    // Both have exact host match (tier score 100) — same tier, so ambiguous
     expect(result.ambiguous).toBe(true);
     expect(result.topChoice?.confidence).toBe('low');
     // Despite ambiguity, topChoice is deterministic: the more recent key wins.
@@ -256,13 +285,13 @@ describe('multi-key same-service selection', () => {
         credentialId: 'key-a',
         service: 'openai',
         injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_DAY_AGO,
       }),
       makeCred({
         credentialId: 'key-b',
         service: 'openai',
         injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_DAY_AGO,
       }),
     ];
 
@@ -279,18 +308,18 @@ describe('multi-key same-service selection', () => {
         credentialId: 'generic-key',
         service: 'openai',
         injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 2000000,
+        updatedAt: NOW,
       }),
       makeCred({
         credentialId: 'specific-key',
         service: 'openai',
         injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_WEEK_AGO,
       }),
     ];
 
     const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
-    // exact host (100) vs wildcard (50) — not ambiguous, specific key wins
+    // exact host (100) vs wildcard (50) — not ambiguous, specific key wins even though it's older
     expect(result.topChoice?.credentialId).toBe('specific-key');
     expect(result.topChoice?.confidence).toBe('high');
     expect(result.ambiguous).toBe(false);
@@ -303,24 +332,23 @@ describe('multi-key same-service selection', () => {
         service: 'openai',
         alias: 'production-key',
         injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_DAY_AGO,
       }),
       makeCred({
         credentialId: 'aliased-2',
         service: 'openai',
         alias: 'staging-key',
         injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
-        updatedAt: 1000000,
+        updatedAt: ONE_DAY_AGO,
       }),
     ];
 
     const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
-    // Both have exact host (100) + alias (10) = 110 each + identical recency
-    // Score difference is 0, which is < SCORE_ALIAS_SET, so ambiguous
+    // Both have exact host (100) + alias (10) = 110 tier score + identical recency
     expect(result.ambiguous).toBe(true);
     expect(result.topChoice?.confidence).toBe('low');
     expect(result.candidates).toHaveLength(2);
-    // Both candidates score 110 + same recency
-    expect(result.candidates[0].score).toBeCloseTo(result.candidates[1].score, 5);
+    // Both candidates have same tier score
+    expect(result.candidates[0].score).toBe(result.candidates[1].score);
   });
 });
