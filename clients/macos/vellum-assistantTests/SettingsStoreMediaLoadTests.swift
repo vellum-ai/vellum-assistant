@@ -35,34 +35,83 @@ final class SettingsStoreMediaLoadTests: XCTestCase {
     // MARK: - No config file (defaults)
 
     func testNoConfigFileUsesDefaults() {
+        let before = Date()
         let store = SettingsStore(configPath: missingConfigPath)
+        let after = Date()
 
         XCTAssertEqual(store.mediaEmbedsEnabled, MediaEmbedSettings.defaultEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "enabledSince should default to now when no config exists")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
+    }
+
+    // MARK: - Fresh install produces enabledSince ≈ now
+
+    func testFreshInstallEnabledSinceIsApproximatelyNow() {
+        let before = Date()
+        let store = SettingsStore(configPath: missingConfigPath)
+        let after = Date()
+
+        let since = store.mediaEmbedsEnabledSince
+        XCTAssertNotNil(since, "Fresh install must produce a non-nil enabledSince")
+        let interval = since!.timeIntervalSince(before)
+        XCTAssertLessThanOrEqual(interval, 2.0, "enabledSince should be within 2 seconds of now")
+        XCTAssertGreaterThanOrEqual(since!, before)
+        XCTAssertLessThanOrEqual(since!, after)
+    }
+
+    // MARK: - Defaulted enabledSince is persisted to disk
+
+    func testDefaultedEnabledSinceIsPersistedToDisk() {
+        let configPath = tempDir.appendingPathComponent("persist-test.json").path
+        let store = SettingsStore(configPath: configPath)
+        let firstSince = store.mediaEmbedsEnabledSince
+        XCTAssertNotNil(firstSince, "enabledSince should be defaulted on first load")
+
+        // Create a second store from the same path — it should read the
+        // persisted value instead of generating a new "now".
+        let store2 = SettingsStore(configPath: configPath)
+        XCTAssertNotNil(store2.mediaEmbedsEnabledSince)
+        // Compare within 1-second tolerance because ISO8601 persistence
+        // truncates sub-second precision.
+        let diff = abs(store2.mediaEmbedsEnabledSince!.timeIntervalSince(firstSince!))
+        XCTAssertLessThan(diff, 1.0,
+                          "Second load should use the persisted enabledSince, not generate a new one")
     }
 
     // MARK: - Empty config file (defaults)
 
     func testEmptyConfigUsesDefaults() {
+        let before = Date()
         let path = writeConfig("{}")
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
         XCTAssertEqual(store.mediaEmbedsEnabled, MediaEmbedSettings.defaultEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "enabledSince should default to now for empty config")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
     // MARK: - enabled = false
 
     func testLoadEnabledFalse() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"mediaEmbeds":{"enabled":false}}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
         XCTAssertFalse(store.mediaEmbedsEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "enabledSince should default to now when key is missing")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
@@ -113,58 +162,83 @@ final class SettingsStoreMediaLoadTests: XCTestCase {
 
     // MARK: - Invalid enabledSince
 
-    func testLoadInvalidEnabledSinceIsNil() {
+    func testLoadInvalidEnabledSinceDefaultsToNow() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"mediaEmbeds":{"enabledSince":"not-a-date"}}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Unparseable enabledSince should default to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
     }
 
     // MARK: - Missing enabledSince
 
-    func testLoadMissingEnabledSinceIsNil() {
+    func testLoadMissingEnabledSinceDefaultsToNow() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"mediaEmbeds":{"enabled":true}}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Missing enabledSince key should default to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
     }
 
     // MARK: - Numeric enabledSince (wrong type)
 
-    func testLoadNumericEnabledSinceIsNil() {
+    func testLoadNumericEnabledSinceDefaultsToNow() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"mediaEmbeds":{"enabledSince":12345}}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Numeric enabledSince (wrong type) should default to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
     }
 
     // MARK: - Corrupt config (fallback to defaults)
 
     func testCorruptConfigFallsBackToDefaults() {
+        let before = Date()
         let path = writeConfig("{not valid json!!!")
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
         XCTAssertEqual(store.mediaEmbedsEnabled, MediaEmbedSettings.defaultEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Corrupt config should default enabledSince to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
     // MARK: - Config with ui key but no mediaEmbeds
 
     func testConfigWithUiButNoMediaEmbedsUsesDefaults() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"theme":"dark"}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
         XCTAssertEqual(store.mediaEmbedsEnabled, MediaEmbedSettings.defaultEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Missing mediaEmbeds section should default enabledSince to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
@@ -186,13 +260,18 @@ final class SettingsStoreMediaLoadTests: XCTestCase {
     // MARK: - mediaEmbeds is wrong type (non-dict)
 
     func testMediaEmbedsAsStringFallsBackToDefaults() {
+        let before = Date()
         let path = writeConfig("""
         {"ui":{"mediaEmbeds":"invalid"}}
         """)
         let store = SettingsStore(configPath: path)
+        let after = Date()
 
         XCTAssertEqual(store.mediaEmbedsEnabled, MediaEmbedSettings.defaultEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince, "Non-dict mediaEmbeds should default enabledSince to now")
+        let since = store.mediaEmbedsEnabledSince!
+        XCTAssertGreaterThanOrEqual(since, before)
+        XCTAssertLessThanOrEqual(since, after)
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 }

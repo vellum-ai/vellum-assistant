@@ -49,7 +49,8 @@ final class SettingsStoreMediaToggleTests: XCTestCase {
         let store = SettingsStore(configPath: configPath)
 
         XCTAssertFalse(store.mediaEmbedsEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        // enabledSince is defaulted to now when the key is missing from config
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince)
 
         let before = Date()
         store.setMediaEmbedsEnabled(true)

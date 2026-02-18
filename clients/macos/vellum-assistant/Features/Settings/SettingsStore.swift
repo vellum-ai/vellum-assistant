@@ -88,6 +88,13 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
 
+        // When enabledSince was defaulted to "now" (no value on disk),
+        // persist it immediately so subsequent loads produce the same
+        // deterministic timestamp instead of advancing each time.
+        if mediaSettings.didDefaultEnabledSince {
+            persistMediaEmbedState()
+        }
+
         // React to Keychain changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
@@ -270,25 +277,37 @@ public final class SettingsStore: ObservableObject {
         let enabled: Bool
         let enabledSince: Date?
         let domains: [String]
+        /// True when `enabledSince` was not found in the config and was
+        /// defaulted to "now". The caller should persist the value so
+        /// that subsequent loads produce a deterministic timestamp.
+        let didDefaultEnabledSince: Bool
     }
 
     /// Reads `ui.mediaEmbeds` from the workspace config and falls back to
     /// `MediaEmbedSettings` defaults for any missing or invalid values.
+    ///
+    /// When no `enabledSince` is found in the config (missing file, missing
+    /// section, or missing/unparseable key), the value defaults to "now" so
+    /// that fresh installs only embed new messages going forward.
     private static func loadMediaEmbedSettings(from configPath: String? = nil) -> MediaEmbedLoadResult {
         let config = WorkspaceConfigIO.read(from: configPath)
 
         guard let ui = config["ui"] as? [String: Any],
               let mediaEmbeds = ui["mediaEmbeds"] as? [String: Any] else {
+            // No config file, empty config, or no ui.mediaEmbeds section —
+            // default enabledSince to now so old history is gated.
             return MediaEmbedLoadResult(
                 enabled: MediaEmbedSettings.defaultEnabled,
-                enabledSince: nil,
-                domains: MediaEmbedSettings.defaultDomains
+                enabledSince: MediaEmbedSettings.enabledSinceNow(),
+                domains: MediaEmbedSettings.defaultDomains,
+                didDefaultEnabledSince: true
             )
         }
 
         let enabled = mediaEmbeds["enabled"] as? Bool ?? MediaEmbedSettings.defaultEnabled
 
         var enabledSince: Date?
+        var didDefault = false
         if let isoString = mediaEmbeds["enabledSince"] as? String {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -298,6 +317,13 @@ public final class SettingsStore: ObservableObject {
                 formatter.formatOptions = [.withInternetDateTime]
                 enabledSince = formatter.date(from: isoString)
             }
+        }
+
+        // If enabledSince is still nil (key missing, wrong type, or
+        // unparseable), default to now so old messages are gated.
+        if enabledSince == nil {
+            enabledSince = MediaEmbedSettings.enabledSinceNow()
+            didDefault = true
         }
 
         let domains: [String]
@@ -310,7 +336,8 @@ public final class SettingsStore: ObservableObject {
         return MediaEmbedLoadResult(
             enabled: enabled,
             enabledSince: enabledSince,
-            domains: domains
+            domains: domains,
+            didDefaultEnabledSince: didDefault
         )
     }
 }

@@ -137,7 +137,9 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
         let store = SettingsStore(configPath: configPath)
         XCTAssertFalse(store.mediaEmbedsEnabled)
-        XCTAssertNil(store.mediaEmbedsEnabledSince)
+        // enabledSince is defaulted to now when the key is missing from config
+        XCTAssertNotNil(store.mediaEmbedsEnabledSince)
+        let initialSince = store.mediaEmbedsEnabledSince!
 
         let before = Date()
         store.setMediaEmbedsEnabled(true)
@@ -149,6 +151,7 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
         let since = store.mediaEmbedsEnabledSince!
         XCTAssertGreaterThanOrEqual(since, before)
         XCTAssertLessThanOrEqual(since, after)
+        XCTAssertGreaterThanOrEqual(since, initialSince, "Toggle ON should reset enabledSince to a newer date")
     }
 
     // MARK: - Image embeds respect enabledSince
