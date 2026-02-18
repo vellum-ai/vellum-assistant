@@ -1597,6 +1597,53 @@ private struct ActiveChatViewWrapper: View {
     }
 }
 
+// MARK: - Ghost Button
+
+/// A borderless button with a rounded-rectangle outline, monospace font, and subtle hover fill.
+private struct GhostButton: View {
+    let label: String
+    let icon: String?
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    init(_ label: String, icon: String? = nil, action: @escaping () -> Void) {
+        self.label = label
+        self.icon = icon
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                if !label.isEmpty {
+                    Text(label)
+                        .font(VFont.monoSmall)
+                }
+            }
+            .foregroundColor(VColor.textSecondary)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered ? VColor.backgroundSubtle : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
 /// Observes the active ChatViewModel and renders the dynamic workspace overlays.
 private struct DynamicWorkspaceWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
@@ -1654,185 +1701,43 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Button(action: {
+                    // Left: Edit ghost button
+                    GhostButton("Edit", icon: isChatDockOpen ? "pencil.slash" : "pencil") {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }
                         onToggleChatDock()
-                    }) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: isChatDockOpen ? "pencil.slash" : "pencil")
-                                .font(.system(size: 12, weight: .medium))
-                            Text("Edit")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(isChatDockOpen ? VColor.accent : VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .frame(height: 32)
-                        .background(
-                            Capsule()
-                                .fill(isChatDockOpen ? VColor.accent.opacity(0.15) : VColor.surface.opacity(0.85))
-                                .overlay(Capsule().stroke(isChatDockOpen ? VColor.accent.opacity(0.4) : VColor.surfaceBorder, lineWidth: 1))
-                        )
                     }
-                    .buttonStyle(.plain)
                     .accessibilityLabel(isChatDockOpen ? "Close editor" : "Edit app")
 
                     Spacer()
 
-                    if viewModel.surfaceUndoCount > 0 {
-                        Button(action: {
-                            viewModel.undoSurfaceRefinement()
-                        }) {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textPrimary)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Circle()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Undo")
-                        .transition(.opacity)
-                        .animation(VAnimation.standard, value: viewModel.surfaceUndoCount)
-                    }
-
-                    if data.appId == nil || data.appType == "site" {
-                        Button(action: {
-                            onPublishPage(data.html, data.preview?.title)
-                        }) {
-                            Group {
-                                if isPublishing {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.7)
-                                } else if publishedUrl != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12, weight: .medium))
-                                } else {
-                                    Image(systemName: "globe")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                            }
-                            .foregroundColor(publishedUrl != nil ? VColor.success : VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isPublishing)
-                        .accessibilityLabel(publishedUrl != nil ? "Published" : "Publish")
-
-                        if let url = publishedUrl {
-                            Button(action: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url, forType: .string)
-                            }) {
-                                HStack(spacing: VSpacing.xs) {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.system(size: 10, weight: .medium))
-                                    Text(url)
-                                        .font(VFont.caption)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                .foregroundColor(VColor.textSecondary)
-                                .padding(.horizontal, VSpacing.sm)
-                                .padding(.vertical, VSpacing.xs)
-                                .background(
-                                    Capsule()
-                                        .fill(VColor.surface.opacity(0.85))
-                                        .overlay(Capsule().stroke(VColor.surfaceBorder, lineWidth: 1))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy published URL")
-                            .frame(maxWidth: 200)
-                        }
-
-                        if let error = publishError {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text(error)
-                                    .font(VFont.caption)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            .foregroundColor(VColor.error)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(
-                                Capsule()
-                                    .fill(VColor.error.opacity(0.15))
-                                    .overlay(Capsule().stroke(VColor.error.opacity(0.3), lineWidth: 1))
-                            )
-                            .frame(maxWidth: 200)
-                            .transition(.opacity)
-                        }
-                    }
-
-                    if let appId = data.appId {
-                        Button(action: {
-                            onBundleAndShare(appId)
-                        }) {
-                            Group {
-                                if isBundling {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                            }
+                    // Center: App name
+                    if let title = data.preview?.title {
+                        Text(title)
+                            .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isBundling)
-                        .accessibilityLabel("Share")
-                        .background(
-                            ShareSheetButton(
-                                items: shareFileURL != nil ? [shareFileURL!] : [],
-                                isPresented: Binding(
-                                    get: { showSharePicker },
-                                    set: { newValue in
-                                        showSharePicker = newValue
-                                        if !newValue { shareFileURL = nil }
-                                    }
-                                )
-                            )
-                            .frame(width: 1, height: 1)
-                        )
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
-                    Button(action: {
-                        showSharePicker = false
-                        windowState.activeDynamicSurface = nil
-                        windowState.activeDynamicParsedSurface = nil
-                        windowState.dismissOverlay()
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .background(VColor.surface.opacity(0.8))
-                            .clipShape(Circle())
+                    Spacer()
+
+                    // Right: Share + Close ghost buttons
+                    HStack(spacing: VSpacing.sm) {
+                        GhostButton("Share") {
+                            // Placeholder – no-op for now
+                        }
+                        .accessibilityLabel("Share")
+
+                        GhostButton("", icon: "xmark") {
+                            showSharePicker = false
+                            windowState.activeDynamicSurface = nil
+                            windowState.activeDynamicParsedSurface = nil
+                            windowState.dismissOverlay()
+                        }
+                        .accessibilityLabel("Close workspace")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close workspace")
                 }
                 .padding(.leading, isSidebarOpen ? VSpacing.lg : trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
