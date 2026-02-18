@@ -203,16 +203,19 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
     }
   }
 
+  // Pre-load the full credential registry once at session startup so the
+  // policy callback doesn't hit disk on every proxied request.
+  // listCredentialMetadata() uses synchronous readFileSync + JSON.parse,
+  // which would block the event loop in the hot path.
+  const allKnown: CredentialInjectionTemplate[] = [];
+  for (const meta of listCredentialMetadata()) {
+    if (meta.injectionTemplates?.length) {
+      allKnown.push(...meta.injectionTemplates);
+    }
+  }
+
   // Build the policy callback for HTTP/CONNECT request gating
   const policyCallback: PolicyCallback = async (hostname: string, port: number | null, reqPath: string, scheme: 'http' | 'https') => {
-    // Build allKnown from the full credential registry so the policy engine
-    // can distinguish "known host, missing credential" from "unknown host".
-    const allKnown: CredentialInjectionTemplate[] = [];
-    for (const meta of listCredentialMetadata()) {
-      if (meta.injectionTemplates?.length) {
-        allKnown.push(...meta.injectionTemplates);
-      }
-    }
 
     const decision = evaluateRequestWithApproval(
       hostname, port, reqPath,
