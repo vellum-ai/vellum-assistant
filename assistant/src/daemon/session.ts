@@ -710,6 +710,7 @@ export class Session {
       const directiveWarnings: string[] = [];
       let pendingDirectiveDisplayBuffer = '';
       let lastAssistantMessageId: string | undefined;
+      let providerErrorUserMessage: string | null = null;
       const memoryResult = await prepareMemoryContext(
         {
           conversationId: this.conversationId,
@@ -895,6 +896,7 @@ export class Session {
             } else {
               const classified = classifySessionError(event.error, { phase: 'agent_loop' });
               onEvent(buildSessionErrorMessage(this.conversationId, classified));
+              providerErrorUserMessage = classified.userMessage;
             }
             break;
           case 'message_complete': {
@@ -1174,6 +1176,25 @@ export class Session {
         const { cleanedContent } = cleanAssistantContent(msg.content);
         return { ...msg, content: cleanedContent as ContentBlock[] };
       });
+
+      // If no assistant response was produced (e.g. provider 500 error),
+      // synthesize an assistant message so the error is visible in the conversation.
+      const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
+      if (!hasAssistantResponse && providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
+        const errorAssistantMessage = createAssistantMessage(providerErrorUserMessage);
+        conversationStore.addMessage(
+          this.conversationId,
+          'assistant',
+          JSON.stringify(errorAssistantMessage.content),
+        );
+        newMessages.push(errorAssistantMessage);
+        onEvent({
+          type: 'assistant_text_delta',
+          text: providerErrorUserMessage,
+          sessionId: this.conversationId,
+        });
+      }
+
       const restoredHistory = [...preRepairMessages, ...newMessages];
       const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
       this.messages = stripChannelCapabilityContext(
