@@ -610,7 +610,7 @@ struct MainWindowView: View {
                                 SidebarSectionHeader(title: "Pinned Apps")
                                 Spacer()
                                 Button {
-                                    windowState.selection = .panel(.directory)
+                                    windowState.togglePanel(.directory)
                                 } label: {
                                     Text("View more")
                                         .font(VFont.caption)
