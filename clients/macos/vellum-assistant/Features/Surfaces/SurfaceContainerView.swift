@@ -95,6 +95,7 @@ struct SurfaceContainerView: View {
                     }
                 )
             case .table, .browserView, .documentPreview:
+                // These surfaces are rendered inline in chat, not in floating panels.
                 EmptyView()
             }
 
