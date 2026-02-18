@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { getLogger, initLogger } from "./logger.js";
+import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { sendTelegramAttachments, sendTelegramReply } from "./telegram/send.js";
 
@@ -59,6 +60,10 @@ function main() {
 
       if (url.pathname === "/healthz") {
         return Response.json({ status: "ok" });
+      }
+
+      if (url.pathname === "/schema") {
+        return Response.json(buildSchema());
       }
 
       if (url.pathname === "/readyz") {

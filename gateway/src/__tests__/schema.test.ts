@@ -1,0 +1,176 @@
+import { describe, test, expect, afterAll } from "bun:test";
+import { buildSchema } from "../schema.js";
+
+const PORT = 19836;
+
+const env: Record<string, string> = {
+  TELEGRAM_BOT_TOKEN: "test-tok",
+  TELEGRAM_WEBHOOK_SECRET: "wh-sec",
+  ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
+  GATEWAY_PORT: String(PORT),
+};
+
+const saved: Record<string, string | undefined> = {};
+for (const [k, v] of Object.entries(env)) {
+  saved[k] = process.env[k];
+  process.env[k] = v;
+}
+saved["GATEWAY_RUNTIME_PROXY_ENABLED"] = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
+delete process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
+
+const { loadConfig } = await import("../config.js");
+const { createTelegramWebhookHandler } = await import(
+  "../http/routes/telegram-webhook.js"
+);
+
+const config = loadConfig();
+
+const handleTelegramWebhook = createTelegramWebhookHandler(
+  config,
+  async () => {},
+);
+
+const draining = false;
+
+const server = Bun.serve({
+  port: PORT,
+  async fetch(req) {
+    const url = new URL(req.url);
+
+    if (url.pathname === "/healthz") {
+      return Response.json({ status: "ok" });
+    }
+
+    if (url.pathname === "/schema") {
+      return Response.json(buildSchema());
+    }
+
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      return Response.json({ status: "ok" });
+    }
+
+    if (url.pathname === "/webhooks/telegram") {
+      return handleTelegramWebhook(req);
+    }
+
+    return Response.json({ error: "Not found" }, { status: 404 });
+  },
+});
+
+afterAll(() => {
+  server.stop(true);
+  for (const [k, v] of Object.entries(saved)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
+
+describe("/schema route", () => {
+  test("returns valid OpenAPI 3.1 schema via HTTP", async () => {
+    /**
+     * Tests that the /schema endpoint returns a valid OpenAPI document with
+     * the correct version and expected top-level structure.
+     */
+
+    // GIVEN a running gateway server
+
+    // WHEN we request the schema endpoint
+    const res = await fetch(`http://localhost:${PORT}/schema`);
+
+    // THEN we receive a 200 with valid JSON
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // AND the response is an OpenAPI 3.1 document
+    expect(body.openapi).toBe("3.1.0");
+    expect(body.info.title).toBe("Vellum Gateway");
+    expect(typeof body.info.version).toBe("string");
+
+    // AND it contains the expected top-level sections
+    expect(body.paths).toBeDefined();
+    expect(body.components).toBeDefined();
+    expect(body.components.schemas).toBeDefined();
+    expect(body.components.securitySchemes).toBeDefined();
+  });
+
+  test("schema includes all gateway routes", async () => {
+    /**
+     * Tests that the schema documents every route the gateway exposes.
+     */
+
+    // GIVEN a running gateway server
+
+    // WHEN we request the schema endpoint
+    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const body = await res.json();
+
+    // THEN the paths include every gateway endpoint
+    expect(body.paths["/healthz"]).toBeDefined();
+    expect(body.paths["/readyz"]).toBeDefined();
+    expect(body.paths["/schema"]).toBeDefined();
+    expect(body.paths["/webhooks/telegram"]).toBeDefined();
+    expect(body.paths["/{path}"]).toBeDefined();
+  });
+
+  test("schema version matches package.json version", async () => {
+    /**
+     * Tests that the schema info.version stays in sync with package.json.
+     */
+
+    // GIVEN the version from package.json
+    const pkg = (await import("../../package.json")).default;
+
+    // WHEN we request the schema endpoint
+    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const body = await res.json();
+
+    // THEN the schema version matches the package version
+    expect(body.info.version).toBe(pkg.version);
+  });
+});
+
+describe("buildSchema()", () => {
+  test("returns a plain object with all component schemas", () => {
+    /**
+     * Tests that buildSchema() includes all expected component schema
+     * definitions for request/response types.
+     */
+
+    // GIVEN no special setup needed
+
+    // WHEN we call buildSchema directly
+    const schema = buildSchema();
+
+    // THEN it contains all expected component schemas
+    const components = schema.components as Record<string, Record<string, unknown>>;
+    const schemaNames = Object.keys(components.schemas);
+    expect(schemaNames).toContain("HealthResponse");
+    expect(schemaNames).toContain("ReadyResponse");
+    expect(schemaNames).toContain("DrainingResponse");
+    expect(schemaNames).toContain("ErrorResponse");
+    expect(schemaNames).toContain("TelegramOk");
+    expect(schemaNames).toContain("TelegramUpdate");
+    expect(schemaNames).toContain("TelegramMessage");
+    expect(schemaNames).toContain("TelegramPhotoSize");
+    expect(schemaNames).toContain("TelegramDocument");
+  });
+
+  test("returns a JSON-serializable object", () => {
+    /**
+     * Tests that the schema can be round-tripped through JSON without loss.
+     */
+
+    // GIVEN no special setup needed
+
+    // WHEN we serialize and deserialize the schema
+    const schema = buildSchema();
+    const json = JSON.stringify(schema);
+    const parsed = JSON.parse(json);
+
+    // THEN the round-tripped object equals the original
+    expect(parsed).toEqual(schema);
+  });
+});
