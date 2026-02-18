@@ -15,7 +15,7 @@ import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { attachments, messageAttachments, messages, conversations } from '../../memory/schema.js';
 import type { StoredAttachment } from '../../memory/attachments-store.js';
-import { filterVisibleAttachments, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
+import type { AttachmentContext } from '../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../memory/conversation-store.js';
 
 // ---------------------------------------------------------------------------
@@ -77,27 +77,29 @@ export function getAttachmentSourceConversations(
 }
 
 /**
- * Build an AttachmentContext for a given attachment by examining its
- * source conversations. If ALL source conversations are private, the
- * attachment is considered private (scoped to the first private
- * conversation found). If any source conversation is standard, the
- * attachment is considered visible everywhere.
+ * Check whether an attachment is visible from the given context.
+ * Returns true if visible, false if hidden.
+ *
+ * - Orphan attachments (no message linkage) are universally visible.
+ * - Attachments with any standard-thread source are universally visible.
+ * - All-private attachments are visible only if the caller is in one of
+ *   the source private threads.
  */
-function getAttachmentVisibilityContext(attachmentId: string): AttachmentContext | null {
+function isAttachmentVisibleFromContext(attachmentId: string, currentContext: AttachmentContext): boolean {
   const sources = getAttachmentSourceConversations(attachmentId);
   if (sources.length === 0) {
-    // No message linkage — treat as universally visible (orphan attachment)
-    return null;
+    return true;
   }
 
   const hasStandard = sources.some((s) => s.threadType !== 'private');
   if (hasStandard) {
-    // At least one standard-thread source — attachment is globally visible
-    return { conversationId: sources[0].conversationId, isPrivate: false };
+    return true;
   }
 
-  // All sources are private — scope to the first private conversation
-  return { conversationId: sources[0].conversationId, isPrivate: true };
+  // All sources are private — visible only if the caller is in one of those threads
+  return sources.some(
+    (s) => currentContext.isPrivate && currentContext.conversationId === s.conversationId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -314,12 +316,14 @@ class AssetSearchTool implements Tool {
     }
 
     try {
+      // Over-fetch with MAX_RESULTS so visibility filtering doesn't
+      // under-fill the caller's requested limit.
       const results = searchAttachments({
         mime_type: mimeType,
         filename,
         recency,
         conversation_id: conversationId,
-        limit,
+        limit: MAX_RESULTS,
       });
 
       // Enforce private-thread visibility: filter out attachments that
@@ -330,11 +334,10 @@ class AssetSearchTool implements Tool {
         isPrivate: currentThreadType === 'private',
       };
 
-      const visible = filterVisibleAttachments(results, currentContext, (attachment) => {
-        const ctx = getAttachmentVisibilityContext(attachment.id);
-        // Orphan attachments (no message linkage) are treated as globally visible
-        return ctx ?? { conversationId: '', isPrivate: false };
-      });
+      const effectiveLimit = Math.min(limit ?? DEFAULT_LIMIT, MAX_RESULTS);
+      const visible = results
+        .filter((attachment) => isAttachmentVisibleFromContext(attachment.id, currentContext))
+        .slice(0, effectiveLimit);
 
       if (visible.length === 0) {
         return { content: 'No assets found matching the search criteria.', isError: false };
