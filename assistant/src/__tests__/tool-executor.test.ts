@@ -925,6 +925,11 @@ describe('isSideEffectTool', () => {
       'host_bash',
       'web_fetch',
       'browser_navigate',
+      'browser_click',
+      'browser_type',
+      'browser_press_key',
+      'browser_close',
+      'browser_fill_credential',
     ];
 
     for (const toolName of sideEffectTools) {
@@ -942,7 +947,8 @@ describe('isSideEffectTool', () => {
       'web_search',
       'browser_snapshot',
       'browser_screenshot',
-      'browser_close',
+      'browser_wait_for',
+      'browser_extract',
       'skill_load',
       'schedule_list',
       'evaluate_typescript_code',
@@ -1172,6 +1178,11 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
       { name: 'host_bash', input: { command: 'echo hi' } },
       { name: 'web_fetch', input: { url: 'https://example.com' } },
       { name: 'browser_navigate', input: { url: 'https://example.com' } },
+      { name: 'browser_click', input: { selector: '#btn' } },
+      { name: 'browser_type', input: { selector: '#input', text: 'hello' } },
+      { name: 'browser_press_key', input: { key: 'Enter' } },
+      { name: 'browser_close', input: {} },
+      { name: 'browser_fill_credential', input: { selector: '#pwd', credential: 'test' } },
     ];
 
     for (const { name, input } of sideEffectTools) {
@@ -1247,5 +1258,50 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
 
     expect(result.isError).toBe(false);
     expect(promptCalled).toBe(true);
+  });
+
+  // ── Browser action tools as side-effect tools (PR fix2) ──────────
+
+  test('browser_click forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'browser_click',
+      { selector: '#submit-btn' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('browser_type forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'browser_type',
+      { selector: '#search-input', text: 'query' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('browser_snapshot does NOT force prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'browser_snapshot',
+      {},
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // browser_snapshot is read-only — must NOT trigger forced prompting
+    expect(promptCalled).toBe(false);
   });
 });
