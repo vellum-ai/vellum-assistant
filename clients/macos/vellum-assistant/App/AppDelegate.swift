@@ -682,7 +682,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // still reaches the frontmost app.
         hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
-                  event.charactersIgnoringModifiers == "g" else { return }
+                  event.charactersIgnoringModifiers?.lowercased() == "g" else { return }
             Task { @MainActor in
                 self?.showMainWindow()
             }
@@ -1041,6 +1041,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Application Lifecycle
 
     public func applicationWillTerminate(_ notification: Notification) {
+        if let monitor = hotKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
