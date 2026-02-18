@@ -129,6 +129,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `document_list_response` message.
     public var onDocumentListResponse: ((DocumentListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `document_load_response` message.
+    public var onDocumentLoadResponse: ((DocumentLoadResponseMessage) -> Void)?
+
     /// Called when the daemon sends an `app_files_changed` broadcast.
     public var onAppFilesChanged: ((String) -> Void)?
 
@@ -1210,9 +1213,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onDocumentEditorUpdate?(msg)
         case .documentSaveResponse(let msg):
             onDocumentSaveResponse?(msg)
-        case .documentLoadResponse(_):
-            // TODO: Handle document load response
-            break
+        case .documentLoadResponse(let msg):
+            onDocumentLoadResponse?(msg)
         case .documentListResponse(let msg):
             onDocumentListResponse?(msg)
         case .uiLayoutConfig(let msg):

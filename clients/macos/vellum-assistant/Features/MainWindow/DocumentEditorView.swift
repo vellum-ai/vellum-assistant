@@ -336,6 +336,9 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
         const content = window.editor.getMarkdown();
         const title = titleInput.value.trim() || 'Untitled Document';
 
+        // Update word count before sending to ensure fresh data
+        updateWordCount();
+
         if (typeof window.vellum !== 'undefined' && typeof window.vellum.sendAction === 'function') {
           window.vellum.sendAction('content_changed', {
             title,
@@ -343,8 +346,6 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
             wordCount
           });
         }
-
-        updateWordCount();
       }, 500);
     }
 
