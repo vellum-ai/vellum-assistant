@@ -649,12 +649,18 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   });
 
   const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
-  saveAssistantEntry({
-    assistantId: instanceName,
-    runtimeUrl,
-    species,
-    hatchedAt: new Date().toISOString(),
-  });
+  const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+  if (entryFilePath) {
+    writeFileSync(
+      entryFilePath,
+      JSON.stringify({
+        assistantId: instanceName,
+        runtimeUrl,
+        species,
+        hatchedAt: new Date().toISOString(),
+      }),
+    );
+  }
 
   console.log("");
   console.log(`✅ Local assistant hatched!`);
