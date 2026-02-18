@@ -231,6 +231,7 @@ export function searchContacts(params: {
   // Search by channel address first (exact or partial match)
   if (params.channelAddress) {
     const normalizedAddress = escapeLike(params.channelAddress.toLowerCase());
+    if (!normalizedAddress) return [];
     const channelRows = db
       .select()
       .from(contactChannels)
@@ -258,7 +259,10 @@ export function searchContacts(params: {
   // Search by display name and/or relationship
   const conditions = [];
   if (params.query) {
-    conditions.push(like(contacts.displayName, `%${escapeLike(params.query)}%`));
+    const sanitized = escapeLike(params.query);
+    if (sanitized) {
+      conditions.push(like(contacts.displayName, `%${sanitized}%`));
+    }
   }
   if (params.relationship) {
     conditions.push(eq(contacts.relationship, params.relationship));
