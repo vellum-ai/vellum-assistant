@@ -930,6 +930,8 @@ describe('isSideEffectTool', () => {
       'browser_press_key',
       'browser_close',
       'browser_fill_credential',
+      'document_create',
+      'document_update',
     ];
 
     for (const toolName of sideEffectTools) {
@@ -964,6 +966,44 @@ describe('isSideEffectTool', () => {
   test('returns false for unknown tool names', () => {
     expect(isSideEffectTool('nonexistent_tool')).toBe(false);
     expect(isSideEffectTool('')).toBe(false);
+  });
+
+  describe('action-aware classification for mixed-action tools', () => {
+    test('account_manage create is a side-effect', () => {
+      expect(isSideEffectTool('account_manage', { action: 'create' })).toBe(true);
+    });
+
+    test('account_manage update is a side-effect', () => {
+      expect(isSideEffectTool('account_manage', { action: 'update' })).toBe(true);
+    });
+
+    test('account_manage list is NOT a side-effect', () => {
+      expect(isSideEffectTool('account_manage', { action: 'list' })).toBe(false);
+    });
+
+    test('account_manage get is NOT a side-effect', () => {
+      expect(isSideEffectTool('account_manage', { action: 'get' })).toBe(false);
+    });
+
+    test('account_manage without input is NOT a side-effect', () => {
+      expect(isSideEffectTool('account_manage')).toBe(false);
+    });
+
+    test('reminder create is a side-effect', () => {
+      expect(isSideEffectTool('reminder', { action: 'create' })).toBe(true);
+    });
+
+    test('reminder cancel is a side-effect', () => {
+      expect(isSideEffectTool('reminder', { action: 'cancel' })).toBe(true);
+    });
+
+    test('reminder list is NOT a side-effect', () => {
+      expect(isSideEffectTool('reminder', { action: 'list' })).toBe(false);
+    });
+
+    test('reminder without input is NOT a side-effect', () => {
+      expect(isSideEffectTool('reminder')).toBe(false);
+    });
   });
 });
 
@@ -1183,6 +1223,10 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
       { name: 'browser_press_key', input: { key: 'Enter' } },
       { name: 'browser_close', input: {} },
       { name: 'browser_fill_credential', input: { selector: '#pwd', credential: 'test' } },
+      { name: 'document_create', input: { title: 'doc', content: 'body' } },
+      { name: 'document_update', input: { id: 'doc-1', content: 'updated' } },
+      { name: 'account_manage', input: { action: 'create', name: 'acct' } },
+      { name: 'reminder', input: { action: 'create', message: 'remind me' } },
     ];
 
     for (const { name, input } of sideEffectTools) {
@@ -1302,6 +1346,96 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
 
     expect(result.isError).toBe(false);
     // browser_snapshot is read-only — must NOT trigger forced prompting
+    expect(promptCalled).toBe(false);
+  });
+
+  // ── Always-mutating document tools (PR fix5) ──────────
+
+  test('document_create forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'document_create',
+      { title: 'New Doc', content: 'hello' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('document_update forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'document_update',
+      { id: 'doc-1', content: 'updated' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  // ── Action-aware mixed-action tools (PR fix5) ──────────
+
+  test('account_manage create forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'account_manage',
+      { action: 'create', name: 'test-account' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('account_manage list does NOT force prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'account_manage',
+      { action: 'list' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // list is read-only — must NOT trigger forced prompting
+    expect(promptCalled).toBe(false);
+  });
+
+  test('reminder create forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'reminder',
+      { action: 'create', message: 'test reminder' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('reminder list does NOT force prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'reminder',
+      { action: 'list' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // list is read-only — must NOT trigger forced prompting
     expect(promptCalled).toBe(false);
   });
 });
