@@ -127,6 +127,7 @@ export async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_gl
     .where(and(
       eq(memoryItems.status, 'active'),
       isNull(memoryItems.invalidAt),
+      eq(memoryItems.scopeId, 'default'),
       gte(memoryItems.lastSeenAt, startMs),
       lt(memoryItems.lastSeenAt, endMs),
     ))
@@ -140,6 +141,7 @@ export async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_gl
     .from(memorySummaries)
     .where(and(
       eq(memorySummaries.scope, 'conversation'),
+      eq(memorySummaries.scopeId, 'default'),
       gte(memorySummaries.endAt, startMs),
       lt(memorySummaries.startAt, endMs),
     ))
