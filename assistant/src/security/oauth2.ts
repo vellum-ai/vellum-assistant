@@ -39,6 +39,7 @@ export interface OAuth2FlowCallbacks {
 export interface OAuth2FlowResult {
   tokens: OAuth2TokenResult;
   grantedScopes: string[];
+  rawTokenResponse: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +192,7 @@ export async function startOAuth2Flow(
       ? tokens.scope.split(/[ ,]/).filter(Boolean)
       : [...config.scopes];
 
-    return { tokens, grantedScopes };
+    return { tokens, grantedScopes, rawTokenResponse: tokenData };
   } finally {
     clearTimeout(timeout);
     server.stop(true);

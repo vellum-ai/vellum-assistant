@@ -15,6 +15,7 @@ import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
+import { authTest, conversationsOpen, postMessage } from '../../messaging/providers/slack/client.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -55,7 +56,7 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
     scopes: [
       'channels:read', 'channels:history',
       'groups:read', 'groups:history',
-      'im:read', 'im:history',
+      'im:read', 'im:history', 'im:write',
       'mpim:read', 'mpim:history',
       'users:read', 'chat:write',
       'search:read', 'reactions:write',
@@ -556,7 +557,7 @@ class CredentialStoreTool implements Tool {
         try {
           const allowedTools = input.allowed_tools as string[] | undefined;
 
-          const { tokens, grantedScopes } = await startOAuth2Flow(
+          const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
             { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl },
             {
               openUrl: (url) => {
@@ -601,6 +602,25 @@ class CredentialStoreTool implements Tool {
             const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
             if (refreshStored) {
               upsertCredentialMetadata(service, 'refresh_token', {});
+            }
+          }
+
+          // Send a welcome DM for Slack connections
+          if (service === 'integration:slack') {
+            try {
+              const botToken = rawTokenResponse.access_token as string | undefined;
+              const authedUser = rawTokenResponse.authed_user as Record<string, unknown> | undefined;
+              const installingUserId = authedUser?.id as string | undefined;
+              if (botToken && installingUserId) {
+                const identity = await authTest(botToken);
+                const dmChannel = await conversationsOpen(botToken, installingUserId);
+                const welcomeMsg =
+                  `You have installed ${identity.user}, an AI Assistant, on ${identity.team}. ` +
+                  `Manage the assistant experience for this workspace in the workspace settings page.`;
+                await postMessage(botToken, dmChannel.channel.id, welcomeMsg);
+              }
+            } catch (err) {
+              log.warn({ err }, 'Failed to send Slack welcome DM (non-fatal)');
             }
           }
 

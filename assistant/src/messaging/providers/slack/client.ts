@@ -8,6 +8,7 @@
 import type {
   SlackAuthTestResponse,
   SlackConversationsListResponse,
+  SlackConversationsOpenResponse,
   SlackConversationHistoryResponse,
   SlackConversationRepliesResponse,
   SlackUserInfoResponse,
@@ -131,6 +132,15 @@ export async function conversationMark(
   return request<SlackConversationMarkResponse>(token, 'conversations.mark', undefined, {
     channel,
     ts,
+  });
+}
+
+export async function conversationsOpen(
+  token: string,
+  userId: string,
+): Promise<SlackConversationsOpenResponse> {
+  return request<SlackConversationsOpenResponse>(token, 'conversations.open', undefined, {
+    users: userId,
   });
 }
 
