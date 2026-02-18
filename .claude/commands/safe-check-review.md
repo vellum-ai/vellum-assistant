@@ -84,10 +84,7 @@ If any reviewer requested changes OR CI is failing:
    cd <worktree> && git pull origin <branch>
    ```
 3. If CI is failing, read the failing check logs to understand what went wrong. If reviewers requested changes, read the **unresolved** review threads from step 2. Implement all fixes in the worktree.
-4. Validate:
-   ```bash
-   cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
-   ```
+4. Do NOT run tests, type-checking (tsc), or linting unless the review feedback specifically requires it.
 5. Commit and push:
    ```bash
    cd <worktree>

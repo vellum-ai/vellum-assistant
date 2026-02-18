@@ -67,7 +67,7 @@ ALL work happens here. Do NOT touch the main repo.
 
 ## Workflow
 1. Make the changes in your worktree.
-2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
+2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
 3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
    cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
 4. Send a message to "lead" with:
