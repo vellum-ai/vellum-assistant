@@ -27,6 +27,8 @@ import { initializeDb, getDb } from '../memory/db.js';
 import {
   createConversation,
   getConversation,
+  getConversationThreadType,
+  getConversationMemoryScopeId,
   addMessage,
   getMessages,
   deleteLastExchange,
@@ -381,5 +383,41 @@ describe('createConversation with thread type option', () => {
     const conv = createConversation();
     expect(conv.threadType).toBe('standard');
     expect(conv.memoryScopeId).toBe('default');
+  });
+});
+
+describe('conversation metadata read helpers', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test('getConversationThreadType returns standard for standard conversation', () => {
+    const conv = createConversation('test');
+    expect(getConversationThreadType(conv.id)).toBe('standard');
+  });
+
+  test('getConversationThreadType returns private for private conversation', () => {
+    const conv = createConversation({ threadType: 'private' });
+    expect(getConversationThreadType(conv.id)).toBe('private');
+  });
+
+  test('getConversationThreadType returns standard for missing conversation', () => {
+    expect(getConversationThreadType('nonexistent-id')).toBe('standard');
+  });
+
+  test('getConversationMemoryScopeId returns default for standard conversation', () => {
+    const conv = createConversation('test');
+    expect(getConversationMemoryScopeId(conv.id)).toBe('default');
+  });
+
+  test('getConversationMemoryScopeId returns private scope for private conversation', () => {
+    const conv = createConversation({ threadType: 'private' });
+    expect(getConversationMemoryScopeId(conv.id)).toBe(`private:${conv.id}`);
+  });
+
+  test('getConversationMemoryScopeId returns default for missing conversation', () => {
+    expect(getConversationMemoryScopeId('nonexistent-id')).toBe('default');
   });
 });

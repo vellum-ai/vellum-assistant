@@ -58,6 +58,17 @@ export function getConversation(id: string) {
   return result ?? null;
 }
 
+export function getConversationThreadType(conversationId: string): 'standard' | 'private' {
+  const conv = getConversation(conversationId);
+  const raw = conv?.threadType;
+  return raw === 'private' ? 'private' : 'standard';
+}
+
+export function getConversationMemoryScopeId(conversationId: string): string {
+  const conv = getConversation(conversationId);
+  return conv?.memoryScopeId ?? 'default';
+}
+
 /**
  * Delete a conversation and all its messages.
  * Used for ephemeral conversations (e.g. secret-redirect placeholders)
