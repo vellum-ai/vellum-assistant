@@ -36,7 +36,7 @@ export const subagentMessageTool: Tool = {
     return definition;
   },
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const subagentId = input.subagent_id as string;
     const content = input.content as string;
 
@@ -45,6 +45,16 @@ export const subagentMessageTool: Tool = {
     }
 
     const manager = getSubagentManager();
+
+    // Ownership check: only the parent session can message a subagent.
+    const state = manager.getState(subagentId);
+    if (!state || state.config.parentSessionId !== context.sessionId) {
+      return {
+        content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,
+        isError: true,
+      };
+    }
+
     const sent = manager.sendMessage(subagentId, content);
 
     if (!sent) {

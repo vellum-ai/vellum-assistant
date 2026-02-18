@@ -299,6 +299,13 @@ export class SubagentManager {
         count++;
       }
     }
+
+    // Dispose all children (terminal or not) to free resources.
+    // Use snapshot since dispose mutates the set.
+    for (const childId of [...children]) {
+      this.dispose(childId);
+    }
+
     return count;
   }
 
