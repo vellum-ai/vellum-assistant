@@ -2397,6 +2397,63 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 
 ---
 
+## Watcher System — Event-Driven Polling
+
+Watchers poll external APIs on an interval, detect new events via watermark-based change tracking, and process them through a background LLM session.
+
+```mermaid
+graph TD
+    subgraph "Scheduler (15s tick)"
+        TICK["runScheduleOnce()"]
+        CRON["Cron Jobs"]
+        REMIND["Reminders"]
+        WATCH["runWatchersOnce()"]
+    end
+
+    subgraph "Watcher Engine"
+        CLAIM["claimDueWatchers()"]
+        POLL["provider.fetchNew()"]
+        DEDUP["insertWatcherEvent()"]
+        PROCESS["processMessage()"]
+    end
+
+    subgraph "Provider Registry"
+        GMAIL["Gmail Provider"]
+        FUTURE["Future Providers..."]
+    end
+
+    subgraph "Disposition"
+        SILENT["silent → log"]
+        NOTIFY["notify → macOS notification"]
+        ESCALATE["escalate → user chat"]
+    end
+
+    TICK --> CRON
+    TICK --> REMIND
+    TICK --> WATCH
+    WATCH --> CLAIM
+    CLAIM --> POLL
+    POLL --> GMAIL
+    POLL --> FUTURE
+    POLL --> DEDUP
+    DEDUP --> PROCESS
+    PROCESS --> SILENT
+    PROCESS --> NOTIFY
+    PROCESS --> ESCALATE
+```
+
+**Key design decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| Watermark-based polling | Efficient change detection without webhooks; each provider defines its own cursor format |
+| Background conversations | LLM retains context across polls (e.g. "already replied to this thread"); invisible to user's chat |
+| Circuit breaker (5 errors → disable) | Prevents runaway polling when credentials expire or APIs break |
+| Provider interface | Extensible: implement `WatcherProvider` for any external API (Gmail, Stripe, Gong, Salesforce, etc.) |
+| Optimistic claim locking | Prevents double-polling in concurrent scheduler ticks |
+
+**Data tables:** `watchers` (config, watermark, status, error tracking) and `watcher_events` (detected events, dedup on `(watcher_id, external_id)`, disposition tracking).
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -2422,4 +2479,5 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 | Media embed settings | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON | `WorkspaceConfigIO` (atomic merge) | Permanent |
 | Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
+| Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |

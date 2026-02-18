@@ -6,6 +6,7 @@ import {
   completeScheduleRun,
 } from './schedule-store.js';
 import { claimDueReminders, completeReminder, failReminder, setReminderConversationId } from '../tools/reminder/reminder-store.js';
+import { runWatchersOnce, type WatcherNotifier, type WatcherEscalator } from '../watcher/engine.js';
 
 const log = getLogger('scheduler');
 
@@ -29,6 +30,8 @@ export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyReminder: ReminderNotifier,
   notifySchedule: ScheduleNotifier,
+  watcherNotifier?: WatcherNotifier,
+  watcherEscalator?: WatcherEscalator,
 ): SchedulerHandle {
   let stopped = false;
   let tickRunning = false;
@@ -37,7 +40,7 @@ export function startScheduler(
     if (stopped || tickRunning) return;
     tickRunning = true;
     try {
-      await runScheduleOnce(processMessage, notifyReminder, notifySchedule);
+      await runScheduleOnce(processMessage, notifyReminder, notifySchedule, watcherNotifier, watcherEscalator);
     } catch (err) {
       log.error({ err }, 'Schedule tick failed');
     } finally {
@@ -51,7 +54,7 @@ export function startScheduler(
 
   return {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(processMessage, notifyReminder, notifySchedule);
+      return runScheduleOnce(processMessage, notifyReminder, notifySchedule, watcherNotifier, watcherEscalator);
     },
     stop(): void {
       stopped = true;
@@ -64,6 +67,8 @@ async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyReminder: ReminderNotifier,
   notifySchedule: ScheduleNotifier,
+  watcherNotifier?: WatcherNotifier,
+  watcherEscalator?: WatcherEscalator,
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;
@@ -112,6 +117,16 @@ async function runScheduleOnce(
       }
     }
     processed += 1;
+  }
+
+  // ── Watchers (event-driven polling) ────────────────────────────────
+  if (watcherNotifier && watcherEscalator) {
+    try {
+      const watcherProcessed = await runWatchersOnce(processMessage, watcherNotifier, watcherEscalator);
+      processed += watcherProcessed;
+    } catch (err) {
+      log.error({ err }, 'Watcher tick failed');
+    }
   }
 
   if (processed > 0) {

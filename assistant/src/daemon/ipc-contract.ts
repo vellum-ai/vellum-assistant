@@ -1386,6 +1386,18 @@ export interface ScheduleComplete {
   name: string;
 }
 
+export interface WatcherNotification {
+  type: 'watcher_notification';
+  title: string;
+  body: string;
+}
+
+export interface WatcherEscalation {
+  type: 'watcher_escalation';
+  title: string;
+  body: string;
+}
+
 export interface WatchStarted {
   type: 'watch_started';
   sessionId: string;
@@ -1575,6 +1587,8 @@ export type ServerMessage =
   | MessageDequeued
   | ReminderFired
   | ScheduleComplete
+  | WatcherNotification
+  | WatcherEscalation
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse

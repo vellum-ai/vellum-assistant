@@ -30,6 +30,9 @@ import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { startScheduler } from '../schedule/scheduler.js';
+import { initWatcherEngine } from '../watcher/engine.js';
+import { registerWatcherProvider } from '../watcher/provider-registry.js';
+import { gmailProvider } from '../watcher/providers/gmail.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
@@ -282,6 +285,10 @@ export async function runDaemon(): Promise<void> {
   await server.start();
   log.info('Daemon startup: DaemonServer started, starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
+  // Initialize watcher engine and register providers
+  registerWatcherProvider(gmailProvider);
+  initWatcherEngine();
+
   const scheduler = startScheduler(
     async (conversationId, message) => {
       await server.processMessage('schedule', conversationId, message);
@@ -299,6 +306,20 @@ export async function runDaemon(): Promise<void> {
         type: 'schedule_complete',
         scheduleId: schedule.id,
         name: schedule.name,
+      });
+    },
+    (notification) => {
+      server.broadcast({
+        type: 'watcher_notification',
+        title: notification.title,
+        body: notification.body,
+      });
+    },
+    (params) => {
+      server.broadcast({
+        type: 'watcher_escalation',
+        title: params.title,
+        body: params.body,
       });
     },
   );

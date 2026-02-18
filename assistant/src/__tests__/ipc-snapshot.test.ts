@@ -727,6 +727,16 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     scheduleId: 'sched-001',
     name: 'Daily backup',
   },
+  watcher_notification: {
+    type: 'watcher_notification',
+    title: 'Watcher disabled: My Gmail',
+    body: 'Disabled after 5 consecutive errors.',
+  },
+  watcher_escalation: {
+    type: 'watcher_escalation',
+    title: 'Urgent email from Alice',
+    body: 'Meeting rescheduled to 3pm today.',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',

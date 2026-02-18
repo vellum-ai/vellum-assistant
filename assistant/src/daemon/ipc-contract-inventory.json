@@ -318,6 +318,8 @@
     "user_message_echo",
     "vercel_api_config_response",
     "watch_complete_request",
-    "watch_started"
+    "watch_started",
+    "watcher_escalation",
+    "watcher_notification"
   ]
 }
