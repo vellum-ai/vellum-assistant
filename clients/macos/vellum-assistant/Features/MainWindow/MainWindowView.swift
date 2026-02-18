@@ -1714,14 +1714,21 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    // Left: Edit ghost button
-                    GhostButton("Edit", icon: isChatDockOpen ? "pencil.slash" : "pencil") {
-                        if !isChatDockOpen {
-                            windowState.workspaceComposerExpanded = false
+                    // Left: Done Editing primary CTA in edit mode, Edit ghost button otherwise
+                    if case .appEditing = windowState.selection {
+                        VButton(label: "Done Editing", style: .primary) {
+                            onToggleChatDock()
                         }
-                        onToggleChatDock()
+                        .controlSize(.small)
+                    } else {
+                        GhostButton("Edit", icon: "pencil") {
+                            if !isChatDockOpen {
+                                windowState.workspaceComposerExpanded = false
+                            }
+                            onToggleChatDock()
+                        }
+                        .accessibilityLabel("Edit app")
                     }
-                    .accessibilityLabel(isChatDockOpen ? "Close editor" : "Edit app")
 
                     Spacer()
 
