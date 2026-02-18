@@ -414,16 +414,18 @@ export async function runDaemon(): Promise<void> {
     log.info('Shutting down daemon...');
 
     hookManager.stopWatching();
-    await heartbeat.stop();
 
     // Force exit if graceful shutdown takes too long.
-    // Set this BEFORE triggering daemon-stop hooks so it covers hook execution time.
+    // Set this BEFORE awaiting heartbeat stop and triggering daemon-stop hooks
+    // so it covers all potentially-blocking async shutdown work.
     const forceTimer = setTimeout(() => {
       log.warn('Graceful shutdown timed out, forcing exit');
       cleanupPidFile();
       process.exit(1);
     }, 10_000);
     forceTimer.unref();
+
+    await heartbeat.stop();
 
     try {
       await hookManager.trigger('daemon-stop', { pid: process.pid });
