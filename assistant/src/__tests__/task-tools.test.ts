@@ -334,6 +334,7 @@ describe('task_list tool', () => {
     expect(result.content).toContain('file_read');
     expect(result.content).toContain('file_write');
     expect(result.content).toContain('file_path');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
   });
 
   test('returns empty message when no tasks exist', async () => {
@@ -341,6 +342,7 @@ describe('task_list tool', () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No task templates found');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
   });
 
   test('shows task status and creation date', async () => {
