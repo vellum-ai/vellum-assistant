@@ -157,7 +157,9 @@ public struct ToolConfirmationBubble: View {
             // Action buttons at top
             buttonRow
 
-            // Technical details accordion (collapsed by default)
+            Divider()
+
+            // More Details accordion (collapsed by default)
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     withAnimation(VAnimation.fast) {
@@ -169,7 +171,7 @@ public struct ToolConfirmationBubble: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
-                        Text("Technical details")
+                        Text("More details")
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.textMuted)
                     }
