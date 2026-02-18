@@ -12,6 +12,7 @@ public struct SettingsView: View {
     @State private var showingPrivacy = false
     @State private var showingSkills = false
     @State private var showingTrustRules = false
+    @State private var newAllowlistDomain = ""
     @State private var skillsViewModel: SkillsSettingsViewModel?
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var activationKey: ActivationKey = {
@@ -179,6 +180,54 @@ public struct SettingsView: View {
                 Text("Automatically embed images, videos, and other media shared in chat messages.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if store.mediaEmbedsEnabled {
+                    Divider()
+
+                    Text("Video Domain Allowlist")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+
+                    HStack {
+                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Add") {
+                            let domain = newAllowlistDomain
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !domain.isEmpty else { return }
+                            var domains = store.mediaEmbedVideoAllowlistDomains
+                            domains.append(domain)
+                            store.setMediaEmbedVideoAllowlistDomains(domains)
+                            newAllowlistDomain = ""
+                        }
+                        .disabled(newAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
+                        HStack {
+                            Text(domain)
+                                .font(.body)
+                            Spacer()
+                            Button {
+                                var domains = store.mediaEmbedVideoAllowlistDomains
+                                domains.removeAll { $0 == domain }
+                                store.setMediaEmbedVideoAllowlistDomains(domains)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+
+                    HStack {
+                        Spacer()
+                        Button("Reset to Defaults") {
+                            store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
+                        }
+                        .font(.caption)
+                    }
+                }
             }
 
             Section("Permissions") {
