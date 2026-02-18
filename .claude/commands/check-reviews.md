@@ -95,4 +95,35 @@ Do NOT continue processing remaining PRs until the user responds.
 
 </instructions>
 
+## Phase 2: Check for merged PRs with CI failures
+
+After processing all items in UNREVIEWED_PRS.md, check for recently merged PRs where CI failed on the main branch.
+
+### How to detect CI failures
+
+Run: `gh run list --branch main --status failure --limit 10 --json databaseId,headSha,displayTitle,url,conclusion,createdAt,event`
+
+This returns failed workflow runs on main. For each failed run:
+
+1. **Find the associated PR**: Use `gh pr list --state merged --search "<headSha>" --json number,url,title,mergedAt --limit 1` or cross-reference the run's `displayTitle` / `headSha` with merged PRs. If you can't find a matching PR, use the run URL directly.
+2. **Skip if already in TODO**: Read .private/TODO.md and check if there's already a `Fix CI failures` entry for that PR or run. Don't add duplicates.
+3. **Add to TODO**: For each new CI failure, add `- Fix CI failures from merged PR <link to PR> (run: <link to failed run>)` to the **top** of .private/TODO.md (after any "Address the feedback" items, but before other tasks).
+
+### Output
+
+Append a second table to the output:
+
+**CI Failures on main:**
+
+| Run | PR | Title | Age | Added to TODO |
+| --- | --- | ----- | --- | ------------- |
+
+- **Run**: Link to the failed GitHub Actions run
+- **PR**: Link to the PR that introduced the failure (if identifiable), or "—"
+- **Title**: The run's display title
+- **Age**: How long ago the run was created
+- **Added to TODO**: ✅ if added, `dup` if already in TODO, — if skipped for other reasons
+
+If there are no CI failures on main, print: "No CI failures on main. ✅"
+
 IMPORTANT: .private/TODO.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md and .private/UNREVIEWED_PRS.md are gitignored.
