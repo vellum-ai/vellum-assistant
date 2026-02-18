@@ -375,12 +375,12 @@ struct SettingsPanel: View {
                             Text("New Private Thread")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
-                            Text("Private threads are excluded from memory and never appear in your thread history")
+                            Text("Private threads have isolated memory — facts learned in private threads stay private and won't appear in other conversations.")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
                         Spacer()
-                        VButton(label: "New Thread", style: .primary) {
+                        VButton(label: "New Private Thread", style: .primary) {
                             threadManager.createPrivateThread()
                             onClose()
                         }
