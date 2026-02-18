@@ -3545,21 +3545,21 @@ describe('Permission Checker', () => {
       });
     }
 
-    test('browser tools are auto-allowed in legacy mode (RiskLevel.Low)', async () => {
+    test('browser tools are auto-allowed in legacy mode', async () => {
       testConfig.permissions = { mode: 'legacy' };
       for (const toolName of browserToolNames) {
         const result = await check(toolName, {}, '/tmp');
         expect(result.decision).toBe('allow');
-        expect(result.reason).toContain('Low risk');
       }
     });
 
-    test('strict mode prompts browser tools without trust rules (no implicit auto-allow)', async () => {
+    test('browser tools are auto-allowed in strict mode via default allow rules', async () => {
       testConfig.permissions = { mode: 'strict' };
       try {
-        const result = await check('browser_navigate', { url: 'https://example.com' }, '/tmp');
-        expect(result.decision).toBe('prompt');
-        expect(result.reason).toContain('Strict mode');
+        for (const toolName of browserToolNames) {
+          const result = await check(toolName, {}, '/tmp');
+          expect(result.decision).toBe('allow');
+        }
       } finally {
         testConfig.permissions = { mode: 'legacy' };
       }
@@ -3582,6 +3582,35 @@ describe('Permission Checker', () => {
     test('skill_load with any skill name matches the default rule', async () => {
       const result = await check('skill_load', { skill: 'some-random-skill' }, '/tmp');
       expect(result.decision).toBe('allow');
+    });
+  });
+
+  // ── default allow: browser tools ──────────────────────────────
+
+  describe('default allow: browser tools', () => {
+    beforeEach(() => {
+      clearCache();
+      testConfig.permissions = { mode: 'strict' };
+    });
+
+    test('all browser tools are allowed by default rules in strict mode', async () => {
+      const browserTools = [
+        'browser_navigate', 'browser_snapshot', 'browser_screenshot', 'browser_close',
+        'browser_click', 'browser_type', 'browser_press_key', 'browser_wait_for',
+        'browser_extract', 'browser_fill_credential',
+      ];
+
+      for (const tool of browserTools) {
+        const result = await check(tool, {}, '/tmp');
+        expect(result.decision).toBe('allow');
+      }
+    });
+
+    test('non-browser skill tools are NOT auto-allowed', async () => {
+      // skill_test_tool is a registered skill-origin tool without a default
+      // allow rule — it should prompt in strict mode.
+      const result = await check('skill_test_tool', {}, '/tmp');
+      expect(result.decision).not.toBe('allow');
     });
   });
 });

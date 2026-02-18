@@ -712,6 +712,16 @@ describe('Trust Store', () => {
       )].sort();
       expect(defaultTools).toEqual([
         'bash',
+        'browser_click',
+        'browser_close',
+        'browser_extract',
+        'browser_fill_credential',
+        'browser_navigate',
+        'browser_press_key',
+        'browser_screenshot',
+        'browser_snapshot',
+        'browser_type',
+        'browser_wait_for',
         'computer_use_click',
         'computer_use_double_click',
         'computer_use_drag',
@@ -1000,6 +1010,34 @@ describe('Trust Store', () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:allow-skill_load-global');
       expect(match!.decision).toBe('allow');
+    });
+
+    // ── default allow: browser tools ────────────────────────────
+
+    test('all 10 browser tools have default allow rules', () => {
+      const templates = getDefaultRuleTemplates();
+      const browserTools = [
+        'browser_navigate', 'browser_snapshot', 'browser_screenshot', 'browser_close',
+        'browser_click', 'browser_type', 'browser_press_key', 'browser_wait_for',
+        'browser_extract', 'browser_fill_credential',
+      ];
+
+      for (const tool of browserTools) {
+        const rule = templates.find(t => t.id === `default:allow-${tool}-global`);
+        expect(rule).toBeDefined();
+        expect(rule!.tool).toBe(tool);
+        expect(rule!.pattern).toBe(`${tool}:*`);
+        expect(rule!.decision).toBe('allow');
+        expect(rule!.scope).toBe('everywhere');
+      }
+    });
+
+    test('browser tool default rules match via findHighestPriorityRule', () => {
+      // Use a candidate without slashes so the `browser_snapshot:*` pattern
+      // matches (minimatch `*` does not cross `/` boundaries).
+      const result = findHighestPriorityRule('browser_snapshot', ['browser_snapshot:'], '/tmp');
+      expect(result).toBeDefined();
+      expect(result!.decision).toBe('allow');
     });
 
     test('no default ask rules exist for file_read on skill source paths', () => {

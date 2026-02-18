@@ -170,6 +170,31 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
+  // After migration to skill-provided tools, default allow rules preserve the
+  // same frictionless UX so they don't trigger permission prompts.
+  const BROWSER_TOOLS = [
+    'browser_navigate',
+    'browser_snapshot',
+    'browser_screenshot',
+    'browser_close',
+    'browser_click',
+    'browser_type',
+    'browser_press_key',
+    'browser_wait_for',
+    'browser_extract',
+    'browser_fill_credential',
+  ] as const;
+
+  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOLS.map((tool) => ({
+    id: `default:allow-${tool}-global`,
+    tool,
+    pattern: `${tool}:*`,
+    scope: 'everywhere',
+    decision: 'allow' as const,
+    priority: 100,
+  }));
+
   return [
     ...protectedFileRules,
     ...hostFileRules,
@@ -180,5 +205,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     bootstrapDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
+    ...browserToolRules,
   ];
 }
