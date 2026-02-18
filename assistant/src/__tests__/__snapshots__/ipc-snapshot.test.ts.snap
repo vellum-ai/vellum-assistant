@@ -1660,3 +1660,166 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "type": "integration_connect_result",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "success": true,
+  "type": "browser_cdp_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_click serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_click",
+  "x": 100,
+  "y": 200,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_scroll serializes to expected JSON 1`] = `
+{
+  "deltaX": 0,
+  "deltaY": -100,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_scroll",
+  "x": 100,
+  "y": 200,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_keypress serializes to expected JSON 1`] = `
+{
+  "key": "Enter",
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_keypress",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_interactive_mode serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_interactive_mode",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
+{
+  "content": 
+"# Test
+
+Content here."
+,
+  "conversationId": "test-conversation",
+  "surfaceId": "test-surface",
+  "title": "Test Document",
+  "type": "document_save",
+  "wordCount": 3,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_load serializes to expected JSON 1`] = `
+{
+  "surfaceId": "test-surface",
+  "type": "document_load",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_list serializes to expected JSON 1`] = `
+{
+  "type": "document_list",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "type": "browser_cdp_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_interactive_mode_changed serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_interactive_mode_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_handoff_request serializes to expected JSON 1`] = `
+{
+  "message": "Login required",
+  "reason": "auth",
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_handoff_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_editor_show serializes to expected JSON 1`] = `
+{
+  "initialContent": 
+"# Test
+
+Content here."
+,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "title": "Test Document",
+  "type": "document_editor_show",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_editor_update serializes to expected JSON 1`] = `
+{
+  "markdown": 
+"# Updated
+
+New content."
+,
+  "mode": "edit",
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "document_editor_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_save_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "surfaceId": "test-surface",
+  "type": "document_save_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_load_response serializes to expected JSON 1`] = `
+{
+  "content": 
+"# Test
+
+Content here."
+,
+  "conversationId": "test-conversation",
+  "createdAt": 1700000000000,
+  "success": true,
+  "surfaceId": "test-surface",
+  "title": "Test Document",
+  "type": "document_load_response",
+  "updatedAt": 1700000000000,
+  "wordCount": 3,
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_list_response serializes to expected JSON 1`] = `
+{
+  "documents": [],
+  "type": "document_list_response",
+}
+`;

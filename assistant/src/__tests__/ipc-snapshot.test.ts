@@ -398,6 +398,21 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     surfaceId: 'test-surface',
     enabled: true,
   },
+  document_save: {
+    type: 'document_save',
+    surfaceId: 'test-surface',
+    conversationId: 'test-conversation',
+    title: 'Test Document',
+    content: '# Test\n\nContent here.',
+    wordCount: 3,
+  },
+  document_load: {
+    type: 'document_load',
+    surfaceId: 'test-surface',
+  },
+  document_list: {
+    type: 'document_list',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1104,6 +1119,40 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     surfaceId: 'test-surface',
     reason: 'auth' as const,
     message: 'Login required',
+  },
+  document_editor_show: {
+    type: 'document_editor_show',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    title: 'Test Document',
+    initialContent: '# Test\n\nContent here.',
+  },
+  document_editor_update: {
+    type: 'document_editor_update',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    markdown: '# Updated\n\nNew content.',
+    mode: 'edit',
+  },
+  document_save_response: {
+    type: 'document_save_response',
+    surfaceId: 'test-surface',
+    success: true,
+  },
+  document_load_response: {
+    type: 'document_load_response',
+    surfaceId: 'test-surface',
+    conversationId: 'test-conversation',
+    title: 'Test Document',
+    content: '# Test\n\nContent here.',
+    wordCount: 3,
+    createdAt: 1700000000000,
+    updatedAt: 1700000000000,
+    success: true,
+  },
+  document_list_response: {
+    type: 'document_list_response',
+    documents: [],
   },
 };
 
