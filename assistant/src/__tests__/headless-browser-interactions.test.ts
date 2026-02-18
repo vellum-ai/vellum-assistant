@@ -455,3 +455,82 @@ describe('executeBrowserPressKey', () => {
     expect(result.content).toContain('Key not recognized');
   });
 });
+
+// ── Wrapper contract tests ───────────────────────────────────────────
+// Verify that execution functions can be called the same way skill wrapper
+// scripts invoke them: run(input, context) → ToolExecutionResult
+
+describe('browser execution wrapper contract', () => {
+  beforeEach(() => {
+    resetMockPage();
+    snapshotMaps.clear();
+  });
+
+  test('executeBrowserClick matches wrapper contract (input, context) → result', async () => {
+    snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
+    const result = await executeBrowserClick({ element_id: 'e1' }, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(typeof result.content).toBe('string');
+    expect(typeof result.isError).toBe('boolean');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserType matches wrapper contract', async () => {
+    snapshotMaps.set('test-session', new Map([['e3', '[data-vellum-eid="e3"]']]));
+    const result = await executeBrowserType({ element_id: 'e3', text: 'hello' }, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserSnapshot matches wrapper contract', async () => {
+    mockPage.evaluate = mock(async () => [
+      { eid: 'e1', tag: 'button', attrs: {}, text: 'Click me' },
+    ]);
+    mockPage.title = mock(async () => 'Test');
+    mockPage.url = mock(() => 'https://example.com');
+    const result = await executeBrowserSnapshot({}, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserExtract matches wrapper contract', async () => {
+    mockPage.evaluate = mock(async () => 'Page text content');
+    mockPage.title = mock(async () => 'Test');
+    mockPage.url = mock(() => 'https://example.com');
+    const result = await executeBrowserExtract({}, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserPressKey matches wrapper contract', async () => {
+    const result = await executeBrowserPressKey({ key: 'Enter' }, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserScreenshot matches wrapper contract', async () => {
+    mockPage.screenshot = mock(async () => Buffer.from('fake-image'));
+    const result = await executeBrowserScreenshot({}, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserClose matches wrapper contract', async () => {
+    const result = await executeBrowserClose({}, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('error results have isError: true', async () => {
+    const result = await executeBrowserClick({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(typeof result.content).toBe('string');
+  });
+});
