@@ -36,8 +36,8 @@ struct InputBarView: View {
             AttachmentStripView(viewModel: viewModel)
 
             HStack(spacing: VSpacing.md) {
-                // Attachment button
-                Button(action: {}) {
+                // Attachment button — tap opens photo library (most common), long-press shows both options
+                Button(action: { showPhotosPicker = true }) {
                     Image(systemName: "paperclip")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
