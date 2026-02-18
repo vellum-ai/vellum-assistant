@@ -10,7 +10,7 @@ struct TaskQueuePanel: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VSidePanel(title: "Task Queue", onClose: onClose) {
+        VSidePanel(title: "Tasks", onClose: onClose) {
             if isLoading {
                 VStack {
                     Spacer()

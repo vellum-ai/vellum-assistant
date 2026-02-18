@@ -1424,7 +1424,7 @@ private struct DrawerMenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
-            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Task Queue", action: onTaskQueue)
+            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Tasks", action: onTaskQueue)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
