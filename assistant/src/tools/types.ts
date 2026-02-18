@@ -12,9 +12,9 @@ interface ToolLifecycleEventBase {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
-  /** Security principal kind (e.g. 'core' or 'skill'). */
+  /** Security principal kind (e.g. 'core', 'skill', or 'task'). */
   principalKind?: ToolPrincipalKind;
-  /** Security principal ID (skill ID when principalKind is 'skill'). */
+  /** Security principal ID (skill ID when principalKind is 'skill'; task ID when 'task'). */
   principalId?: string;
   /** Content-hash of the principal's source at invocation time. */
   principalVersion?: string;
