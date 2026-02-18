@@ -10,3 +10,7 @@ DerivedData/
 context.md
 Local.xcconfig
 daemon-bin/
+*.d
+*.o
+*.swiftdeps
+*.swiftdeps~
