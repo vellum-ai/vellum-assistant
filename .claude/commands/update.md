@@ -11,8 +11,9 @@ Pull the latest changes from main, restart the backend daemon, and rebuild/launc
    vellum daemon stop || true
    ```
 
-2. Pull latest from main:
+2. Switch to main and pull latest:
    ```bash
+   git checkout main
    git pull origin main
    ```
 
