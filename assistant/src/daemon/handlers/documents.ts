@@ -1,9 +1,33 @@
-import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from '../ipc-contract.js';
 import type { HandlerContext } from './shared.js';
 import type * as net from 'node:net';
 import { getDb } from '../../memory/db.js';
 
 import { writeFileSync } from 'node:fs';
+
+/** Locally-defined types — removed from ipc-contract but still used by document handlers. */
+interface DocumentSaveRequest {
+  type: 'document_save_request';
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+}
+
+interface DocumentLoadRequest {
+  type: 'document_load_request';
+  surfaceId: string;
+}
+
+interface DocumentListRequest {
+  type: 'document_list_request';
+  conversationId?: string;
+}
+
+/** Cast-through send for document messages that are no longer in the ServerMessage union. */
+function sendDoc(ctx: HandlerContext, socket: net.Socket, msg: Record<string, unknown>): void {
+  ctx.send(socket, msg as any);
+}
 
 export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket, ctx: HandlerContext): void {
   const logMsg = `[${new Date().toISOString()}] handleDocumentSave called: ${JSON.stringify({
@@ -49,7 +73,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
     );
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] db.run() completed, sending response...\n`, { flag: 'a' });
-    ctx.send(socket, {
+    sendDoc(ctx, socket, {
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: true,
@@ -60,7 +84,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
     console.log(`[documents] Saved document: ${msg.surfaceId} - "${msg.title}"`);
   } catch (error) {
     console.error('[documents] Save error:', error);
-    ctx.send(socket, {
+    sendDoc(ctx, socket, {
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: false,
@@ -72,12 +96,13 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as any).$client;
 
-    const result = db.get(/*sql*/ `
+    const result = sqlite.query(`
       SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
       FROM documents
       WHERE surface_id = ?
-    `, [msg.surfaceId]) as {
+    `).get(msg.surfaceId) as {
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -88,7 +113,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
     } | undefined;
 
     if (result) {
-      ctx.send(socket, {
+      sendDoc(ctx, socket, {
         type: 'document_load_response',
         surfaceId: result.surface_id,
         conversationId: result.conversation_id,
@@ -101,7 +126,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
       });
       console.log(`[documents] Loaded document: ${msg.surfaceId}`);
     } else {
-      ctx.send(socket, {
+      sendDoc(ctx, socket, {
         type: 'document_load_response',
         surfaceId: msg.surfaceId,
         conversationId: '',
@@ -117,7 +142,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
     }
   } catch (error) {
     console.error('[documents] Load error:', error);
-    ctx.send(socket, {
+    sendDoc(ctx, socket, {
       type: 'document_load_response',
       surfaceId: msg.surfaceId,
       conversationId: '',
@@ -135,8 +160,9 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as any).$client;
 
-    let query = /*sql*/ `
+    let query = `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
       FROM documents
     `;
@@ -149,7 +175,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
 
     query += ' ORDER BY updated_at DESC';
 
-    const results = db.all(query, params) as Array<{
+    const results = sqlite.query(query).all(...params) as Array<{
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -158,7 +184,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
       updated_at: number;
     }>;
 
-    ctx.send(socket, {
+    sendDoc(ctx, socket, {
       type: 'document_list_response',
       documents: results.map((row) => ({
         surfaceId: row.surface_id,
@@ -173,7 +199,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
     console.log(`[documents] Listed ${results.length} documents`);
   } catch (error) {
     console.error('[documents] List error:', error);
-    ctx.send(socket, {
+    sendDoc(ctx, socket, {
       type: 'document_list_response',
       documents: [],
     });

@@ -186,13 +186,13 @@ async function extractItemsWithLLM(
     const toolBlock = response.content.find((b) => b.type === 'tool_use');
     if (!toolBlock || toolBlock.type !== 'tool_use') {
       log.warn('No tool_use block in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text);
+      return extractItemsPatternBased(text, scopeId);
     }
 
     const input = toolBlock.input as { items?: LLMExtractedItem[] };
     if (!Array.isArray(input.items)) {
       log.warn('Invalid items in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text);
+      return extractItemsPatternBased(text, scopeId);
     }
 
     const items: ExtractedItem[] = [];

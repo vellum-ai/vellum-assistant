@@ -351,6 +351,20 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   accept_starter_bundle: {
     type: 'accept_starter_bundle',
   },
+  env_vars_request: {
+    type: 'env_vars_request',
+  },
+  integration_list: {
+    type: 'integration_list',
+  },
+  integration_connect: {
+    type: 'integration_connect',
+    integrationId: 'test-integration',
+  },
+  integration_disconnect: {
+    type: 'integration_disconnect',
+    integrationId: 'test-integration',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1026,6 +1040,31 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     rulesAdded: 5,
     alreadyAccepted: false,
   },
+  env_vars_response: {
+    type: 'env_vars_response',
+    vars: { PATH: '/usr/bin:/bin', HOME: '/Users/test' },
+  },
+  integration_list_response: {
+    type: 'integration_list_response',
+    integrations: [
+      {
+        id: 'test-integration',
+        connected: true,
+        accountInfo: 'test@example.com',
+        connectedAt: 1700000000,
+        lastUsed: 1700001000,
+        error: null,
+      },
+    ],
+  },
+  integration_connect_result: {
+    type: 'integration_connect_result',
+    integrationId: 'test-integration',
+    success: true,
+    accountInfo: 'test@example.com',
+    error: null,
+    setupRequired: false,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1214,20 +1253,22 @@ describe('IPC message snapshots', () => {
     test('session_create request includes threadType field', () => {
       const req = clientMessages.session_create;
       expect('threadType' in req).toBe(true);
-      expect((req as Record<string, unknown>).threadType).toBe('standard');
+      expect((req as unknown as Record<string, unknown>).threadType).toBe('standard');
     });
 
     test('session_info response includes threadType field', () => {
       const info = serverMessages.session_info;
       expect('threadType' in info).toBe(true);
-      expect((info as Record<string, unknown>).threadType).toBe('standard');
+      expect((info as unknown as Record<string, unknown>).threadType).toBe('standard');
     });
 
     test('session_list_response sessions include threadType field', () => {
       const list = serverMessages.session_list_response;
-      for (const s of list.sessions) {
-        expect('threadType' in s).toBe(true);
-        expect((s as Record<string, unknown>).threadType).toBe('standard');
+      if ('sessions' in list) {
+        for (const s of list.sessions) {
+          expect('threadType' in s).toBe(true);
+          expect((s as unknown as Record<string, unknown>).threadType).toBe('standard');
+        }
       }
     });
   });

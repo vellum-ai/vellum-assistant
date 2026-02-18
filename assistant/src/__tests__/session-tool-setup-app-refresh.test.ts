@@ -112,8 +112,8 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_update', { app_id: 'app-1', name: 'New Name' });
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(refreshSpy.mock.calls[0][0]).toBe(ctx);
-      expect(refreshSpy.mock.calls[0][1]).toBe('app-1');
+      expect((refreshSpy.mock.calls[0] as any[])[0]).toBe(ctx);
+      expect((refreshSpy.mock.calls[0] as any[])[1]).toBe('app-1');
     });
 
     test('broadcasts app_files_changed with correct appId', async () => {
@@ -129,7 +129,7 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_update', { app_id: 'app-42' });
 
       expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastSpy.mock.calls[0][0]).toEqual({
+      expect((broadcastSpy.mock.calls[0] as any[])[0]).toEqual({
         type: 'app_files_changed',
         appId: 'app-42',
       });
@@ -149,7 +149,7 @@ describe('session-tool-setup app refresh side effects', () => {
       // updatePublishedAppDeployment is called with void (fire-and-forget),
       // so just verify it was invoked.
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect(updatePublishedSpy.mock.calls[0][0]).toBe('app-publish');
+      expect((updatePublishedSpy.mock.calls[0] as any[])[0]).toBe('app-publish');
     });
 
     test('skips side effects when result is an error', async () => {
@@ -207,9 +207,9 @@ describe('session-tool-setup app refresh side effects', () => {
       });
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(refreshSpy.mock.calls[0][1]).toBe('app-edit');
+      expect((refreshSpy.mock.calls[0] as any[])[1]).toBe('app-edit');
       // Verify opts include fileChange: true
-      expect(refreshSpy.mock.calls[0][2]).toEqual({ fileChange: true, status: undefined });
+      expect((refreshSpy.mock.calls[0] as any[])[2]).toEqual({ fileChange: true, status: undefined });
     });
 
     test('propagates status field through refresh opts', async () => {
@@ -230,7 +230,7 @@ describe('session-tool-setup app refresh side effects', () => {
       });
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(refreshSpy.mock.calls[0][2]).toEqual({
+      expect((refreshSpy.mock.calls[0] as any[])[2]).toEqual({
         fileChange: true,
         status: 'updating styles',
       });
@@ -249,7 +249,7 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_file_edit', { app_id: 'app-edit-bc', path: 'f', old_string: 'a', new_string: 'b' });
 
       expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastSpy.mock.calls[0][0]).toEqual({
+      expect((broadcastSpy.mock.calls[0] as any[])[0]).toEqual({
         type: 'app_files_changed',
         appId: 'app-edit-bc',
       });
@@ -267,7 +267,7 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_file_edit', { app_id: 'app-pub-edit', path: 'f', old_string: 'a', new_string: 'b' });
 
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect(updatePublishedSpy.mock.calls[0][0]).toBe('app-pub-edit');
+      expect((updatePublishedSpy.mock.calls[0] as any[])[0]).toBe('app-pub-edit');
     });
 
     test('skips side effects when result is an error', async () => {
@@ -308,8 +308,8 @@ describe('session-tool-setup app refresh side effects', () => {
       });
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(refreshSpy.mock.calls[0][1]).toBe('app-write');
-      expect(refreshSpy.mock.calls[0][2]).toEqual({ fileChange: true, status: undefined });
+      expect((refreshSpy.mock.calls[0] as any[])[1]).toBe('app-write');
+      expect((refreshSpy.mock.calls[0] as any[])[2]).toEqual({ fileChange: true, status: undefined });
     });
 
     test('propagates status field through refresh opts', async () => {
@@ -329,7 +329,7 @@ describe('session-tool-setup app refresh side effects', () => {
       });
 
       expect(refreshSpy).toHaveBeenCalledTimes(1);
-      expect(refreshSpy.mock.calls[0][2]).toEqual({
+      expect((refreshSpy.mock.calls[0] as any[])[2]).toEqual({
         fileChange: true,
         status: 'adding dark mode',
       });
@@ -348,7 +348,7 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_file_write', { app_id: 'app-write-bc', path: 'f', content: 'x' });
 
       expect(broadcastSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastSpy.mock.calls[0][0]).toEqual({
+      expect((broadcastSpy.mock.calls[0] as any[])[0]).toEqual({
         type: 'app_files_changed',
         appId: 'app-write-bc',
       });
@@ -366,7 +366,7 @@ describe('session-tool-setup app refresh side effects', () => {
       await toolFn('app_file_write', { app_id: 'app-pub-write', path: 'f', content: 'x' });
 
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
-      expect(updatePublishedSpy.mock.calls[0][0]).toBe('app-pub-write');
+      expect((updatePublishedSpy.mock.calls[0] as any[])[0]).toBe('app-pub-write');
     });
 
     test('skips side effects when result is an error', async () => {

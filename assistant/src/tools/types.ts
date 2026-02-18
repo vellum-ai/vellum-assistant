@@ -93,7 +93,7 @@ export interface ToolContext {
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
   /** Optional callback for sending messages directly to the client. */
-  sendToClient?: (msg: Record<string, unknown>) => void;
+  sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
@@ -126,8 +126,6 @@ export interface ToolContext {
     allowedTools?: string[];
     allowedDomains?: string[];
   }) => Promise<SecretPromptResult>;
-  /** Optional callback to send a message to the connected IPC client (e.g. open_url). */
-  sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive IPC client is connected (not just a no-op callback). */
   isInteractive?: boolean;
   /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
