@@ -50,19 +50,22 @@ async function doRefresh(service: string): Promise<string> {
   const tokenUrl = meta?.oauth2TokenUrl;
   const clientId = meta?.oauth2ClientId;
 
-  // Legacy fallback: credentials created by the old integration flow don't
-  // store oauth2TokenUrl/oauth2ClientId in metadata. Use the known Google
-  // token URL for Gmail so existing connections survive the migration.
-  const resolvedTokenUrl = tokenUrl ?? (service === 'integration:gmail'
-    ? 'https://oauth2.googleapis.com/token'
-    : undefined);
-
-  if (!resolvedTokenUrl || !clientId) {
+  if (!tokenUrl || !clientId) {
+    // Legacy credentials created by the old integration flow don't store
+    // oauth2TokenUrl/oauth2ClientId in metadata. The client ID is user-specific
+    // (from their Google Cloud Console) and cannot be recovered, so the only
+    // path forward is re-authorization via the new oauth2_connect flow.
+    const isLegacy = service === 'integration:gmail' && !tokenUrl && !clientId;
+    const hint = isLegacy
+      ? ` This is a one-time migration: your old Gmail connection needs to be re-authorized. Ask me to "reconnect Gmail" to set it up again.`
+      : '';
     throw new TokenExpiredError(
       service,
-      `Missing OAuth2 refresh config for "${service}". Please reconnect via chat to re-authorize.`,
+      `Missing OAuth2 refresh config for "${service}".${hint} Please reconnect via chat to re-authorize.`,
     );
   }
+
+  const resolvedTokenUrl = tokenUrl;
 
   log.info({ service }, 'Refreshing OAuth2 access token');
 
