@@ -98,6 +98,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
     skillId: string,
     _skillDir: string,
     versionHash: string,
+    bundled?: boolean,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
@@ -107,6 +108,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
       origin: 'skill' as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
+      ownerSkillBundled: bundled ?? undefined,
       getDefinition: () => ({
         name: entry.name,
         description: entry.description,
@@ -140,6 +142,14 @@ mock.module('../tools/registry.js', () => ({
     }
     mockSkillRefCount.delete(skillId);
     mockRegisteredTools.delete(skillId);
+  },
+  getTool: (name: string): Tool | undefined => {
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) return tool;
+      }
+    }
+    return undefined;
   },
   getSkillToolNames: () => {
     const names: string[] = [];

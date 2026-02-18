@@ -29,6 +29,8 @@ interface ManagedSession {
   config: ProxySessionConfig;
   dataDir: string | null;
   approvalCallback: ProxyApprovalCallback | null;
+  /** In-flight stop promise so concurrent callers can await the same shutdown. */
+  stopPromise: Promise<void> | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -93,6 +95,7 @@ export function createSession(
     config: merged,
     dataDir: dataDir ?? null,
     approvalCallback: approvalCallback ?? null,
+    stopPromise: null,
   });
 
   return cloneSession(session);
@@ -205,24 +208,35 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status === 'stopped' || managed.session.status === 'stopping') return;
+  if (managed.session.status === 'stopped') return;
+
+  // If a shutdown is already in flight, await it instead of returning early.
+  if (managed.session.status === 'stopping' && managed.stopPromise) {
+    return managed.stopPromise;
+  }
 
   managed.session.status = 'stopping';
 
-  if (managed.idleTimer !== null) {
-    clearTimeout(managed.idleTimer);
-    managed.idleTimer = null;
-  }
+  const doStop = async () => {
+    if (managed.idleTimer !== null) {
+      clearTimeout(managed.idleTimer);
+      managed.idleTimer = null;
+    }
 
-  if (managed.server) {
-    await new Promise<void>((resolve, reject) => {
-      managed.server!.close((err) => (err ? reject(err) : resolve()));
-    });
-    managed.server = null;
-  }
+    if (managed.server) {
+      await new Promise<void>((resolve, reject) => {
+        managed.server!.close((err) => (err ? reject(err) : resolve()));
+      });
+      managed.server = null;
+    }
 
-  managed.session.status = 'stopped';
-  managed.session.port = null;
+    managed.session.status = 'stopped';
+    managed.session.port = null;
+    managed.stopPromise = null;
+  };
+
+  managed.stopPromise = doStop();
+  return managed.stopPromise;
 }
 
 /**

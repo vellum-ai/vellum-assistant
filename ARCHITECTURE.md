@@ -2343,7 +2343,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ## Script Proxy — Proxied Bash Execution and Credential Injection
 
-Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms. The individual components — HTTP forwarder, CONNECT tunnel, MITM handler, hybrid router, policy engine, and approval callback — are implemented and tested, but are **not yet wired together in the runtime**. The session manager currently starts a proxy server with no policy callback or MITM handler configured, so all traffic passes through as a plain forwarder/tunnel. The sections below describe the target architecture; see the "Implementation Status" note at the end for what is connected today.
+Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms. The session manager uses `createProxyServer()` with a fully configured MITM handler, policy callback, and rewrite callback — so credential injection, policy enforcement, and approval prompting are all active at runtime. `host_bash` is explicitly unaffected: only the `bash` tool participates in proxied-mode checks.
 
 ### Proxied Bash Execution Path
 
@@ -2362,9 +2362,9 @@ graph TB
     end
 
     subgraph "Sandbox"
-        DOCKER["DockerBackend.wrap()<br/>networkMode: 'proxied'<br/>→ --network=bridge"]
-        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS"]
-        CONTAINER["Container<br/>all traffic → proxy"]
+        DOCKER["DockerBackend.wrap()<br/>networkMode: 'proxied'<br/>→ --network=bridge<br/>--add-host=host.docker.internal:host-gateway"]
+        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS<br/>(proxy URL uses host.docker.internal)"]
+        CONTAINER["Container<br/>all traffic → proxy<br/>via host.docker.internal"]
     end
 
     subgraph "Proxy Server (on host)"
@@ -2480,7 +2480,7 @@ sequenceDiagram
 | `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
 | `ask_unauthenticated` | Completely unknown host — prompt for unauthenticated access |
 
-**Trust rule persistence** *(not yet wired)*: The `createProxyApprovalCallback` in `session-tool-setup.ts` is defined and unit-tested but is not yet invoked by the session startup path (`shell.ts` calls `createSession`/`startSession` without passing an approval callback). Once wired, it will route the policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules will be saved under tool names `proxy:missing_credential` and `proxy:unauthenticated` with scope patterns like `proxy:api.example.com` or `proxy:*`.
+**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules use the `network_request` tool name (not `proxy:*`) with URL-based scope patterns (e.g., `https://api.example.com/*`), aligning with the `buildCommandCandidates()` allowlist generation in `checker.ts`.
 
 **Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
 
@@ -2541,23 +2541,19 @@ All proxy logging passes through sanitization helpers (`logging.ts`) that redact
 | `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
 | `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
 | `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
-| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — defined and tested, not yet invoked by session startup |
+| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
 | `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
 
-### Implementation Status
+### Runtime Wiring Summary
 
-The proxy subsystem is partially wired. What works today:
+The proxy subsystem is fully wired. The session manager's `startSession()` calls `createProxyServer()` with:
 
-- **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout
-- **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge`
-- **Proxy env injection**: `HTTP_PROXY` / `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` are injected into the container
-- **Plain HTTP forwarding and CONNECT tunnelling**: All traffic passes through without interception
-
-What is implemented but **not yet connected** in the runtime:
-
-- **MITM interception**: `createProxyServer` accepts a `mitmHandler` config but the session manager does not pass one
-- **Policy callback / credential injection**: The policy engine and rewrite callbacks exist but are not wired into the server
-- **Approval loop**: `createProxyApprovalCallback` is defined and unit-tested but not invoked by `shell.ts`
+- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that injects credential headers for matched hosts
+- **Policy callback**: `evaluateRequestWithApproval()` is called on every request via the `policyCallback`; credential injection happens for both HTTP (via `policyCallback`) and HTTPS (via `rewriteCallback` in the MITM path)
+- **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
+- **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge` with `--add-host=host.docker.internal:host-gateway`; proxy env vars use `host.docker.internal` so containers can reach the host-side proxy
+- **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the Docker backend
+- **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout and per-conversation limits
 
 ---
 

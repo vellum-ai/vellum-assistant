@@ -16,6 +16,8 @@ import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
+import { allComputerUseTools } from '../tools/computer-use/definitions.js';
+import { registerComputerUseActionTools } from '../tools/computer-use/registry.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
@@ -216,31 +218,34 @@ export class ComputerUseSession {
 
   /**
    * Compute CU tool definitions from the bundled computer-use skill via
-   * skill projection. Throws if no preactivated skills are configured or
-   * projection produces no tool definitions.
+   * skill projection. Returns null if projection fails so the caller can
+   * fall back to legacy hardcoded tool definitions.
    */
-  private getProjectedCuToolDefinitions(): ToolDefinition[] {
+  private getProjectedCuToolDefinitions(): ToolDefinition[] | null {
     if (this.preactivatedSkillIds.length === 0) {
-      throw new Error(
-        'ComputerUseSession requires preactivatedSkillIds to include the computer-use skill. ' +
-        'No skill IDs were provided — CU tool projection cannot proceed.',
-      );
+      log.warn('No preactivatedSkillIds configured, falling back to legacy CU tools');
+      return null;
     }
 
-    const projection = projectSkillTools([], {
-      preactivatedSkillIds: this.preactivatedSkillIds,
-      previouslyActiveSkillIds: this.skillProjectionState,
-    });
+    try {
+      const projection = projectSkillTools([], {
+        preactivatedSkillIds: this.preactivatedSkillIds,
+        previouslyActiveSkillIds: this.skillProjectionState,
+      });
 
-    if (projection.toolDefinitions.length === 0) {
-      throw new Error(
-        'Skill projection for preactivatedSkillIds ' +
-        JSON.stringify(this.preactivatedSkillIds) +
-        ' produced no tool definitions. Ensure the computer-use skill is properly registered.',
-      );
+      if (projection.toolDefinitions.length === 0) {
+        log.warn(
+          { preactivatedSkillIds: this.preactivatedSkillIds },
+          'Skill projection produced no tool definitions, falling back to legacy CU tools',
+        );
+        return null;
+      }
+
+      return projection.toolDefinitions;
+    } catch (err) {
+      log.warn({ err }, 'Skill projection failed, falling back to legacy CU tools');
+      return null;
     }
-
-    return projection.toolDefinitions;
   }
 
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
@@ -268,7 +273,13 @@ export class ComputerUseSession {
   private async runAgentLoop(messages: Message[]): Promise<void> {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
 
-    const cuToolDefs = this.getProjectedCuToolDefinitions();
+    let cuToolDefs = this.getProjectedCuToolDefinitions();
+    if (!cuToolDefs) {
+      // Fallback: register the legacy hardcoded CU tools in the global
+      // registry so ToolExecutor can resolve them, then use their definitions.
+      registerComputerUseActionTools();
+      cuToolDefs = allComputerUseTools.map((t) => t.getDefinition());
+    }
 
     const toolDefs: ToolDefinition[] = [
       ...cuToolDefs,
