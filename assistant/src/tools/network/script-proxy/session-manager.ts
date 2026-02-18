@@ -17,6 +17,7 @@ import { getCAPath, ensureLocalCA } from './certs.js';
 import { minimatch } from 'minimatch';
 import { resolveById } from '../../credentials/resolve.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
+import { listCredentialMetadata } from '../../credentials/metadata-store.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
@@ -196,9 +197,14 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
   // Build the policy callback for HTTP/CONNECT request gating
   const policyCallback: PolicyCallback = async (hostname: string, reqPath: string) => {
+    // Build from the full credential registry (not just the session's
+    // credentials) so evaluateRequestWithApproval can distinguish
+    // ask_missing_credential from ask_unauthenticated.
     const allKnown: CredentialInjectionTemplate[] = [];
-    for (const tpls of templates.values()) {
-      allKnown.push(...tpls);
+    for (const meta of listCredentialMetadata()) {
+      if (meta.injectionTemplates?.length) {
+        allKnown.push(...meta.injectionTemplates);
+      }
     }
 
     const decision = evaluateRequestWithApproval(
