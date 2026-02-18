@@ -34,6 +34,7 @@ exports[`IPC message snapshots ClientMessage types session_list serializes to ex
 exports[`IPC message snapshots ClientMessage types session_create serializes to expected JSON 1`] = `
 {
   "correlationId": "corr-001",
+  "threadType": "standard",
   "title": "New session",
   "transport": {
     "channelId": "desktop",
@@ -722,6 +723,7 @@ exports[`IPC message snapshots ServerMessage types session_info serializes to ex
 {
   "correlationId": "corr-001",
   "sessionId": "sess-001",
+  "threadType": "standard",
   "title": "My session",
   "type": "session_info",
 }
@@ -732,11 +734,13 @@ exports[`IPC message snapshots ServerMessage types session_list_response seriali
   "sessions": [
     {
       "id": "sess-001",
+      "threadType": "standard",
       "title": "First session",
       "updatedAt": 1700000000,
     },
     {
       "id": "sess-002",
+      "threadType": "standard",
       "title": "Second session",
       "updatedAt": 1700001000,
     },

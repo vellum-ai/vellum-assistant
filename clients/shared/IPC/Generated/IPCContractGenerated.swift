@@ -966,6 +966,7 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     public let correlationId: String?
     /// Lightweight session transport metadata for channel identity and natural-language guidance.
     public let transport: IPCSessionTransportMetadata?
+    public let threadType: String?
 }
 
 public struct IPCSessionInfo: Codable, Sendable {
@@ -973,6 +974,7 @@ public struct IPCSessionInfo: Codable, Sendable {
     public let sessionId: String
     public let title: String
     public let correlationId: String?
+    public let threadType: String?
 }
 
 public struct IPCSessionListRequest: Codable, Sendable {
@@ -988,6 +990,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let id: String
     public let title: String
     public let updatedAt: Int
+    public let threadType: String?
 }
 
 public struct IPCSessionsClearRequest: Codable, Sendable {

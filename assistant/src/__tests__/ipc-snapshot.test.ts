@@ -46,6 +46,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       hints: ['dashboard-capable'],
       uxBrief: 'Prefer dashboard-first onboarding.',
     },
+    threadType: 'standard',
   },
   session_switch: {
     type: 'session_switch',
@@ -466,12 +467,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-001',
     title: 'My session',
     correlationId: 'corr-001',
+    threadType: 'standard',
   },
   session_list_response: {
     type: 'session_list_response',
     sessions: [
-      { id: 'sess-001', title: 'First session', updatedAt: 1700000000 },
-      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000 },
+      { id: 'sess-001', title: 'First session', updatedAt: 1700000000, threadType: 'standard' },
+      { id: 'sess-002', title: 'Second session', updatedAt: 1700001000, threadType: 'standard' },
     ],
   },
   sessions_clear_response: {
@@ -1226,22 +1228,25 @@ describe('IPC message snapshots', () => {
     });
   });
 
-  // Baseline: session contract has no thread type metadata today
-  describe('thread type baselines (pre-private-threads)', () => {
-    test('session_create request has no threadType field', () => {
+  // Baseline: session contract includes threadType metadata
+  describe('thread type baselines', () => {
+    test('session_create request includes threadType field', () => {
       const req = clientMessages.session_create;
-      expect('threadType' in req).toBe(false);
+      expect('threadType' in req).toBe(true);
+      expect((req as Record<string, unknown>).threadType).toBe('standard');
     });
 
-    test('session_info response has no threadType field', () => {
+    test('session_info response includes threadType field', () => {
       const info = serverMessages.session_info;
-      expect('threadType' in info).toBe(false);
+      expect('threadType' in info).toBe(true);
+      expect((info as Record<string, unknown>).threadType).toBe('standard');
     });
 
-    test('session_list_response sessions have no threadType field', () => {
+    test('session_list_response sessions include threadType field', () => {
       const list = serverMessages.session_list_response;
       for (const s of list.sessions) {
-        expect('threadType' in s).toBe(false);
+        expect('threadType' in s).toBe(true);
+        expect((s as Record<string, unknown>).threadType).toBe('standard');
       }
     });
   });
