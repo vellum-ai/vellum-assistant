@@ -2,3 +2,15 @@
 assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
 assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
 assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
+
+# Tool definitions and infrastructure
+assistant/src/tools/ @siddseethepalli
+
+# Skill system (loading, runtime, bundled skills)
+assistant/src/skills/ @siddseethepalli
+assistant/src/config/skills.ts @siddseethepalli
+assistant/src/config/skill-state.ts @siddseethepalli
+assistant/src/config/bundled-skills/ @siddseethepalli
+
+# Memory system
+assistant/src/memory/ @siddseethepalli
