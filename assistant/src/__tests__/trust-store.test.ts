@@ -1026,7 +1026,10 @@ describe('Trust Store', () => {
         const rule = templates.find(t => t.id === `default:allow-${tool}-global`);
         expect(rule).toBeDefined();
         expect(rule!.tool).toBe(tool);
-        expect(rule!.pattern).toBe(`${tool}:*`);
+        // browser_navigate uses standalone "**" because its candidates
+        // contain URLs with "/" that single "*" cannot match.
+        const expectedPattern = tool === 'browser_navigate' ? '**' : `${tool}:*`;
+        expect(rule!.pattern).toBe(expectedPattern);
         expect(rule!.decision).toBe('allow');
         expect(rule!.scope).toBe('everywhere');
       }

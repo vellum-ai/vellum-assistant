@@ -3741,6 +3741,11 @@ describe('Permission Checker', () => {
       }
     });
 
+    test('browser_navigate with a real URL is allowed in strict mode', async () => {
+      const result = await check('browser_navigate', { url: 'https://example.com/path/to/page' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
     test('non-browser skill tools are NOT auto-allowed', async () => {
       // skill_test_tool is a registered skill-origin tool without a default
       // allow rule — it should prompt in strict mode.

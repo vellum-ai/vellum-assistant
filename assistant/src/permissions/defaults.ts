@@ -173,8 +173,20 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   // Browser tools were previously core-registered with RiskLevel.Low (auto-allowed).
   // After migration to skill-provided tools, default allow rules preserve the
   // same frictionless UX so they don't trigger permission prompts.
-  const BROWSER_TOOLS = [
-    'browser_navigate',
+  // browser_navigate candidates contain URLs with "/" (e.g.
+  // "browser_navigate:https://example.com/path"), so it needs standalone
+  // "**" globstar (same as host_bash / computer_use_*).  The tool field
+  // already filters by tool name, so a prefix is unnecessary.
+  const browserNavigateRule: DefaultRuleTemplate = {
+    id: 'default:allow-browser_navigate-global',
+    tool: 'browser_navigate',
+    pattern: '**',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
+  const BROWSER_TOOLS_NO_SLASH = [
     'browser_snapshot',
     'browser_screenshot',
     'browser_close',
@@ -186,7 +198,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     'browser_fill_credential',
   ] as const;
 
-  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOLS.map((tool) => ({
+  const browserToolRules: DefaultRuleTemplate[] = BROWSER_TOOLS_NO_SLASH.map((tool) => ({
     id: `default:allow-${tool}-global`,
     tool,
     pattern: `${tool}:*`,
@@ -205,6 +217,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     bootstrapDeleteRule,
     ...skillSourceMutationRules,
     skillLoadRule,
+    browserNavigateRule,
     ...browserToolRules,
   ];
 }
