@@ -1,0 +1,57 @@
+/**
+ * Assistant Events — shared types and SSE framing helpers.
+ *
+ * Fully isolated from daemon/runtime orchestration logic.
+ * Import this module from any layer that needs to produce or consume
+ * assistant events without creating circular dependencies.
+ */
+
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A single assistant event wrapping an IPC ServerMessage payload.
+ * The `message` field is intentionally unchanged from the IPC form so that
+ * delta semantics (text deltas, tool input deltas, etc.) are preserved.
+ */
+export interface AssistantEvent {
+  /** Globally unique event identifier (UUID). */
+  id: string;
+  /** The assistant this event belongs to. */
+  assistantId: string;
+  /** Resolved conversation/session id when available. */
+  sessionId?: string;
+  /** ISO-8601 timestamp of when the event was emitted. */
+  emittedAt: string;
+  /** Unchanged IPC outbound message payload. */
+  message: ServerMessage;
+}
+
+// ── SSE framing ───────────────────────────────────────────────────────────────
+
+/**
+ * Format an AssistantEvent as a Server-Sent Events frame.
+ *
+ * The SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html)
+ * requires each field on its own line with a trailing blank line.
+ *
+ * ```
+ * event: assistant_event\n
+ * id: <event.id>\n
+ * data: <JSON>\n
+ * \n
+ * ```
+ */
+export function formatSseFrame(event: AssistantEvent): string {
+  const data = JSON.stringify(event);
+  return `event: assistant_event\nid: ${event.id}\ndata: ${data}\n\n`;
+}
+
+/**
+ * Format a keep-alive SSE comment.
+ * Clients should ignore comment lines (`:`) per the SSE spec.
+ */
+export function formatSseHeartbeat(): string {
+  return ': heartbeat\n\n';
+}
