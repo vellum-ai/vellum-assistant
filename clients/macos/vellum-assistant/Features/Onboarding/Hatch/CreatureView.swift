@@ -52,7 +52,7 @@ struct CreatureView: View {
     }
 
     private var dinoImage: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette))
+        Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)

@@ -110,6 +110,75 @@ enum PixelArtData {
         ]
     }()
 
+    // MARK: - Blob Grid (26 wide × 22 tall) — Amorphous flame spirit (Calcifer-inspired)
+
+    static let blob: [[UInt32?]] = {
+        let n: UInt32? = nil
+        let O = dO, D = dD, M = dM, L = dL, B = dB, W = dW, P = dP
+        let K = cK, T = tR
+        return [
+            //  0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21   22   23   24   25
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   L,   n,   n,   n,   n,   L,   n,   n,   n,   n,   n,   n,   n,   n,   n], // 0  flame tips
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   n,   n,   n,   L,   L,   M,   n,   n,   n,   n,   n,   n,   n,   n], // 1  wisps
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   L,   M,   n,   M,   L,   L,   L,   M,   n,   n,   n,   n,   n,   n,   n], // 2  wisps merge
+            [  n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   n,   n,   n,   n,   n,   n], // 3  head forms
+            [  n,   n,   n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n,   n], // 4  head rounds
+            [  n,   n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n], // 5  head wide
+            [  n,   n,   n,   n,   n,   O,   D,   L,   W,   W,   W,   L,   L,   L,   L,   W,   W,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 6  eyes top
+            [  n,   n,   n,   n,   n,   O,   D,   L,   P,   P,   W,   L,   L,   L,   L,   P,   P,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 7  eyes pupils
+            [  n,   n,   n,   n,   n,   O,   D,   L,   W,   W,   W,   L,   L,   L,   L,   W,   W,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 8  eyes bottom
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 9  below eyes
+            [  n,   n,   n,   n,   O,   D,   M,   L,   K,   K,   L,   L,   O,   O,   O,   L,   L,   K,   K,   L,   M,   D,   O,   n,   n,   n], // 10 cheeks + mouth
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   T,   T,   T,   T,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 11 tongue
+            [  n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n], // 12 body
+            [  n,   n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   L,   M,   D,   O,   n], // 13 body + belly
+            [  n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   M,   D,   O,   n], // 14 body widest
+            [  n,   O,   D,   M,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   M,   D,   O,   n], // 15 body widest
+            [  n,   n,   O,   D,   M,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   M,   D,   O,   n,   n], // 16 body narrows
+            [  n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 17 lower body
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n], // 18 base
+            [  n,   n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n,   n], // 19 base rounds
+            [  n,   n,   n,   n,   n,   n,   O,   D,   D,   M,   M,   L,   L,   L,   L,   M,   M,   D,   D,   O,   n,   n,   n,   n,   n,   n], // 20 bottom
+            [  n,   n,   n,   n,   n,   n,   n,   O,   O,   O,   D,   D,   M,   M,   D,   D,   O,   O,   O,   n,   n,   n,   n,   n,   n,   n], // 21 puddle base
+        ]
+    }()
+
+    // MARK: - Dynamic Palette Blob Grid
+
+    /// Build a blob grid with custom palette colors.
+    static func blob(palette: DinoPalette) -> [[UInt32?]] {
+        let n: UInt32? = nil
+        let O = palette.outline, D = palette.dark, M = palette.mid
+        let L = palette.light, B = palette.belly
+        let W = palette.eyeWhite, P = palette.pupil
+        let K = palette.cheek, T = palette.tongue
+        return [
+            //  0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21   22   23   24   25
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   L,   n,   n,   n,   n,   L,   n,   n,   n,   n,   n,   n,   n,   n,   n], // 0  flame tips
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   n,   n,   n,   L,   L,   M,   n,   n,   n,   n,   n,   n,   n,   n], // 1  wisps
+            [  n,   n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   L,   M,   n,   M,   L,   L,   L,   M,   n,   n,   n,   n,   n,   n,   n], // 2  wisps merge
+            [  n,   n,   n,   n,   n,   n,   n,   n,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   n,   n,   n,   n,   n,   n], // 3  head forms
+            [  n,   n,   n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n,   n], // 4  head rounds
+            [  n,   n,   n,   n,   n,   n,   O,   D,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   D,   O,   n,   n,   n,   n], // 5  head wide
+            [  n,   n,   n,   n,   n,   O,   D,   L,   W,   W,   W,   L,   L,   L,   L,   W,   W,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 6  eyes top
+            [  n,   n,   n,   n,   n,   O,   D,   L,   P,   P,   W,   L,   L,   L,   L,   P,   P,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 7  eyes pupils
+            [  n,   n,   n,   n,   n,   O,   D,   L,   W,   W,   W,   L,   L,   L,   L,   W,   W,   W,   L,   L,   D,   O,   n,   n,   n,   n], // 8  eyes bottom
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 9  below eyes
+            [  n,   n,   n,   n,   O,   D,   M,   L,   K,   K,   L,   L,   O,   O,   O,   L,   L,   K,   K,   L,   M,   D,   O,   n,   n,   n], // 10 cheeks + mouth
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   T,   T,   T,   T,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 11 tongue
+            [  n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n], // 12 body
+            [  n,   n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   L,   M,   D,   O,   n], // 13 body + belly
+            [  n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   M,   D,   O,   n], // 14 body widest
+            [  n,   O,   D,   M,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   M,   D,   O,   n], // 15 body widest
+            [  n,   n,   O,   D,   M,   L,   L,   L,   B,   B,   B,   B,   B,   B,   B,   B,   B,   B,   L,   L,   L,   M,   D,   O,   n,   n], // 16 body narrows
+            [  n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   B,   B,   B,   B,   B,   B,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n], // 17 lower body
+            [  n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n], // 18 base
+            [  n,   n,   n,   n,   n,   O,   D,   M,   L,   L,   L,   L,   L,   L,   L,   L,   L,   L,   M,   D,   O,   n,   n,   n,   n,   n], // 19 base rounds
+            [  n,   n,   n,   n,   n,   n,   O,   D,   D,   M,   M,   L,   L,   L,   L,   M,   M,   D,   D,   O,   n,   n,   n,   n,   n,   n], // 20 bottom
+            [  n,   n,   n,   n,   n,   n,   n,   O,   O,   O,   D,   D,   M,   M,   D,   D,   O,   O,   O,   n,   n,   n,   n,   n,   n,   n], // 21 puddle base
+        ]
+    }
+
     // MARK: - Dynamic Palette Dino Grid
 
     /// Build a dino grid with custom palette colors.

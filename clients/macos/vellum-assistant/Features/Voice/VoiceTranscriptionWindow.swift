@@ -20,7 +20,7 @@ struct VoiceTranscriptionView: View {
                     .stroke(VColor.accent, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
+                Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
                     .interpolation(.none)
             }
 

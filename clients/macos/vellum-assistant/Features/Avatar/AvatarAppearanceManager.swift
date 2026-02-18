@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Loads avatar appearance from LOOKS.md, watches for changes, and provides
@@ -9,14 +10,34 @@ final class AvatarAppearanceManager {
     private(set) var config: LooksConfig = .default
     private var fileMonitor: DispatchSourceFileSystemObject?
 
+    /// Pre-rendered 28px blob image for chat avatars, rebuilt when palette changes.
+    private(set) var cachedChatAvatarImage: NSImage?
+    /// User-uploaded custom avatar image, persisted to disk.
+    private(set) var customAvatarImage: NSImage?
+
+    /// Returns the custom avatar if set, otherwise the cached blob.
+    var chatAvatarImage: NSImage {
+        if let custom = customAvatarImage { return custom }
+        if let cached = cachedChatAvatarImage { return cached }
+        // Fallback: build on-demand
+        return PixelSpriteBuilder.buildBlobNSImage(pixelSize: 2, palette: palette)
+    }
+
     static let shared = AvatarAppearanceManager()
 
     var looksPath: String {
         NSHomeDirectory() + "/.vellum/workspace/LOOKS.md"
     }
 
+    private var customAvatarURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
+        return dir.appendingPathComponent("custom-avatar.png")
+    }
+
     func start() {
         reload()
+        loadCustomAvatar()
         watchFile()
     }
 
@@ -27,6 +48,37 @@ final class AvatarAppearanceManager {
         config = LooksConfig.parse(from: content)
         palette = config.toPalette()
         outfit = config.toOutfit()
+        rebuildCachedChatAvatar()
+    }
+
+    private func rebuildCachedChatAvatar() {
+        cachedChatAvatarImage = PixelSpriteBuilder.buildBlobNSImage(pixelSize: 2, palette: palette)
+    }
+
+    // MARK: - Custom Avatar
+
+    private func loadCustomAvatar() {
+        let url = customAvatarURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        customAvatarImage = NSImage(contentsOf: url)
+    }
+
+    func setCustomAvatar(_ image: NSImage) {
+        let url = customAvatarURL
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+
+        try? pngData.write(to: url)
+        customAvatarImage = image
+    }
+
+    func clearCustomAvatar() {
+        try? FileManager.default.removeItem(at: customAvatarURL)
+        customAvatarImage = nil
     }
 
     private func watchFile() {

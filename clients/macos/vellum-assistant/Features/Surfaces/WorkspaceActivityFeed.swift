@@ -100,7 +100,7 @@ struct WorkspaceActivityFeed: View {
     }
 
     private var assistantAvatar: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: 2, palette: appearance.palette))
+        Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: 2, palette: appearance.palette))
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)

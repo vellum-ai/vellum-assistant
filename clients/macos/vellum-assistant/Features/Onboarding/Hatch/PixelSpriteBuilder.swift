@@ -163,6 +163,17 @@ enum PixelSpriteBuilder {
         return buildNSImage(from: PixelArtData.dino, pixelSize: pixelSize)
     }
 
+    /// Builds an NSImage of the blob pixel art with a custom palette.
+    static func buildBlobNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
+        let grid = PixelArtData.blob(palette: palette)
+        return buildNSImage(from: grid, pixelSize: pixelSize)
+    }
+
+    /// Builds an NSImage of the blob pixel art using the default palette.
+    static func buildBlobNSImage(pixelSize: CGFloat) -> NSImage {
+        return buildNSImage(from: PixelArtData.blob, pixelSize: pixelSize)
+    }
+
     /// Renders any pixel grid into an NSImage.
     static func buildNSImage(from grid: [[UInt32?]], pixelSize: CGFloat) -> NSImage {
         let rows = grid.count

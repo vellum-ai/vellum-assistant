@@ -47,9 +47,11 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     @ObservedObject var documentManager: DocumentManager
+    let avatarEvolutionState: AvatarEvolutionState?
+    @State private var lastAppliedBootstrapTurn: Int = 0
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -60,6 +62,7 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.windowState = windowState
         self.documentManager = documentManager
+        self.avatarEvolutionState = avatarEvolutionState
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
@@ -196,6 +199,46 @@ struct MainWindowView: View {
         }
     }
 
+    // MARK: - Bootstrap Avatar Milestones
+
+    /// Apply evolution milestones based on bootstrap conversation progress.
+    /// Mirrors the pattern from FirstMeetingIntroductionView.applyConversationMilestones.
+    private func applyBootstrapMilestones(turnCount: Int, messages: [ChatMessage], evoState: AvatarEvolutionState) {
+        if turnCount >= 2 {
+            DeterministicEvolutionEngine.applyMilestone(.nameChosen, to: evoState)
+        }
+        if turnCount >= 4 {
+            let personalityText = messages
+                .filter { $0.role == .assistant }
+                .map(\.text)
+                .joined(separator: " ")
+            DeterministicEvolutionEngine.applyMilestone(
+                .personalityDefined,
+                to: evoState,
+                context: MilestoneContext(personalityText: personalityText)
+            )
+        }
+        if turnCount >= 6 {
+            let emoji = IdentityInfo.load()?.emoji
+            DeterministicEvolutionEngine.applyMilestone(
+                .emojiChosen,
+                to: evoState,
+                context: MilestoneContext(emoji: emoji)
+            )
+        }
+        if turnCount >= 8 {
+            DeterministicEvolutionEngine.applyMilestone(.soulDiscussed, to: evoState)
+        }
+        if turnCount >= 10 {
+            DeterministicEvolutionEngine.applyMilestone(.homeBaseCreated, to: evoState)
+        }
+
+        // Resolve updated traits into appearance
+        let resolved = AvatarEvolutionResolver.resolve(state: evoState)
+        AvatarAppearanceManager.shared.applyEvolutionResult(resolved)
+        evoState.save()
+    }
+
     var body: some View {
         coreLayoutView
             .onChange(of: windowState.selection) { oldSelection, newSelection in
@@ -269,6 +312,16 @@ struct MainWindowView: View {
                     if !messageExists {
                         windowState.selection = nil
                         windowState.activityMessageId = nil
+                    }
+                }
+
+                // Bootstrap avatar: apply milestones based on assistant turn count
+                if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
+                   let viewModel = threadManager.activeViewModel {
+                    let turnCount = viewModel.messages.filter { $0.role == .assistant }.count
+                    if turnCount > lastAppliedBootstrapTurn {
+                        applyBootstrapMilestones(turnCount: turnCount, messages: viewModel.messages, evoState: evoState)
+                        lastAppliedBootstrapTurn = turnCount
                     }
                 }
             }

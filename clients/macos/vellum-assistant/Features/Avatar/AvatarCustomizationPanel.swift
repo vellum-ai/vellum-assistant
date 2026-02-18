@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Side panel for customizing the avatar's appearance.
@@ -53,6 +54,9 @@ struct AvatarCustomizationPanel: View {
                     // Live avatar preview
                     avatarPreview
 
+                    // Profile picture section
+                    profilePictureSection
+
                     // Body Color section
                     colorGridSection(
                         title: "Body Color",
@@ -102,6 +106,71 @@ struct AvatarCustomizationPanel: View {
             .frame(width: 140, height: 160)
             Spacer()
         }
+    }
+
+    // MARK: - Profile Picture
+
+    @ViewBuilder
+    private var profilePictureSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Profile Picture")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+                .textCase(.uppercase)
+
+            if let customImage = appearance.customAvatarImage {
+                HStack(spacing: VSpacing.md) {
+                    Image(nsImage: customImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Button("Change") { pickImage() }
+                            .buttonStyle(.plain)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.accent)
+
+                        Button("Remove") { appearance.clearCustomAvatar() }
+                            .buttonStyle(.plain)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+            } else {
+                Button {
+                    pickImage()
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Upload Custom Image")
+                            .font(VFont.bodyMedium)
+                    }
+                    .foregroundColor(VColor.textSecondary)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .heic]
+        panel.message = "Choose a profile picture"
+
+        guard panel.runModal() == .OK, let url = panel.url,
+              let image = NSImage(contentsOf: url) else { return }
+        appearance.setCustomAvatar(image)
     }
 
     // MARK: - Color Grid Section

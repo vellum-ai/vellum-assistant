@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Renders the dino avatar with progressive evolution based on AvatarEvolutionState.
+/// Renders the blob avatar with progressive evolution based on AvatarEvolutionState.
 /// Shows unlock animations when new visual features appear.
 struct EvolvingAvatarView: View {
     let evolutionState: AvatarEvolutionState
@@ -59,7 +59,7 @@ struct EvolvingAvatarView: View {
     @ViewBuilder
     private var avatarImage: some View {
         let palette = currentPalette
-        let image = PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
+        let image = PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
         Image(nsImage: image)
             .interpolation(.none)
             .resizable()

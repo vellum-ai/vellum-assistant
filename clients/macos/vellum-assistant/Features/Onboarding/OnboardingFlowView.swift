@@ -27,23 +27,11 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     Spacer()
 
-                    // Persistent icon — stays in place across step transitions
-                    Group {
-                        if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
-                           let nsImage = NSImage(contentsOf: url) {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .interpolation(.none)
-                                .aspectRatio(contentMode: .fit)
-                        } else {
-                            Image("VellyLogo")
-                                .resizable()
-                                .interpolation(.none)
-                                .aspectRatio(contentMode: .fit)
-                        }
-                    }
-                    .frame(width: 128, height: 128)
-                    .padding(.bottom, VSpacing.xxl)
+                    // Persistent evolving avatar — stays in place across step transitions
+                    EvolvingAvatarView(evolutionState: state.avatarEvolutionState, animated: true)
+                        .scaleEffect(0.3)
+                        .frame(width: 128, height: 128)
+                        .padding(.bottom, VSpacing.xxl)
 
                     // Step content — Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.
@@ -58,6 +46,8 @@ struct OnboardingFlowView: View {
                                     guard !isAdvancingFromWakeUp else { return }
                                     isAdvancingFromWakeUp = true
                                     state.hasHatched = true
+                                    DeterministicEvolutionEngine.applyMilestone(.hatched, to: state.avatarEvolutionState)
+                                    state.avatarEvolutionState.save()
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         state.advance()
                                     }
