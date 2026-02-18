@@ -10,6 +10,7 @@
 
 import type { AppDefinition } from '../../memory/app-store.js';
 import type { EditEngineResult } from '../../memory/app-store.js';
+import { setHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { openAppViaSurface } from './open-proxy.js';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,7 @@ export interface AppCreateInput {
   pages?: Record<string, string>;
   type?: 'app' | 'site';
   auto_open?: boolean;
+  set_as_home_base?: boolean;
   preview?: Record<string, unknown>;
 }
 
@@ -101,6 +103,10 @@ export async function executeAppCreate(
   const appType = input.type === 'site' ? 'site' as const : 'app' as const;
 
   const app = store.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
+
+  if (input.set_as_home_base) {
+    setHomeBaseAppLink(app.id, 'personalized');
+  }
 
   // Auto-open the app via the shared open-proxy helper
   if (autoOpen && proxyToolResolver) {
