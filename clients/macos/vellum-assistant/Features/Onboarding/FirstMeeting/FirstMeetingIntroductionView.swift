@@ -181,7 +181,12 @@ struct FirstMeetingIntroductionView: View {
             )
         }
         if turnCount >= 6 {
-            DeterministicEvolutionEngine.applyMilestone(.emojiChosen, to: evo)
+            let emoji = IdentityInfo.load()?.emoji
+            DeterministicEvolutionEngine.applyMilestone(
+                .emojiChosen,
+                to: evo,
+                context: MilestoneContext(emoji: emoji)
+            )
         }
     }
 

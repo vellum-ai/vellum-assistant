@@ -81,38 +81,52 @@ enum DeterministicEvolutionEngine {
         let lower = text.lowercased()
 
         // Warmth signals
-        if lower.contains("warm") || lower.contains("friendly") || lower.contains("kind") || lower.contains("empathetic") {
+        if matchesAny(["warm", "friendly", "kind", "empathetic"], in: lower) {
             state.traits.warmth = min(state.traits.warmth + 0.2, 1.0)
         }
-        if lower.contains("cold") || lower.contains("analytical") || lower.contains("blunt") || lower.contains("direct") {
+        if matchesAny(["cold", "analytical", "blunt", "direct"], in: lower) {
             state.traits.warmth = max(state.traits.warmth - 0.2, 0.0)
         }
 
         // Energy signals
-        if lower.contains("energetic") || lower.contains("chaotic") || lower.contains("hyper") || lower.contains("excitable") {
+        if matchesAny(["energetic", "chaotic", "hyper", "excitable"], in: lower) {
             state.traits.energy = min(state.traits.energy + 0.2, 1.0)
         }
-        if lower.contains("calm") || lower.contains("steady") || lower.contains("chill") || lower.contains("relaxed") {
+        if matchesAny(["calm", "steady", "chill", "relaxed"], in: lower) {
             state.traits.energy = max(state.traits.energy - 0.2, 0.0)
         }
 
         // Formality signals
-        if lower.contains("formal") || lower.contains("professional") || lower.contains("serious") || lower.contains("proper") {
+        if matchesAny(["formal", "professional", "serious", "proper"], in: lower) {
             state.traits.formality = min(state.traits.formality + 0.2, 1.0)
         }
-        if lower.contains("casual") || lower.contains("laid back") || lower.contains("informal") {
+        if matchesAny(["casual", "laid back", "informal"], in: lower) {
             state.traits.formality = max(state.traits.formality - 0.2, 0.0)
         }
 
         // Playfulness signals
-        if lower.contains("playful") || lower.contains("fun") || lower.contains("silly") || lower.contains("goofy") || lower.contains("snarky") {
+        if matchesAny(["playful", "fun", "silly", "goofy", "snarky"], in: lower) {
             state.traits.playfulness = min(state.traits.playfulness + 0.2, 1.0)
         }
-        if lower.contains("focused") || lower.contains("no-nonsense") || lower.contains("stern") {
+        if matchesAny(["focused", "no-nonsense", "stern"], in: lower) {
             state.traits.playfulness = max(state.traits.playfulness - 0.2, 0.0)
         }
 
         state.traits.clamp()
+    }
+
+    // MARK: - Word Matching
+
+    /// Match a signal word using word boundaries to avoid substring collisions
+    /// (e.g., "formal" in "informal", "fun" in "function").
+    private static func matchesWholeWord(_ word: String, in text: String) -> Bool {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: word))\\b"
+        return text.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// Returns true if any of the given words match as whole words in the text.
+    private static func matchesAny(_ words: [String], in text: String) -> Bool {
+        words.contains { matchesWholeWord($0, in: text) }
     }
 
     /// Derive a color hint from the chosen emoji.
