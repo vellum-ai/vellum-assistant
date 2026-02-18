@@ -101,10 +101,11 @@ enum MessageURLExtractor {
         return results
     }
 
-    // Matches fenced code blocks: ``` with optional language id, content, closing ```
-    // Uses dotMatchesLineSeparators so `.` spans newlines.
+    // Matches fenced code blocks: ``` with optional language id, content, closing ```.
+    // Also matches unterminated fences (opening ``` with no closing ```) by
+    // consuming from the opening fence to end-of-string.
     private static let fencedCodeBlockPattern: NSRegularExpression = {
-        let pattern = "```[^`\\n]*\\n[\\s\\S]*?```"
+        let pattern = "```[^`\\n]*\\n(?:[\\s\\S]*?```|[\\s\\S]*$)"
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
 
@@ -119,16 +120,20 @@ enum MessageURLExtractor {
     /// inside them are not picked up by extraction. Fenced blocks are
     /// stripped first so that backticks inside fences don't interfere
     /// with inline-code matching.
+    ///
+    /// Matches are replaced with a single space (not an empty string)
+    /// to preserve token boundaries — otherwise surrounding text could
+    /// concatenate into a spurious URL.
     static func stripCodeRegions(from text: String) -> String {
         let mutable = NSMutableString(string: text)
         let fullRange = NSRange(location: 0, length: mutable.length)
 
         // Strip fenced blocks first (they may contain backticks).
-        fencedCodeBlockPattern.replaceMatches(in: mutable, options: [], range: fullRange, withTemplate: "")
+        fencedCodeBlockPattern.replaceMatches(in: mutable, options: [], range: fullRange, withTemplate: " ")
 
         // Then strip inline code spans from what remains.
         let updatedRange = NSRange(location: 0, length: mutable.length)
-        inlineCodePattern.replaceMatches(in: mutable, options: [], range: updatedRange, withTemplate: "")
+        inlineCodePattern.replaceMatches(in: mutable, options: [], range: updatedRange, withTemplate: " ")
 
         return mutable as String
     }
