@@ -47,6 +47,9 @@ export function handleModelSet(
       const currentConfig = getConfig();
       if (!currentConfig.apiKeys[provider]) {
         ctx.send(socket, { type: 'error', message: `Cannot switch to ${msg.model}. No API key configured for ${provider}.` });
+        // Send current model_info so the client resyncs its optimistic state
+        const cfg = getConfig();
+        ctx.send(socket, { type: 'model_info', model: cfg.model, provider: cfg.provider });
         return;
       }
     }
