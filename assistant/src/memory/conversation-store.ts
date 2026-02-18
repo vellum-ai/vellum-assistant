@@ -23,12 +23,16 @@ function monotonicNow(): number {
   return lastTimestamp;
 }
 
-export function createConversation(title?: string) {
+export function createConversation(titleOrOpts?: string | { title?: string; threadType?: 'standard' | 'private' }) {
   const db = getDb();
   const now = Date.now();
+  const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : (titleOrOpts ?? {});
+  const threadType = opts.threadType ?? 'standard';
+  const id = uuid();
+  const memoryScopeId = threadType === 'private' ? `private:${id}` : 'default';
   const conversation = {
-    id: uuid(),
-    title: title ?? null,
+    id,
+    title: opts.title ?? null,
     createdAt: now,
     updatedAt: now,
     totalInputTokens: 0,
@@ -37,8 +41,8 @@ export function createConversation(title?: string) {
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
-    threadType: 'standard',
-    memoryScopeId: 'default',
+    threadType,
+    memoryScopeId,
   };
   db.insert(conversations).values(conversation).run();
   return conversation;

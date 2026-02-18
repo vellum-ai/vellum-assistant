@@ -342,3 +342,44 @@ describe('conversation thread metadata defaults', () => {
     expect(loaded!.memoryScopeId).toBe('default');
   });
 });
+
+describe('createConversation with thread type option', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test('standard create with string title uses defaults', () => {
+    const conv = createConversation('hello');
+    expect(conv.title).toBe('hello');
+    expect(conv.threadType).toBe('standard');
+    expect(conv.memoryScopeId).toBe('default');
+  });
+
+  test('standard create with options object uses defaults', () => {
+    const conv = createConversation({ title: 'hello', threadType: 'standard' });
+    expect(conv.threadType).toBe('standard');
+    expect(conv.memoryScopeId).toBe('default');
+  });
+
+  test('private create sets threadType and derives memoryScopeId', () => {
+    const conv = createConversation({ title: 'secret', threadType: 'private' });
+    expect(conv.threadType).toBe('private');
+    expect(conv.memoryScopeId).toBe(`private:${conv.id}`);
+  });
+
+  test('private create memoryScopeId is persisted', () => {
+    const conv = createConversation({ threadType: 'private' });
+    const loaded = getConversation(conv.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.threadType).toBe('private');
+    expect(loaded!.memoryScopeId).toBe(`private:${conv.id}`);
+  });
+
+  test('no-arg create uses defaults', () => {
+    const conv = createConversation();
+    expect(conv.threadType).toBe('standard');
+    expect(conv.memoryScopeId).toBe('default');
+  });
+});
