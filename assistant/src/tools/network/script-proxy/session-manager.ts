@@ -386,16 +386,14 @@ export async function getOrStartSession(
   approvalCallback?: ProxyApprovalCallback,
   options?: { listenHost?: string },
 ): Promise<{ session: ProxySession; created: boolean }> {
-  // Fast path — session already active, no lock needed.
+  // Fast path — session already active with matching credentials, no lock needed.
   const existing = getActiveSession(conversationId);
-  if (existing) {
-    if (credentialIdsMatch(existing.credentialIds, credentialIds)) {
-      return { session: existing, created: false };
-    }
-    // Credential mismatch — tear down the stale session so we can create
-    // one with the correct bindings.
-    await stopSession(existing.id);
+  if (existing && credentialIdsMatch(existing.credentialIds, credentialIds)) {
+    return { session: existing, created: false };
   }
+  // If credentials don't match (or no session exists), fall through to the
+  // lock-protected section. Stopping a mismatched session outside the lock
+  // would let another caller slip in and create a different-credential session.
 
   // Serialize: if another caller is already creating a session for this
   // conversation, wait for it rather than creating a second one.
