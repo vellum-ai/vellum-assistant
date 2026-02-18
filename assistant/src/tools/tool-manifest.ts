@@ -40,6 +40,10 @@ export const eagerModules: string[] = [
   './watcher/update.js',
   './watcher/delete.js',
   './watcher/digest.js',
+  './playbooks/playbook-create.js',
+  './playbooks/playbook-list.js',
+  './playbooks/playbook-update.js',
+  './playbooks/playbook-delete.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -65,6 +69,10 @@ export const eagerModuleToolNames: string[] = [
   'watcher_update',
   'watcher_delete',
   'watcher_digest',
+  'playbook_create',
+  'playbook_list',
+  'playbook_update',
+  'playbook_delete',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
