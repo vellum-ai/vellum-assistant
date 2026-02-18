@@ -33,8 +33,9 @@ public struct DaemonConfig {
         return DaemonConfig(hostname: "localhost", port: 8765)
     }
 
-    /// Create a `DaemonConfig` populated from UserDefaults, falling back to safe defaults.
-    /// Reads: `daemon_hostname`, `daemon_port`, `daemon_tls_enabled`, `daemon_auth_token`.
+    /// Create a `DaemonConfig` populated from UserDefaults / Keychain, falling back to safe defaults.
+    /// Reads: `daemon_hostname`, `daemon_port`, `daemon_tls_enabled` from UserDefaults;
+    /// reads auth token from Keychain via `APIKeyManager` (provider: `"daemon-token"`).
     public static func fromUserDefaults() -> DaemonConfig {
         // Treat empty string as nil to ensure fallback to "localhost"
         let hostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? "localhost"
@@ -42,8 +43,8 @@ public struct DaemonConfig {
         // Validate port is in valid UInt16 range (1-65535) before converting to avoid crash
         let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
         let tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        let authToken = UserDefaults.standard.string(forKey: "daemon_auth_token")
-        return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken.flatMap { $0.isEmpty ? nil : $0 })
+        let authToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token")
+        return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken)
     }
     #else
     #error("Unsupported platform")
