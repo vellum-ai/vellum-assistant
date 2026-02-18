@@ -156,7 +156,7 @@ export class ToolExecutor {
 
         // Proxied bash prompts are non-persistent — no trust rule saving allowed
         const persistentDecisionsAllowed = !(
-          (name === 'bash' || name === 'host_bash')
+          name === 'bash'
           && input.network_mode === 'proxied'
         );
 

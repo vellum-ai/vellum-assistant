@@ -3770,11 +3770,15 @@ describe('bash network_mode=proxied force prompt (PR 14)', () => {
     expect(result.reason).toContain('Proxied network mode');
   });
 
-  test('proxied host_bash always prompts even when trust rules would allow', async () => {
-    addRule('host_bash', '*', 'everywhere');
+  test('host_bash with network_mode=proxied follows normal flow (not force-prompted)', async () => {
+    // host_bash does not support network_mode — proxied-mode force-prompt
+    // applies only to sandboxed bash, not host_bash. The decision may still
+    // be prompt/allow based on normal risk+trust-rule evaluation, but the
+    // reason must NOT be the proxied-mode bypass.
+    addRule('host_bash', '**', 'everywhere');
     const result = await check('host_bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
-    expect(result.decision).toBe('prompt');
-    expect(result.reason).toContain('Proxied network mode');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).not.toContain('Proxied network mode');
   });
 
   test('non-proxied bash follows normal flow (auto-allowed)', async () => {

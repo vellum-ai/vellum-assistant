@@ -1717,7 +1717,9 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
     expect(capturedPersistent).toBe(false);
   });
 
-  test('host_bash with proxied network_mode also disables persistence', async () => {
+  test('host_bash with proxied network_mode still allows persistent decisions', async () => {
+    // host_bash does not support network_mode — proxied-mode persistence
+    // blocking applies only to sandboxed bash, not host_bash.
     const spy = setupAddRuleSpy();
 
     const prompter = makePrompterWithDecision('always_allow', 'host_bash:*', '/tmp/project');
@@ -1729,7 +1731,7 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1825,7 +1827,7 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
   });
 
   test('file_write with proxied network_mode is NOT affected (persistence still allowed)', async () => {
-    // Only bash/host_bash with proxied mode disable persistence
+    // Only bash with proxied mode disables persistence
     const spy = setupAddRuleSpy();
 
     const prompter = makePrompterWithDecision('always_allow', 'file_write:*', '/tmp/project');
@@ -1840,7 +1842,9 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  test('host_bash proxied always_allow_high_risk skips rule saving', async () => {
+  test('host_bash proxied always_allow_high_risk still saves rule (host_bash ignores network_mode)', async () => {
+    // host_bash does not support network_mode — persistence blocking
+    // applies only to sandboxed bash.
     const spy = setupAddRuleSpy();
 
     const prompter = makePrompterWithDecision('always_allow_high_risk', 'host_bash:*', 'everywhere');
@@ -1852,7 +1856,7 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   test('proxied bash denied result message omits "rule saved" suffix', async () => {

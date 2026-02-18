@@ -344,7 +344,7 @@ export async function check(
   // Proxied network mode bypasses all trust rules — every invocation
   // requires explicit user approval because the command will route
   // through an authenticated proxy with injected credentials.
-  if ((toolName === 'bash' || toolName === 'host_bash') && input.network_mode === 'proxied') {
+  if (toolName === 'bash' && input.network_mode === 'proxied') {
     return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
   }
 
