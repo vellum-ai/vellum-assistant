@@ -38,6 +38,8 @@ import {
 import {
   uploadAttachment,
   linkAttachmentToMessage,
+  getAttachmentsForMessage,
+  getAttachmentById,
   getAttachmentsForMessageUnscoped,
 } from '../memory/attachments-store.js';
 
@@ -419,5 +421,190 @@ describe('conversation metadata read helpers', () => {
 
   test('getConversationMemoryScopeId returns default for missing conversation', () => {
     expect(getConversationMemoryScopeId('nonexistent-id')).toBe('default');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Baseline: attachment reuse across threads
+// ---------------------------------------------------------------------------
+
+describe('attachment reuse across thread lifecycles', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_attachments');
+    db.run('DELETE FROM attachments');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('attachment uploaded in conversation A is retrievable by ID without any conversation reference', () => {
+    const convA = createConversation('Thread A');
+    const msgA = addMessage(convA.id, 'assistant', 'Here is a file');
+    const stored = uploadAttachment('ast-1', 'report.pdf', 'application/pdf', 'JVBER');
+    linkAttachmentToMessage(msgA.id, stored.id, 0);
+
+    // Create a completely separate conversation
+    const convB = createConversation('Thread B');
+    addMessage(convB.id, 'user', 'hello');
+
+    // The attachment is retrievable by ID regardless of which conversation is active.
+    // getAttachmentById only scopes by assistantId, not conversationId.
+    const fetched = getAttachmentById('ast-1', stored.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.id).toBe(stored.id);
+    expect(fetched!.originalFilename).toBe('report.pdf');
+    expect(fetched!.dataBase64).toBe('JVBER');
+  });
+
+  test('attachment can be linked to messages in different conversations', () => {
+    const convA = createConversation('Thread A');
+    const convB = createConversation('Thread B');
+
+    const msgA = addMessage(convA.id, 'assistant', 'Original file');
+    const msgB = addMessage(convB.id, 'assistant', 'Reused file');
+
+    // Upload once, link to both conversations
+    const stored = uploadAttachment('ast-1', 'shared.png', 'image/png', 'iVBORw0K');
+    linkAttachmentToMessage(msgA.id, stored.id, 0);
+    linkAttachmentToMessage(msgB.id, stored.id, 0);
+
+    // Both messages see the attachment
+    const linkedA = getAttachmentsForMessage(msgA.id, 'ast-1');
+    expect(linkedA).toHaveLength(1);
+    expect(linkedA[0].id).toBe(stored.id);
+
+    const linkedB = getAttachmentsForMessage(msgB.id, 'ast-1');
+    expect(linkedB).toHaveLength(1);
+    expect(linkedB[0].id).toBe(stored.id);
+  });
+
+  test('deleting conversation A does not orphan attachment reused in conversation B', () => {
+    const convA = createConversation('Thread A');
+    const convB = createConversation('Thread B');
+
+    const msgA = addMessage(convA.id, 'assistant', 'Original');
+    const msgB = addMessage(convB.id, 'assistant', 'Reused');
+
+    const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'AAAA');
+    linkAttachmentToMessage(msgA.id, stored.id, 0);
+    linkAttachmentToMessage(msgB.id, stored.id, 0);
+
+    // Delete conversation A's exchange
+    deleteLastExchange(convA.id);
+
+    // Attachment survives because convB still references it
+    const fetched = getAttachmentById('ast-1', stored.id);
+    expect(fetched).not.toBeNull();
+
+    // convB's message still has the attachment linked
+    const linkedB = getAttachmentsForMessage(msgB.id, 'ast-1');
+    expect(linkedB).toHaveLength(1);
+    expect(linkedB[0].id).toBe(stored.id);
+  });
+
+  test('content-hash dedup works across conversations', () => {
+    const convA = createConversation('Thread A');
+    const convB = createConversation('Thread B');
+
+    addMessage(convA.id, 'user', 'upload in A');
+    addMessage(convB.id, 'user', 'upload in B');
+
+    // Same content uploaded in two different conversation contexts
+    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'DEDUPCROSS');
+    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'DEDUPCROSS');
+
+    // Dedup returns the same attachment row
+    expect(second.id).toBe(first.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Baseline: no private-thread visibility boundary for attachments
+// ---------------------------------------------------------------------------
+
+describe('no private-thread attachment visibility boundary', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_attachments');
+    db.run('DELETE FROM attachments');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('attachment from a private thread is visible via getAttachmentById (no thread scoping)', () => {
+    const privateConv = createConversation({ title: 'Secret', threadType: 'private' });
+    expect(privateConv.threadType).toBe('private');
+
+    const msg = addMessage(privateConv.id, 'assistant', 'Private content');
+    const stored = uploadAttachment('ast-1', 'secret.pdf', 'application/pdf', 'JVBER');
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    // Attachment is globally visible by ID — no thread-type filter exists
+    const fetched = getAttachmentById('ast-1', stored.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.originalFilename).toBe('secret.pdf');
+  });
+
+  test('attachment from private thread can be linked to a standard thread message', () => {
+    const privateConv = createConversation({ title: 'Private', threadType: 'private' });
+    const standardConv = createConversation({ title: 'Standard', threadType: 'standard' });
+
+    const privateMsg = addMessage(privateConv.id, 'assistant', 'Private file');
+    const standardMsg = addMessage(standardConv.id, 'assistant', 'Reusing private file');
+
+    const stored = uploadAttachment('ast-1', 'private-doc.png', 'image/png', 'PRIVDATA');
+    linkAttachmentToMessage(privateMsg.id, stored.id, 0);
+    linkAttachmentToMessage(standardMsg.id, stored.id, 0);
+
+    // Both threads can see the attachment
+    const linkedPrivate = getAttachmentsForMessage(privateMsg.id, 'ast-1');
+    expect(linkedPrivate).toHaveLength(1);
+
+    const linkedStandard = getAttachmentsForMessage(standardMsg.id, 'ast-1');
+    expect(linkedStandard).toHaveLength(1);
+    expect(linkedStandard[0].id).toBe(stored.id);
+  });
+
+  test('getAttachmentsForMessageUnscoped returns private thread attachments', () => {
+    const privateConv = createConversation({ title: 'Private', threadType: 'private' });
+    const msg = addMessage(privateConv.id, 'assistant', 'Private media');
+    const stored = uploadAttachment('ast-1', 'photo.jpg', 'image/jpeg', 'AAAA');
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    // Unscoped retrieval has no thread-type filter
+    const linked = getAttachmentsForMessageUnscoped(msg.id);
+    expect(linked).toHaveLength(1);
+    expect(linked[0].id).toBe(stored.id);
+  });
+
+  test('content-hash dedup works across private and standard threads', () => {
+    createConversation({ title: 'Private', threadType: 'private' });
+    createConversation({ title: 'Standard', threadType: 'standard' });
+
+    // Same content uploaded in private and standard contexts
+    const fromPrivate = uploadAttachment('ast-1', 'file.png', 'image/png', 'CROSSTHREAD');
+    const fromStandard = uploadAttachment('ast-1', 'file.png', 'image/png', 'CROSSTHREAD');
+
+    // Dedup returns the same row — no thread-type isolation
+    expect(fromStandard.id).toBe(fromPrivate.id);
+  });
+
+  test('clearAll removes attachments from both private and standard threads', () => {
+    const privateConv = createConversation({ title: 'Private', threadType: 'private' });
+    const standardConv = createConversation({ title: 'Standard', threadType: 'standard' });
+
+    const privateMsg = addMessage(privateConv.id, 'assistant', 'Private file');
+    const standardMsg = addMessage(standardConv.id, 'assistant', 'Standard file');
+
+    const att1 = uploadAttachment('ast-1', 'private.png', 'image/png', 'PRIV');
+    const att2 = uploadAttachment('ast-1', 'standard.png', 'image/png', 'STD');
+    linkAttachmentToMessage(privateMsg.id, att1.id, 0);
+    linkAttachmentToMessage(standardMsg.id, att2.id, 0);
+
+    clearAll();
+
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const attachmentCount = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
+    expect(attachmentCount.c).toBe(0);
   });
 });
