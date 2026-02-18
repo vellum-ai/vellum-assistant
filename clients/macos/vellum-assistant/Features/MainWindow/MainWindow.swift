@@ -3,17 +3,27 @@ import Combine
 import VellumAssistantShared
 import SwiftUI
 
-/// NSWindow subclass that restores double-click-to-zoom on the title bar.
+/// NSWindow subclass that restores double-click-to-zoom on the title bar
+/// and ensures SwiftUI buttons in the title bar area remain interactive.
+///
 /// With `fullSizeContentView` + `titlebarAppearsTransparent`, the system
 /// title bar becomes invisible and stops handling double-clicks. This
 /// subclass detects double-clicks in the title bar zone and performs the
 /// action configured in System Settings (zoom or minimize).
+///
+/// Additionally, macOS intercepts `mouseDown` in the title bar zone to
+/// initiate window dragging, which prevents SwiftUI `Button` views
+/// rendered there (via `.ignoresSafeArea(.top)`) from receiving clicks.
+/// The `mouseDown` override detects interactive subviews at the click
+/// point and forwards the event to the content view so SwiftUI can
+/// process it normally.
 ///
 /// We manually track the pre-zoom frame because `NSWindow.isZoomed` can be
 /// unreliable with `fullSizeContentView`, causing `zoom(nil)` not to toggle
 /// back to the previous size.
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
+    private var didForwardMouseDown = false
 
     /// Weak reference to the composer text view so we can redirect typing to it.
     weak var composerTextView: NSTextView?
@@ -57,7 +67,28 @@ class TitleBarZoomableWindow: NSWindow {
         super.keyDown(with: event)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        let clickY = event.locationInWindow.y
+        if clickY >= contentLayoutRect.maxY,
+           let contentView = contentView {
+            let localPoint = contentView.convert(event.locationInWindow, from: nil)
+            if let hitView = contentView.hitTest(localPoint),
+               hitView !== contentView {
+                didForwardMouseDown = true
+                contentView.mouseDown(with: event)
+                return
+            }
+        }
+        didForwardMouseDown = false
+        super.mouseDown(with: event)
+    }
+
     override func mouseUp(with event: NSEvent) {
+        if didForwardMouseDown {
+            didForwardMouseDown = false
+            contentView?.mouseUp(with: event)
+            return
+        }
         super.mouseUp(with: event)
         guard event.clickCount == 2 else { return }
 
