@@ -232,7 +232,7 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 ### Permissions
 
-Both `skill_load` and all `browser_*` tools are default-allowed — no permission prompts are required to use them.
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. Users can remove or override these default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval.
 
 ## Permission Modes and Trust Rules
 
