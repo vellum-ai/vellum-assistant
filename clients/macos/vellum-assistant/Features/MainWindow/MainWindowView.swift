@@ -702,7 +702,7 @@ struct MainWindowView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.bottom, VSpacing.lg)
 
                     VColor.background.frame(height: 1)
                         .padding(.horizontal, VSpacing.sm)
@@ -741,9 +741,10 @@ struct MainWindowView: View {
                             }
                         }
                     }
-                    .padding(.top, VSpacing.md)
+                    .padding(.top, VSpacing.lg)
                 }
                 .padding(VSpacing.xs)
+                .padding(.top, VSpacing.sm)
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .padding(.horizontal, VSpacing.xs)
@@ -1405,38 +1406,11 @@ private struct NewConversationButton: View {
 private struct ControlCenterMenuButton: View {
     let isOpen: Bool
     let onToggle: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
-        Button {
+        VButton(label: "Control Center", icon: "gearshape", style: .ghost, size: .large, isFullWidth: true) {
             onToggle()
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isOpen ? VColor.textPrimary : VColor.textSecondary)
-
-                Text("Control Center")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isOpen ? VColor.textPrimary : VColor.textSecondary)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                Capsule()
-                    .fill(isHovered || isOpen ? VColor.hoverOverlay.opacity(0.08) : VColor.backgroundSubtle)
-                    .overlay(
-                        Capsule()
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-            )
-            .contentShape(Capsule())
-            .onHover { hovering in
-                isHovered = hovering
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
         }
-        .buttonStyle(.plain)
     }
 }
 
