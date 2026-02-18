@@ -8,7 +8,7 @@ import { requestComputerControlTool } from './computer-use/request-computer-cont
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
 import { allUiSurfaceTools } from './ui-surface/definitions.js';
 import { registerAppTools } from './apps/registry.js';
-import { allAppTools } from './apps/definitions.js';
+import { coreAppProxyTools } from './apps/definitions.js';
 import { hostFileReadTool } from './host-filesystem/read.js';
 import { hostFileWriteTool } from './host-filesystem/write.js';
 import { hostFileEditTool } from './host-filesystem/edit.js';
@@ -247,7 +247,7 @@ export async function initializeTools(): Promise<void> {
       ...allComputerUseTools.map((t: Tool) => t.name),
       requestComputerControlTool.name,
       ...allUiSurfaceTools.map((t: Tool) => t.name),
-      ...allAppTools.map((t: Tool) => t.name),
+      ...coreAppProxyTools.map((t: Tool) => t.name),
     ]);
 
     coreToolsSnapshot = new Map<string, Tool>();

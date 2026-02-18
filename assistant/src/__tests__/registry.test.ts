@@ -236,10 +236,10 @@ describe('baseline characterization: hardcoded tool loading', () => {
 });
 
 describe('baseline characterization: core app tool surface', () => {
-  test('core registry includes all non-proxy app tools', async () => {
+  test('non-proxy app tools are NOT in core registry (now skill-provided)', async () => {
     await initializeTools();
 
-    const expectedAppTools = [
+    const nonProxyAppTools = [
       'app_create',
       'app_list',
       'app_query',
@@ -251,15 +251,14 @@ describe('baseline characterization: core app tool surface', () => {
       'app_file_write',
     ];
 
-    for (const name of expectedAppTools) {
+    for (const name of nonProxyAppTools) {
       const tool = getTool(name);
-      expect(tool).toBeDefined();
-      expect(tool?.executionMode).toBe('local');
+      expect(tool).toBeUndefined();
     }
 
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
-    for (const name of expectedAppTools) {
-      expect(definitionNames).toContain(name);
+    for (const name of nonProxyAppTools) {
+      expect(definitionNames).not.toContain(name);
     }
   });
 
@@ -275,7 +274,7 @@ describe('baseline characterization: core app tool surface', () => {
     expect(definitionNames).not.toContain('app_open');
   });
 
-  test('bundled app-builder skill is instruction-only (no TOOLS.json)', async () => {
+  test('bundled app-builder skill has TOOLS.json manifest', async () => {
     const path = await import('node:path');
     const fs = await import('node:fs');
 
@@ -286,7 +285,7 @@ describe('baseline characterization: core app tool surface', () => {
     );
     const toolsJsonPath = path.join(skillDir, 'TOOLS.json');
 
-    expect(fs.existsSync(toolsJsonPath)).toBe(false);
+    expect(fs.existsSync(toolsJsonPath)).toBe(true);
   });
 });
 
