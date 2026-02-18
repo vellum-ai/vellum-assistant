@@ -13,6 +13,9 @@ public struct ToolConfirmationBubble: View {
     @State private var showAlwaysAllowMenu = false
     @State private var showTechnicalDetails = false
     @State private var isPreviewExpanded = false
+    @State private var isTruncated = false
+    @State private var fullTextHeight: CGFloat = 0
+    @State private var truncatedTextHeight: CGFloat = 0
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
@@ -243,8 +246,28 @@ public struct ToolConfirmationBubble: View {
                 .foregroundColor(VColor.textSecondary)
                 .lineLimit(isPreviewExpanded ? nil : 3)
                 .textSelection(.enabled)
+                .background(
+                    // Hidden full-height text to detect truncation
+                    Text(preview)
+                        .font(VFont.monoSmall)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .background(GeometryReader { fullGeometry in
+                            Color.clear.preference(key: FullTextHeightKey.self, value: fullGeometry.size.height)
+                        })
+                )
+                .background(GeometryReader { visibleGeometry in
+                    Color.clear.preference(key: TruncatedTextHeightKey.self, value: visibleGeometry.size.height)
+                })
+                .onPreferenceChange(FullTextHeightKey.self) { fullHeight in
+                    updateTruncation(fullHeight: fullHeight)
+                }
+                .onPreferenceChange(TruncatedTextHeightKey.self) { truncatedHeight in
+                    updateTruncation(truncatedHeight: truncatedHeight)
+                }
 
-            if !isPreviewExpanded {
+            if isTruncated && !isPreviewExpanded {
                 HStack(spacing: 2) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
@@ -252,6 +275,12 @@ public struct ToolConfirmationBubble: View {
                         .font(.system(size: 10))
                 }
                 .foregroundColor(VColor.textMuted)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(VAnimation.fast) {
+                        isPreviewExpanded.toggle()
+                    }
+                }
             }
         }
         .padding(VSpacing.sm)
@@ -260,12 +289,6 @@ public struct ToolConfirmationBubble: View {
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.backgroundSubtle)
         )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(VAnimation.fast) {
-                isPreviewExpanded.toggle()
-            }
-        }
     }
 
     // MARK: - Description Text
@@ -437,6 +460,31 @@ public struct ToolConfirmationBubble: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Truncation Detection
+
+    private func updateTruncation(fullHeight: CGFloat? = nil, truncatedHeight: CGFloat? = nil) {
+        if let h = fullHeight { self.fullTextHeight = h }
+        if let h = truncatedHeight { self.truncatedTextHeight = h }
+        let full = fullHeight ?? self.fullTextHeight
+        let truncated = truncatedHeight ?? self.truncatedTextHeight
+        guard full > 0, truncated > 0 else { return }
+        isTruncated = full > truncated + 1
+    }
+}
+
+private struct FullTextHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct TruncatedTextHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

@@ -1152,6 +1152,8 @@ private struct ChatBubble: View {
         case "browser navigate":       return "Opened a page"
         case "browser click":          return "Clicked on the page"
         case "browser screenshot":     return "Took a screenshot"
+        case "request system permission":
+            return "\(Self.permissionFriendlyName(from: summary)) granted"
         default:                       return "Used \(toolName)"
         }
     }
@@ -1243,7 +1245,26 @@ private struct ChatBubble: View {
         case "fetch url":                                   return "globe"
         case "browser navigate", "browser click":           return "safari"
         case "browser screenshot":                          return "camera"
+        case "request system permission":                   return "lock.shield"
         default:                                            return "gearshape"
+        }
+    }
+
+    /// Convert raw permission_type (e.g. "full_disk_access") to a user-facing label.
+    private static func permissionFriendlyName(from rawType: String) -> String {
+        switch rawType {
+        case "full_disk_access": return "Full Disk Access"
+        case "accessibility": return "Accessibility"
+        case "screen_recording": return "Screen Recording"
+        case "calendar": return "Calendar"
+        case "contacts": return "Contacts"
+        case "photos": return "Photos"
+        case "location": return "Location Services"
+        case "microphone": return "Microphone"
+        case "camera": return "Camera"
+        default:
+            if rawType.isEmpty { return "Permission" }
+            return rawType.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 
