@@ -403,7 +403,11 @@ export async function getOrStartSession(
   const inflight = acquireLocks.get(conversationId);
   if (inflight) {
     const session = await inflight;
-    return { session, created: false };
+    if (credentialIdsMatch(session.credentialIds, credentialIds)) {
+      return { session, created: false };
+    }
+    // Credential mismatch — tear down and fall through to create a new session.
+    await stopSession(session.id);
   }
 
   const promise = (async () => {
@@ -424,6 +428,7 @@ export async function getOrStartSession(
 
   // Wrap the inner promise to extract just the session for lock waiters.
   const sessionPromise = promise.then((r) => r.session);
+  sessionPromise.catch(() => {}); // Rejection handled by `await promise` below
   acquireLocks.set(conversationId, sessionPromise);
   try {
     return await promise;
