@@ -507,12 +507,17 @@ export const appFileWriteTool: Tool = {
 };
 
 // ---------------------------------------------------------------------------
-// All tools exported as array for convenience
+// Proxy-only tools (always core, never migrated to skill)
 // ---------------------------------------------------------------------------
 
-export const allAppTools: Tool[] = [
+export const coreAppProxyTools: Tool[] = [appOpenTool];
+
+// ---------------------------------------------------------------------------
+// Non-proxy data tools (will migrate to skill in a later PR)
+// ---------------------------------------------------------------------------
+
+export const coreAppDataTools: Tool[] = [
   appCreateTool,
-  appOpenTool,
   appListTool,
   appQueryTool,
   appUpdateTool,
@@ -522,3 +527,9 @@ export const allAppTools: Tool[] = [
   appFileEditTool,
   appFileWriteTool,
 ];
+
+// ---------------------------------------------------------------------------
+// Combined for backwards compatibility during migration
+// ---------------------------------------------------------------------------
+
+export const allAppTools: Tool[] = [...coreAppProxyTools, ...coreAppDataTools];
