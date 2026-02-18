@@ -935,6 +935,7 @@ describe('isSideEffectTool', () => {
       'schedule_create',
       'schedule_update',
       'schedule_delete',
+      'credential_store',
     ];
 
     for (const toolName of sideEffectTools) {
@@ -1230,6 +1231,7 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
       { name: 'document_update', input: { id: 'doc-1', content: 'updated' } },
       { name: 'account_manage', input: { action: 'create', name: 'acct' } },
       { name: 'reminder', input: { action: 'create', message: 'remind me' } },
+      { name: 'credential_store', input: { name: 'api-key', value: 'secret' } },
     ];
 
     for (const { name, input } of sideEffectTools) {
@@ -1419,6 +1421,22 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     const result = await executor.execute(
       'schedule_delete',
       { id: 'sched-1' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  // ── Credential store (PR fix8) ──────────
+
+  test('credential_store forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'credential_store',
+      { name: 'api-key', value: 'sk-secret-123' },
       makeContext({ forcePromptSideEffects: true }),
     );
 
