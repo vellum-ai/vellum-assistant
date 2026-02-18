@@ -5,6 +5,7 @@
 
 import { createServer, type Server } from 'node:http';
 import { forwardHttpRequest, type PolicyCallback } from './http-forwarder.js';
+import { handleConnect } from './connect-tunnel.js';
 
 export interface ProxyServerConfig {
   /** Optional policy callback for credential injection / access control. */
@@ -15,7 +16,7 @@ export interface ProxyServerConfig {
 
 /**
  * Create an HTTP server that acts as a forward proxy for plain HTTP
- * requests (absolute-URL form). CONNECT tunnelling is not handled here.
+ * requests (absolute-URL form) and CONNECT tunnelling for HTTPS pass-through.
  */
 export function createProxyServer(config: ProxyServerConfig = {}): Server {
   const server = createServer((req, res) => {
@@ -24,6 +25,10 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
     }
 
     forwardHttpRequest(req, res, config.policyCallback);
+  });
+
+  server.on('connect', (req, clientSocket, head) => {
+    handleConnect(req, clientSocket, head);
   });
 
   return server;
