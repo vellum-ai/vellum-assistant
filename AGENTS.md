@@ -60,3 +60,15 @@ When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag
 - **Special-purpose capability added:** When a PR introduces a capability that is specific to one use case (e.g., a dedicated Google Cloud OAuth flow for Gmail), flag it for human review — don't reject it. Sometimes special-purpose implementations are the right call (e.g., making a painful setup "magical" requires specificity). The reviewer's job is to surface it so a human can decide whether it should be generalized or is fine as-is.
 - **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
 - **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.
+
+## Tooling Direction
+
+Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.
+
+Prefer skills in `assistant/skills/vellum-skills/` that teach the model how to use CLI tools directly.
+
+## Migration Guidance
+
+When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
+
+Reasoning: every registered tool increases model context overhead, while the model can usually learn CLI usage from skills on demand and install missing CLI dependencies when needed.
