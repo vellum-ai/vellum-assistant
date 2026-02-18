@@ -21,6 +21,7 @@ Everything after stripping flags is the **feature description**.
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Don't pipe to them.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
@@ -186,6 +187,7 @@ You are working on a single task in an isolated git worktree.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- Do NOT wait for CI checks to pass before merging. Merge immediately.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree

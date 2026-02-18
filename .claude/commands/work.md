@@ -9,6 +9,7 @@ IMPORTANT: If the task is "Address the feedback on <PR URL>", first check if the
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Avoid `cmd | tail -N`. Instead, run the command directly and let output truncate naturally, or use the Read tool on output files.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 
