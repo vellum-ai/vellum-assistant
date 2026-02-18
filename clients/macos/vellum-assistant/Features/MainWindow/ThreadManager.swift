@@ -80,11 +80,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func createThread() {
-        // If the active thread is still empty, just keep it instead of creating another
+        // If the active thread is still empty, just keep it instead of creating another.
+        // Skip this optimisation for private threads — they have different persistence
+        // semantics and should not be silently reused as standard threads.
         if let activeId = activeThreadId,
            let vm = chatViewModels[activeId],
            !vm.messages.contains(where: { $0.role == .user }) {
-            return
+            let activeThread = threads.first(where: { $0.id == activeId })
+            if activeThread?.kind != .private {
+                return
+            }
         }
 
         let thread = ThreadModel()
