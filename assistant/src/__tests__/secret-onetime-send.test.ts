@@ -34,6 +34,7 @@ mock.module('../security/secure-keys.js', () => ({
   deleteSecureKey: (key: string) => storedKeys.delete(key),
   listSecureKeys: () => [],
   getBackendType: () => 'keychain',
+  isDowngradedFromKeychain: () => false,
 }));
 
 mock.module('./metadata-store.js', () => ({
