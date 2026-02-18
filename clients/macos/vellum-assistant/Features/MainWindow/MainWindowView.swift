@@ -1026,6 +1026,8 @@ struct MainWindowView: View {
                 }
                 windowState.selection = nil
             }, daemonClient: daemonClient)
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.selection = nil })
         }
     }
 
@@ -1278,6 +1280,9 @@ struct MainWindowView: View {
                 }
                 windowState.dismissOverlay()
             }, daemonClient: daemonClient)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
