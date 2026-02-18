@@ -2186,6 +2186,101 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ---
 
+## Inline Media Embeds — URL Detection and Rendering Pipeline
+
+Chat messages containing image or video URLs are rendered inline with a click-to-play card (videos) or lazy-loaded preview (images). The pipeline runs entirely on the macOS client with no daemon involvement; settings are persisted to the workspace config file via `WorkspaceConfigIO`.
+
+### Resolution Flow
+
+```mermaid
+graph TD
+    MSG["ChatMessage.text"] --> EXTRACT["MessageURLExtractor<br/>NSDataDetector + markdown regex<br/>strips code blocks first"]
+    EXTRACT --> URLS["Deduplicated URL list"]
+
+    URLS --> VP{"Video parsers<br/>(tried in order)"}
+    VP -->|match| ALLOWLIST["DomainAllowlistMatcher<br/>exact + subdomain matching"]
+    VP -->|no match| IMG_CLASS["ImageURLClassifier<br/>extension-based (.png, .jpg, ...)"]
+
+    ALLOWLIST -->|allowed| VIDEO_INTENT["MediaEmbedIntent.video<br/>(provider, videoID, embedURL)"]
+    ALLOWLIST -->|blocked| SKIP["Skip URL"]
+
+    IMG_CLASS -->|.image| IMAGE_INTENT["MediaEmbedIntent.image(url)"]
+    IMG_CLASS -->|.unknown| MIME_PROBE["ImageMIMEProbe<br/>async HTTP HEAD<br/>NSCache-backed"]
+    IMG_CLASS -->|.notImage| SKIP
+
+    MIME_PROBE -->|image/*| IMAGE_INTENT
+    MIME_PROBE -->|other| SKIP
+
+    subgraph "Video Parsers"
+        YT["YouTubeParser<br/>watch, shorts, embed, youtu.be"]
+        VIMEO["VimeoParser<br/>standard, player, channels, groups"]
+        LOOM["LoomParser<br/>share, embed"]
+    end
+
+    VP --> YT
+    VP --> VIMEO
+    VP --> LOOM
+```
+
+`MediaEmbedResolver` is the single entry point. It checks whether the feature is enabled, filters out messages that predate the `enabledSince` timestamp, calls `MessageURLExtractor.extractAllURLs`, and runs each URL through the video parsers and image classifier. The result is an array of `MediaEmbedIntent` values consumed by the chat view.
+
+### Rendering Components
+
+| Component | Purpose |
+|---|---|
+| `InlineImageEmbedView` | `AsyncImage` wrapper; defers loading until `onAppear` to avoid eager fetches in long histories. Tapping opens the URL in the default browser. Silent `EmptyView` on failure. |
+| `InlineVideoEmbedCard` | Click-to-play card with state machine (`placeholder` -> `initializing` -> `playing` / `failed`). Tears down webview on `onDisappear` to prevent background audio and memory leaks. |
+| `InlineVideoWebView` | `NSViewRepresentable` wrapping `WKWebView`. Uses `VideoEmbedURLBuilder` to add provider-specific autoplay parameters. |
+| `InlineVideoEmbedStateManager` | `@MainActor ObservableObject` driving the card's lifecycle states. |
+
+### Security Policies
+
+The video webview applies three hardening layers:
+
+1. **Ephemeral storage** -- `WKWebViewConfiguration.websiteDataStore = .nonPersistent()` so no cookies, local storage, or cache survive the session.
+2. **Navigation blocking** -- Only `navigationType == .other` (programmatic/iframe loads) is allowed. User-initiated link clicks are cancelled and opened in the system browser via `NSWorkspace`.
+3. **Popup blocking** -- `createWebViewWith` returns `nil`, preventing embedded players from opening new windows.
+
+### Settings Persistence
+
+Media embed preferences live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui.mediaEmbeds`:
+
+```json
+{
+  "ui": {
+    "mediaEmbeds": {
+      "enabled": true,
+      "enabledSince": "2026-02-15T12:00:00Z",
+      "videoAllowlistDomains": ["youtube.com", "youtu.be", "vimeo.com", "loom.com"]
+    }
+  }
+}
+```
+
+`SettingsStore` loads these values on init via `WorkspaceConfigIO.read` and writes them back via `WorkspaceConfigIO.merge` on toggle or allowlist update. The `enabledSince` timestamp ensures only messages created after the user enabled embeds are eligible, so toggling the feature on doesn't retroactively embed every historical link.
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `clients/macos/.../MediaEmbeds/MessageURLExtractor.swift` | URL extraction (plain text + markdown links, code-block exclusion) |
+| `clients/macos/.../MediaEmbeds/ImageURLClassifier.swift` | Extension-based image classification |
+| `clients/macos/.../MediaEmbeds/ImageMIMEProbe.swift` | Async HTTP HEAD probe for extensionless URLs |
+| `clients/macos/.../MediaEmbeds/DomainAllowlistMatcher.swift` | HTTPS-only domain allowlist with subdomain support |
+| `clients/macos/.../MediaEmbeds/MediaEmbedResolver.swift` | Pipeline orchestrator: settings gate, extraction, classification, dedup |
+| `clients/macos/.../MediaEmbeds/VideoProviders/YouTubeParser.swift` | YouTube URL parsing (watch, shorts, embed, youtu.be) |
+| `clients/macos/.../MediaEmbeds/VideoProviders/VimeoParser.swift` | Vimeo URL parsing (standard, player, channels, groups) |
+| `clients/macos/.../MediaEmbeds/VideoProviders/LoomParser.swift` | Loom URL parsing (share, embed) |
+| `clients/macos/.../MediaEmbeds/VideoEmbedURLBuilder.swift` | Provider-specific embed URL construction with autoplay params |
+| `clients/macos/.../MediaEmbeds/InlineImageEmbedView.swift` | Lazy-loaded inline image rendering |
+| `clients/macos/.../MediaEmbeds/InlineVideoEmbedCard.swift` | Click-to-play video card with state machine |
+| `clients/macos/.../MediaEmbeds/InlineVideoWebView.swift` | Privacy-hardened WKWebView wrapper |
+| `clients/macos/.../MediaEmbeds/InlineVideoEmbedState.swift` | Video embed lifecycle state + manager |
+| `clients/macos/.../Features/Settings/MediaEmbedSettings.swift` | Centralized defaults and domain normalization |
+| `clients/macos/.../Features/Settings/SettingsStore.swift` | Settings persistence (reads/writes `ui.mediaEmbeds` in workspace config) |
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -2208,5 +2303,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
 | Trace events | In-memory (TraceStore) | Structured events | Swift ObservableObject | Max 5,000 per session, ephemeral |
+| Media embed settings | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON | `WorkspaceConfigIO` (atomic merge) | Permanent |
+| Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
