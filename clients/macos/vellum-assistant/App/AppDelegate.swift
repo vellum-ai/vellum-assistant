@@ -371,7 +371,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Handle escalation: text_qa -> computer_use via request_computer_control
+        // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }
             // Only handle escalation messages (those with escalatedFrom set)

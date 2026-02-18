@@ -98,8 +98,10 @@ registerTool(mockBundledSkillTool);
 
 // Register CU tools so classifyRisk returns their declared Low risk level
 // instead of falling through to Medium (unknown tool).
-import { registerComputerUseTools } from '../tools/computer-use/registry.js';
-registerComputerUseTools();
+import { registerComputerUseActionTools } from '../tools/computer-use/registry.js';
+import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+registerComputerUseActionTools();
+registerTool(requestComputerControlTool);
 
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
@@ -488,11 +490,11 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-computer_use_click-global');
     });
 
-    test('request_computer_control prompts by default via computer-use ask rule', async () => {
-      const result = await check('request_computer_control', { task: 'Open system settings' }, '/tmp');
+    test('computer_use_request_control prompts by default via computer-use ask rule', async () => {
+      const result = await check('computer_use_request_control', { task: 'Open system settings' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('ask rule');
-      expect(result.matchedRule?.id).toBe('default:ask-request_computer_control-global');
+      expect(result.matchedRule?.id).toBe('default:ask-computer_use_request_control-global');
     });
 
     test('higher-priority allow rule can override default computer-use ask rule', async () => {
@@ -3857,8 +3859,8 @@ describe('computer-use tool permission defaults', () => {
     }
   });
 
-  test('request_computer_control classifies as Low risk', async () => {
-    const risk = await classifyRisk('request_computer_control', {});
+  test('computer_use_request_control classifies as Low risk', async () => {
+    const risk = await classifyRisk('computer_use_request_control', {});
     expect(risk).toBe(RiskLevel.Low);
   });
 });

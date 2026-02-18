@@ -205,10 +205,9 @@ describe('CU session skill tool lifecycle cleanup', () => {
     expect(cuTools).toHaveLength(0);
   });
 
-  test('request_computer_control remains in registry after CU session lifecycle', async () => {
+  test('computer_use_request_control is not in core registry after CU session lifecycle', async () => {
     const { getTool } = await import('../tools/registry.js');
-    const tool = getTool('request_computer_control');
-    expect(tool).toBeDefined();
-    expect(tool!.name).toBe('request_computer_control');
+    const tool = getTool('computer_use_request_control');
+    expect(tool).toBeUndefined();
   });
 });

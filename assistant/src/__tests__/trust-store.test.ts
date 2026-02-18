@@ -740,7 +740,7 @@ describe('Trust Store', () => {
         'host_file_edit',
         'host_file_read',
         'host_file_write',
-        'request_computer_control',
+        'computer_use_request_control',
         'scaffold_managed_skill',
         'skill_load',
       ]);
@@ -859,12 +859,12 @@ describe('Trust Store', () => {
       expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-computer_use_click-global')!);
     });
 
-    test('findHighestPriorityRule matches default ask for request_computer_control', () => {
-      const match = findHighestPriorityRule('request_computer_control', ['request_computer_control:'], '/tmp');
+    test('findHighestPriorityRule matches default ask for computer_use_request_control', () => {
+      const match = findHighestPriorityRule('computer_use_request_control', ['computer_use_request_control:'], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.id).toBe('default:ask-request_computer_control-global');
+      expect(match!.id).toBe('default:ask-computer_use_request_control-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-request_computer_control-global')!);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-computer_use_request_control-global')!);
     });
 
     test('bootstrap delete rule matches only when workingDir is the workspace dir', () => {
@@ -2053,7 +2053,7 @@ describe('computer-use tool trust rule matching', () => {
     const actionableCuTools = [
       'computer_use_click',
       'computer_use_type_text',
-      'request_computer_control',
+      'computer_use_request_control',
     ];
 
     for (const name of actionableCuTools) {

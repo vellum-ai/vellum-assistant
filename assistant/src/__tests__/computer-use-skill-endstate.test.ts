@@ -35,12 +35,6 @@ describe('computer-use skill end-state', () => {
     }
   });
 
-  test('request_computer_control is still present in core registry', () => {
-    const tool = getTool('request_computer_control');
-    expect(tool).toBeDefined();
-    expect(tool!.name).toBe('request_computer_control');
-  });
-
   // ── getAllToolDefinitions (excludes proxy & skill tools) ──────────
 
   test('getAllToolDefinitions() excludes computer_use_* tools', () => {
@@ -49,23 +43,25 @@ describe('computer-use skill end-state', () => {
     expect(cuDefs).toHaveLength(0);
   });
 
-  test('getAllToolDefinitions() excludes request_computer_control (proxy exclusion)', () => {
+  test('getAllToolDefinitions() excludes computer_use_request_control (proxy exclusion)', () => {
     const defs = getAllToolDefinitions();
-    const found = defs.find((d) => d.name === 'request_computer_control');
+    const found = defs.find((d) => d.name === 'computer_use_request_control');
     expect(found).toBeUndefined();
   });
 
   // ── buildToolDefinitions (text session tool set) ─────────────────
 
-  test('buildToolDefinitions() includes request_computer_control', () => {
+  test('buildToolDefinitions() includes computer_use_request_control', () => {
     const defs = buildToolDefinitions();
-    const found = defs.find((d) => d.name === 'request_computer_control');
+    const found = defs.find((d) => d.name === 'computer_use_request_control');
     expect(found).toBeDefined();
   });
 
   test('buildToolDefinitions() excludes computer_use_* action tools', () => {
     const defs = buildToolDefinitions();
-    const cuDefs = defs.filter((d) => d.name.startsWith('computer_use_'));
+    const cuDefs = defs.filter(
+      (d) => d.name.startsWith('computer_use_') && d.name !== 'computer_use_request_control',
+    );
     expect(cuDefs).toHaveLength(0);
   });
 

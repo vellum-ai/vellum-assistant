@@ -482,35 +482,6 @@ describe('computer-use registration split', () => {
     const registered = getAllTools();
     expect(registered).toHaveLength(12);
     expect(registered.every((t) => t.name.startsWith('computer_use_'))).toBe(true);
-    expect(getTool('request_computer_control')).toBeUndefined();
-  });
-
-  test('registerRequestComputerControlTool registers the escalation tool', async () => {
-    const { registerRequestComputerControlTool } = await import('../tools/computer-use/registry.js');
-
-    __clearRegistryForTesting();
-    expect(getAllTools()).toHaveLength(0);
-
-    registerRequestComputerControlTool();
-
-    const registered = getAllTools();
-    expect(registered).toHaveLength(1);
-    expect(registered[0].name).toBe('request_computer_control');
-  });
-
-  test('registerComputerUseTools (wrapper) registers both action and escalation', async () => {
-    const { registerComputerUseTools } = await import('../tools/computer-use/registry.js');
-
-    __clearRegistryForTesting();
-    expect(getAllTools()).toHaveLength(0);
-
-    registerComputerUseTools();
-
-    const registered = getAllTools();
-    expect(registered).toHaveLength(13);
-
-    const cuActionTools = registered.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuActionTools).toHaveLength(12);
-    expect(getTool('request_computer_control')).toBeDefined();
+    expect(getTool('computer_use_request_control')).toBeUndefined();
   });
 });

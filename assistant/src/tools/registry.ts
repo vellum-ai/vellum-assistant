@@ -2,7 +2,6 @@ import { RiskLevel } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
-import { registerRequestComputerControlTool } from './computer-use/registry.js';
 import { allComputerUseTools } from './computer-use/definitions.js';
 import { requestComputerControlTool } from './computer-use/request-computer-control.js';
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
@@ -223,10 +222,8 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // Only register the escalation tool in core. The 12 computer_use_* action
-  // tools are now provided by the bundled computer-use skill, projected into
-  // CU sessions via preactivatedSkillIds.
-  registerRequestComputerControlTool();
+  // All computer_use_* tools (including the escalation tool) are now provided
+  // by the bundled computer-use skill. No CU tools are registered in core.
   registerUiSurfaceTools();
   registerAppTools();
 
