@@ -153,7 +153,10 @@ class CredentialStoreTool implements Tool {
         }
         const policy = toPolicyFromInput(policyInput);
 
-        const alias = input.alias as string | undefined;
+        const alias = input.alias;
+        if (alias !== undefined && typeof alias !== 'string') {
+          return { content: 'Error: alias must be a string', isError: true };
+        }
         const rawTemplates = input.injection_templates as unknown[] | undefined;
 
         // Validate injection templates
@@ -183,6 +186,9 @@ class CredentialStoreTool implements Tool {
               if (typeof t.queryParamName !== 'string' || t.queryParamName.trim().length === 0) {
                 templateErrors.push(`injection_templates[${i}].queryParamName is required when injectionType is 'query'`);
               }
+            }
+            if (t.valuePrefix !== undefined && typeof t.valuePrefix !== 'string') {
+              templateErrors.push(`injection_templates[${i}].valuePrefix must be a string`);
             }
             if (templateErrors.length === 0) {
               injectionTemplates.push({
