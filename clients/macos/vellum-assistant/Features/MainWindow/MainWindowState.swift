@@ -18,7 +18,18 @@ final class MainWindowState: ObservableObject {
     @AppStorage("chatDockOpen") private var chatDockOpen = false
 
     /// The single source of truth for what the main content area displays.
-    @Published var selection: ViewSelection?
+    @Published var selection: ViewSelection? {
+        didSet {
+            // When navigating to a thread, update the persistent thread tracker.
+            // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
+            if case .thread(let id) = selection {
+                persistentThreadId = id
+            }
+        }
+    }
+
+    /// Tracks the "background" thread that persists even when viewing an app or panel overlay.
+    @Published var persistentThreadId: UUID?
 
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
@@ -104,6 +115,15 @@ final class MainWindowState: ObservableObject {
     }
 
     // MARK: - Selection Helpers
+
+    /// Dismiss the current overlay (app, panel, etc.) and return to the persistent thread.
+    func dismissOverlay() {
+        if let threadId = persistentThreadId {
+            selection = .thread(threadId)
+        } else {
+            selection = nil
+        }
+    }
 
     func select(_ newSelection: ViewSelection) {
         selection = newSelection

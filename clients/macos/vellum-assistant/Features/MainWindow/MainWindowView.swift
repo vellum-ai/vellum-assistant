@@ -333,6 +333,10 @@ struct MainWindowView: View {
         .onAppear {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             selectedThreadId = threadManager.activeThreadId
+            // Initialize persistent thread tracking on launch
+            if let activeId = threadManager.activeThreadId {
+                windowState.persistentThreadId = activeId
+            }
             requestHomeBaseDashboardIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
@@ -350,6 +354,16 @@ struct MainWindowView: View {
         .onChange(of: threadManager.activeThreadId) { oldId, newId in
             // Sync activeThreadId changes back to selectedThreadId to keep sidebar selection in sync
             selectedThreadId = newId
+            // Update persistentThreadId when the active thread changes, but only
+            // if the user is currently viewing a thread or has no selection (not an overlay).
+            if let newId {
+                switch windowState.selection {
+                case .thread, .none:
+                    windowState.persistentThreadId = newId
+                default:
+                    break
+                }
+            }
             // Close the activity panel when switching threads — the stored messageId
             // belongs to the previous thread and won't exist in the new one.
             if case .panel(.activity) = windowState.selection {
@@ -417,11 +431,9 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected: Bool = {
-            switch windowState.selection {
-            case .thread(let id): return id == thread.id
-            case .appEditing(_, let threadId): return threadId == thread.id
-            default: return thread.id == threadManager.activeThreadId && windowState.selection == nil
-            }
+            if thread.id == windowState.persistentThreadId { return true }
+            if case .thread(let id) = windowState.selection, id == thread.id { return true }
+            return false
         }()
         let isHovered = isHoveredThread == thread.id
         Button(action: {
@@ -1012,7 +1024,7 @@ struct MainWindowView: View {
             if panelType == .directory {
                 AppDirectoryView(
                     daemonClient: daemonClient,
-                    onBack: { windowState.selection = nil },
+                    onBack: { windowState.dismissOverlay() },
                     onOpenApp: { surfaceMsg in
                         windowState.activeDynamicSurface = surfaceMsg
                         windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
@@ -1028,6 +1040,7 @@ struct MainWindowView: View {
                         appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
                     }
                 )
+                .overlay(alignment: .topTrailing) { panelDismissButton }
             } else if panelType == .activity {
                 // Activity panel shown as side panel alongside chat
                 let config = windowState.layoutConfig
@@ -1101,9 +1114,10 @@ struct MainWindowView: View {
     private func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .agent:
-            AgentPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
+            AgentPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
                     threadManager.createThread()
                 }
@@ -1117,28 +1131,47 @@ struct MainWindowView: View {
                     viewModel.sendMessage()
                     viewModel.pendingSkillInvocation = nil
                 }
-                windowState.selection = nil
+                windowState.dismissOverlay()
             }, daemonClient: daemonClient)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
                 daemonClient: daemonClient,
                 activeSessionId: threadManager.activeViewModel?.sessionId,
-                onClose: { windowState.selection = nil }
+                onClose: { windowState.dismissOverlay() }
             )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
         case .doctor:
-            DoctorPanel(onClose: { windowState.selection = nil })
+            DoctorPanel(onClose: { windowState.dismissOverlay() })
+                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
-            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
             // if we reach here, isDynamicExpanded is false — clear selection so
             // the user falls back to the chat view instead of seeing a blank screen.
             Color.clear.frame(width: 0, height: 0)
-                .onAppear { windowState.selection = nil }
+                .onAppear { windowState.dismissOverlay() }
         default:
             EmptyView()
         }
+    }
+
+    /// Consistent X close button for panel overlays.
+    private var panelDismissButton: some View {
+        Button(action: { windowState.dismissOverlay() }) {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(VColor.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(VColor.surface.opacity(0.8))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, VSpacing.lg)
+        .padding(.trailing, VSpacing.lg)
     }
 
     // MARK: - Dynamic Workspace
@@ -1708,17 +1741,16 @@ private struct DynamicWorkspaceWrapper: View {
 
                     Button(action: {
                         showSharePicker = false
-                        windowState.closeDynamicPanel()
+                        windowState.activeDynamicSurface = nil
+                        windowState.activeDynamicParsedSurface = nil
+                        windowState.dismissOverlay()
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(VColor.surface.opacity(0.85))
-                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
-                            )
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(VColor.surface.opacity(0.8))
+                            .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close workspace")
