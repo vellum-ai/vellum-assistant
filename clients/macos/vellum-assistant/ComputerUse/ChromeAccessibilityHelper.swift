@@ -127,9 +127,13 @@ final class ChromeAccessibilityHelper {
         return false
     }
 
-    /// Find the running Chrome app.
+    /// Find a running Chromium browser, preferring Google Chrome.
     static func findRunningChrome() -> NSRunningApplication? {
-        for bundleId in chromeBundleIds {
+        // Check Google Chrome first since the UI references "Chrome" specifically,
+        // then fall back to other Chromium browsers in deterministic order.
+        let orderedIds = ["com.google.Chrome", "com.google.Chrome.canary",
+                          "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi"]
+        for bundleId in orderedIds {
             if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
                 return app
             }

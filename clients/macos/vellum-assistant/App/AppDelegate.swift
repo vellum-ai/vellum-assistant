@@ -1068,8 +1068,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                 }
                             }
                         }
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        success = true
+                        // Poll for CDP availability instead of blind sleep
+                        success = await Self.pollForCDP()
                     } catch {
                         success = false
                     }
@@ -1088,6 +1088,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Poll http://localhost:9222/json/version until CDP responds or we time out.
+    private static func pollForCDP(maxAttempts: Int = 10, intervalNs: UInt64 = 1_000_000_000) async -> Bool {
+        for _ in 0..<maxAttempts {
+            try? await Task.sleep(nanoseconds: intervalNs)
+            if let url = URL(string: "http://localhost:9222/json/version"),
+               let (_, response) = try? await URLSession.shared.data(from: url),
+               let http = response as? HTTPURLResponse,
+               http.statusCode == 200 {
+                return true
+            }
+        }
+        return false
+    }
+
     private func createChromeDebugLaunchAgent() {
         let plistContent = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -1098,15 +1112,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             <string>com.vellum.chrome-debug</string>
             <key>ProgramArguments</key>
             <array>
-                <string>open</string>
-                <string>-a</string>
-                <string>Google Chrome</string>
-                <string>--args</string>
+                <string>/Applications/Google Chrome.app/Contents/MacOS/Google Chrome</string>
                 <string>--remote-debugging-port=9222</string>
                 <string>--force-renderer-accessibility</string>
             </array>
             <key>RunAtLoad</key>
-            <false/>
+            <true/>
         </dict>
         </plist>
         """
