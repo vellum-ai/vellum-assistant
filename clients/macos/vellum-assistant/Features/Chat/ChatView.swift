@@ -2294,37 +2294,45 @@ private struct ThinkingIndicator: View {
     @State private var timer: Timer?
 
     var body: some View {
-        HStack(spacing: VSpacing.xs) {
-            Image("OwlIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 12, height: 12)
-                .foregroundColor(VColor.textSecondary)
+        HStack(spacing: VSpacing.sm) {
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(VColor.textSecondary)
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(dotScale(for: index))
+                        .opacity(dotOpacity(for: index))
+                }
+            }
 
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
-
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(VColor.textSecondary)
-                    .frame(width: 5, height: 5)
-                    .opacity(dotOpacity(for: index))
-            }
 
             Spacer()
         }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.backgroundSubtle.opacity(0.5))
+        )
+        .frame(maxWidth: 160, alignment: .leading)
         .onAppear { startAnimation() }
         .onDisappear { timer?.invalidate() }
     }
 
     private func dotOpacity(for index: Int) -> Double {
-        phase == index ? 1.0 : 0.4
+        phase == index ? 1.0 : 0.35
+    }
+
+    private func dotScale(for index: Int) -> CGFloat {
+        phase == index ? 1.15 : 0.85
     }
 
     private func startAnimation() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.3)) {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.4)) {
                 phase = (phase + 1) % 3
             }
         }

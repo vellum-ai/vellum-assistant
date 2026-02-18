@@ -563,6 +563,8 @@ extension ChatViewModel {
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
                 break
             }
+            // Tool chip is now visible — hide the thinking indicator
+            isThinking = false
             // Extract building status for app tools
             let buildingStatus: String? = {
                 let appTools: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
@@ -637,6 +639,11 @@ extension ChatViewModel {
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
+            }
+            // Tool completed — agent is now processing the result. Show
+            // thinking indicator until the next text delta or tool starts.
+            if isSending && !isCancelling {
+                isThinking = true
             }
 
         case .uiSurfaceShow(let msg):
