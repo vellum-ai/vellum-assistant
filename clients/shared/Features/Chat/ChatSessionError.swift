@@ -5,6 +5,7 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
     case providerApi
+    case contextTooLarge
     case queueFull
     case sessionAborted
     case processingFailed
@@ -19,6 +20,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .rateLimit
         case .providerApi:
             self = .providerApi
+        case .contextTooLarge:
+            self = .contextTooLarge
         case .queueFull:
             self = .queueFull
         case .sessionAborted:
@@ -41,6 +44,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "You've hit a rate limit. Please wait a moment before retrying."
         case .providerApi:
             return "The AI provider returned an error. Try again or check your API key."
+        case .contextTooLarge:
+            return "Start a new conversation or try a shorter message."
         case .queueFull:
             return "Too many pending messages. Wait for current messages to finish processing."
         case .sessionAborted:

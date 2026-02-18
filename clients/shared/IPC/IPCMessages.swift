@@ -1274,6 +1274,7 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
+    case contextTooLarge = "CONTEXT_TOO_LARGE"
     case queueFull = "QUEUE_FULL"
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"

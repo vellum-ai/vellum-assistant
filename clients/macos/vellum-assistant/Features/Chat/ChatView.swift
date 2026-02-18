@@ -789,6 +789,8 @@ struct ChatView: View {
             return "clock.badge.exclamationmark"
         case .providerApi:
             return "exclamationmark.icloud.fill"
+        case .contextTooLarge:
+            return "text.badge.xmark"
         case .queueFull:
             return "tray.full.fill"
         case .sessionAborted:
@@ -810,6 +812,8 @@ struct ChatView: View {
             return Amber._500
         case .sessionAborted:
             return VColor.textSecondary
+        case .contextTooLarge:
+            return VColor.warning
         default:
             return VColor.error
         }
