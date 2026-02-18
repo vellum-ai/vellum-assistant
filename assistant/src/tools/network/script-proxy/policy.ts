@@ -105,9 +105,13 @@ export function evaluateRequestWithApproval(
 
   const target: RequestTargetContext = { hostname, port, path, scheme };
 
-  // Check whether any template in the full registry covers this host.
+  // Check whether any non-query template in the full registry covers this
+  // host. Query templates are excluded for consistency with evaluateRequest
+  // — they're handled via URL rewriting in the MITM path and shouldn't
+  // cause a false ask_missing_credential on the HTTP forwarder path.
   const matchingPatterns: string[] = [];
   for (const tpl of allKnownTemplates) {
+    if (tpl.injectionType === 'query') continue;
     if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
       matchingPatterns.push(tpl.hostPattern);
     }
