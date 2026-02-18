@@ -145,28 +145,31 @@ public struct MessageBubbleView: View {
     @ViewBuilder
     private var interleavedContent: some View {
         let groups = groupContentBlocks()
-        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-            switch group {
-            case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        messageBubble(text: segmentText, role: message.role)
-                    }
-                }
-            case .toolCalls(let indices):
-                let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
-                if !calls.isEmpty {
-                    ToolCallProgressBar(toolCalls: calls)
-                }
-            case .surface(let i):
-                if i < message.inlineSurfaces.count {
-                    InlineSurfaceRouter(
-                        surface: message.inlineSurfaces[i],
-                        onAction: { surfaceId, actionId, data in
-                            onSurfaceAction?(surfaceId, actionId, data)
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                switch group {
+                case .text(let i):
+                    if i < message.textSegments.count {
+                        let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !segmentText.isEmpty {
+                            messageBubble(text: segmentText, role: message.role)
                         }
-                    )
+                    }
+                case .toolCalls(let indices):
+                    let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
+                    if !calls.isEmpty {
+                        ToolCallProgressBar(toolCalls: calls)
+                            .padding(.vertical, VSpacing.xs)
+                    }
+                case .surface(let i):
+                    if i < message.inlineSurfaces.count {
+                        InlineSurfaceRouter(
+                            surface: message.inlineSurfaces[i],
+                            onAction: { surfaceId, actionId, data in
+                                onSurfaceAction?(surfaceId, actionId, data)
+                            }
+                        )
+                    }
                 }
             }
         }
