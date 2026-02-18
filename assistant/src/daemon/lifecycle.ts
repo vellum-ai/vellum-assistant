@@ -33,6 +33,7 @@ import { startScheduler } from '../schedule/scheduler.js';
 import { initWatcherEngine } from '../watcher/engine.js';
 import { registerWatcherProvider } from '../watcher/provider-registry.js';
 import { gmailProvider } from '../watcher/providers/gmail.js';
+import { googleCalendarProvider } from '../watcher/providers/google-calendar.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
@@ -287,6 +288,7 @@ export async function runDaemon(): Promise<void> {
   const memoryWorker = startMemoryJobsWorker();
   // Initialize watcher engine and register providers
   registerWatcherProvider(gmailProvider);
+  registerWatcherProvider(googleCalendarProvider);
   initWatcherEngine();
 
   const scheduler = startScheduler(

@@ -5,14 +5,14 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
-You are helping your user create Google Cloud OAuth credentials so the Gmail integration can connect. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
+You are helping your user create Google Cloud OAuth credentials so the Gmail and Google Calendar integrations can connect. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
 
 **Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
 
 ## Before You Start
 
 Tell the user:
-- "I'll walk you through setting up Google Cloud so Vellum can connect to your Gmail. The whole process takes a few minutes."
+- "I'll walk you through setting up Google Cloud so Vellum can connect to your Gmail and Google Calendar. The whole process takes a few minutes."
 - "I'll be automating the Google Cloud Console in the browser — you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
 - "No sensitive credentials will be shown in the conversation."
@@ -50,25 +50,33 @@ Tell the user: "Project created! Now let's enable the Gmail API."
 
 Note the project ID from the URL or page content for subsequent steps.
 
-## Step 3: Enable the Gmail API
+## Step 3: Enable the Gmail and Calendar APIs
 
 **Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` and this message:
 
-> **Enable the Gmail API**
+> **Enable the Gmail and Calendar APIs**
 >
-> I'm about to enable the Gmail API in your Google Cloud project. This allows Vellum to access your email — but only after you explicitly authorize it in a later step. Enabling the API alone doesn't grant any access.
+> I'm about to enable the Gmail API and Google Calendar API in your Google Cloud project. This allows Vellum to access your email and calendar — but only after you explicitly authorize it in a later step. Enabling the APIs alone doesn't grant any access.
 
-Wait for the user to approve. If they decline, explain that the Gmail API is required for email integration and offer to try again or cancel.
+Wait for the user to approve. If they decline, explain that the APIs are required for email and calendar integration and offer to try again or cancel.
 
 Once approved, navigate to `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID` (substitute the actual project ID).
 
 Take a `browser_snapshot`:
-- **If the API is already enabled:** You'll see "API enabled" or a "Manage" button. Tell the user "Gmail API is already enabled — great!" and skip to Step 4.
+- **If the API is already enabled:** You'll see "API enabled" or a "Manage" button. Tell the user "Gmail API is already enabled — great!" and continue to enable Calendar API.
 - **If not enabled:** Use `browser_click` on the "Enable" button.
 
 Wait a moment, then take a `browser_screenshot` to show the result and a `browser_snapshot` to confirm it shows as enabled.
 
-Tell the user: "Gmail API is enabled! Next, we need to set up an OAuth consent screen."
+Now navigate to `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID` to enable the Google Calendar API.
+
+Take a `browser_snapshot`:
+- **If the API is already enabled:** Tell the user "Google Calendar API is already enabled — great!" and skip to Step 4.
+- **If not enabled:** Use `browser_click` on the "Enable" button.
+
+Wait a moment, then take a `browser_screenshot` to show the result.
+
+Tell the user: "Gmail and Calendar APIs are enabled! Next, we need to set up an OAuth consent screen."
 
 ## Step 4: Configure the OAuth Consent Screen
 
@@ -98,6 +106,8 @@ Use `browser_click` to proceed through each page of the wizard:
   - `https://www.googleapis.com/auth/gmail.readonly`
   - `https://www.googleapis.com/auth/gmail.modify`
   - `https://www.googleapis.com/auth/gmail.send`
+  - `https://www.googleapis.com/auth/calendar.readonly`
+  - `https://www.googleapis.com/auth/calendar.events`
   - `https://www.googleapis.com/auth/userinfo.email`
   - Click "Update" then "Save and Continue"
 - Test users page: Add the user's email as a test user, click "Save and Continue"
@@ -149,7 +159,7 @@ service: "integration:gmail"
 client_id: "<the extracted client ID>"
 auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
 token_url: "https://oauth2.googleapis.com/token"
-scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/userinfo.email"]
+scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/userinfo.email"]
 userinfo_url: "https://www.googleapis.com/oauth2/v2/userinfo"
 extra_params: {"access_type": "offline", "prompt": "consent"}
 ```
@@ -162,14 +172,14 @@ This will open the Google authorization page in the user's browser. Wait for the
 
 Once connected, tell the user:
 
-"**Gmail is connected!** You're all set. You can now read, search, and send emails through Vellum. Try asking me to check your inbox!"
+"**Gmail and Calendar are connected!** You're all set. You can now read, search, and send emails, plus view and manage your calendar through Vellum. Try asking me to check your inbox or show your upcoming events!"
 
 Summarize what was accomplished:
 - Created a Google Cloud project (or used an existing one)
-- Enabled the Gmail API
-- Configured the OAuth consent screen with appropriate scopes
+- Enabled the Gmail API and Google Calendar API
+- Configured the OAuth consent screen with appropriate scopes (including calendar)
 - Created OAuth Desktop credentials using secure PKCE
-- Connected your Gmail account
+- Connected your Gmail and Google Calendar accounts
 
 ## Error Handling
 
