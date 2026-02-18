@@ -1749,6 +1749,7 @@ public enum ServerMessage: Decodable, Sendable {
     case browserFrame(BrowserFrameMessage)
     case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
     case browserCDPRequest(BrowserCDPRequestMessage)
+    case browserHandoffRequest(BrowserHandoffRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case pong
     case unknown(String)
@@ -2002,6 +2003,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "browser_cdp_request":
             let message = try BrowserCDPRequestMessage(from: decoder)
             self = .browserCDPRequest(message)
+        case "browser_handoff_request":
+            let message = try BrowserHandoffRequestMessage(from: decoder)
+            self = .browserHandoffRequest(message)
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)
@@ -2034,6 +2038,10 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
         self.declined = declined
     }
 }
+
+// MARK: - Browser Handoff
+
+public typealias BrowserHandoffRequestMessage = IPCBrowserHandoffRequest
 
 // MARK: - App Files Changed
 
