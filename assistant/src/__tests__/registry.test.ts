@@ -175,7 +175,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(14);
+    expect(eagerModules.length).toBe(15);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -232,6 +232,61 @@ describe('baseline characterization: hardcoded tool loading', () => {
   test('claude_code is NOT in lazyTools manifest', () => {
     const lazyNames = lazyTools.map(t => t.name);
     expect(lazyNames).not.toContain('claude_code');
+  });
+});
+
+describe('baseline characterization: core app tool surface', () => {
+  test('core registry includes all non-proxy app tools', async () => {
+    await initializeTools();
+
+    const expectedAppTools = [
+      'app_create',
+      'app_list',
+      'app_query',
+      'app_update',
+      'app_delete',
+      'app_file_list',
+      'app_file_read',
+      'app_file_edit',
+      'app_file_write',
+    ];
+
+    for (const name of expectedAppTools) {
+      const tool = getTool(name);
+      expect(tool).toBeDefined();
+      expect(tool?.executionMode).toBe('local');
+    }
+
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    for (const name of expectedAppTools) {
+      expect(definitionNames).toContain(name);
+    }
+  });
+
+  test('core registry includes app_open proxy tool', async () => {
+    await initializeTools();
+
+    const tool = getTool('app_open');
+    expect(tool).toBeDefined();
+    expect(tool?.executionMode).toBe('proxy');
+
+    // Proxy tools are excluded from getAllToolDefinitions() by design
+    const definitionNames = getAllToolDefinitions().map((def) => def.name);
+    expect(definitionNames).not.toContain('app_open');
+  });
+
+  test('bundled app-builder skill is instruction-only (no TOOLS.json)', async () => {
+    const path = await import('node:path');
+    const fs = await import('node:fs');
+
+    // Resolve the bundled skill directory relative to the source config
+    const skillDir = path.resolve(
+      import.meta.dirname,
+      '../config/bundled-skills/app-builder',
+    );
+    const toolsJsonPath = path.join(skillDir, 'TOOLS.json');
+
+    expect(fs.existsSync(toolsJsonPath)).toBe(false);
   });
 });
 
