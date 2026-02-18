@@ -901,3 +901,29 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(options.executionTarget).toBe('host');
   });
 });
+
+// Baseline: allow rules can auto-allow file_edit for USER.md today (no forced prompting)
+describe('ToolExecutor baseline: allow rule auto-allows file_edit USER.md', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  test('file_edit to USER.md is auto-allowed when checker says allow', async () => {
+    // checker mock returns { decision: 'allow' } by default
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      'file_edit',
+      { path: '/Users/sidd/.vellum/workspace/USER.md', content: 'hello' },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('ok');
+    // confirm checker was called (not bypassed)
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.toolName).toBe('file_edit');
+  });
+});

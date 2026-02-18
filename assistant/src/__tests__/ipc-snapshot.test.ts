@@ -1225,4 +1225,24 @@ describe('IPC message snapshots', () => {
       expect(complete.type).toBe('message_complete');
     });
   });
+
+  // Baseline: session contract has no thread type metadata today
+  describe('thread type baselines (pre-private-threads)', () => {
+    test('session_create request has no threadType field', () => {
+      const req = clientMessages.session_create;
+      expect('threadType' in req).toBe(false);
+    });
+
+    test('session_info response has no threadType field', () => {
+      const info = serverMessages.session_info;
+      expect('threadType' in info).toBe(false);
+    });
+
+    test('session_list_response sessions have no threadType field', () => {
+      const list = serverMessages.session_list_response;
+      for (const s of list.sessions) {
+        expect('threadType' in s).toBe(false);
+      }
+    });
+  });
 });
