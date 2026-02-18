@@ -159,7 +159,9 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
                 broadcast(.messageComplete(MessageCompleteMessage(sessionId: sessionId)))
                 activeTasks.removeValue(forKey: sessionId)
                 // Roll back the user message — no assistant reply was produced
-                if var history = pendingMessages[sessionId], !history.isEmpty {
+                if var history = pendingMessages[sessionId],
+                   !history.isEmpty,
+                   history.last?["role"] as? String == "user" {
                     history.removeLast()
                     pendingMessages[sessionId] = history.isEmpty ? nil : history
                 }
@@ -204,8 +206,11 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
 
         // Roll back the user message if no assistant text was produced (error or cancellation),
         // to preserve the alternating user/assistant invariant required by the Anthropic API.
+        // Guard on role == "user" to avoid a double-rollback if handleCancel already removed it.
         if assistantText.isEmpty {
-            if var history = pendingMessages[sessionId], !history.isEmpty {
+            if var history = pendingMessages[sessionId],
+               !history.isEmpty,
+               history.last?["role"] as? String == "user" {
                 history.removeLast()
                 pendingMessages[sessionId] = history.isEmpty ? nil : history
             }
