@@ -278,21 +278,11 @@ struct ChatView: View {
     private var temporaryChatEmptyStateView: some View {
         VStack(spacing: 0) {
             Spacer()
-            Spacer()
-
-            Image(systemName: "circle.dashed")
-                .font(.system(size: 40, weight: .light))
-                .foregroundColor(VColor.accent)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .scaleEffect(emptyStateVisible ? 1 : 0.8)
-                .padding(.bottom, VSpacing.lg)
 
             Text("Temporary Chat")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
+                .font(.system(size: 24, weight: .medium))
+                .foregroundColor(VColor.textPrimary)
                 .multilineTextAlignment(.center)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .offset(y: emptyStateVisible ? 0 : 8)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
@@ -300,10 +290,8 @@ struct ChatView: View {
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .offset(y: emptyStateVisible ? 0 : 8)
                 .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.xl)
+                .padding(.bottom, VSpacing.xxl)
 
             ComposerView(
                 inputText: $inputText,
@@ -319,27 +307,16 @@ struct ChatView: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: "Ask me anything...",
+                placeholderText: "Ask anything...",
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded
             )
-            .opacity(emptyStateVisible ? 1 : 0)
-            .offset(y: emptyStateVisible ? 0 : 10)
 
-            Spacer()
             Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VColor.chatBackground)
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
-                emptyStateVisible = true
-            }
-        }
-        .onDisappear {
-            emptyStateVisible = false
-        }
     }
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
