@@ -17,7 +17,7 @@ final class DocumentManager: ObservableObject {
 
     /// Current document content and metadata
     private(set) var currentContent: String = ""
-    private var currentWordCount: Int = 0
+    @Published var wordCount: Int = 0
 
     /// Initial content from daemon — persisted for panel reopen after the coordinator consumes pendingInitialContent
     private(set) var initialContent: String = ""
@@ -82,7 +82,7 @@ final class DocumentManager: ObservableObject {
     func updateContent(title: String, content: String, wordCount: Int) {
         self.title = title
         self.currentContent = content
-        self.currentWordCount = wordCount
+        self.wordCount = wordCount
     }
 
     func closeDocument() {
@@ -91,7 +91,7 @@ final class DocumentManager: ObservableObject {
         sessionId = nil
         title = "Untitled Document"
         currentContent = ""
-        currentWordCount = 0
+        wordCount = 0
         initialContent = ""
         pendingInitialContent = nil
         log.info("Document closed")
@@ -109,7 +109,7 @@ final class DocumentManager: ObservableObject {
             return
         }
 
-        print("💾 Starting save: title=\(title), contentLength=\(currentContent.count), wordCount=\(currentWordCount)")
+        print("💾 Starting save: title=\(title), contentLength=\(currentContent.count), wordCount=\(wordCount)")
         isSaving = true
         lastSaveError = nil
 
@@ -119,9 +119,9 @@ final class DocumentManager: ObservableObject {
                 conversationId: sessionId,
                 title: title,
                 content: currentContent,
-                wordCount: currentWordCount
+                wordCount: wordCount
             )
-            log.info("Document save requested: \(surfaceId) - \(self.currentWordCount) words")
+            log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
             print("💾 ✅ IPC message sent successfully")
         } catch {
             log.error("Failed to send document save: \(error.localizedDescription)")

@@ -251,14 +251,7 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
       overflow: hidden;
     }
 
-    .header {
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--v-surface-border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-    }
+    .header { display: none; }
 
     .title-input {
       font-size: 20px;
@@ -283,7 +276,6 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .editor-container {
       flex: 1;
       overflow: hidden;
-      padding: 24px;
     }
 
     #editor {
@@ -297,7 +289,10 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .toastui-editor-toolbar-icons:hover { background: var(--v-surface-border) !important; }
     .toastui-editor-md-container,
     .toastui-editor-ww-container { background: var(--v-bg) !important; color: var(--v-text) !important; }
-    .toastui-editor-contents { color: var(--v-text) !important; }
+    .toastui-editor-contents { color: var(--v-text) !important; padding: 0 !important; }
+    .toastui-editor-ww-content { padding: 0 !important; }
+    .ProseMirror { padding: 0 !important; }
+    .toastui-editor-md-container .toastui-editor { padding: 0 !important; }
     .toastui-editor-contents h1,
     .toastui-editor-contents h2,
     .toastui-editor-contents h3 { color: var(--v-text) !important; border-bottom-color: var(--v-surface-border) !important; }

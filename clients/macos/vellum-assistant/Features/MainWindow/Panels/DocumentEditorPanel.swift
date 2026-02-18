@@ -15,6 +15,11 @@ struct DocumentEditorPanelView: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                 Spacer()
+                if documentManager.wordCount > 0 {
+                    Text("\(documentManager.wordCount) words")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
                 } else {
