@@ -131,7 +131,7 @@ class ShellTool implements Tool {
       const sandboxConfig = context.sandboxOverride != null
         ? { ...config.sandbox, enabled: context.sandboxOverride }
         : config.sandbox;
-      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig);
+      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, { networkMode });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env,
