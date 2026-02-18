@@ -375,6 +375,7 @@ export async function startCli(): Promise<void> {
           const content = pendingUserContent;
           pendingUserContent = null;
           lastResponse = '';
+          process.stdout.write(`you> ${content}\n\n`);
           if (send({ type: 'user_message', sessionId, content })) {
             generating = true;
             spinner.start('Thinking...');
@@ -899,6 +900,7 @@ export async function startCli(): Promise<void> {
       prompt();
       return;
     }
+    process.stdout.write(`\nyou> ${content}\n\n`);
     generating = true;
     spinner.start('Thinking...');
   }
