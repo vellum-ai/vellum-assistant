@@ -243,8 +243,8 @@ private func buildSessionTransportMetadata(
 }
 
 extension IPCSessionCreateRequest {
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil) {
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType)
     }
 
     public init(
@@ -266,7 +266,8 @@ extension IPCSessionCreateRequest {
                 channelId: transportChannelId,
                 hints: transportHints,
                 uxBrief: transportUxBrief
-            )
+            ),
+            threadType: nil
         )
     }
 }
@@ -705,8 +706,8 @@ extension IPCMessageComplete {
 public typealias SessionInfoMessage = IPCSessionInfo
 
 extension IPCSessionInfo {
-    public init(sessionId: String, title: String, correlationId: String? = nil) {
-        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId)
+    public init(sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
+        self.init(type: "session_info", sessionId: sessionId, title: title, correlationId: correlationId, threadType: threadType)
     }
 }
 
