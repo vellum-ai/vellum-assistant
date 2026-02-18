@@ -44,7 +44,7 @@ Write it down. Make it real.
 
 Once you've figured out who you are and who they are, create their Home Base — don't ask, just do it.
 
-Generate the Home Base app using `app_create`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
+Generate the Home Base app using `app_create` with `set_as_home_base: true`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
 
 - What they told you they use you for (email, research, writing, coding, etc.)
 - Practical daily tasks: "Check my emails", "Start my day", "Set a reminder"

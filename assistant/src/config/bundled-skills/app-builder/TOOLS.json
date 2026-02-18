@@ -39,6 +39,10 @@
             "type": "boolean",
             "description": "Automatically open the app after creation. Defaults to true. When true, the app is immediately displayed in a dynamic_page surface without needing a separate app_open call."
           },
+          "set_as_home_base": {
+            "type": "boolean",
+            "description": "Link this app as the user's Home Base dashboard. Defaults to false. When true, this app becomes the default Home Base shown on launch."
+          },
           "preview": {
             "type": "object",
             "description": "Optional inline preview card shown in chat. Provides a compact summary so the user sees what was built without opening the app.",
