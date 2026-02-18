@@ -14,8 +14,13 @@ permissions:
 
 jobs:
   push:
-    name: Build & Push Image
+    name: Build & Push Image (${{ matrix.environment }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
 
     steps:
       - name: Checkout
@@ -57,8 +62,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Gateway Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
