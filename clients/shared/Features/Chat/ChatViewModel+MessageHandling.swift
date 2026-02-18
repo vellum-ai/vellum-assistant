@@ -504,6 +504,13 @@ extension ChatViewModel {
             lastContentWasToolCall = false
             if !wasCancelling {
                 errorText = err.message
+                // When the backend blocks a message for containing secrets,
+                // stash the last user message text so "Send Anyway" can resend
+                // with the bypass flag.
+                if err.category == "secret_blocked",
+                   let lastUserMsg = messages.last(where: { $0.role == .user }) {
+                    secretBlockedMessageText = lastUserMsg.text
+                }
             }
             // Reset processing messages to sent
             for i in messages.indices {

@@ -70,6 +70,9 @@ public final class ChatViewModel: ObservableObject {
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
     private(set) var lastFailedSendError: String?
+    /// Stores the text of a message that was blocked by the secret-ingress check.
+    /// Set when an error with category "secret_blocked" arrives.
+    private(set) var secretBlockedMessageText: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
@@ -229,6 +232,7 @@ public final class ChatViewModel: ObservableObject {
                 lastFailedMessageText = nil
                 lastFailedMessageAttachments = nil
                 lastFailedSendError = nil
+                secretBlockedMessageText = nil
                 currentTurnUserText = text
                 return
             }
@@ -271,6 +275,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        secretBlockedMessageText = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -718,6 +723,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        secretBlockedMessageText = nil
     }
 
     /// Dismiss the typed session error state. Clears both the typed error
@@ -775,6 +781,39 @@ public final class ChatViewModel: ObservableObject {
     /// offering to resend a stale cached message.
     public var isRetryableError: Bool {
         lastFailedMessageText != nil && lastFailedSendError != nil
+    }
+
+    /// Whether the current error is a secret-ingress block that can be bypassed.
+    public var isSecretBlockError: Bool {
+        secretBlockedMessageText != nil
+    }
+
+    /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
+    public func sendAnyway() {
+        guard let text = secretBlockedMessageText, let sessionId else { return }
+
+        secretBlockedMessageText = nil
+        errorText = nil
+
+        isSending = true
+        isThinking = true
+
+        if messageLoopTask == nil {
+            startMessageLoop()
+        }
+
+        do {
+            try daemonClient.send(UserMessageMessage(
+                sessionId: sessionId,
+                content: text,
+                bypassSecretCheck: true
+            ))
+        } catch {
+            log.error("Failed to send bypassed message: \(error.localizedDescription)")
+            isSending = false
+            isThinking = false
+            errorText = "Failed to send message."
+        }
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).

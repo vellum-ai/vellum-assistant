@@ -279,8 +279,8 @@ extension IPCSessionCreateRequest {
 public typealias UserMessageMessage = IPCUserMessage
 
 extension IPCUserMessage {
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck)
     }
 }
 
@@ -949,8 +949,8 @@ extension IPCMessageDequeued {
 public typealias ErrorMessage = IPCErrorMessage
 
 extension IPCErrorMessage {
-    public init(message: String) {
-        self.init(type: "error", message: message)
+    public init(message: String, category: String? = nil) {
+        self.init(type: "error", message: message, category: category)
     }
 }
 

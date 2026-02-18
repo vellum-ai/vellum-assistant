@@ -53,16 +53,19 @@ export async function handleUserMessage(
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
     // Block inbound messages that contain secrets and redirect to secure prompt
-    const ingressCheck = checkIngressForSecrets(msg.content ?? '');
-    if (ingressCheck.blocked) {
-      rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
-      ctx.send(socket, {
-        type: 'error',
-        message: ingressCheck.userNotice!,
-      });
-      // Redirect: trigger a secure prompt so the user can enter the secret safely
-      session.redirectToSecurePrompt(ingressCheck.detectedTypes);
-      return;
+    if (!msg.bypassSecretCheck) {
+      const ingressCheck = checkIngressForSecrets(msg.content ?? '');
+      if (ingressCheck.blocked) {
+        rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
+        ctx.send(socket, {
+          type: 'error',
+          message: ingressCheck.userNotice!,
+          category: 'secret_blocked',
+        });
+        // Redirect: trigger a secure prompt so the user can enter the secret safely
+        session.redirectToSecurePrompt(ingressCheck.detectedTypes);
+        return;
+      }
     }
 
     session.traceEmitter.emit('request_received', 'User message received', {

@@ -1422,6 +1422,8 @@ private struct ActiveChatViewWrapper: View {
             onDismissError: viewModel.dismissError,
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
+            isSecretBlockError: viewModel.isSecretBlockError,
+            onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
             onAttach: { openFilePicker(viewModel: viewModel) },
             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },

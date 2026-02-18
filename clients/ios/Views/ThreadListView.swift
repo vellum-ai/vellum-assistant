@@ -397,7 +397,17 @@ struct ThreadChatView: View {
                 .foregroundColor(.white)
                 .lineLimit(2)
             Spacer()
-            if viewModel.isRetryableError {
+            if viewModel.isSecretBlockError {
+                Button(action: { viewModel.sendAnyway() }) {
+                    Text("Send Anyway")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(Color.white.opacity(0.25))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+            } else if viewModel.isRetryableError {
                 Button(action: { viewModel.retryLastMessage() }) {
                     Text("Retry")
                         .font(VFont.captionMedium)

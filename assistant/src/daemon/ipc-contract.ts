@@ -33,6 +33,8 @@ export interface UserMessage {
   activeSurfaceId?: string;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
+  /** When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway". */
+  bypassSecretCheck?: boolean;
 }
 
 export interface UserMessageAttachment {
@@ -894,6 +896,8 @@ export interface SessionsClearResponse {
 export interface ErrorMessage {
   type: 'error';
   message: string;
+  /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
+  category?: string;
 }
 
 export interface AuthResult {

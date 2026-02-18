@@ -386,6 +386,8 @@ public struct IPCEnvVarsResponse: Codable, Sendable {
 public struct IPCErrorMessage: Codable, Sendable {
     public let type: String
     public let message: String
+    /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
+    public let category: String?
 }
 
 public struct IPCFileUploadSurfaceData: Codable, Sendable {
@@ -1611,6 +1613,8 @@ public struct IPCUserMessage: Codable, Sendable {
     public let activeSurfaceId: String?
     /// The page currently displayed in the WebView (e.g. "settings.html").
     public let currentPage: String?
+    /// When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway".
+    public let bypassSecretCheck: Bool?
 }
 
 public struct IPCUserMessageAttachment: Codable, Sendable {
