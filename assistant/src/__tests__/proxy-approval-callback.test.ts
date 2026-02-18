@@ -430,8 +430,8 @@ describe('createProxyApprovalCallback', () => {
       // Should include an origin-level wildcard pattern (port 443 is normalized
       // away by the URL constructor since it's the default HTTPS port)
       expect(patterns.some((p) => p.includes('https://api.fal.ai/*'))).toBe(true);
-      // Should include the catch-all tool wildcard
-      expect(patterns).toContain('network_request:*');
+      // Should include the catch-all globstar wildcard
+      expect(patterns).toContain('**');
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
     };
