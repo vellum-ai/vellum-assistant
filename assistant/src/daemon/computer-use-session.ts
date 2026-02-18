@@ -159,6 +159,10 @@ export class ComputerUseSession {
       // occur before runAgentLoop's internal try-catch takes over.
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, sessionId: this.sessionId }, 'Agent loop startup failed');
+      if (this.sessionTimer) {
+        clearTimeout(this.sessionTimer);
+        this.sessionTimer = null;
+      }
       if (this.state !== 'complete' && this.state !== 'error') {
         this.state = 'error';
         this.sendToClient({
