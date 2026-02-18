@@ -231,10 +231,8 @@ describe('policyCallback credential injection', () => {
     }
   });
 
-  test('unresolvable credential ID returns empty headers', async () => {
-    let receivedHeaders: http.IncomingHttpHeaders = {};
-    const echo = http.createServer((req, res) => {
-      receivedHeaders = req.headers;
+  test('unresolvable credential ID blocks request (known host, missing credential)', async () => {
+    const echo = http.createServer((_req, res) => {
       res.writeHead(200);
       res.end('ok');
     });
@@ -260,9 +258,9 @@ describe('policyCallback credential injection', () => {
         `http://127.0.0.1:${echoPort}/test`,
       );
 
-      // Should allow through with empty headers (fail-safe)
-      expect(status).toBe(200);
-      expect(receivedHeaders['authorization']).toBeUndefined();
+      // Known host with missing credential: policy blocks with 403 rather
+      // than leaking an unauthenticated request to a credentialed service.
+      expect(status).toBe(403);
     } finally {
       echo.close();
     }
