@@ -29,6 +29,8 @@ const log = getLogger('headless-browser');
 
 export const NAVIGATE_TIMEOUT_MS = 30_000;
 
+export const ACTION_TIMEOUT_MS = 60_000;
+
 export const MAX_SNAPSHOT_ELEMENTS = 500;
 
 export const INTERACTIVE_SELECTOR = [
@@ -465,9 +467,11 @@ export async function executeBrowserClick(
     }
   }
 
+  const timeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    await page.click(selector!);
+    await page.click(selector!, { timeout });
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');

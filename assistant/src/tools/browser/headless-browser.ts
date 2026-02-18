@@ -144,7 +144,7 @@ registerTool(new BrowserCloseTool());
 
 class BrowserClickTool implements Tool {
   name = 'browser_click';
-  description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector.';
+  description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer using browser_press_key with ArrowDown/ArrowUp to navigate options and Enter to select — clicking dynamic dropdown items is unreliable.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -162,6 +162,10 @@ class BrowserClickTool implements Tool {
           selector: {
             type: 'string',
             description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+          timeout: {
+            type: 'number',
+            description: 'Max time in ms to wait for the element to be clickable (default: 60000).',
           },
         },
       },
@@ -227,7 +231,7 @@ registerTool(new BrowserTypeTool());
 
 class BrowserPressKeyTool implements Tool {
   name = 'browser_press_key';
-  description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc.';
+  description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc. Preferred method for navigating autocomplete dropdowns and search suggestion lists: use ArrowDown/ArrowUp to move through options, then Enter to select.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
