@@ -908,3 +908,32 @@ describe('DockerBackend — complete hardening profile verification', () => {
     expect(result.args).toContain('--pids-limit=64');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Baseline: default sandboxed bash uses network-disabled isolation
+// ---------------------------------------------------------------------------
+
+describe('DockerBackend — baseline: network isolation defaults', () => {
+  test('default config sets network to "none"', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('curl https://example.com', sandboxRoot);
+    expect(result.args).toContain('--network=none');
+    expect(result.sandboxed).toBe(true);
+  });
+
+  test('--network=none appears before the image argument', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('wget http://evil.com', sandboxRoot);
+    const networkIdx = result.args.indexOf('--network=none');
+    const imageIdx = result.args.indexOf(defaultImage);
+    expect(networkIdx).toBeGreaterThan(-1);
+    expect(networkIdx).toBeLessThan(imageIdx);
+  });
+
+  test('no other --network flag is present when using defaults', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const networkArgs = result.args.filter((a: string) => a.startsWith('--network='));
+    expect(networkArgs).toEqual(['--network=none']);
+  });
+});
