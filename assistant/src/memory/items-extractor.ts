@@ -222,7 +222,7 @@ async function extractItemsWithLLM(
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-export async function extractAndUpsertMemoryItemsForMessage(messageId: string): Promise<number> {
+export async function extractAndUpsertMemoryItemsForMessage(messageId: string, scopeId?: string): Promise<number> {
   const db = getDb();
   const message = db
     .select({
