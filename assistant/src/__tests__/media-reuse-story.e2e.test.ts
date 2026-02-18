@@ -1,20 +1,21 @@
 /**
  * Story E2E Test: "selfie yesterday -> generated image today"
  *
- * Simulates the full media-reuse user story end-to-end:
+ * Exercises the full media-reuse user story end-to-end:
  *
  * 1. A fal.ai credential is stored with an injection template.
  * 2. User uploads a selfie in Thread A (standard thread).
  * 3. In Thread B (standard), the agent uses asset_search to find the selfie,
  *    then asset_materialize to write it to disk.
- * 4. A proxied bash command calls the provider API (mocked) with credential
- *    injection. The activation prompt fires per-invocation (not persistent).
+ * 4. A proxied bash command calls the provider API through a real proxy
+ *    session with credential injection against a local mock endpoint.
  * 5. The generated result is saved back.
  *
  * Also verifies that private-thread isolation blocks cross-thread media access.
  */
 
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import * as http from 'node:http';
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -55,6 +56,36 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
+// Credential resolver and secure key mocks — must be set up before
+// session-manager is imported so the proxy uses our test data.
+import type { ResolvedCredential } from '../tools/credentials/resolve.js';
+
+let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
+let secureKeyValues = new Map<string, string | undefined>();
+
+mock.module('../tools/credentials/resolve.js', () => ({
+  resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
+  resolveByServiceField: () => undefined,
+  resolveForDomain: () => [],
+}));
+
+mock.module('../security/secure-keys.js', () => ({
+  getSecureKey: (account: string) => secureKeyValues.get(account),
+  setSecureKey: () => true,
+  deleteSecureKey: () => true,
+  listSecureKeys: () => [],
+  getBackendType: () => 'encrypted',
+  _resetBackend: () => {},
+  _setBackend: () => {},
+}));
+
+// Stub ensureLocalCA / certs so tests never run openssl
+mock.module('../tools/network/script-proxy/certs.js', () => ({
+  ensureLocalCA: async () => {},
+  issueLeafCert: async () => ({ cert: '', key: '' }),
+  getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
+}));
+
 // ---------------------------------------------------------------------------
 // Source imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -68,15 +99,96 @@ import { isAttachmentVisible, filterVisibleAttachments, type AttachmentContext }
 import { TINY_PNG_BASE64, FAKE_SELFIE_ATTACHMENT, fakeAllowOnce, fakeDeny } from './fixtures/media-reuse-fixtures.js';
 import type { ToolContext } from '../tools/types.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
+import { createSession, startSession, stopAllSessions } from '../tools/network/script-proxy/index.js';
 
 import { mkdirSync } from 'node:fs';
 
 initializeDb();
 mkdirSync(sandboxDir, { recursive: true });
 
-afterAll(() => {
+afterAll(async () => {
+  await stopAllSessions();
+  resolveByIdResults = new Map();
+  secureKeyValues = new Map();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Resolved credential factory matching the pattern in script-proxy-injection-runtime.test.ts */
+function makeResolved(
+  credentialId: string,
+  templates: CredentialInjectionTemplate[],
+  service = 'test-service',
+  field = 'api-key',
+): ResolvedCredential {
+  return {
+    credentialId,
+    service,
+    field,
+    storageKey: `credential:${service}:${field}`,
+    injectionTemplates: templates,
+    metadata: {
+      credentialId,
+      service,
+      field,
+      allowedTools: [],
+      allowedDomains: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      injectionTemplates: templates,
+    },
+  };
+}
+
+/**
+ * Start a local HTTP echo server that captures received headers and returns
+ * them as JSON. Returns the server and its port.
+ */
+function startEchoServer(): Promise<{ server: http.Server; port: number }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ headers: req.headers, url: req.url }));
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
+      resolve({ server, port: addr.port });
+    });
+  });
+}
+
+/**
+ * Send an HTTP request through the proxy to a target URL and return the
+ * parsed JSON response body from the echo server.
+ */
+function proxyGet(
+  proxyPort: number,
+  targetUrl: string,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: proxyPort,
+        path: targetUrl,
+        method: 'GET',
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString());
+          resolve({ statusCode: res.statusCode ?? 0, body });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 function resetTables() {
   const db = getDb();
@@ -198,7 +310,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
     expect(Buffer.compare(writtenBytes, expectedBytes)).toBe(0);
   });
 
-  test('full story: search -> materialize -> simulated provider call -> output saved', async () => {
+  test('full story: search -> materialize -> proxied provider call -> output saved', async () => {
     const contextB: ToolContext = {
       workingDir: sandboxDir,
       sessionId: 'sess-story',
@@ -222,33 +334,42 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
     const inputPath = join(sandboxDir, 'inputs', 'selfie.png');
     expect(existsSync(inputPath)).toBe(true);
 
-    // Step 4: Simulate proxied script calling mock provider API
-    // In reality, the agent would run `bash` with `network_mode: 'proxied'`,
-    // which routes through the network proxy with credential injection.
-    // Here we simulate the provider response — the proxy and bash execution
-    // are tested in proxy-approval-callback.test.ts and tool-executor.test.ts.
-    const mockProviderResponse = {
-      images: [
-        { url: 'https://fal.ai/output/generated-portrait-001.png' },
-        { url: 'https://fal.ai/output/generated-portrait-002.png' },
-      ],
-      seed: 42,
-      inference_time: 1.23,
-    };
+    // Step 4: Real proxied request through a local mock endpoint.
+    // We spin up an echo server, configure the proxy with a credential
+    // that injects an Authorization header for 127.0.0.1, and verify the
+    // echo server actually receives the injected header.
+    const echo = await startEchoServer();
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: '127.0.0.1',
+        injectionType: 'header',
+        headerName: 'Authorization',
+        valuePrefix: 'Key ',
+      };
+      const resolved = makeResolved('cred-story', [tpl]);
+      resolveByIdResults.set('cred-story', resolved);
+      secureKeyValues.set('credential:test-service:api-key', 'fal_test_secret');
 
-    // Simulate iterating on the result (calling provider multiple times)
-    // Each call would require per-invocation approval in the real flow
-    const iterations = [
-      { prompt: 'Generate a portrait from selfie, style: oil painting', response: mockProviderResponse },
-      { prompt: 'Generate a portrait from selfie, style: watercolor', response: { ...mockProviderResponse, seed: 43 } },
-    ];
+      const session = createSession(threadB.id, ['cred-story'], undefined, testDir);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).not.toBeNull();
 
-    for (const _iteration of iterations) {
-      // Verify the approval response helper produces correct decision shapes
-      const approval = fakeAllowOnce();
-      expect(approval.decision).toBe('allow');
-      expect(approval.pattern).toBeUndefined();
-      // Each invocation gets a one-time allow — no persistent rule created
+      const result = await proxyGet(
+        started.port!,
+        `http://127.0.0.1:${echo.port}/v1/generate`,
+      );
+
+      expect(result.statusCode).toBe(200);
+      // The echo server returns the headers it received — verify injection
+      const echoHeaders = result.body.headers as Record<string, string>;
+      expect(echoHeaders['authorization']).toBe('Key fal_test_secret');
+
+      await stopAllSessions();
+      resolveByIdResults.delete('cred-story');
+      secureKeyValues.delete('credential:test-service:api-key');
+    } finally {
+      echo.server.close();
     }
 
     // Step 5: Save the generated result back as an attachment.
