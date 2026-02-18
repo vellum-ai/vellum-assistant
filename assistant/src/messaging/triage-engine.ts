@@ -165,36 +165,33 @@ function buildUserPrompt(message: InboundMessage): string {
 
 // ── Fallback classification ─────────────────────────────────────────
 
-function buildFallbackResult(
-  playbookMatches: PlaybookMatch[],
-): TriageResult {
+function buildFallbackResult(): TriageResult {
   return {
     category: 'needs_response',
     confidence: 0.3,
     suggestedAction: 'Review manually — LLM classification unavailable',
-    matchedPlaybooks: playbookMatches.map(({ playbook }) => ({
-      trigger: playbook.trigger,
-      action: playbook.action,
-      autonomyLevel: playbook.autonomyLevel,
-    })),
+    matchedPlaybooks: [],
   };
 }
 
 // ── Core triage function ────────────────────────────────────────────
 
-export async function triageMessage(message: InboundMessage): Promise<TriageResult> {
+export async function triageMessage(
+  message: InboundMessage,
+  scopeId?: string,
+): Promise<TriageResult> {
   // Step 1: Look up sender in contact graph
   const contact = findContactByAddress(message.channel, message.sender);
 
   // Step 2: Fetch matching playbooks
-  const playbookMatches = fetchMatchingPlaybooks(message.channel);
+  const playbookMatches = fetchMatchingPlaybooks(message.channel, scopeId);
 
   // Step 3: Classify with LLM
   const config = getConfig();
   const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     log.warn('No Anthropic API key available for triage classification, returning fallback');
-    const result = buildFallbackResult(playbookMatches);
+    const result = buildFallbackResult();
     persistTriageResult(message, result, playbookMatches);
     return result;
   }
@@ -205,7 +202,7 @@ export async function triageMessage(message: InboundMessage): Promise<TriageResu
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Triage LLM call failed, returning fallback');
-    result = buildFallbackResult(playbookMatches);
+    result = buildFallbackResult();
   }
 
   // Step 4: Persist the result
@@ -254,7 +251,7 @@ async function classifyWithLLM(
   const toolBlock = response.content.find((b) => b.type === 'tool_use');
   if (!toolBlock || toolBlock.type !== 'tool_use') {
     log.warn('No tool_use block in triage response, returning fallback');
-    return buildFallbackResult(playbookMatches);
+    return buildFallbackResult();
   }
 
   const input = toolBlock.input as {
