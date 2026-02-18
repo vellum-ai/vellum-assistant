@@ -247,10 +247,10 @@ describe('ComputerUseSession lifecycle', () => {
       },
     };
 
-    // No preactivatedSkillIds passed — legacy path
+    // No preactivatedSkillIds passed — defaults to ['computer-use'] via skill projection
     const session = new ComputerUseSession(
-      'cu-legacy-path',
-      'test legacy',
+      'cu-default-projection',
+      'test default projection',
       1440, 900,
       provider,
       () => {},
@@ -260,7 +260,7 @@ describe('ComputerUseSession lifecycle', () => {
 
     await session.handleObservation({
       type: 'cu_observation',
-      sessionId: 'cu-legacy-path',
+      sessionId: 'cu-default-projection',
       axTree: 'Window "Test" [1]',
     });
 

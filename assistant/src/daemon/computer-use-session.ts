@@ -15,13 +15,11 @@ import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
-import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
 import { projectSkillTools } from './session-skill-tools.js';
-import type { SkillToolProjection } from './session-skill-tools.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -205,12 +203,15 @@ export class ComputerUseSession {
 
   /**
    * Compute CU tool definitions from the bundled computer-use skill via
-   * skill projection. Returns null if no preactivated skills are configured
-   * (i.e. the legacy path should be used).
+   * skill projection. Throws if no preactivated skills are configured or
+   * projection produces no tool definitions.
    */
-  private getProjectedCuToolDefinitions(): ToolDefinition[] | null {
+  private getProjectedCuToolDefinitions(): ToolDefinition[] {
     if (this.preactivatedSkillIds.length === 0) {
-      return null;
+      throw new Error(
+        'ComputerUseSession requires preactivatedSkillIds to include the computer-use skill. ' +
+        'No skill IDs were provided — CU tool projection cannot proceed.',
+      );
     }
 
     const projection = projectSkillTools([], {
@@ -219,7 +220,11 @@ export class ComputerUseSession {
     });
 
     if (projection.toolDefinitions.length === 0) {
-      return null;
+      throw new Error(
+        'Skill projection for preactivatedSkillIds ' +
+        JSON.stringify(this.preactivatedSkillIds) +
+        ' produced no tool definitions. Ensure the computer-use skill is properly registered.',
+      );
     }
 
     return projection.toolDefinitions;
@@ -250,9 +255,7 @@ export class ComputerUseSession {
   private async runAgentLoop(messages: Message[]): Promise<void> {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
 
-    // Try skill projection first; fall back to legacy direct definitions
-    const projectedCuTools = this.getProjectedCuToolDefinitions();
-    const cuToolDefs = projectedCuTools ?? allComputerUseTools.map((t) => t.getDefinition());
+    const cuToolDefs = this.getProjectedCuToolDefinitions();
 
     const toolDefs: ToolDefinition[] = [
       ...cuToolDefs,
