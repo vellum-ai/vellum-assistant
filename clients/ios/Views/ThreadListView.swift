@@ -226,7 +226,16 @@ struct ThreadChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
-                        ForEach(viewModel.messages) { message in
+                        let messages = viewModel.messages
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                            let isLastAssistant = message.role == .assistant
+                                && !message.isStreaming
+                                && (index == messages.count - 1
+                                    || (index == messages.count - 2
+                                        && messages[messages.count - 1].confirmation != nil
+                                        && messages[messages.count - 1].confirmation?.state != .pending))
+                                && !viewModel.isSending
+                                && !viewModel.isThinking
                             MessageBubbleView(
                                 message: message,
                                 onConfirmationResponse: { requestId, decision in
@@ -235,7 +244,7 @@ struct ThreadChatView: View {
                                 onSurfaceAction: { surfaceId, actionId, data in
                                     viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
                                 },
-                                onRegenerate: viewModel.isSending ? nil : { viewModel.regenerateLastMessage() }
+                                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil
                             )
                             .id(message.id)
                         }
@@ -289,6 +298,7 @@ struct ThreadChatView: View {
                 onStop: viewModel.stopGenerating,
                 onVoiceResult: { _ in
                     viewModel.pendingVoiceMessage = true
+                    viewModel.sendMessage()
                 },
                 viewModel: viewModel
             )

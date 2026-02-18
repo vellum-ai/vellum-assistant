@@ -116,7 +116,11 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             let sessionId = response.notification.request.content.userInfo["session_id"] as? String
 
             Task { @MainActor in
-                // If daemon is connected, send the reply via IPC
+                // If not connected (e.g. background launch via notification reply with no scene
+                // foregrounded), attempt to connect before sending the reply.
+                if !self.clientProvider.client.isConnected {
+                    try? await self.clientProvider.client.connect()
+                }
                 if self.clientProvider.client.isConnected, let sid = sessionId {
                     try? self.clientProvider.client.send(UserMessageMessage(
                         sessionId: sid,
