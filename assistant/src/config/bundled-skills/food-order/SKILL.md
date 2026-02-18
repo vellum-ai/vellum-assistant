@@ -12,21 +12,17 @@ Order food from delivery services (DoorDash, Uber Eats, Grubhub, etc.) using bro
 
 ## Ordering Flow — Follow These Steps IN ORDER
 
-### Step 1: Sign In FIRST (use direct login URLs)
+### Step 1: Navigate and Sign In FIRST
 
-This is the most important step. Delivery sites block browsing and ordering without being signed in. **Navigate directly to the sign-in page** to avoid fighting homepage modals.
+This is the most important step. Delivery sites block browsing and ordering without being signed in.
 
-1. Navigate directly to the sign-in page:
-   - DoorDash → `https://identity.doordash.com/auth/sign-in`
-   - Uber Eats → `https://auth.uber.com/v2/`
-   - Grubhub → `https://www.grubhub.com/login`
-2. Take a `browser_snapshot` once the page loads.
-3. **Sign in using the email input on the page:**
-   - Fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` from the snapshot — NEVER type into the browser URL bar.
-   - Click "Continue" or equivalent submit button.
-   - The site will send a verification code via SMS. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user: "DoorDash sent a verification code to your phone. Please enter it below." Then type the code into the verification input on the page.
-4. After sign-in completes, navigate to the homepage (e.g. `https://www.doordash.com`).
-5. If you're already signed in (you see "Welcome back", account menu, or the user's name on the homepage), skip sign-in and continue.
+1. Navigate to the delivery site homepage (e.g. `browser_navigate` to `https://www.doordash.com`).
+2. Take a `browser_snapshot` once the page loads. **Dismiss any modals first** (see below).
+3. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 3.
+4. **Click the "Sign In" button** on the homepage — this redirects to the identity/auth page with the correct OAuth parameters. Do NOT navigate directly to identity.doordash.com (it returns 404 without OAuth params).
+5. On the sign-in page, fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` — NEVER type into the browser URL bar.
+6. Click "Continue" or equivalent submit button.
+7. The site will send a verification code via SMS. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. Then type the code into the verification input on the page.
 
 ### EVERY snapshot: Dismiss modals FIRST
 
