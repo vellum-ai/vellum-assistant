@@ -551,3 +551,7 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 }
+
+if (import.meta.main) {
+  hatch();
+}
