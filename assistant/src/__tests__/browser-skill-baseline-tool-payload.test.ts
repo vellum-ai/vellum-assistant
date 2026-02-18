@@ -41,9 +41,10 @@ describe('browser skill cutover — startup tool payload', () => {
   test('total tool definition count reflects removal of 10 browser tools', () => {
     const definitions = getAllToolDefinitions();
     // Startup has exactly 48 definitions (no browser tools).
-    // Allow ±2 for minor additions/removals in unrelated modules.
+    // Allow wider drift for unrelated tool additions while still failing if
+    // browser tools are reintroduced at startup (+10 definitions).
     expect(definitions.length).toBeGreaterThanOrEqual(46);
-    expect(definitions.length).toBeLessThanOrEqual(50);
+    expect(definitions.length).toBeLessThanOrEqual(55);
   });
 
   test('serialized tool definitions payload still exceeds a reasonable floor', () => {
