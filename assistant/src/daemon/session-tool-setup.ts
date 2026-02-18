@@ -90,6 +90,7 @@ export function createToolExecutor(
       sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       onToolLifecycleEvent: handleToolLifecycleEvent,
+      sendToClient: (msg) => ctx.sendToClient(msg as any),
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
