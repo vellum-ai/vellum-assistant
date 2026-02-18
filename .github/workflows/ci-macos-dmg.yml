@@ -6,6 +6,7 @@ on:
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
+      - 'cli/**'
       - '.github/workflows/ci-macos-dmg.yml'
 
 jobs:
