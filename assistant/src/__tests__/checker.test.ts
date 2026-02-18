@@ -178,6 +178,18 @@ describe('Permission Checker', () => {
       });
     });
 
+    describe('network_request', () => {
+      test('network_request is always medium risk', async () => {
+        const risk = await classifyRisk('network_request', { url: 'https://api.example.com/v1/data' });
+        expect(risk).toBe(RiskLevel.Medium);
+      });
+
+      test('network_request is medium risk even without url', async () => {
+        const risk = await classifyRisk('network_request', {});
+        expect(risk).toBe(RiskLevel.Medium);
+      });
+    });
+
     // shell commands - low risk
     describe('shell — low risk', () => {
       test('ls is low risk', async () => {
@@ -654,6 +666,51 @@ describe('Permission Checker', () => {
       expect(result.decision).toBe('deny');
     });
 
+    // ── network_request trust rule integration ──────────────────
+
+    test('network_request prompts without a matching rule (medium risk)', async () => {
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request allow rule auto-approves matching origin', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('network_request allow rule does not match a different host', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.other.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request deny rule blocks matching urls', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/secret/*', 'everywhere', 'deny');
+      const result = await check('network_request', { url: 'https://api.example.com/secret/key' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('network_request rule is scoped to working directory', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/home/user/project');
+      const allowed = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/home/user/project');
+      expect(allowed.decision).toBe('allow');
+      const notAllowed = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp/other');
+      expect(notAllowed.decision).toBe('prompt');
+    });
+
+    test('network_request rules do not cross-match web_fetch rules', async () => {
+      addRule('web_fetch', 'web_fetch:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request normalizes scheme-less host:port urls for rule matching', async () => {
+      addRule('network_request', 'network_request:https://api.example.com:8443/*', 'everywhere', 'deny');
+      const result = await check('network_request', { url: 'api.example.com:8443/v1/data' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
     // Priority-based rule resolution
     test('higher-priority allow rule overrides lower-priority deny rule', async () => {
       addRule('bash', 'rm *', '/tmp', 'deny', 0);
@@ -1041,6 +1098,56 @@ describe('Permission Checker', () => {
       expect(options[0].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/search\\?q=test');
       expect(options[1].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/*');
       expect(options[2].pattern).toBe('web_fetch:*');
+    });
+
+    // ── network_request allowlist options ─────────────────────────
+
+    test('network_request: generates exact url, origin wildcard, and tool wildcard', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://api.example.com/v1/data' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com/v1/data');
+      expect(options[1].pattern).toBe('network_request:https://api.example.com/*');
+      expect(options[2].pattern).toBe('network_request:*');
+      expect(options[2].description).toBe('All network requests');
+    });
+
+    test('network_request: origin wildcard uses friendly hostname', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://www.example.com/path' });
+      expect(options[1].description).toBe('Any page on example.com');
+    });
+
+    test('network_request: normalizes scheme-less host:port input', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'api.example.com:8443/v1/data' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com:8443/v1/data');
+      expect(options[1].pattern).toBe('network_request:https://api.example.com:8443/*');
+      expect(options[2].pattern).toBe('network_request:*');
+    });
+
+    test('network_request: strips fragments and userinfo', () => {
+      const username = 'demo';
+      const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+      const credentialedUrl = new URL('https://api.example.com/v1/data#section');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
+      const options = generateAllowlistOptions('network_request', { url: credentialedUrl.href });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com/v1/data');
+      expect(options[0].pattern).not.toContain('demo:cred123@');
+      expect(options[0].pattern).not.toContain('#section');
+    });
+
+    test('network_request: escapes minimatch metacharacters', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://[2001:db8::1]/api?key=val' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://\\[2001:db8::1\\]/api\\?key=val');
+      expect(options[1].pattern).toBe('network_request:https://\\[2001:db8::1\\]/*');
+    });
+
+    test('network_request: empty url produces only tool wildcard', () => {
+      const options = generateAllowlistOptions('network_request', { url: '' });
+      expect(options).toHaveLength(1);
+      expect(options[0].pattern).toBe('network_request:*');
     });
   });
 

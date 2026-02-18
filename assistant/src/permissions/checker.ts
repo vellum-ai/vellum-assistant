@@ -173,7 +173,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [`${toolName}:${skillId}`];
   }
 
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
     const rawUrl = getStringField(input, 'url').trim();
     const candidates: string[] = [];
 
@@ -253,6 +253,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
+  // Proxy-authenticated network requests are Medium risk — they carry injected
+  // credentials and the user should approve the target host/origin.
+  if (toolName === 'network_request') return RiskLevel.Medium;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   // Escalate host file mutations targeting skill source paths to High risk.
@@ -430,6 +433,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_edit: 'host file edits',
   web_fetch: 'URL fetches',
   browser_navigate: 'browser navigations',
+  network_request: 'network requests',
 };
 
 function friendlyBasename(filePath: string): string {
@@ -508,7 +512,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     return options;
   }
 
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
     const rawUrl = getStringField(input, 'url').trim();
     const normalized = normalizeWebFetchUrl(rawUrl);
     const exact = normalized?.href ?? rawUrl;
