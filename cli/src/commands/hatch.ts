@@ -627,7 +627,7 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 
   console.log("🔨 Starting local daemon...");
-  const child = spawn("bunx", ["velly", "daemon", "start"], {
+  const child = spawn("bunx", ["vellum", "daemon", "start"], {
     stdio: "inherit",
     env: { ...process.env },
   });
