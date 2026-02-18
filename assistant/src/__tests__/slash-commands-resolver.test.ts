@@ -110,6 +110,73 @@ describe('resolveSlashSkillCommand', () => {
   });
 });
 
+describe('browser skill slash discoverability', () => {
+  const browserSkill = makeSkill('browser', {
+    name: 'Browser',
+    userInvocable: true,
+  });
+
+  test('/browser resolves as a known slash command when browser skill is enabled', () => {
+    const catalog = buildCatalog([browserSkill]);
+    const result = resolveSlashSkillCommand('/browser', catalog);
+    expect(result).toEqual({ kind: 'known', skillId: 'browser', trailingArgs: '' });
+  });
+
+  test('/browser shows correct skill metadata', () => {
+    const catalog = buildCatalog([browserSkill]);
+    const entry = catalog.get('browser');
+    expect(entry).toBeDefined();
+    expect(entry!.canonicalId).toBe('browser');
+    expect(entry!.name).toBe('Browser');
+    expect(entry!.summary.userInvocable).toBe(true);
+    expect(entry!.summary.description).toBe('Description for browser');
+  });
+
+  test('/browser resolves with trailing args', () => {
+    const catalog = buildCatalog([browserSkill]);
+    const result = resolveSlashSkillCommand('/browser go to https://example.com', catalog);
+    expect(result).toEqual({
+      kind: 'known',
+      skillId: 'browser',
+      trailingArgs: 'go to https://example.com',
+    });
+  });
+
+  test('/browser is excluded when userInvocable is false', () => {
+    const nonInvocable = makeSkill('browser', { name: 'Browser', userInvocable: false });
+    const catalog = buildCatalog([nonInvocable]);
+    const result = resolveSlashSkillCommand('/browser', catalog);
+    expect(result.kind).toBe('unknown');
+  });
+
+  test('/browser appears in available commands when unknown command is entered', () => {
+    const catalog = buildCatalog([browserSkill, makeSkill('start-the-day')]);
+    const result = resolveSlashSkillCommand('/not-a-command', catalog);
+    expect(result.kind).toBe('unknown');
+    if (result.kind === 'unknown') {
+      expect(result.message).toContain('`/browser`');
+      expect(result.message).toContain('`/start-the-day`');
+    }
+  });
+
+  test('/browser sorts correctly among other skills in unknown listing', () => {
+    const catalog = buildCatalog([
+      makeSkill('weather'),
+      browserSkill,
+      makeSkill('agentmail'),
+    ]);
+    const result = resolveSlashSkillCommand('/nope', catalog);
+    expect(result.kind).toBe('unknown');
+    if (result.kind === 'unknown') {
+      const lines = result.message.split('\n');
+      const skillLines = lines.filter((l) => l.startsWith('- `'));
+      expect(skillLines[0]).toContain('/agentmail');
+      expect(skillLines[1]).toContain('/browser');
+      expect(skillLines[2]).toContain('/weather');
+    }
+  });
+});
+
 describe('formatUnknownSlashSkillMessage', () => {
   test('includes requested ID and available skills', () => {
     const msg = formatUnknownSlashSkillMessage('bad-cmd', ['alpha', 'beta']);
