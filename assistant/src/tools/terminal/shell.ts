@@ -36,8 +36,10 @@ function getDockerProxyHost(): string {
   } catch {
     // docker0 interface may not exist (e.g. rootless Docker, custom networks)
   }
-  // Fallback: the conventional Docker bridge gateway IP
-  return '172.17.0.1';
+  // Fallback: bind to all interfaces when docker0 is unavailable
+  // (e.g. rootless Docker, custom networks). Less restrictive but avoids
+  // EADDRNOTAVAIL failures.
+  return '0.0.0.0';
 }
 
 class ShellTool implements Tool {
