@@ -192,13 +192,6 @@ export async function handleChannelInbound(
   // For new (non-duplicate) messages, run the agent loop to generate a reply.
   let processingSucceeded = false;
   if (!result.duplicate && processMessage) {
-    // Block secret-bearing content before persisting the payload to the DB
-    const contentToCheck = content ?? '';
-    const ingressCheck = checkIngressForSecrets(contentToCheck);
-    if (ingressCheck.blocked) {
-      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-    }
-
     // Persist the raw payload so the event can be replayed on failure
     channelDeliveryStore.storePayload(result.eventId, {
       sourceChannel, externalChatId, externalMessageId, content,
@@ -209,6 +202,15 @@ export async function handleChannelInbound(
     });
 
     try {
+      // Block secret-bearing content before processing. Inside the try block
+      // so that unexpected errors (e.g. ConfigError) still trigger
+      // recordProcessingFailure and keep the event in the retry pipeline.
+      const contentToCheck = content ?? '';
+      const ingressCheck = checkIngressForSecrets(contentToCheck);
+      if (ingressCheck.blocked) {
+        throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+      }
+
       const { messageId: userMessageId } = await processMessage(
         assistantId,
         result.conversationId,
