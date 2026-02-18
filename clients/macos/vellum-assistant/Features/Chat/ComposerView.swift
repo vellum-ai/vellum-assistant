@@ -553,6 +553,14 @@ private struct ComposerTextView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = coordinator.textView {
+            textView.undoManager?.removeAllActions(withTarget: textView)
+            textView.undoManager?.removeAllActions()
+        }
+        coordinator.textView = nil
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false

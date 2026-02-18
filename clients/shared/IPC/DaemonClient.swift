@@ -939,8 +939,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Publish a static page to Vercel.
-    public func sendPublishPage(html: String, title: String? = nil) throws {
-        try send(PublishPageRequestMessage(html: html, title: title))
+    public func sendPublishPage(html: String, title: String? = nil, appId: String? = nil) throws {
+        try send(PublishPageRequestMessage(html: html, title: title, appId: appId))
     }
 
     /// Unpublish a page and delete its Vercel deployment.
