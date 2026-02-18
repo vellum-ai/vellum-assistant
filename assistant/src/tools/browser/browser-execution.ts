@@ -10,7 +10,7 @@ import {
 } from '../network/url-safety.js';
 import { browserManager } from './browser-manager.js';
 import type { RouteHandler, PageResponse } from './browser-manager.js';
-import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
+import { detectAuthChallenge, detectCaptchaChallenge, formatAuthChallenge } from './auth-detector.js';
 import { credentialBroker } from '../credentials/broker.js';
 import {
   ensureScreencast,
@@ -260,38 +260,70 @@ export async function executeBrowserNavigate(
       lines.push(`Note: Page redirected from the requested URL.`);
     }
 
-    // Detect auth challenges (login pages, 2FA, OAuth consent)
+    // Detect auth challenges (login pages, 2FA, OAuth consent) and CAPTCHA challenges
     try {
       const authChallenge = await detectAuthChallenge(page);
-      if (authChallenge) {
-        if (browserManager.browserMode === 'cdp') {
-          // In CDP mode, hand off to user for direct interaction
-          if (sender) {
+      let challenge = authChallenge ?? await detectCaptchaChallenge(page);
+
+      // If auth detection returned a generic URL-only match (no DOM fields),
+      // also check for CAPTCHA — Cloudflare challenges on /auth URLs would
+      // otherwise be misclassified as login pages due to the ?? short-circuit.
+      if (challenge && challenge.type === 'login' && challenge.fields.length === 0) {
+        const captcha = await detectCaptchaChallenge(page);
+        if (captcha) challenge = captcha;
+      }
+
+      // Many CAPTCHA interstitials (e.g. Cloudflare "Just a moment") auto-resolve
+      // within a few seconds. Wait and re-check before handing off to the user.
+      if (challenge?.type === 'captcha') {
+        log.info('CAPTCHA detected, waiting up to 5s for auto-resolve');
+        for (let i = 0; i < 5; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const still = await detectCaptchaChallenge(page);
+          if (!still) {
+            log.info('CAPTCHA auto-resolved');
+            // Re-check for auth challenge now that CAPTCHA is gone —
+            // the page may have loaded a login form behind it.
+            challenge = await detectAuthChallenge(page);
+            break;
+          }
+        }
+      }
+
+      if (challenge) {
+        if (challenge.type === 'captcha') {
+          // CAPTCHA persisted after auto-resolve wait — hand off to user
+          if (browserManager.browserMode === 'cdp' && sender) {
             const { startHandoff } = await import('./browser-handoff.js');
             await startHandoff(context.sessionId, sender, {
-              reason: 'auth',
-              message: formatAuthChallenge(authChallenge),
+              reason: 'captcha',
+              message: 'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
               bringToFront: true,
             });
+            const newUrl = page.url();
+            const newTitle = await page.title();
+            lines.push('');
+            lines.push(`CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`);
+          } else {
+            lines.push('');
+            lines.push('⚠️ CAPTCHA/Cloudflare verification detected on this page.');
+            lines.push('The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.');
           }
-          // After handoff completes, return updated page state
-          const newUrl = page.url();
-          const newTitle = await page.title();
-          lines.push('');
-          lines.push(`Auth handled by user. Current page: ${newTitle} (${newUrl})`);
         } else {
+          // Login / 2FA / OAuth — the agent should handle these itself
+          // using browser tools + credential_store. Don't hand off.
           lines.push('');
-          lines.push(formatAuthChallenge(authChallenge));
+          lines.push(formatAuthChallenge(challenge));
           lines.push('');
-          lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
-          const { buildAuthForm } = await import('./jit-auth.js');
-          const formData = buildAuthForm(authChallenge);
-          lines.push(JSON.stringify(formData, null, 2));
-          lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
+          lines.push('Handle this by using browser tools to interact with the login form:');
+          lines.push('1. Use browser_snapshot to find the sign-in form elements');
+          lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
+          lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
+          lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
         }
       }
     } catch {
-      // Auth detection is best-effort; don't fail navigation
+      // Auth/CAPTCHA detection is best-effort; don't fail navigation
     }
 
     if (sender) {
