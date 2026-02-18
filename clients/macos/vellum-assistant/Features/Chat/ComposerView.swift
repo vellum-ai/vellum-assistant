@@ -489,8 +489,10 @@ struct ComposerView: View {
             let filtered = filteredSlashCommands(filter)
             if !filtered.isEmpty {
                 withAnimation(VAnimation.fast) { showSlashMenu = true }
+                if slashFilter != filter {
+                    slashSelectedIndex = 0
+                }
                 slashFilter = filter
-                slashSelectedIndex = min(slashSelectedIndex, max(filtered.count - 1, 0))
             } else {
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             }
