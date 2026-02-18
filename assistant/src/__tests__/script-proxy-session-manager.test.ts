@@ -110,6 +110,33 @@ describe('session-manager', () => {
       const session = createSession(CONV_ID, CRED_IDS);
       expect(() => getSessionEnv(session.id)).toThrow(/not active/);
     });
+
+    test('returns host.docker.internal URL when dockerMode is true', async () => {
+      const session = createSession(CONV_ID, CRED_IDS);
+      const started = await startSession(session.id);
+      const env = getSessionEnv(session.id, { dockerMode: true });
+
+      expect(env.HTTP_PROXY).toBe(`http://host.docker.internal:${started.port}`);
+      expect(env.HTTPS_PROXY).toBe(`http://host.docker.internal:${started.port}`);
+    });
+
+    test('returns 127.0.0.1 URL when dockerMode is false', async () => {
+      const session = createSession(CONV_ID, CRED_IDS);
+      const started = await startSession(session.id);
+      const env = getSessionEnv(session.id, { dockerMode: false });
+
+      expect(env.HTTP_PROXY).toBe(`http://127.0.0.1:${started.port}`);
+      expect(env.HTTPS_PROXY).toBe(`http://127.0.0.1:${started.port}`);
+    });
+
+    test('returns 127.0.0.1 URL when no options are passed', async () => {
+      const session = createSession(CONV_ID, CRED_IDS);
+      const started = await startSession(session.id);
+      const env = getSessionEnv(session.id);
+
+      expect(env.HTTP_PROXY).toBe(`http://127.0.0.1:${started.port}`);
+      expect(env.HTTPS_PROXY).toBe(`http://127.0.0.1:${started.port}`);
+    });
   });
 
   describe('getActiveSession', () => {

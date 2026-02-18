@@ -89,6 +89,12 @@ class ShellTool implements Tool {
 
     log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec, networkMode, credentialIds }, 'Executing shell command');
 
+    // Resolve sandbox config early — needed both for proxy env and command wrapping.
+    const sandboxConfig = context.sandboxOverride != null
+      ? { ...config.sandbox, enabled: context.sandboxOverride }
+      : config.sandbox;
+    const isDockerSandbox = sandboxConfig.enabled && sandboxConfig.backend === 'docker';
+
     // Start proxy session if proxied mode is requested
     let proxySessionId: string | null = null;
     let proxyEnv: import('../network/script-proxy/types.js').ProxyEnvVars | null = null;
@@ -108,7 +114,7 @@ class ShellTool implements Tool {
           const started = await startSession(session.id);
           proxySessionId = started.id;
         }
-        proxyEnv = getSessionEnv(proxySessionId);
+        proxyEnv = getSessionEnv(proxySessionId, { dockerMode: isDockerSandbox });
       } catch (err) {
         log.error({ err }, 'Failed to start proxy session');
         return {
@@ -128,9 +134,6 @@ class ShellTool implements Tool {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      const sandboxConfig = context.sandboxOverride != null
-        ? { ...config.sandbox, enabled: context.sandboxOverride }
-        : config.sandbox;
       const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, { networkMode });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,

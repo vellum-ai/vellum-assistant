@@ -1036,4 +1036,28 @@ describe('DockerBackend — per-invocation network override', () => {
     expect(result.args).toContain('--memory=512m');
     expect(result.args).toContain('--pids-limit=256');
   });
+
+  test('proxied mode adds --add-host=host.docker.internal:host-gateway', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('curl http://proxy:3128', sandboxRoot, {
+      networkMode: 'proxied',
+    });
+    expect(result.args).toContain('--add-host=host.docker.internal:host-gateway');
+  });
+
+  test('non-proxied mode does not add --add-host flag', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const addHostArgs = result.args.filter((a: string) => a.startsWith('--add-host'));
+    expect(addHostArgs).toHaveLength(0);
+  });
+
+  test('--add-host appears before the image argument in proxied mode', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    const addHostIdx = result.args.indexOf('--add-host=host.docker.internal:host-gateway');
+    const imageIdx = result.args.indexOf(defaultImage);
+    expect(addHostIdx).toBeGreaterThan(-1);
+    expect(addHostIdx).toBeLessThan(imageIdx);
+  });
 });
