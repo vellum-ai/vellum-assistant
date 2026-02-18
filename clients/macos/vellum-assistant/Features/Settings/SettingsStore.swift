@@ -58,6 +58,7 @@ public final class SettingsStore: ObservableObject {
 
     private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
+    private let configPath: String?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
@@ -65,6 +66,7 @@ public final class SettingsStore: ObservableObject {
 
     init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
         self.daemonClient = daemonClient
+        self.configPath = configPath
 
         // Seed from UserDefaults / Keychain
         let anthropicKey = APIKeyManager.getKey()
@@ -197,6 +199,53 @@ public final class SettingsStore: ObservableObject {
         } catch {
             // Send failed — don't update lastDaemonModel so the next attempt isn't suppressed
         }
+    }
+
+    // MARK: - Media Embed Actions
+
+    /// Toggles media embeds on or off and persists the change to the workspace config.
+    ///
+    /// When turning ON from OFF, `mediaEmbedsEnabledSince` is reset to the current
+    /// date so that only messages created after this moment are eligible for embeds.
+    /// When turning OFF, the existing `enabledSince` timestamp is preserved so a
+    /// subsequent re-enable doesn't accidentally surface old links.
+    func setMediaEmbedsEnabled(_ enabled: Bool) {
+        if enabled {
+            guard !mediaEmbedsEnabled else { return }
+            mediaEmbedsEnabled = true
+            mediaEmbedsEnabledSince = MediaEmbedSettings.enabledSinceNow()
+            persistMediaEmbedState()
+        } else {
+            guard mediaEmbedsEnabled else { return }
+            mediaEmbedsEnabled = false
+            persistMediaEmbedState()
+        }
+    }
+
+    /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
+    /// the workspace config under `ui.mediaEmbeds`.
+    private func persistMediaEmbedState() {
+        var mediaEmbedsDict: [String: Any] = [
+            "enabled": mediaEmbedsEnabled,
+        ]
+
+        if let since = mediaEmbedsEnabledSince {
+            let formatter = ISO8601DateFormatter()
+            mediaEmbedsDict["enabledSince"] = formatter.string(from: since)
+        }
+
+        // Read existing config to preserve sibling keys inside ui and ui.mediaEmbeds
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
+        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
+
+        // Merge our changes on top of whatever is already in mediaEmbeds
+        for (key, value) in mediaEmbedsDict {
+            existingMediaEmbeds[key] = value
+        }
+        existingUI["mediaEmbeds"] = existingMediaEmbeds
+
+        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
     }
 
     // MARK: - Media Embed Loading
