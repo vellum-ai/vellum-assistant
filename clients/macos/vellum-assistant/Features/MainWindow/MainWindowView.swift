@@ -1152,7 +1152,7 @@ struct MainWindowView: View {
                         DocumentEditorPanelView(
                             documentManager: documentManager,
                             daemonClient: daemonClient,
-                            onClose: { windowState.selection = nil; documentManager.closeDocument() }
+                            onClose: { windowState.selection = nil }
                         )
                     }
                 )
