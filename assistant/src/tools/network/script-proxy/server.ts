@@ -10,12 +10,17 @@ import type { Socket } from 'node:net';
 import { forwardHttpRequest, type PolicyCallback } from './http-forwarder.js';
 import { handleConnect } from './connect-tunnel.js';
 import { handleMitm, type RewriteCallback } from './mitm-handler.js';
+import type { RouteDecision } from './router.js';
 
 export interface MitmHandlerConfig {
   /** Path to the local CA directory containing ca.pem / ca-key.pem. */
   caDir: string;
-  /** Return true if the CONNECT target should be MITM-intercepted. */
-  shouldIntercept: (hostname: string, port: number) => boolean;
+  /**
+   * Decide whether the CONNECT target should be MITM-intercepted.
+   * Returns a RouteDecision with action ('mitm' | 'tunnel') and a
+   * deterministic reason code for auditing.
+   */
+  shouldIntercept: (hostname: string, port: number) => RouteDecision;
   /** Called with the decrypted request; returns headers to merge or null to reject. */
   rewriteCallback: RewriteCallback;
   /** Extra TLS options for the upstream connection (e.g. custom CA for testing). */
@@ -63,7 +68,11 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
   server.on('connect', (req, clientSocket: Socket, head: Buffer) => {
     if (config.mitmHandler) {
       const target = parseConnectTarget(req.url);
-      if (target && config.mitmHandler.shouldIntercept(target.host, target.port)) {
+      const decision = target
+        ? config.mitmHandler.shouldIntercept(target.host, target.port)
+        : undefined;
+
+      if (target && decision?.action === 'mitm') {
         handleMitm(
           clientSocket,
           head,

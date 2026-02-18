@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { ensureLocalCA, issueLeafCert, getCAPath } from '../tools/network/script-proxy/certs.js';
 import { createProxyServer } from '../tools/network/script-proxy/server.js';
 import type { RewriteCallback } from '../tools/network/script-proxy/mitm-handler.js';
+import type { RouteDecision } from '../tools/network/script-proxy/router.js';
 
 let dataDir: string;
 let caDir: string;
@@ -221,7 +222,7 @@ describe('MITM handler', () => {
     const proxy = createProxyServer({
       mitmHandler: {
         caDir,
-        shouldIntercept: () => true,
+        shouldIntercept: (): RouteDecision => ({ action: 'mitm', reason: 'mitm:credential_injection' }),
         rewriteCallback,
         upstreamTlsOptions: { ca: caCert },
       },
@@ -247,7 +248,7 @@ describe('MITM handler', () => {
     const proxy = createProxyServer({
       mitmHandler: {
         caDir,
-        shouldIntercept: () => true,
+        shouldIntercept: (): RouteDecision => ({ action: 'mitm', reason: 'mitm:credential_injection' }),
         rewriteCallback: async () => ({}),
         upstreamTlsOptions: { ca: caCert },
       },
@@ -278,7 +279,7 @@ describe('MITM handler', () => {
     const proxy = createProxyServer({
       mitmHandler: {
         caDir,
-        shouldIntercept: () => true,
+        shouldIntercept: (): RouteDecision => ({ action: 'mitm', reason: 'mitm:credential_injection' }),
         rewriteCallback,
         upstreamTlsOptions: { ca: caCert },
       },
@@ -310,9 +311,9 @@ describe('MITM handler', () => {
     const proxy = createProxyServer({
       mitmHandler: {
         caDir,
-        shouldIntercept: (hostname) => {
+        shouldIntercept: (hostname): RouteDecision => {
           interceptedHosts.push(hostname);
-          return false;
+          return { action: 'tunnel', reason: 'tunnel:no_rewrite' };
         },
         rewriteCallback: async () => ({ 'x-should-not-appear': 'true' }),
       },
@@ -388,7 +389,7 @@ describe('MITM handler', () => {
     const proxy = createProxyServer({
       mitmHandler: {
         caDir,
-        shouldIntercept: () => true,
+        shouldIntercept: (): RouteDecision => ({ action: 'mitm', reason: 'mitm:credential_injection' }),
         rewriteCallback: async () => null,
         upstreamTlsOptions: { ca: caCert },
       },
