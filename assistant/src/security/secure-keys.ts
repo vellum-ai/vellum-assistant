@@ -158,6 +158,15 @@ export function getBackendType(): 'keychain' | 'encrypted' | null {
   return getBackend();
 }
 
+/**
+ * Whether the backend was downgraded from keychain to encrypted at runtime.
+ * When true, credentials may still be readable from keychain via fallback
+ * even though the active backend is encrypted.
+ */
+export function isDowngradedFromKeychain(): boolean {
+  return downgradedFromKeychain;
+}
+
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */
 export function _resetBackend(): void {
   resolvedBackend = undefined;
