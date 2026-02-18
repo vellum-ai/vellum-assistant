@@ -37,6 +37,13 @@ interface ManagedSession {
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
 
+/**
+ * Per-conversation mutex for session acquisition. Prevents concurrent
+ * proxied commands from each observing "no active session" and creating
+ * duplicate sessions (check-then-act race).
+ */
+const acquireLocks = new Map<string, Promise<ProxySession>>();
+
 /** Return a defensive copy so callers cannot mutate internal state. */
 function cloneSession(s: ProxySession): ProxySession {
   return {
@@ -314,6 +321,52 @@ export function getSessionEnv(
   }
 
   return env;
+}
+
+/**
+ * Atomically acquire a proxy session for a conversation — reuses an active
+ * session or creates + starts a new one. Serialized per conversation so
+ * concurrent callers share the same session instead of each spawning one.
+ *
+ * Returns `{ session, created }` so the caller knows whether it owns the
+ * session lifecycle (and should stop it) or is borrowing a shared one.
+ */
+export async function getOrStartSession(
+  conversationId: string,
+  credentialIds: string[],
+  config?: Partial<ProxySessionConfig>,
+  dataDir?: string,
+  approvalCallback?: ProxyApprovalCallback,
+): Promise<{ session: ProxySession; created: boolean }> {
+  // Fast path — session already active, no lock needed.
+  const existing = getActiveSession(conversationId);
+  if (existing) return { session: existing, created: false };
+
+  // Serialize: if another caller is already creating a session for this
+  // conversation, wait for it rather than creating a second one.
+  const inflight = acquireLocks.get(conversationId);
+  if (inflight) {
+    const session = await inflight;
+    return { session, created: false };
+  }
+
+  const promise = (async () => {
+    // Re-check after winning the lock — a session may have become active
+    // between our initial check and acquiring the lock.
+    const recheck = getActiveSession(conversationId);
+    if (recheck) return recheck;
+
+    const session = createSession(conversationId, credentialIds, config, dataDir, approvalCallback);
+    return startSession(session.id);
+  })();
+
+  acquireLocks.set(conversationId, promise);
+  try {
+    const session = await promise;
+    return { session, created: true };
+  } finally {
+    acquireLocks.delete(conversationId);
+  }
 }
 
 /**

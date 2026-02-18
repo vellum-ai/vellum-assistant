@@ -10,10 +10,7 @@ import { wrapCommand } from './sandbox.js';
 import { formatShellOutput } from '../shared/shell-output.js';
 import { buildSanitizedEnv } from './safe-env.js';
 import {
-  getActiveSession,
-  createSession,
-  startSession,
-  stopSession,
+  getOrStartSession,
   getSessionEnv,
 } from '../network/script-proxy/index.js';
 import { getDataDir } from '../../util/platform.js';
@@ -95,27 +92,23 @@ class ShellTool implements Tool {
       : config.sandbox;
     const isDockerSandbox = sandboxConfig.enabled && sandboxConfig.backend === 'docker';
 
-    // Start proxy session if proxied mode is requested
-    let proxySessionId: string | null = null;
+    // Acquire proxy session if proxied mode is requested.
+    // `getOrStartSession` serializes per-conversation so concurrent proxied
+    // commands share a single session instead of each creating one.
+    // Sessions are NOT stopped here — the session manager's idle timer handles
+    // cleanup after all commands finish (see resetIdleTimer / stopAllSessions).
     let proxyEnv: import('../network/script-proxy/types.js').ProxyEnvVars | null = null;
 
     if (networkMode === 'proxied') {
       try {
-        const existing = getActiveSession(context.conversationId);
-        if (existing) {
-          proxySessionId = existing.id;
-        } else {
-          const session = createSession(
-            context.conversationId,
-            credentialIds,
-            undefined,
-            getDataDir(),
-            context.proxyApprovalCallback,
-          );
-          const started = await startSession(session.id);
-          proxySessionId = started.id;
-        }
-        proxyEnv = getSessionEnv(proxySessionId, { dockerMode: isDockerSandbox });
+        const { session } = await getOrStartSession(
+          context.conversationId,
+          credentialIds,
+          undefined,
+          getDataDir(),
+          context.proxyApprovalCallback,
+        );
+        proxyEnv = getSessionEnv(session.id, { dockerMode: isDockerSandbox });
       } catch (err) {
         log.error({ err }, 'Failed to start proxy session');
         return {
@@ -179,13 +172,6 @@ class ShellTool implements Tool {
         });
       });
     });
-
-    // Stop proxy session after command completes
-    if (proxySessionId) {
-      stopSession(proxySessionId).catch((err) => {
-        log.warn({ err, sessionId: proxySessionId }, 'Failed to stop proxy session');
-      });
-    }
 
     return result;
   }

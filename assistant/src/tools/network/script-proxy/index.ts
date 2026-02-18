@@ -14,6 +14,7 @@ export {
   stopSession,
   getSessionEnv,
   getActiveSession,
+  getOrStartSession,
   getSessionsForConversation,
   stopAllSessions,
 } from './session-manager.js';
