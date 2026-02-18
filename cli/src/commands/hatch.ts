@@ -23,7 +23,7 @@ const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
 const HATCH_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-const DEFAULT_SPECIES: Species = "velly";
+const DEFAULT_SPECIES: Species = "vellum";
 
 const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
   {
@@ -573,7 +573,7 @@ export async function hatch(): Promise<void> {
 
       if (!success) {
         if (
-          species === "velly" &&
+          species === "vellum" &&
           (await checkCurlFailure(instanceName, project, DEFAULT_ZONE))
         ) {
           console.log("");

@@ -1,6 +1,6 @@
 export const FIREWALL_TAG = "vellum-assistant";
 export const GATEWAY_PORT = 7830;
-export const VALID_SPECIES = ["openclaw", "velly"] as const;
+export const VALID_SPECIES = ["openclaw", "vellum"] as const;
 export type Species = (typeof VALID_SPECIES)[number];
 
 const ANSI = {
@@ -46,7 +46,7 @@ export const SPECIES_CONFIG: Record<Species, SpeciesConfig> = {
       "Almost ready to peek out...",
     ],
   },
-  velly: {
+  vellum: {
     color: ANSI.magenta,
     art: [
       `${ANSI.magenta}    ,___,${ANSI.reset}`,
