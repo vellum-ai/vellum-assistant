@@ -14,7 +14,7 @@ final class ModelTraitInferenceService {
     /// Run trait inference on the conversation so far.
     /// Returns updated TraitScores, or nil if no inference was needed (too soon since last checkpoint).
     func infer(
-        messages: [ConversationMessage],
+        messages: [TraitInferenceMessage],
         identityName: String?,
         identityPersonality: String?,
         identityEmoji: String?,
@@ -74,7 +74,7 @@ final class ModelTraitInferenceService {
     private func analyzeEnergy(text: String, personality: String?) -> Double {
         var score = 0.5
 
-        let highSignals = ["energetic", "chaotic", "hyper", "excited", "fast", "wild", "intense", "enthusiastic", "dynamic", "!", "!!", "!!!"]
+        let highSignals = ["energetic", "chaotic", "hyper", "excited", "fast", "wild", "intense", "enthusiastic", "dynamic"]
         let lowSignals = ["calm", "steady", "chill", "relaxed", "peaceful", "zen", "quiet", "serene", "measured", "patient"]
 
         score += signalBalance(text: text, positive: highSignals, negative: lowSignals)
@@ -94,7 +94,7 @@ final class ModelTraitInferenceService {
         var score = 0.5
 
         let formalSignals = ["formal", "professional", "proper", "sophisticated", "elegant", "refined", "polished", "respectful", "sir", "madam"]
-        let casualSignals = ["casual", "laid back", "informal", "chill", "lol", "haha", "nah", "yeah", "dude", "bro", "yo", "gonna", "wanna"]
+        let casualSignals = ["casual", "laid back", "informal", "chill", "lol", "haha", "nah", "yeah", "dude", "bro", "gonna", "wanna"]
 
         score += signalBalance(text: text, positive: formalSignals, negative: casualSignals)
 
@@ -130,21 +130,28 @@ final class ModelTraitInferenceService {
     /// Calculate a balance score from positive and negative signal words.
     /// Returns a value in roughly -0.3 to +0.3 range.
     private func signalBalance(text: String, positive: [String], negative: [String]) -> Double {
-        let posCount = positive.filter { text.contains($0) }.count
-        let negCount = negative.filter { text.contains($0) }.count
+        let posCount = positive.filter { matchesWholeWord($0, in: text) }.count
+        let negCount = negative.filter { matchesWholeWord($0, in: text) }.count
         let total = posCount + negCount
         guard total > 0 else { return 0.0 }
         return Double(posCount - negCount) / Double(total) * 0.3
+    }
+
+    /// Match a signal word using word boundaries to avoid substring collisions
+    /// (e.g., "formal" in "informal").
+    private func matchesWholeWord(_ word: String, in text: String) -> Bool {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: word))\\b"
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 }
 
 /// Simple message representation for trait inference.
 /// Keeps the service decoupled from specific chat message types.
-struct ConversationMessage {
-    let role: ConversationRole
+struct TraitInferenceMessage {
+    let role: TraitInferenceRole
     let text: String
 
-    enum ConversationRole {
+    enum TraitInferenceRole {
         case user
         case assistant
     }
