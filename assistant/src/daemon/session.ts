@@ -96,6 +96,7 @@ import {
 import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
 import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
+import { getWorkspaceGitService } from '../workspace/git-service.js';
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -640,6 +641,18 @@ export class Session {
     // from a prior successful run.
     this.lastAssistantAttachments = [];
     this.lastAttachmentWarnings = [];
+
+    // Ensure the workspace git repo is initialized before any tools run.
+    // This must happen before the first turn so the initial commit captures
+    // the pre-turn workspace state; otherwise ensureInitialized() would be
+    // triggered lazily by getStatus() inside commitTurnChanges(), absorbing
+    // the first turn's file changes into the initial commit.
+    try {
+      const gitService = getWorkspaceGitService(this.workingDir);
+      await gitService.ensureInitialized();
+    } catch (err) {
+      rlog.warn({ err }, 'Failed to initialize workspace git repo (non-fatal)');
+    }
 
     this.profiler.startRequest();
 
@@ -1214,10 +1227,11 @@ export class Session {
         sessionId: this.conversationId,
       });
 
-      // Turn-boundary commit: async, fire-and-forget so it never blocks the response.
-      // Increment turn counter and commit any workspace changes from this turn.
+      // Turn-boundary commit: awaited so it completes before the next turn starts.
+      // Without awaiting, the next turn could begin (via drainQueue in finally)
+      // and its file writes could be attributed to this turn's commit.
       this.turnCount++;
-      void commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
+      await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
 
       // Resolve accumulated attachment directives and tool content blocks
       const attachmentResult = await resolveAssistantAttachments(
