@@ -1,0 +1,293 @@
+import SwiftUI
+
+/// Side panel for customizing the avatar's appearance.
+/// Users can pick body/cheek colors, outfit items, and lock individual fields
+/// so auto-evolution won't override them.
+struct AvatarCustomizationPanel: View {
+    let onClose: () -> Void
+
+    private let appearance = AvatarAppearanceManager.shared
+    @State private var evolutionState = AvatarEvolutionState()
+    @State private var identity: IdentityInfo?
+
+    /// All available color names from BodyColorScale, in a stable display order.
+    private let colorNames: [String] = [
+        "violet", "indigo", "blue", "cyan",
+        "emerald", "green", "rose", "pink",
+        "red", "orange", "amber", "slate"
+    ]
+
+    /// Available outfit options per field.
+    private let hatOptions = ["none", "tophat", "party_hat", "headband", "crown", "beret", "cap"]
+    private let shirtOptions = ["none", "hoodie", "tshirt", "vest", "suit", "sweater"]
+    private let accessoryOptions = ["none", "sunglasses", "monocle", "scarf", "bowtie", "glasses"]
+    private let heldItemOptions = ["none", "balloon", "briefcase", "wand", "sword", "coffee", "book"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("Customize Avatar")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Customize Avatar")
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    // Live avatar preview
+                    avatarPreview
+
+                    // Body Color section
+                    colorGridSection(
+                        title: "Body Color",
+                        field: .bodyColor,
+                        selectedColor: evolutionState.userOverrides[.bodyColor] ?? appearance.config.bodyColor
+                    )
+
+                    // Cheek Color section
+                    colorGridSection(
+                        title: "Cheek Color",
+                        field: .cheekColor,
+                        selectedColor: evolutionState.userOverrides[.cheekColor] ?? appearance.config.cheekColor
+                    )
+
+                    // Outfit section
+                    outfitSection
+
+                    // Reset button
+                    resetButton
+                }
+                .padding(VSpacing.lg)
+            }
+        }
+        .background(Meadow.panelBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(Meadow.panelBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .onAppear {
+            evolutionState.load()
+            identity = IdentityInfo.load()
+        }
+    }
+
+    // MARK: - Avatar Preview
+
+    @ViewBuilder
+    private var avatarPreview: some View {
+        HStack {
+            Spacer()
+            DinoSceneView(
+                seed: identity?.name ?? "default",
+                palette: appearance.palette,
+                outfit: appearance.outfit
+            )
+            .frame(width: 140, height: 160)
+            Spacer()
+        }
+    }
+
+    // MARK: - Color Grid Section
+
+    @ViewBuilder
+    private func colorGridSection(title: String, field: AvatarEvolutionState.AppearanceField, selectedColor: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            fieldHeader(title: title, field: field)
+
+            let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
+            LazyVGrid(columns: columns, spacing: VSpacing.sm) {
+                ForEach(colorNames, id: \.self) { name in
+                    colorCircle(name: name, isSelected: selectedColor == name) {
+                        setOverride(field: field, value: name)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func colorCircle(name: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        let displayColor = swiftUIColor(for: name)
+        Button(action: action) {
+            Circle()
+                .fill(displayColor)
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Circle()
+                        .stroke(isSelected ? Color.white : Color.clear, lineWidth: 2)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(isSelected ? displayColor : Color.clear, lineWidth: 1)
+                        .padding(3)
+                )
+                .shadow(color: isSelected ? displayColor.opacity(0.4) : .clear, radius: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name) color")
+    }
+
+    /// Convert a color scale name to a SwiftUI Color using the mid shade from BodyColorScale.
+    private func swiftUIColor(for name: String) -> Color {
+        guard let scale = BodyColorScale.scales[name] else { return Color.gray }
+        return Color(hex: UInt(scale.mid))
+    }
+
+    // MARK: - Outfit Section
+
+    @ViewBuilder
+    private var outfitSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Outfit")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+                .textCase(.uppercase)
+
+            outfitPicker(title: "Hat", field: .hat, options: hatOptions,
+                         current: evolutionState.userOverrides[.hat] ?? appearance.config.hat)
+            outfitPicker(title: "Shirt", field: .shirt, options: shirtOptions,
+                         current: evolutionState.userOverrides[.shirt] ?? appearance.config.shirt)
+            outfitPicker(title: "Accessory", field: .accessory, options: accessoryOptions,
+                         current: evolutionState.userOverrides[.accessory] ?? appearance.config.accessory)
+            outfitPicker(title: "Held Item", field: .heldItem, options: heldItemOptions,
+                         current: evolutionState.userOverrides[.heldItem] ?? appearance.config.heldItem)
+        }
+    }
+
+    @ViewBuilder
+    private func outfitPicker(title: String, field: AvatarEvolutionState.AppearanceField, options: [String], current: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            lockToggle(field: field)
+
+            Text(title)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .frame(width: 80, alignment: .leading)
+
+            Picker("", selection: Binding(
+                get: { current },
+                set: { newValue in
+                    setOverride(field: field, value: newValue)
+                }
+            )) {
+                ForEach(options, id: \.self) { option in
+                    Text(option.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .tag(option)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - Field Header with Lock
+
+    @ViewBuilder
+    private func fieldHeader(title: String, field: AvatarEvolutionState.AppearanceField) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            lockToggle(field: field)
+
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+                .textCase(.uppercase)
+        }
+    }
+
+    @ViewBuilder
+    private func lockToggle(field: AvatarEvolutionState.AppearanceField) -> some View {
+        let isLocked = evolutionState.lockedFields.contains(field)
+        Button {
+            toggleLock(field: field)
+        } label: {
+            Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isLocked ? VColor.accent : VColor.textMuted)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isLocked ? "Unlock \(field.rawValue)" : "Lock \(field.rawValue)")
+        .help(isLocked ? "Locked: auto-evolution won't change this" : "Unlocked: auto-evolution can change this")
+    }
+
+    // MARK: - Reset Button
+
+    @ViewBuilder
+    private var resetButton: some View {
+        HStack {
+            Spacer()
+            Button {
+                resetToAuto()
+            } label: {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Reset to Auto")
+                        .font(VFont.bodyMedium)
+                }
+                .foregroundColor(VColor.textSecondary)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.top, VSpacing.sm)
+    }
+
+    // MARK: - Actions
+
+    /// Set an override value and auto-lock the field.
+    private func setOverride(field: AvatarEvolutionState.AppearanceField, value: String) {
+        evolutionState.userOverrides[field] = value
+        evolutionState.lockedFields.insert(field)
+        resolveAndApply()
+    }
+
+    /// Toggle lock on a field. Unlocking keeps the override as fallback but
+    /// re-resolves so auto-evolution can potentially change it.
+    private func toggleLock(field: AvatarEvolutionState.AppearanceField) {
+        if evolutionState.lockedFields.contains(field) {
+            evolutionState.lockedFields.remove(field)
+            // Keep userOverrides value as fallback — resolver still uses it
+        } else {
+            evolutionState.lockedFields.insert(field)
+        }
+        resolveAndApply()
+    }
+
+    /// Clear all overrides and unlock all fields, then re-resolve.
+    private func resetToAuto() {
+        evolutionState.userOverrides.removeAll()
+        evolutionState.lockedFields.removeAll()
+        resolveAndApply()
+    }
+
+    /// Resolve the current state and apply the result to the appearance manager.
+    private func resolveAndApply() {
+        let resolved = AvatarEvolutionResolver.resolve(state: evolutionState)
+        AvatarAppearanceManager.shared.applyEvolutionResult(resolved)
+        evolutionState.save()
+    }
+}

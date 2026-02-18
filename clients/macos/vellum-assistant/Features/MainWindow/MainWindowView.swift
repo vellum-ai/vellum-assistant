@@ -1042,6 +1042,8 @@ struct MainWindowView: View {
                 daemonClient: daemonClient,
                 onClose: { windowState.selection = nil }
             )
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.selection = nil })
         }
     }
 
@@ -1271,6 +1273,9 @@ struct MainWindowView: View {
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
