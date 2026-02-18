@@ -2386,6 +2386,14 @@ describe('browser skill migration harness', () => {
     expect(toolResult.content).toContain('<loaded_skill id="browser" version="v1:abc123" />');
   });
 
+  test('buildSkillLoadHistory generates unique tool_use IDs per call', () => {
+    const h1 = buildSkillLoadHistory('browser', 'v1:abc');
+    const h2 = buildSkillLoadHistory('browser', 'v1:def');
+    const id1 = (h1[0].content[0] as { id: string }).id;
+    const id2 = (h2[0].content[0] as { id: string }).id;
+    expect(id1).not.toBe(id2);
+  });
+
   test('BROWSER_TOOL_NAMES contains all 10 browser tools', () => {
     expect(BROWSER_TOOL_NAMES).toHaveLength(10);
     expect(BROWSER_TOOL_NAMES).toContain('browser_navigate');
