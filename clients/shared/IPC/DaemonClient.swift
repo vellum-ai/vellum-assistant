@@ -1565,6 +1565,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 try await self.connect()
             } catch {
                 log.error("Immediate reconnect on network change failed: \(error.localizedDescription)")
+                self.startNetworkMonitor()
                 self.scheduleReconnect()
             }
         }
