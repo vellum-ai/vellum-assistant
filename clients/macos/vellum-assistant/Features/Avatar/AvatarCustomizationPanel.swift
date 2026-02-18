@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Side panel for customizing the avatar's appearance.
 /// Users can pick body/cheek colors, outfit items, and lock individual fields
