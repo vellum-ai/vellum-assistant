@@ -71,6 +71,11 @@ final class MediaEmbedSettingsDefaultsTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    func testNormalizeDomainsTrimsNewlines() {
+        let result = MediaEmbedSettings.normalizeDomains(["youtube.com\n", "\ryoutube.com\r\n", "vimeo.com\n"])
+        XCTAssertEqual(result, ["youtube.com", "vimeo.com"])
+    }
+
     func testNormalizeDomainsDeduplicatesAcrossCaseAndWhitespace() {
         let result = MediaEmbedSettings.normalizeDomains(["  YouTube.com ", "youtube.com", " YOUTUBE.COM  "])
         XCTAssertEqual(result, ["youtube.com"])
