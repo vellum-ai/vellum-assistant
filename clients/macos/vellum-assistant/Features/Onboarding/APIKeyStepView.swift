@@ -4,12 +4,14 @@ import SwiftUI
 private enum HostingMode: String, CaseIterable {
     case local
     case aws
+    case customHardware
     case gcp
 
     var displayName: String {
         switch self {
         case .local: return "Local"
         case .aws: return "AWS"
+        case .customHardware: return "Custom Hardware"
         case .gcp: return "GCP"
         }
     }
@@ -18,6 +20,7 @@ private enum HostingMode: String, CaseIterable {
         switch self {
         case .local: return "Run on your machine"
         case .aws: return "Host on your AWS account"
+        case .customHardware: return "Run on your own hardware"
         case .gcp: return "Host on your GCP account"
         }
     }
