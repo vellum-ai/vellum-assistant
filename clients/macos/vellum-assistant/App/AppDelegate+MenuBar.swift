@@ -127,7 +127,7 @@ extension AppDelegate {
             let emoji = app.icon ?? "\u{1F4F1}"
             let item = NSMenuItem(title: "\(emoji) \(app.name)", action: #selector(openAppById(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = app.id
+            item.representedObject = ["id": app.id, "name": app.name, "icon": app.icon ?? ""]
             appsSubmenu.addItem(item)
         }
 
@@ -246,11 +246,13 @@ extension AppDelegate {
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
-        guard let appId = sender.representedObject as? String else { return }
+        guard let info = sender.representedObject as? [String: String],
+              let appId = info["id"] else { return }
         showMainWindow()
         let cachedApp = cachedApps.first(where: { $0.id == appId })
-        let appName = cachedApp?.name ?? sender.title
-        let appIcon = cachedApp?.icon
+        let appName = cachedApp?.name ?? info["name"] ?? appId
+        let storedIcon = info["icon"]
+        let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
         try? daemonClient.sendAppOpen(appId: appId)
     }
