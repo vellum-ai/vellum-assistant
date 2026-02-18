@@ -727,6 +727,7 @@ describe('Trust Store', () => {
         'computer_use_drag',
         'computer_use_key',
         'computer_use_open_app',
+        'computer_use_request_control',
         'computer_use_right_click',
         'computer_use_run_applescript',
         'computer_use_scroll',
@@ -740,7 +741,6 @@ describe('Trust Store', () => {
         'host_file_edit',
         'host_file_read',
         'host_file_write',
-        'computer_use_request_control',
         'scaffold_managed_skill',
         'skill_load',
       ]);

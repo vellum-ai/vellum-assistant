@@ -15,13 +15,20 @@ import {
 afterAll(() => { __resetRegistryForTesting(); });
 
 describe('computer-use skill baseline: registry tool surfaces', () => {
-  test('no computer_use_* tools are registered after initializeTools() (migrated to skill)', async () => {
+  test('no computer_use_* action tools are registered after initializeTools() (migrated to skill)', async () => {
     await initializeTools();
 
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       const tool = getTool(name);
       expect(tool).toBeUndefined();
     }
+  });
+
+  test('computer_use_request_control is registered in core after initializeTools()', async () => {
+    await initializeTools();
+
+    const tool = getTool('computer_use_request_control');
+    expect(tool).toBeDefined();
   });
 
   test('getAllToolDefinitions() excludes all computer_use_* tools (proxy exclusion)', async () => {
@@ -56,11 +63,12 @@ describe('computer-use skill baseline: registry tool surfaces', () => {
     expect(cuActionTools).toHaveLength(0);
   });
 
-  test('post-cutover count: 0 computer_use_* tools in core registry', async () => {
+  test('post-cutover count: 1 computer_use_* tool in core registry (escalation only)', async () => {
     await initializeTools();
 
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(0);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 });

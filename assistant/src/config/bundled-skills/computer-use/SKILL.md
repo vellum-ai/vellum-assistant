@@ -5,12 +5,13 @@ user-invocable: false
 disable-model-invocation: true
 ---
 
-This skill provides the 13 computer_use_* tools: 12 action tools for controlling
-the macOS desktop (used by CU sessions) and the `computer_use_request_control`
-escalation tool (used by text_qa sessions to hand off to foreground computer use).
+This skill provides the 12 computer_use_* action tools for controlling
+the macOS desktop (used by CU sessions).
 
-The skill is internally preactivated for computer-use sessions. The escalation
-tool is also projected into text_qa sessions via `buildToolDefinitions()`.
+The `computer_use_request_control` escalation tool is registered in the core
+registry (not this skill) so text_qa sessions can execute it directly.
+
+The skill is internally preactivated for computer-use sessions.
 
 Tools in this skill are proxy tools — execution is forwarded to the connected
 macOS client, never handled locally by the daemon.

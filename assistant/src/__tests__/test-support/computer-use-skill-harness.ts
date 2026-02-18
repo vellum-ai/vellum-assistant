@@ -2,7 +2,7 @@
  * Reusable constants and helpers for the computer-use skill migration test suite.
  */
 
-/** The 13 computer_use_* tool names provided by the bundled computer-use skill. */
+/** The 12 computer_use_* action tool names provided by the bundled computer-use skill. */
 export const COMPUTER_USE_TOOL_NAMES = [
   'computer_use_click',
   'computer_use_double_click',
@@ -16,14 +16,13 @@ export const COMPUTER_USE_TOOL_NAMES = [
   'computer_use_run_applescript',
   'computer_use_done',
   'computer_use_respond',
-  'computer_use_request_control',
 ] as const;
 
 /** The skill ID for the bundled computer-use skill (used in later PRs). */
 export const COMPUTER_USE_SKILL_ID = 'computer-use';
 
 /** Number of computer_use_* tools. */
-export const COMPUTER_USE_TOOL_COUNT = COMPUTER_USE_TOOL_NAMES.length; // 13
+export const COMPUTER_USE_TOOL_COUNT = COMPUTER_USE_TOOL_NAMES.length; // 12
 
 import { expect } from 'bun:test';
 
