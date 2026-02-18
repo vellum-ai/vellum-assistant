@@ -855,7 +855,7 @@ private final class CenteringClipView: NSClipView {
             let insetHeight = textView.textContainerInset.height * 2
             let contentHeight = usedHeight + insetHeight
             if contentHeight < bounds.height {
-                rect.origin.y = ceil((contentHeight - bounds.height) / 2)
+                rect.origin.y = (contentHeight - bounds.height) / 2
             }
         }
         return rect
