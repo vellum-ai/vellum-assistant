@@ -134,6 +134,22 @@ struct ActivityStepView: View {
             // Expanded details
             if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Full command / input
+                    if !toolCall.inputSummary.isEmpty {
+                        Text(toolCall.inputSummary)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(VSpacing.sm)
+                            .background(VColor.background.opacity(0.6))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                            )
+                    }
+
                     // Screenshot
                     if let cachedImage = toolCall.cachedImage {
                         Image(nsImage: cachedImage)
@@ -195,7 +211,7 @@ struct ActivityStepView: View {
     }
 
     private var hasExpandableContent: Bool {
-        (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) || toolCall.cachedImage != nil
+        !toolCall.inputSummary.isEmpty || (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) || toolCall.cachedImage != nil
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
