@@ -20,6 +20,9 @@ struct SettingsPanel: View {
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
+    @State private var showModelDropdown = false
+    @State private var mouseDownMonitor: Any?
+    @State private var modelDropdownFrame: CGRect = .zero
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -91,21 +94,54 @@ struct SettingsPanel: View {
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Spacer()
-                            Picker("", selection: $store.selectedModel) {
-                                ForEach(SettingsStore.availableModels, id: \.self) { model in
-                                    Text(SettingsStore.modelDisplayNames[model] ?? model)
-                                        .tag(model)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(maxWidth: 200)
-                        }
-                        .onChange(of: store.selectedModel) { _, newValue in
-                            store.setModel(newValue)
+                            ModelPickerButton(
+                                store: store,
+                                isOpen: $showModelDropdown
+                            )
                         }
                     }
                     .padding(VSpacing.lg)
                     .vCard(background: VColor.surfaceSubtle)
+                    .overlay(alignment: .bottomTrailing) {
+                        if showModelDropdown {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(SettingsStore.availableModels, id: \.self) { model in
+                                    ModelPickerItem(
+                                        name: SettingsStore.modelDisplayNames[model] ?? model,
+                                        isSelected: model == store.selectedModel
+                                    ) {
+                                        store.selectedModel = model
+                                        store.setModel(model)
+                                        withAnimation(VAnimation.fast) { showModelDropdown = false }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, VSpacing.xs)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .alignmentGuide(.bottom) { d in d[.top] }
+                            .padding(.trailing, VSpacing.lg)
+                            .transition(.opacity)
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.onAppear {
+                                        modelDropdownFrame = geo.frame(in: .global)
+                                    }
+                                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                                        modelDropdownFrame = newFrame
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .animation(VAnimation.fast, value: showModelDropdown)
+                    .zIndex(showModelDropdown ? 1 : 0)
                 }
 
                 // BRAVE SEARCH section
@@ -413,6 +449,39 @@ struct SettingsPanel: View {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
             permissionCheckTask?.cancel()
+            if let monitor = mouseDownMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseDownMonitor = nil
+            }
+        }
+        .onChange(of: showModelDropdown) { _, isOpen in
+            if let monitor = mouseDownMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseDownMonitor = nil
+            }
+            if isOpen {
+                mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+                    // Only dismiss if the click is outside the dropdown.
+                    // SwiftUI .global uses flipped coords (Y=0 at top);
+                    // AppKit locationInWindow uses Y=0 at bottom.
+                    if let window = event.window {
+                        let windowHeight = window.frame.height
+                        let loc = event.locationInWindow
+                        let flippedY = windowHeight - loc.y
+                        let clickPoint = CGPoint(x: loc.x, y: flippedY)
+                        if !self.modelDropdownFrame.contains(clickPoint) {
+                            DispatchQueue.main.async {
+                                withAnimation(VAnimation.fast) { showModelDropdown = false }
+                            }
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            withAnimation(VAnimation.fast) { showModelDropdown = false }
+                        }
+                    }
+                    return event
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Primary mechanism: Check permissions when app becomes active.
@@ -611,6 +680,73 @@ struct SettingsPanel: View {
         .padding(.vertical, VSpacing.md)
     }
 
+}
+
+// MARK: - Custom Model Picker
+
+private struct ModelPickerButton: View {
+    @ObservedObject var store: SettingsStore
+    @Binding var isOpen: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            withAnimation(VAnimation.fast) { isOpen.toggle() }
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                Text(SettingsStore.modelDisplayNames[store.selectedModel] ?? store.selectedModel)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+private struct ModelPickerItem: View {
+    let name: String
+    let isSelected: Bool
+    let onSelect: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isSelected ? VColor.accent : (isHovered ? VColor.textPrimary : VColor.textSecondary))
+                    .frame(width: 18)
+                Text(name)
+                    .font(isSelected ? VFont.bodyBold : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
 }
 
 struct SettingsPanel_Previews: PreviewProvider {

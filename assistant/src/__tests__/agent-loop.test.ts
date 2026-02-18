@@ -1031,4 +1031,105 @@ describe('AgentLoop', () => {
     // Empty array should result in undefined tools (same as no-tools behavior)
     expect(calls[0].tools).toBeUndefined();
   });
+
+  // ---------------------------------------------------------------------------
+  // Tool result truncation tests
+  // ---------------------------------------------------------------------------
+
+  // 30. Oversized tool results are truncated before entering history
+  test('truncates oversized tool results before adding to history', async () => {
+    const toolCallId = 'tool-large';
+    const largeContent = 'x'.repeat(500_000);
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse(toolCallId, 'read_file', { path: '/huge.txt' }),
+      textResponse('Got it.'),
+    ]);
+
+    const toolExecutor = async () => {
+      return { content: largeContent, isError: false };
+    };
+
+    const loop = new AgentLoop(
+      provider,
+      'system',
+      { maxInputTokens: 180_000 },
+      dummyTools,
+      toolExecutor,
+    );
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // The tool result user message is at index 2 in history
+    const toolResultMsg = history[2];
+    expect(toolResultMsg.role).toBe('user');
+
+    const toolResultBlock = toolResultMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(toolResultBlock).toBeDefined();
+
+    // Content should have been truncated (much shorter than the original 500K)
+    expect(toolResultBlock!.content.length).toBeLessThan(500_000);
+
+    // Content should end with the truncation suffix
+    expect(toolResultBlock!.content).toContain(
+      '[Content truncated',
+    );
+
+    // The second provider call should also have the truncated content in messages
+    const secondCallMessages = calls[1].messages;
+    const lastMsg = secondCallMessages[secondCallMessages.length - 1];
+    const sentBlock = lastMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(sentBlock).toBeDefined();
+    expect(sentBlock!.content.length).toBeLessThan(500_000);
+  });
+
+  // 31. Non-oversized tool results pass through unchanged
+  test('non-oversized tool results pass through unchanged', async () => {
+    const toolCallId = 'tool-small';
+    const smallContent = 'small content';
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse(toolCallId, 'read_file', { path: '/small.txt' }),
+      textResponse('Got it.'),
+    ]);
+
+    const toolExecutor = async () => {
+      return { content: smallContent, isError: false };
+    };
+
+    const loop = new AgentLoop(
+      provider,
+      'system',
+      { maxInputTokens: 180_000 },
+      dummyTools,
+      toolExecutor,
+    );
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events));
+
+    // The tool result user message is at index 2 in history
+    const toolResultMsg = history[2];
+    expect(toolResultMsg.role).toBe('user');
+
+    const toolResultBlock = toolResultMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(toolResultBlock).toBeDefined();
+
+    // Content should be exactly the original small content — no truncation
+    expect(toolResultBlock!.content).toBe(smallContent);
+
+    // The second provider call should also have the unchanged content
+    const secondCallMessages = calls[1].messages;
+    const lastMsg = secondCallMessages[secondCallMessages.length - 1];
+    const sentBlock = lastMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+    );
+    expect(sentBlock).toBeDefined();
+    expect(sentBlock!.content).toBe(smallContent);
+  });
 });

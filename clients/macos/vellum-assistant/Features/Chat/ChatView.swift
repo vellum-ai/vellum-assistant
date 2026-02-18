@@ -73,6 +73,8 @@ struct ChatView: View {
     let onDropImageData: (Data, String?) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    var onModelPickerSelect: ((UUID, String) -> Void)?
+    var selectedModel: String = ""
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAddTrustRule: (String, String, String, String) -> Bool
@@ -281,6 +283,18 @@ struct ChatView: View {
         return base + attachments + error + queue
     }
 
+    private func modelPickerView(for message: ChatMessage) -> some View {
+        ModelPickerBubble(
+            models: SettingsStore.availableModels.map { id in
+                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
+            },
+            selectedModelId: selectedModel,
+            onSelect: { modelId in
+                onModelPickerSelect?(message.id, modelId)
+            }
+        )
+    }
+
     @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
@@ -481,6 +495,10 @@ struct ChatView: View {
                                 // When there IS a preceding assistant message, the decided
                                 // confirmation is rendered as a chip on that bubble — skip here.
                             }
+                        } else if message.modelPicker != nil {
+                            modelPickerView(for: message)
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.
@@ -789,9 +807,13 @@ private struct ChatBubble: View {
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
 
+    @State private var isHovered = false
     @State private var isRegenerateHovered = false
 
     private var isUser: Bool { message.role == .user }
+    private var canReportMessage: Bool {
+        !isUser && onReportMessage != nil
+    }
 
     private var statusLabel: String? {
         switch message.status {
@@ -858,7 +880,7 @@ private struct ChatBubble: View {
 
 
     var body: some View {
-        HStack {
+        HStack(spacing: VSpacing.sm) {
             if isUser { Spacer(minLength: 0) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
@@ -893,16 +915,46 @@ private struct ChatBubble: View {
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
-            .contextMenu {
-                if !isUser, let onReportMessage,
-                   FeatureFlagManager.shared.isEnabled(.monitoringExport) {
-                    Button("Report this response") {
-                        onReportMessage(message.daemonMessageId)
+            .contextMenu {}
+
+            if canReportMessage {
+                VStack {
+                    Menu {
+                        if let onReportMessage {
+                            Button("Export response for diagnostics") {
+                                onReportMessage(message.daemonMessageId)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .rotationEffect(.degrees(90))
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 24, height: 24)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .accessibilityLabel("Message actions")
+                    .animation(VAnimation.fast, value: isHovered)
+
+                    Spacer(minLength: 0)
                 }
+                .frame(width: 24)
             }
 
             if !isUser { Spacer(minLength: 0) }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if canReportMessage {
+                isHovered = hovering
+            } else if isHovered {
+                isHovered = false
+            }
         }
     }
 
@@ -969,9 +1021,10 @@ private struct ChatBubble: View {
         if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
             let displayName = rawName.replacingOccurrences(of: "_", with: " ")
+            let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 RunningIndicator(
-                    label: Self.friendlyRunningLabel(displayName),
+                    label: Self.friendlyRunningLabel(displayName, buildingStatus: activeBuildingStatus),
                     onTap: { onOpenActivity(message.id) }
                 )
                 CodePreviewView(code: message.streamingCodePreview!)
@@ -980,9 +1033,9 @@ private struct ChatBubble: View {
         } else if hasActuallyRunningTool && !permissionWasDenied {
             // In progress — show single running indicator for the active tool
             let current = message.toolCalls.first(where: { !$0.isComplete })!
-            let progressive = Self.progressiveLabels(for: current.toolName)
+            let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
             RunningIndicator(
-                label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary),
+                label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
                 progressiveLabels: progressive,
                 labelInterval: progressive.isEmpty ? 6 : 15,
                 onTap: { onOpenActivity(message.id) }
@@ -1094,7 +1147,14 @@ private struct ChatBubble: View {
     }
 
     /// Maps tool names to user-friendly present-tense labels for the running state.
-    private static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil) -> String {
+    private static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
+        // For app file tools, prefer the descriptive building status from tool input
+        if let status = buildingStatus {
+            let lower = toolName.lowercased()
+            if lower == "app file edit" || lower == "app file write" || lower == "app create" || lower == "app update" {
+                return status
+            }
+        }
         switch toolName.lowercased() {
         case "run command":            return "Running a command"
         case "read file":              return "Reading a file"
@@ -1255,8 +1315,8 @@ private struct ChatBubble: View {
             }
             .font(.system(size: 12))
 
-            Text(isApproved ? "Permission granted" :
-                 confirmation.state == .denied ? "Permission denied" : "Timed out")
+            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
+                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
                 .font(VFont.caption)
                 .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
         }
@@ -1762,7 +1822,7 @@ private struct ChatBubble: View {
             let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
             let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
             let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
-            parsed[attrStart..<attrEnd].foregroundColor = Indigo._500
+            parsed[attrStart..<attrEnd].foregroundColor = adaptiveColor(light: Indigo._500, dark: Indigo._300)
         }
 
         // Store in cache (with size limit to prevent unbounded growth)

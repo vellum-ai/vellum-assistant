@@ -2,11 +2,13 @@ import * as Sentry from '@sentry/node';
 import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { getHookManager } from '../hooks/manager.js';
+import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
 
 const log = getLogger('agent-loop');
 
 export interface AgentLoopConfig {
   maxTokens: number;
+  maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean; budgetTokens: number };
   toolChoice?: { type: 'auto' } | { type: 'any' } | { type: 'tool'; name: string };
   maxToolUseTurns?: number;
@@ -302,27 +304,44 @@ export class AgentLoop {
           toolResults = await toolExecutionPromise;
         }
 
-        // Emit tool_result events in deterministic tool_use order after all complete
-        for (const { toolUse, result } of toolResults) {
-          onEvent({
-            type: 'tool_result',
-            toolUseId: toolUse.id,
-            content: result.content,
-            isError: result.isError,
-            diff: result.diff,
-            status: result.status,
-            contentBlocks: result.contentBlocks,
-          });
-        }
-
         // Collect result blocks preserving tool_use order (Promise.all maintains order)
-        const resultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
+        const rawResultBlocks: ContentBlock[] = toolResults.map(({ toolUse, result }) => ({
           type: 'tool_result' as const,
           tool_use_id: toolUse.id,
           content: result.content,
           is_error: result.isError,
           ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
         }));
+
+        // Pre-emptively truncate oversized tool results to prevent context overflow
+        const { blocks: resultBlocks, truncatedCount } = truncateOversizedToolResults(
+          rawResultBlocks,
+          this.config.maxInputTokens ?? 180_000,
+        );
+        if (truncatedCount > 0) {
+          log.warn(`Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`);
+        }
+
+        // Emit tool_result events AFTER truncation so downstream consumers
+        // (e.g. session persistence) receive the truncated content.
+        for (const { toolUse, result } of toolResults) {
+          // Look up the (possibly truncated) content from resultBlocks
+          const truncatedBlock = resultBlocks.find(
+            (b) => b.type === 'tool_result' && b.tool_use_id === toolUse.id,
+          );
+          const emitContent = (truncatedBlock && truncatedBlock.type === 'tool_result')
+            ? truncatedBlock.content
+            : result.content;
+          onEvent({
+            type: 'tool_result',
+            toolUseId: toolUse.id,
+            content: emitContent,
+            isError: result.isError,
+            diff: result.diff,
+            status: result.status,
+            contentBlocks: result.contentBlocks,
+          });
+        }
 
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {

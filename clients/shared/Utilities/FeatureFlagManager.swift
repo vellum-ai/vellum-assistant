@@ -4,7 +4,6 @@ private let flagPrefix = "VELLUM_FLAG_"
 
 public enum FeatureFlag: String {
     case demo
-    case monitoringExport
 }
 
 public final class FeatureFlagManager: @unchecked Sendable {

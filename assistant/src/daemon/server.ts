@@ -17,6 +17,7 @@ import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session } from './session.js';
+import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
   serialize,
@@ -818,6 +819,7 @@ export class DaemonServer {
     content: string,
     attachmentIds?: string[],
     options?: SessionCreateOptions,
+    sourceChannel?: string,
   ): Promise<{ messageId: string }> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
@@ -836,6 +838,7 @@ export class DaemonServer {
     // Set assistantId AFTER the isProcessing check so a rejected request
     // doesn't mutate the session state visible to an in-flight request.
     session.setAssistantId(assistantId);
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
@@ -871,6 +874,7 @@ export class DaemonServer {
     content: string,
     attachmentIds?: string[],
     options?: SessionCreateOptions,
+    sourceChannel?: string,
   ): Promise<{ messageId: string }> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
@@ -887,6 +891,7 @@ export class DaemonServer {
     // Set assistantId AFTER the isProcessing check so a rejected request
     // doesn't mutate the session state visible to an in-flight request.
     session.setAssistantId(assistantId);
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds

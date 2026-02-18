@@ -161,7 +161,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasSetupApp = false
     private var hasSetupDaemon = false
 
-    private func proceedToApp() {
+    private func proceedToApp(isFirstLaunch: Bool = false) {
         authWindow?.close()
         authWindow = nil
 
@@ -184,7 +184,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow()
+        showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil)
     }
 
     private func showAuthWindow() {
@@ -194,14 +194,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let authView = AuthWindowView(
+        OnboardingState.clearPersistedState()
+        let state = OnboardingState()
+        state.shouldPersist = false
+        let authView = OnboardingFlowView(
+            state: state,
+            daemonClient: daemonClient,
             authManager: authManager,
-            onStartWithAPIKey: { [weak self] in
+            onComplete: { [weak self] in
                 self?.proceedToApp()
             },
-            onAuthenticated: { [weak self] in
-                self?.proceedToApp()
-            }
+            onOpenSettings: {}
         )
 
         let hostingController = NSHostingController(rootView: authView)
@@ -278,117 +281,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
-        }
-    }
-
-    /// Standalone auth window shown when user needs to sign in outside of onboarding.
-    /// Displays a simple "Continue with Vellum" button that triggers WorkOS AuthKit.
-    @MainActor
-    struct AuthWindowView: View {
-        @Bindable var authManager: AuthManager
-        var onStartWithAPIKey: () -> Void = {}
-        var onAuthenticated: () -> Void = {}
-
-        var body: some View {
-            ZStack {
-                VColor.background
-                    .ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    Spacer()
-
-                    Group {
-                        if let url = ResourceBundle.bundle.url(forResource: "stage-3", withExtension: "png"),
-                           let nsImage = NSImage(contentsOf: url) {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .interpolation(.none)
-                                .aspectRatio(contentMode: .fit)
-                        } else {
-                            Image("VellyLogo")
-                                .resizable()
-                                .interpolation(.none)
-                                .aspectRatio(contentMode: .fit)
-                        }
-                    }
-                    .frame(width: 128, height: 128)
-                    .padding(.bottom, VSpacing.xxl)
-
-                    Text("Sign in to continue")
-                        .font(.system(size: 32, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.bottom, VSpacing.md)
-
-                    Text("Sign in with your Vellum account to get started.")
-                        .font(.system(size: 16))
-                        .foregroundColor(VColor.textSecondary)
-
-                    Spacer()
-
-                    VStack(spacing: VSpacing.md) {
-                        Button(action: { onStartWithAPIKey() }) {
-                            Text("Start with an API key")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, VSpacing.lg)
-                                .background(
-                                    RoundedRectangle(cornerRadius: VRadius.lg)
-                                        .fill(adaptiveColor(
-                                            light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
-                                            dark: Violet._600
-                                        ))
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(authManager.isSubmitting)
-                        .onHover { hovering in
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
-
-                        Button(action: {
-                            Task {
-                                await authManager.startWorkOSLogin()
-                                if authManager.isAuthenticated {
-                                    onAuthenticated()
-                                }
-                            }
-                        }) {
-                            HStack(spacing: VSpacing.sm) {
-                                if authManager.isSubmitting {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .progressViewStyle(.circular)
-                                }
-                                Text(authManager.isSubmitting ? "Signing in..." : "Continue with Vellum")
-                                    .font(.system(size: 15, weight: .medium))
-                            }
-                            .foregroundColor(VColor.textPrimary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, VSpacing.lg)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .fill(adaptiveColor(light: .white, dark: VColor.surface))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(authManager.isSubmitting)
-                        .onHover { hovering in
-                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
-
-                        if let error = authManager.errorMessage {
-                            Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-                    .padding(.horizontal, VSpacing.xxl)
-                    .padding(.bottom, VSpacing.xxl)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
         }
     }
 
@@ -638,6 +530,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onConfirmationRequest = { [weak self] msg in
             guard let self else { return }
             Task { @MainActor in
+                // Auto-approve low/medium risk tool confirmations during CU sessions
+                if self.currentSession?.autoApproveTools == true,
+                   msg.riskLevel == "low" || msg.riskLevel == "medium" {
+                    do {
+                        try self.daemonClient.sendConfirmationResponse(
+                            requestId: msg.requestId,
+                            decision: "allow"
+                        )
+                        self.mainWindow?.threadManager.updateConfirmationStateAcrossThreads(
+                            requestId: msg.requestId,
+                            decision: "allow"
+                        )
+                    } catch {
+                        log.error("Failed to auto-approve confirmation: \(error.localizedDescription)")
+                    }
+                    return
+                }
+
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
                 // If the inline chat path already forwarded the response, skip
                 // the duplicate IPC send and state update.
@@ -852,6 +762,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             setupDaemonClient()
         }
 
+        // Clear persisted step so replay always starts at step 0
+        OnboardingState.clearPersistedState()
+
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
@@ -887,11 +800,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             onboarding.close()
             self?.onboardingWindow = nil
 
-            if self?.authManager.isAuthenticated == true {
-                self?.proceedToApp()
-            } else {
-                self?.startAuthenticatedFlow()
-            }
+            // By this point the user has either entered an API key (steps 0→1→2)
+            // or authenticated via Vellum Account (WorkOS). Proceed directly —
+            // don't re-check auth, which would show the auth gate again.
+            self?.proceedToApp(isFirstLaunch: true)
         }
         onboarding.show()
         onboardingWindow = onboarding

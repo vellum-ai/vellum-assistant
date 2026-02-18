@@ -10,6 +10,33 @@ import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
+/**
+ * Describes the capabilities of the channel through which the user is
+ * interacting.  Used to gate UI-specific references and permission asks.
+ */
+export interface ChannelCapabilities {
+  /** The raw channel identifier (e.g. "dashboard", "telegram", "http-api"). */
+  channel: string;
+  /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
+  dashboardCapable: boolean;
+  /** Whether the channel supports dynamic UI surfaces (ui_show / ui_update). */
+  supportsDynamicUi: boolean;
+  /** Whether the channel supports voice/microphone input. */
+  supportsVoiceInput: boolean;
+}
+
+/** Derive channel capabilities from a raw source channel identifier. */
+export function resolveChannelCapabilities(sourceChannel?: string | null): ChannelCapabilities {
+  const channel = sourceChannel ?? 'dashboard';
+  const isDashboard = channel === 'dashboard';
+  return {
+    channel,
+    dashboardCapable: isDashboard,
+    supportsDynamicUi: isDashboard,
+    supportsVoiceInput: isDashboard,
+  };
+}
+
 /** Context about the active workspace surface, passed to applyRuntimeInjections. */
 export interface ActiveSurfaceContext {
   surfaceId: string;
@@ -62,6 +89,8 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
     // ── App-backed surface ──
     lines.push(
       `The user is viewing app "${ctx.appName ?? 'Untitled'}" (app_id: "${ctx.appId}") in workspace mode.`,
+      '',
+      'PREREQUISITE: If `app_file_edit` and other `app_*` tools are not yet available, call `skill_load` with `id: "app-builder"` first to load them.',
       '',
       'RULES FOR WORKSPACE MODIFICATION:',
       `1. Use \`app_file_edit\` with app_id "${ctx.appId}" for surgical changes.`,
@@ -199,6 +228,60 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 }
 
 /**
+ * Prepend channel capability context to the last user message so the
+ * model knows what the current channel can and cannot do.
+ */
+export function injectChannelCapabilityContext(message: Message, caps: ChannelCapabilities): Message {
+  const lines: string[] = ['<channel_capabilities>'];
+  lines.push(`channel: ${caps.channel}`);
+  lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
+  lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
+  lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
+
+  if (!caps.dashboardCapable) {
+    lines.push('');
+    lines.push('CHANNEL CONSTRAINTS:');
+    lines.push('- Do NOT reference the dashboard UI, settings panels, or visual preference pickers.');
+    lines.push('- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.');
+    lines.push('- Present information as well-formatted text instead of dynamic UI.');
+    lines.push('- Defer dashboard-specific actions (e.g. accent color selection) by telling the user');
+    lines.push('  they can complete those steps later from the desktop app.');
+  }
+
+  if (!caps.supportsVoiceInput) {
+    lines.push('- Do NOT ask the user to use voice or microphone input.');
+  }
+
+  lines.push('</channel_capabilities>');
+
+  const block = lines.join('\n');
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
+/**
+ * Strip `<channel_capabilities>` blocks injected by
+ * `injectChannelCapabilityContext`.
+ */
+export function stripChannelCapabilityContext(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const nextContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !block.text.startsWith('<channel_capabilities>');
+    });
+    if (nextContent.length === message.content.length) return message;
+    if (nextContent.length === 0) return null;
+    return { ...message, content: nextContent };
+  }).filter((message): message is NonNullable<typeof message> => message !== null);
+}
+
+/**
  * Prepend workspace top-level directory context to a user message.
  */
 export function injectWorkspaceTopLevelContext(message: Message, contextText: string): Message {
@@ -260,6 +343,7 @@ export function applyRuntimeInjections(
     softConflictInstruction?: string | null;
     activeSurface?: ActiveSurfaceContext | null;
     workspaceTopLevelContext?: string | null;
+    channelCapabilities?: ChannelCapabilities | null;
   },
 ): Message[] {
   let result = runMessages;
@@ -280,6 +364,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectActiveSurfaceContext(userTail, options.activeSurface),
+      ];
+    }
+  }
+
+  if (options.channelCapabilities) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectChannelCapabilityContext(userTail, options.channelCapabilities),
       ];
     }
   }

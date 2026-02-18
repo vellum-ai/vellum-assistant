@@ -9,6 +9,8 @@ struct OnboardingFlowView: View {
     var onComplete: () -> Void
     var onOpenSettings: () -> Void
 
+    @State private var isAdvancingFromWakeUp = false
+
     var body: some View {
         GeometryReader { geometry in
         ZStack {
@@ -43,11 +45,24 @@ struct OnboardingFlowView: View {
                     Group {
                         switch state.currentStep {
                         case 0:
-                            WakeUpStepView(state: state, onContinueWithVellum: {
-                                Task {
-                                    await authManager.startWorkOSLogin()
+                            WakeUpStepView(
+                                state: state,
+                                authManager: authManager,
+                                isAdvancing: isAdvancingFromWakeUp,
+                                onStartWithAPIKey: {
+                                    guard !isAdvancingFromWakeUp else { return }
+                                    isAdvancingFromWakeUp = true
+                                    state.hasHatched = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        state.advance()
+                                    }
+                                },
+                                onContinueWithVellum: {
+                                    Task {
+                                        await authManager.startWorkOSLogin()
+                                    }
                                 }
-                            })
+                            )
                         case 1:
                             APIKeyStepView(state: state)
                         case 2:
@@ -148,6 +163,9 @@ struct OnboardingFlowView: View {
         }
         .ignoresSafeArea()
         .onChange(of: state.currentStep) { _, newStep in
+            if newStep == 0 {
+                isAdvancingFromWakeUp = false
+            }
             // Trimmed flow ends after step 2 (ModelSelection).
             // Previous threshold was > 4 (after FnKey step).
             if newStep > 2 {

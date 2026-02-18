@@ -19,6 +19,7 @@ import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
+import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -73,6 +74,7 @@ export class ComputerUseSession {
   }>();
   private surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   private terminalNotified = false;
+  private prompter: PermissionPrompter | null = null;
 
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
@@ -168,6 +170,9 @@ export class ComputerUseSession {
       this.pendingObservation = null;
     }
 
+    // Dispose prompter to clear pending permission timers and reject promises
+    this.prompter?.dispose();
+
     // Resolve any pending surface actions
     for (const [, pending] of this.pendingSurfaceActions) {
       pending.resolve({ content: 'Session aborted', isError: true });
@@ -223,7 +228,8 @@ export class ComputerUseSession {
         .map((t) => t.getDefinition()),
     ];
 
-    const prompter = new PermissionPrompter(this.sendToClient);
+    this.prompter = new PermissionPrompter(this.sendToClient);
+    const prompter = this.prompter;
     const secretPrompter = new SecretPrompter(this.sendToClient);
     const executor = new ToolExecutor(prompter);
 
@@ -432,11 +438,13 @@ export class ComputerUseSession {
       },
     };
 
+    const cuConfig = getConfig();
     const agentLoop = new AgentLoop(
       compactingProvider,
       systemPrompt,
       {
         maxTokens: 4096,
+        maxInputTokens: cuConfig.contextWindow.maxInputTokens,
         toolChoice: { type: 'any' },
         // Allow MAX_STEPS non-terminal actions plus one terminal turn
         // (computer_use_done/computer_use_respond), since AgentLoop caps tool turns globally.
@@ -791,5 +799,18 @@ export class ComputerUseSession {
       lines.push(`Capture display ID: ${obs.captureDisplayId}`);
     }
     return lines;
+  }
+
+  hasPendingConfirmation(requestId: string): boolean {
+    return this.prompter?.hasPendingRequest(requestId) ?? false;
+  }
+
+  handleConfirmationResponse(
+    requestId: string,
+    decision: 'allow' | 'always_allow' | 'deny',
+    selectedPattern?: string,
+    selectedScope?: string,
+  ): void {
+    this.prompter?.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
   }
 }

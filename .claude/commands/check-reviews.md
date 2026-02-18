@@ -14,7 +14,7 @@ For each PR, run:
 .claude/check-pr-reviews <number>
 ```
 
-This outputs JSON with `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column.
+This outputs JSON with `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column.
 
 ## Contextual review assessment
 
@@ -53,7 +53,8 @@ Examples of feedback that would cause a regression:
 ## Actions
 
 - **Rate-limited Codex:** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md. Do NOT remove the PR.
-- If either reviewer hasn't reviewed yet, keep the PR in UNREVIEWED_PRS.md for next time.
+- **Skipped Devin:** If Devin's status is `skipped` (pending for 30+ minutes), treat it as if Devin approved — Devin likely errored out and won't review.
+- If either reviewer hasn't reviewed yet (status is `pending`, not `skipped`), keep the PR in UNREVIEWED_PRS.md for next time.
 - If both have reviewed and either review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
 - If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Keep the PR in .private/UNREVIEWED_PRS.md so it is revisited on the next run. Wait for the user to decide what to do.
@@ -71,6 +72,7 @@ Display a table with these columns:
   - ✅ Approved
   - ❌ Changes requested
   - ⏳ Pending
+  - 🔇 Skipped (Devin only — timed out after 30 minutes)
   - 🤷 Nonsensical (feedback didn't apply)
   - 🔄 Rate-limited (Codex only — re-triggered via `@codex review` comment)
 - **Verdict**: Use emoji prefixes:

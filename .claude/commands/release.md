@@ -77,4 +77,4 @@ Output:
 - The version number
 - The release notes
 - A link to the running workflow
-- Remind the user that the build takes ~15-20 minutes and will auto-publish to `alex-nork/vellum-assistant-macos-updates` when done
+- Remind the user that the build takes ~15-20 minutes and will auto-publish to `vellum-ai/velly` when done

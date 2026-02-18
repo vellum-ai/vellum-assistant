@@ -111,8 +111,10 @@ export function buildSystemPrompt(): string {
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildDocumentCreationSection());
+  parts.push(buildStarterTaskPlaybookSection());
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
+  parts.push(buildChannelAwarenessSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
@@ -163,6 +165,9 @@ function buildDynamicUiSection(): string {
     '- **Simple structured data** (key-value, table, list): `ui_show` with `card`/`table`/`list`/`form` surface_type',
     '- **Fully custom UIs from scratch**: `app_create` (App Builder) — this is the DEFAULT for any dynamic HTML/CSS/JS output',
     '',
+    '### Loading app tools',
+    'App tools (`app_create`, `app_update`, `app_file_edit`, `app_file_write`, `app_file_read`, `app_file_list`, `app_open`, `app_delete`, `app_list`, `app_query`) are provided by the `app-builder` skill. Before using any `app_*` tool, call `skill_load` with `id: "app-builder"` to ensure the tools and full design reference are available. You only need to load the skill once per session.',
+    '',
     '### App type selection',
     'When using `app_create`, set the `type` parameter:',
     '- `"app"` (default) — interactive apps with data/state (trackers, dashboards, tools, CRUD apps)',
@@ -175,7 +180,6 @@ function buildDynamicUiSection(): string {
     '- Always include `preview`: `{ title, icon (emoji), metrics: [{ label, value }] }` for an inline chat card',
     '- For iteration on an existing app: use `app_update` to change the HTML, then `app_open` to reopen it',
     '- Home Base starts from a prebuilt scaffold. When updating Home Base, preserve required task-lane anchors and apply updates through normal `app_update` flows',
-    '- For complex apps: call `skill_load` with `id: "app-builder"` for the full design reference',
     '',
     '### Quality standards',
     '- Build immediately — make creative decisions, deliver polished output',
@@ -335,6 +339,54 @@ function buildDocumentCreationSection(): string {
   ].join('\n');
 }
 
+export function buildStarterTaskPlaybookSection(): string {
+  return [
+    '## Starter Task Playbooks',
+    '',
+    'When the user clicks a starter task card in the dashboard, you receive a deterministic kickoff message in the format `[STARTER_TASK:<task_id>]`. Follow the playbook for that task exactly.',
+    '',
+    '### Kickoff intent contract',
+    '- `[STARTER_TASK:make_it_yours]` — "Make it yours" color personalisation flow',
+    '- `[STARTER_TASK:research_topic]` — "Research something for me" flow',
+    '- `[STARTER_TASK:research_to_ui]` — "Turn it into a webpage or interactive UI" flow',
+    '',
+    '### Playbook: make_it_yours',
+    'Goal: Help the user choose an accent color for their dashboard.',
+    '',
+    '1. If the user\'s locale is missing or has `confidence: low` in USER.md, briefly confirm their location/language before proceeding.',
+    '2. Present a concise set of accent color options (e.g. 5-7 curated colors with names and hex codes). Keep it short and scannable.',
+    '3. Let the user pick one. Accept color names, hex values, or descriptions (e.g. "something warm").',
+    '4. Confirm the selection: "I\'ll set your accent color to **{label}** ({hex}). Sound good?"',
+    '5. On confirmation:',
+    '   - Update the `## Dashboard Color Preference` section in USER.md with `label`, `hex`, `source: "user_selected"`, and `applied: true`.',
+    '   - Update the `## Onboarding Tasks` section: set `make_it_yours` to `done`.',
+    '   - Apply the color to the Home Base dashboard using `app_update` to regenerate the Home Base HTML with the chosen accent color applied to the theme.',
+    '6. If the user declines or wants to skip, set `make_it_yours` to `deferred_to_dashboard` in USER.md and move on.',
+    '',
+    '### Playbook: research_topic',
+    'Goal: Research a topic the user is interested in and summarise findings.',
+    '',
+    '1. Ask the user what topic they\'d like researched. Be specific: "What would you like me to look into?"',
+    '2. Once given a topic, use available tools (web search, browser, etc.) to gather information.',
+    '3. Synthesise the findings into a clear, well-structured summary.',
+    '4. Update the `## Onboarding Tasks` section in USER.md: set `research_topic` to `done`.',
+    '',
+    '### Playbook: research_to_ui',
+    'Goal: Transform research (from a prior research_topic task or current conversation context) into a visual webpage or interactive UI.',
+    '',
+    '1. Check the conversation history for prior research content. If none exists, ask the user what content they\'d like visualised.',
+    '2. Synthesise the research into a polished, interactive HTML page using `app_create`.',
+    '3. Follow all Dynamic UI quality standards (anti-AI-slop rules, design tokens, hover states, etc.).',
+    '4. Update the `## Onboarding Tasks` section in USER.md: set `research_to_ui` to `done`.',
+    '',
+    '### General rules for all starter tasks',
+    '- Update the relevant task status in the `## Onboarding Tasks` section of USER.md as you progress (`in_progress` when starting, `done` when complete).',
+    '- Respect trust gating: do NOT ask for elevated permissions during any starter task flow. These are introductory experiences.',
+    '- Keep responses concise and action-oriented. Avoid lengthy explanations of what you\'re about to do.',
+    '- If the user deviates from the flow, adapt gracefully. Complete the task if possible, or mark it as `deferred_to_dashboard`.',
+  ].join('\n');
+}
+
 function buildToolPermissionSection(): string {
   return [
     '## Tool Permissions',
@@ -385,6 +437,27 @@ function buildSystemPermissionSection(): string {
   ].join('\n');
 }
 
+export function buildChannelAwarenessSection(): string {
+  return [
+    '## Channel Awareness & Trust Gating',
+    '',
+    'Each turn may include a `<channel_capabilities>` block in the user message describing what the current channel supports. Use this to adapt your behaviour:',
+    '',
+    '### Channel-specific rules',
+    '- When `dashboard_capable` is `false`, never reference the dashboard UI, settings panels, dynamic pages, or visual pickers. Present data as formatted text.',
+    '- When `supports_dynamic_ui` is `false`, do not call `ui_show`, `ui_update`, or `app_create`.',
+    '- When `supports_voice_input` is `false`, do not ask the user to speak or use their microphone.',
+    '- Non-dashboard channels should defer dashboard-specific actions. Tell the user they can complete those steps later from the desktop app.',
+    '',
+    '### Permission ask trust gating',
+    '- Do NOT proactively ask for elevated permissions (microphone, computer control, file access) until the trust stage field `firstConversationComplete` in USER.md is `true`.',
+    '- Even after `firstConversationComplete`, only ask for permissions that are relevant to the current channel capabilities.',
+    '- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.',
+    '- Do not ask for computer-control permissions on non-dashboard channels.',
+    '- When you do request a permission, be transparent about what it enables and why you need it.',
+  ].join('\n');
+}
+
 export function buildSwarmGuidanceSection(): string {
   return [
     '## Parallel Task Orchestration',
@@ -417,7 +490,7 @@ function buildIntegrationSection(): string {
 
     let line = `- **${def.name}**: ${state}`;
     if (!configured && def.setupSkillId) {
-      line += `. Use \`integration_manage\` to check status and \`skill_load\` with id "${def.setupSkillId}" to help set it up.`;
+      line += `. Use \`integration_manage\` to check status. To set it up, first install the skill via \`vellum_skills_catalog\` (install with skill_id "${def.setupSkillId}"), then load it with \`skill_load\`.`;
     }
     lines.push(line);
   }

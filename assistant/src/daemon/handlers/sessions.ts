@@ -143,6 +143,20 @@ export function handleConfirmationResponse(
       return;
     }
   }
+
+  // Also check computer-use sessions — they have their own PermissionPrompter
+  for (const [, cuSession] of ctx.cuSessions) {
+    if (cuSession.hasPendingConfirmation(msg.requestId)) {
+      cuSession.handleConfirmationResponse(
+        msg.requestId,
+        msg.decision as 'allow' | 'always_allow' | 'deny',
+        msg.selectedPattern,
+        msg.selectedScope,
+      );
+      return;
+    }
+  }
+
   log.warn({ requestId: msg.requestId }, 'No session found with pending confirmation for requestId');
 }
 

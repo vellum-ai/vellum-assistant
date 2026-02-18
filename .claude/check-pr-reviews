@@ -22,7 +22,7 @@ Output is JSON with this structure:
     "has_plus_one_reaction": true|false
   },
   "devin": {
-    "status": "approved|changes_requested|pending",
+    "status": "approved|changes_requested|skipped|pending",
     "reviews": [...],
     "inline_comments": [...]
   }
@@ -38,7 +38,8 @@ Reviewer classification:
   devin (devin-ai-integration[bot]):
     approved          — review containing "No Issues Found"
     changes_requested — review or inline comment (not "No Issues Found")
-    pending           — no review from this user
+    skipped           — no review after 30 minutes (Devin likely errored)
+    pending           — no review from this user (PR < 30 minutes old)
 
 Examples:
   .claude/check-pr-reviews 123
@@ -138,6 +139,9 @@ if [ "$DEVIN_APPROVED" = "true" ]; then
   DEVIN_STATUS="approved"
 elif [ "$DEVIN_REVIEW_COUNT" -gt 0 ] || [ "$DEVIN_INLINE_COUNT" -gt 0 ]; then
   DEVIN_STATUS="changes_requested"
+elif [ "$AGE_SECONDS" -ge 1800 ]; then
+  # Devin sometimes errors out silently — treat as skipped after 30 minutes
+  DEVIN_STATUS="skipped"
 else
   DEVIN_STATUS="pending"
 fi

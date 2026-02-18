@@ -1550,6 +1550,90 @@ describe('bundled skill: weather', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Bundled skill: app-builder
+// ---------------------------------------------------------------------------
+
+const APP_BUILDER_TOOL_NAMES = [
+  'app_create',
+  'app_list',
+  'app_query',
+  'app_update',
+  'app_delete',
+  'app_file_list',
+  'app_file_read',
+  'app_file_edit',
+  'app_file_write',
+] as const;
+
+describe('bundled skill: app-builder', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    sessionState = new Map<string, string>();
+  });
+
+  test('app-builder skill activation projects all 9 canonical non-proxy tool definitions', () => {
+    mockCatalog = [makeSkill('app-builder', '/path/to/bundled-skills/app-builder')];
+    mockManifests = { 'app-builder': makeManifest([...APP_BUILDER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="app-builder" />'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(9);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual([...APP_BUILDER_TOOL_NAMES]);
+    expect(result.allowedToolNames).toEqual(new Set(APP_BUILDER_TOOL_NAMES));
+  });
+
+  test('app-builder tools are NOT available when skill is not in active context', () => {
+    mockCatalog = [makeSkill('app-builder', '/path/to/bundled-skills/app-builder')];
+    mockManifests = { 'app-builder': makeManifest([...APP_BUILDER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(0);
+    for (const name of APP_BUILDER_TOOL_NAMES) {
+      expect(result.allowedToolNames.has(name)).toBe(false);
+    }
+  });
+
+  test('skill-projected app tools use host execution (script runners)', () => {
+    mockCatalog = [makeSkill('app-builder', '/path/to/bundled-skills/app-builder')];
+    mockManifests = { 'app-builder': makeManifest([...APP_BUILDER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="app-builder" />'),
+    ];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    const tools = mockRegisteredTools.get('app-builder');
+    expect(tools).toBeDefined();
+    expect(tools!.length).toBe(9);
+
+    // All tools should have skill origin metadata
+    for (const tool of tools!) {
+      expect(tool.origin).toBe('skill');
+      expect(tool.ownerSkillId).toBe('app-builder');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tamper detection regression tests
 // ---------------------------------------------------------------------------
 

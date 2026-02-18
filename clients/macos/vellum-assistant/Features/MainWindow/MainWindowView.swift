@@ -372,8 +372,10 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: isHoveredThread) { _, newValue in
-            // Cancel pending archive when hover leaves the row
-            if let pending = threadPendingDeletion, newValue != pending {
+            // Cancel pending archive when the user hovers a *different* thread.
+            // Skip clearing when newValue is nil (e.g. menu dismissal triggers
+            // a momentary hover-leave) so the Confirm button stays visible.
+            if let pending = threadPendingDeletion, let newValue, newValue != pending {
                 threadPendingDeletion = nil
             }
         }
@@ -1050,6 +1052,7 @@ struct MainWindowView: View {
                 windowState: windowState,
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
+                settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle
             )
             .overlay(alignment: .bottomTrailing) {
@@ -1345,6 +1348,7 @@ private struct ActiveChatViewWrapper: View {
     @ObservedObject var windowState: MainWindowState
     let daemonClient: DaemonClient
     let ambientAgent: AmbientAgent
+    @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
 
     var body: some View {
@@ -1387,6 +1391,14 @@ private struct ActiveChatViewWrapper: View {
             },
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
+            onModelPickerSelect: { messageId, modelId in
+                // Update UI immediately so the picker reflects the selection
+                settingsStore.selectedModel = modelId
+                // Send "/model <id>" through the daemon silently (no user bubble)
+                // so the switch is persisted and confirmed by the daemon.
+                viewModel.sendSilently("/model \(modelId)")
+            },
+            selectedModel: settingsStore.selectedModel,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },

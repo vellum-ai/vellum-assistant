@@ -11,6 +11,7 @@ import Combine
 @MainActor
 final class MockDaemonClient: DaemonClientProtocol {
     var sentMessages: [Any] = []
+    var isConnected: Bool = true
     var isBlobTransportAvailable: Bool = false
     private var testContinuation: AsyncStream<ServerMessage>.Continuation?
     private var _messages: AsyncStream<ServerMessage>
@@ -35,6 +36,14 @@ final class MockDaemonClient: DaemonClientProtocol {
 
     func send<T: Encodable>(_ message: T) throws {
         sentMessages.append(message)
+    }
+
+    func connect() async throws {
+        isConnected = true
+    }
+
+    func disconnect() {
+        isConnected = false
     }
 }
 

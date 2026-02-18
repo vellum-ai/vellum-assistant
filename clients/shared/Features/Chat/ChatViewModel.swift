@@ -180,6 +180,19 @@ public final class ChatViewModel: ObservableObject {
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
+        // Intercept bare "/model" command — show inline picker instead of sending to daemon
+        if text == "/model" && !hasSkillInvocation {
+            // Refresh model state from daemon in case it was changed via a text command
+            // (e.g. "/model opus") which doesn't notify the client.
+            try? daemonClient.send(ModelGetRequestMessage())
+            messages.append(ChatMessage(role: .user, text: "/model"))
+            var pickerMessage = ChatMessage(role: .assistant, text: "")
+            pickerMessage.modelPicker = ModelPickerData()
+            messages.append(pickerMessage)
+            inputText = ""
+            return
+        }
+
         // Fire auto-title callback on the first user message
         if !text.isEmpty, let callback = onFirstUserMessage {
             onFirstUserMessage = nil
@@ -384,6 +397,21 @@ public final class ChatViewModel: ObservableObject {
             if self?.messageLoopGeneration == generation {
                 self?.messageLoopTask = nil
             }
+        }
+    }
+
+    /// Send a message to the daemon without showing a user bubble in the chat.
+    /// Used for automated actions like inline model picker selections.
+    public func sendSilently(_ text: String) {
+        // Don't re-enter bootstrap if a session creation is already in progress —
+        // that would overwrite pendingUserMessage and orphan the in-flight session.
+        if sessionId == nil && isSending {
+            return
+        }
+        if sessionId == nil {
+            bootstrapSession(userMessage: text, attachments: nil)
+        } else {
+            sendUserMessage(text)
         }
     }
 

@@ -325,10 +325,10 @@ export async function runDaemon(): Promise<void> {
         port,
         hostname,
         bearerToken,
-        processMessage: (assistantId, conversationId, content, attachmentIds, options) =>
-          server.processMessage(assistantId, conversationId, content, attachmentIds, options),
-        persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds, options) =>
-          server.persistAndProcessMessage(assistantId, conversationId, content, attachmentIds, options),
+        processMessage: (assistantId, conversationId, content, attachmentIds, options, sourceChannel) =>
+          server.processMessage(assistantId, conversationId, content, attachmentIds, options, sourceChannel),
+        persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds, options, sourceChannel) =>
+          server.persistAndProcessMessage(assistantId, conversationId, content, attachmentIds, options, sourceChannel),
         runOrchestrator: server.createRunOrchestrator(),
         interfacesDir: getInterfacesDir(),
       });
