@@ -564,6 +564,7 @@ struct MainWindowView: View {
                     // MARK: Threads Section
                     VStack(spacing: VSpacing.xs) {
                         SidebarSectionHeader(title: "Threads")
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
@@ -593,7 +594,19 @@ struct MainWindowView: View {
                     // MARK: Apps Section
                     if !appListManager.apps.isEmpty {
                         VStack(spacing: VSpacing.xs) {
-                            SidebarSectionHeader(title: "Apps")
+                            HStack {
+                                SidebarSectionHeader(title: "Pinned Apps")
+                                Spacer()
+                                Button {
+                                    windowState.selection = .panel(.directory)
+                                } label: {
+                                    Text("View more")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.accent)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.trailing, VSpacing.lg)
+                            }
 
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
@@ -1214,7 +1227,6 @@ private struct SidebarSectionHeader: View {
             .font(VFont.headline)
             .foregroundColor(VColor.textSecondary)
             .textCase(.uppercase)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.lg)
             .padding(.bottom, VSpacing.xs)
     }
