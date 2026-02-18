@@ -181,14 +181,19 @@ struct InlineVideoWebView: NSViewRepresentable {
 
         // MARK: - WKUIDelegate
 
-        /// Block popup windows and open their URL in the default browser instead.
+        /// Handle popup/new-window requests. Only open the URL externally when the
+        /// user explicitly clicked a link; script-driven window.open() calls are
+        /// silently blocked to prevent malicious embeds from triggering unsolicited
+        /// browser navigations.
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            Self.openExternallyIfSafe(navigationAction.request.url)
+            if navigationAction.navigationType == .linkActivated {
+                Self.openExternallyIfSafe(navigationAction.request.url)
+            }
             return nil
         }
 
