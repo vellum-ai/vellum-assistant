@@ -408,6 +408,11 @@ struct MainWindowView: View {
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(-45))
                 }
+                if thread.kind == .private {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.accent.opacity(0.7))
+                }
                 Text(thread.title)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -417,7 +422,15 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(isSelected || isHoveredThread == thread.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .background {
+                if isSelected || isHoveredThread == thread.id {
+                    VColor.hoverOverlay.opacity(0.08)
+                } else if thread.kind == .private {
+                    VColor.accent.opacity(0.04)
+                } else {
+                    Color.clear
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
