@@ -1,0 +1,99 @@
+import Foundation
+import VellumAssistantShared
+
+/// The type of media embed that should be rendered for a URL.
+enum MediaEmbedIntent: Equatable {
+    case image(url: URL)
+    case video(provider: String, videoID: String, embedURL: URL)
+}
+
+/// Snapshot of user-facing settings that gate media embed resolution.
+struct MediaEmbedResolverSettings {
+    let enabled: Bool
+    let enabledSince: Date?
+    let allowedDomains: [String]
+}
+
+/// Assembles URL extraction, video parsing, image classification, and
+/// domain allowlisting into a single pure resolution step.
+///
+/// The resolver is role-agnostic (works for both user and assistant
+/// messages), deduplicates by canonical URL, and respects the feature
+/// gate (`enabled` / `enabledSince`).
+enum MediaEmbedResolver {
+
+    /// Video parsers tried in order for each extracted URL.
+    private static let videoParsers: [(URL) -> VideoParseResult?] = [
+        YouTubeParser.parse,
+        VimeoParser.parse,
+        LoomParser.parse,
+    ]
+
+    /// Resolves all media embed intents for a single chat message.
+    ///
+    /// Returns an empty array when the feature is disabled, when the
+    /// message predates `enabledSince`, or when no embeddable URLs
+    /// are found.
+    static func resolve(
+        message: ChatMessage,
+        settings: MediaEmbedResolverSettings
+    ) -> [MediaEmbedIntent] {
+        guard settings.enabled else { return [] }
+
+        if let enabledSince = settings.enabledSince,
+           message.timestamp < enabledSince {
+            return []
+        }
+
+        let urls = MessageURLExtractor.extractAllURLs(from: message.text)
+        guard !urls.isEmpty else { return [] }
+
+        var seen = Set<String>()
+        var intents: [MediaEmbedIntent] = []
+
+        for url in urls {
+            // Try each video parser in order.
+            if let videoResult = tryVideoParsers(url, allowedDomains: settings.allowedDomains) {
+                let canonical = videoResult.embedURL.absoluteString
+                guard !seen.contains(canonical) else { continue }
+                seen.insert(canonical)
+                intents.append(.video(
+                    provider: videoResult.provider,
+                    videoID: videoResult.videoID,
+                    embedURL: videoResult.embedURL
+                ))
+                continue
+            }
+
+            // Fall back to image classification (extension-based only).
+            let classification = ImageURLClassifier.classify(url)
+            if classification == .image {
+                let canonical = url.absoluteString
+                guard !seen.contains(canonical) else { continue }
+                seen.insert(canonical)
+                intents.append(.image(url: url))
+            }
+        }
+
+        return intents
+    }
+
+    // MARK: - Private helpers
+
+    /// Tries each video parser against the URL. Returns the first
+    /// successful result whose domain passes the allowlist, or nil.
+    private static func tryVideoParsers(
+        _ url: URL,
+        allowedDomains: [String]
+    ) -> VideoParseResult? {
+        for parser in videoParsers {
+            if let result = parser(url) {
+                guard DomainAllowlistMatcher.isAllowed(url, allowedDomains: allowedDomains) else {
+                    return nil
+                }
+                return result
+            }
+        }
+        return nil
+    }
+}
