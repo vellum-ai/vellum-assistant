@@ -684,6 +684,7 @@ struct MainWindowView: View {
                 VColor.surfaceBorder.frame(height: 1)
 
                 ControlCenterMenuButton(
+                    sidebarWidth: threadDrawerWidth,
                     onSettings: { windowState.togglePanel(.settings) },
                     onDebug: { windowState.togglePanel(.debug) },
                     onDoctor: { windowState.togglePanel(.doctor) }
@@ -1328,6 +1329,7 @@ private struct SidebarBottomItem: View {
 }
 
 private struct ControlCenterMenuButton: View {
+    let sidebarWidth: Double
     let onSettings: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
@@ -1374,7 +1376,7 @@ private struct ControlCenterMenuButton: View {
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
                 .frame(width: 200)
-                .offset(x: 240)
+                .offset(x: sidebarWidth)
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
