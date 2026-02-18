@@ -46,7 +46,7 @@ struct IdentityInfo {
 
         for line in content.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("## ") || trimmed.hasPrefix("# ") {
+            if trimmed.hasPrefix("#") && trimmed.drop(while: { $0 == "#" }).first == " " {
                 inGreetingsSection = trimmed.lowercased().contains("greetings")
                 continue
             }
