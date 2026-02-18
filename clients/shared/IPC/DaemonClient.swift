@@ -85,6 +85,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
+    private var isConnecting: Bool = false
 
     /// Whether blob transport has been verified for this connection.
     /// Resets to `false` on disconnect/reconnect. Only set to `true` after
@@ -407,6 +408,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
 
+        isConnecting = true
         shouldReconnect = true
 
         #if os(macOS)
@@ -467,6 +469,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 resumed = true
                 log.error("Connection timed out after \(Self.connectTimeout)s")
                 self?.isConnected = false
+                self?.isConnecting = false
                 self?.stopPingTimer()
                 conn.stateUpdateHandler = nil
                 conn.cancel()
@@ -494,6 +497,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                                     self.isAuthenticated = true
                                     #endif
                                     self.isConnected = true
+                                    self.isConnecting = false
                                     self.startNetworkMonitor()
                                     NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
                                     self.reconnectDelay = 1.0
@@ -505,6 +509,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                                 } catch {
                                     log.error("Daemon authentication failed: \(error.localizedDescription)")
                                     self.isConnected = false
+                                    self.isConnecting = false
                                     self.isAuthenticated = false
                                     self.stopPingTimer()
                                     conn.stateUpdateHandler = nil
@@ -517,6 +522,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     case .failed(let error):
                         log.error("Connection failed: \(error.localizedDescription)")
                         self.isConnected = false
+                        self.isConnecting = false
                         self.isAuthenticated = false
                         self.stopPingTimer()
                         if !resumed {
@@ -1554,7 +1560,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     private func handleNetworkPathChange(_ path: NWPath) {
-        guard path.status == .satisfied, !isConnected, shouldReconnect else { return }
+        guard path.status == .satisfied, !isConnected, !isConnecting, shouldReconnect else { return }
         log.info("Network available — resetting backoff and reconnecting immediately")
         reconnectTask?.cancel()
         reconnectTask = nil
