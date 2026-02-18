@@ -23,7 +23,7 @@ enum LoomParser {
         let pathComponents = url.pathComponents.filter { $0 != "/" }
 
         // Expect ["share"|"embed", VIDEO_ID]
-        guard pathComponents.count >= 2,
+        guard pathComponents.count == 2,
               ["share", "embed"].contains(pathComponents[0]),
               !pathComponents[1].isEmpty else { return nil }
 

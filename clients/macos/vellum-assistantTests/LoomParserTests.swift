@@ -130,6 +130,20 @@ final class LoomParserTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    // MARK: - Extra path segments return nil
+
+    func testExtraPathSegmentsReturnNil() {
+        let url = URL(string: "https://www.loom.com/share/abc123def456/extra")!
+        let result = LoomParser.parse(url)
+        XCTAssertNil(result)
+    }
+
+    func testEmbedWithExtraPathSegmentsReturnNil() {
+        let url = URL(string: "https://www.loom.com/embed/abc123/extra/segments")!
+        let result = LoomParser.parse(url)
+        XCTAssertNil(result)
+    }
+
     // MARK: - Embed URL is canonical for all input formats
 
     func testEmbedURLIsCanonicalForAllFormats() {
