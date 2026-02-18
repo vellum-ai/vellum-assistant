@@ -16,7 +16,7 @@ import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js'
 import { generateScopeOptions } from '../permissions/checker.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { allAppTools } from '../tools/apps/definitions.js';
+import { coreAppProxyTools } from '../tools/apps/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import {
   refreshSurfacesForApp,
@@ -54,7 +54,7 @@ export function buildToolDefinitions(): ToolDefinition[] {
   return [
     ...getAllToolDefinitions(),
     ...allUiSurfaceTools.map((t) => t.getDefinition()),
-    ...allAppTools.filter((t) => t.executionMode === 'proxy').map((t) => t.getDefinition()),
+    ...coreAppProxyTools.map((t) => t.getDefinition()),
     // Escalation tool: allows text_qa sessions to hand off to computer use
     requestComputerControlTool.getDefinition(),
   ];
