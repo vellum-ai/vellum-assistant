@@ -165,30 +165,41 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
           // Inject credential values into HTTPS requests that match a
           // template host pattern. Secret values are read at injection time
           // and MUST NEVER be logged or returned to callers.
+
+          // Collect all matching candidates first so we can detect ambiguity
+          // (same guard as the HTTP policyCallback path).
+          const candidates: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
           for (const [credId, tpls] of templates) {
             for (const tpl of tpls) {
-              if (!minimatch(req.hostname, tpl.hostPattern, { nocase: true })) continue;
+              if (minimatch(req.hostname, tpl.hostPattern, { nocase: true })) {
+                candidates.push({ credId, tpl });
+              }
+            }
+          }
 
+          // Ambiguous — multiple templates match; don't inject the wrong secret.
+          if (candidates.length > 1) {
+            return req.headers;
+          }
+
+          for (const { credId, tpl } of candidates) {
+            // Query param injection requires URL path rewriting, which the
+            // current RewriteCallback interface doesn't support. Skip so
+            // other matching templates can still apply.
+            if (tpl.injectionType === 'query') continue;
+
+            if (tpl.injectionType === 'header' && tpl.headerName) {
               const resolved = resolveById(credId);
               if (!resolved) continue;
               const value = getSecureKey(resolved.storageKey);
               if (!value) continue;
 
-              if (tpl.injectionType === 'header' && tpl.headerName) {
-                req.headers[tpl.headerName.toLowerCase()] =
-                  (tpl.valuePrefix ?? '') + value;
-                return req.headers;
-              }
-              // Query param injection requires URL path rewriting, which the
-              // current RewriteCallback interface doesn't support. For now,
-              // return headers unchanged — query injection will be wired once
-              // the MITM handler gains path-rewrite capability.
-              if (tpl.injectionType === 'query') {
-                return req.headers;
-              }
+              req.headers[tpl.headerName.toLowerCase()] =
+                (tpl.valuePrefix ?? '') + value;
               return req.headers;
             }
           }
+
           return req.headers;
         },
       };
@@ -225,7 +236,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
         if (template.injectionType === 'header' && template.headerName) {
           const headerValue = (template.valuePrefix ?? '') + value;
-          return { [template.headerName]: headerValue };
+          return { [template.headerName.toLowerCase()]: headerValue };
         }
         // Query param injection is handled via URL rewriting in the MITM path
         return {};
