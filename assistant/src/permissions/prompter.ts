@@ -38,6 +38,7 @@ export class PermissionPrompter {
     sessionId?: string,
     executionTarget?: ExecutionTarget,
     principal?: { kind?: string; id?: string; version?: string },
+    persistentDecisionsAllowed?: boolean,
   ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
     const requestId = uuid();
 
@@ -66,6 +67,7 @@ export class PermissionPrompter {
         principalKind: principal?.kind,
         principalId: principal?.id,
         principalVersion: principal?.version,
+        persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
       });
     });
   }

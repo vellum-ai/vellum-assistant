@@ -33,6 +33,7 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
   scopeOptions: ScopeOption[];
   diff?: DiffInfo;
   sandboxed?: boolean;
+  persistentDecisionsAllowed?: boolean;
 }
 
 export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
