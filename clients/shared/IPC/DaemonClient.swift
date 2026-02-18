@@ -1208,7 +1208,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onDocumentEditorUpdate?(msg)
         case .documentSaveResponse(let msg):
             onDocumentSaveResponse?(msg)
-        case .documentLoadResponse(let msg):
+        case .documentLoadResponse(_):
             // TODO: Handle document load response
             break
         case .documentListResponse(let msg):

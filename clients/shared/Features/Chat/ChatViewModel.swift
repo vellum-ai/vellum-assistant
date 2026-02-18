@@ -72,12 +72,12 @@ public final class ChatViewModel: ObservableObject {
     private(set) var lastFailedSendError: String?
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    private(set) var secretBlockedMessageText: String?
+    internal(set) var secretBlockedMessageText: String?
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
-    private(set) var secretBlockedAttachments: [IPCAttachment]?
-    private(set) var secretBlockedActiveSurfaceId: String?
-    private(set) var secretBlockedCurrentPage: String?
+    internal(set) var secretBlockedAttachments: [IPCAttachment]?
+    internal(set) var secretBlockedActiveSurfaceId: String?
+    internal(set) var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
