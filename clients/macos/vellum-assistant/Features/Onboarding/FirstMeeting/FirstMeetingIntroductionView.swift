@@ -36,10 +36,10 @@ struct FirstMeetingIntroductionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main content: creature left, chat panel right
+            // Main content: evolving avatar left, chat panel right
             HStack(alignment: .center, spacing: VSpacing.xxxl) {
-                // Hatched creature — same visual size as in hatch scene
-                CreatureView(visible: true, animated: false)
+                // Evolving avatar — shows progressive visual changes during conversation
+                EvolvingAvatarView(evolutionState: state.avatarEvolutionState, animated: false)
                     .scaleEffect(0.5)
                     .frame(width: 200, height: 200)
 
@@ -85,12 +85,17 @@ struct FirstMeetingIntroductionView: View {
             }
         }
         .onAppear {
+            // Ensure hatched milestone is applied so the avatar is visible
+            DeterministicEvolutionEngine.applyMilestone(.hatched, to: state.avatarEvolutionState)
             viewModel.startConversation()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeOut(duration: 0.5)) {
                     showControls = true
                 }
             }
+        }
+        .onChange(of: viewModel.turnCount) { _, newTurnCount in
+            applyConversationMilestones(turnCount: newTurnCount)
         }
         .onChange(of: viewModel.isFinished) {
             if viewModel.isFinished {
@@ -145,6 +150,39 @@ struct FirstMeetingIntroductionView: View {
                     }
                 )
         )
+    }
+
+    // MARK: - Milestone Detection
+
+    /// Apply evolution milestones based on conversation progress.
+    /// Uses turn count as a proxy for conversation phases:
+    /// - Turn 2+: name likely discussed -> nameChosen
+    /// - Turn 4+: personality emerging -> personalityDefined
+    /// - Turn 6+: emoji/identity solidifying -> emojiChosen
+    private func applyConversationMilestones(turnCount: Int) {
+        let evo = state.avatarEvolutionState
+        if turnCount >= 2 {
+            DeterministicEvolutionEngine.applyMilestone(
+                .nameChosen,
+                to: evo,
+                context: MilestoneContext(assistantName: state.assistantName)
+            )
+        }
+        if turnCount >= 4 {
+            // Gather personality text from assistant messages
+            let personalityText = viewModel.messages
+                .filter { $0.role == .assistant }
+                .map(\.text)
+                .joined(separator: " ")
+            DeterministicEvolutionEngine.applyMilestone(
+                .personalityDefined,
+                to: evo,
+                context: MilestoneContext(personalityText: personalityText)
+            )
+        }
+        if turnCount >= 6 {
+            DeterministicEvolutionEngine.applyMilestone(.emojiChosen, to: evo)
+        }
     }
 
     // MARK: - Conversation Completion
