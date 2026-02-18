@@ -284,4 +284,43 @@ describe('DaemonServer initial session hydration', () => {
     expect(sessionInfo).toBeDefined();
     expect(sessionInfo!.threadType).toBe('private');
   });
+
+  test('session_create includes threadType in session_info response', async () => {
+    conversation.threadType = 'private';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    internal.dispatchMessage({
+      type: 'session_create',
+      title: 'Thread-type test',
+      threadType: 'private',
+    }, socket);
+    // Allow async handler to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('private');
+  });
+
+  test('session_list includes threadType on each session row', async () => {
+    conversation.threadType = 'private';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    internal.dispatchMessage({ type: 'session_list' }, socket);
+
+    const messages = decodeMessages(writes);
+    const listResponse = messages.find((msg) => msg.type === 'session_list_response');
+    expect(listResponse).toBeDefined();
+
+    const sessions = listResponse!.sessions as Array<Record<string, unknown>>;
+    expect(sessions.length).toBeGreaterThan(0);
+    for (const session of sessions) {
+      expect(session.threadType).toBe('private');
+    }
+  });
 });
