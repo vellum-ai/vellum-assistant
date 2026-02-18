@@ -8,6 +8,7 @@ public struct FormSurfaceView: View {
     @State private var toggleValues: [String: Bool] = [:]
     @State private var selectValues: [String: String] = [:]
     @State private var currentPageIndex: Int = 0
+    @State private var showingSecurityInfo: Bool = false
 
     private var safePageIndex: Int {
         guard let pages = data.pages, !pages.isEmpty else { return 0 }
@@ -36,6 +37,10 @@ public struct FormSurfaceView: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
+                if hasPasswordFields {
+                    credentialInfoChip
+                }
+
                 ForEach(page.fields) { field in
                     fieldView(for: field)
                 }
@@ -47,6 +52,10 @@ public struct FormSurfaceView: View {
                     Text(description)
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
+                }
+
+                if hasPasswordFields {
+                    credentialInfoChip
                 }
 
                 ForEach(data.fields) { field in
@@ -115,6 +124,49 @@ public struct FormSurfaceView: View {
                     submitForm()
                 }
             }
+        }
+    }
+
+    // MARK: - Credential Info
+
+    private var hasPasswordFields: Bool {
+        let allFields: [FormField]
+        if let pages = data.pages {
+            allFields = data.fields + pages.flatMap { $0.fields }
+        } else {
+            allFields = data.fields
+        }
+        return allFields.contains { $0.type == .password }
+    }
+
+    @ViewBuilder
+    private var credentialInfoChip: some View {
+        Button(action: { showingSecurityInfo.toggle() }) {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "lock.shield.fill")
+                    .font(VFont.caption)
+                Text("Stored securely")
+                    .font(VFont.caption)
+            }
+            .foregroundColor(VColor.textSecondary)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.backgroundSubtle.opacity(0.5))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingSecurityInfo) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Credential Security")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Credentials are saved to the macOS Keychain. If unavailable, they're stored in an encrypted local file (~/.vellum/protected/). Values are never logged.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(VSpacing.lg)
+            .frame(width: 260)
         }
     }
 
