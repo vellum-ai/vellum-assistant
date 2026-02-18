@@ -195,7 +195,8 @@ extension ChatViewModel {
                 onSessionCreated?(info.sessionId)
                 log.info("Chat session created: \(info.sessionId)")
 
-                // Send the queued user message
+                // Send the queued user message, or finalize a message-less
+                // session create by clearing the bootstrap sending state.
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     pendingUserMessage = nil
@@ -214,6 +215,11 @@ extension ChatViewModel {
                         isThinking = false
                         errorText = "Failed to send message."
                     }
+                } else {
+                    // Message-less session create (e.g. private thread
+                    // pre-allocation) — session is claimed, reset UI state.
+                    isSending = false
+                    isThinking = false
                 }
             }
 
