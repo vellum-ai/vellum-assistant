@@ -224,7 +224,7 @@ export async function executeBrowserNavigate(
       if (navMsg.includes('Timeout') || navMsg.includes('timeout')) {
         // If the page URL never changed from before navigation, the page
         // never actually loaded — re-throw instead of reporting success.
-        if (page.url() === urlBeforeNav) {
+        if (page.url() === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
           throw navErr;
         }
         navigationTimedOut = true;
