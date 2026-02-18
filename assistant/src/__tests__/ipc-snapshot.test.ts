@@ -4,7 +4,7 @@ import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
-import type { ConfirmationRequest } from '../daemon/ipc-contract.js';
+import type { ConfirmationRequest, SessionListResponse } from '../daemon/ipc-contract.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -1253,7 +1253,7 @@ describe('IPC message snapshots', () => {
     });
 
     test('session_list_response sessions include threadType field', () => {
-      const list = serverMessages.session_list_response;
+      const list = serverMessages.session_list_response as SessionListResponse;
       for (const s of list.sessions) {
         expect('threadType' in s).toBe(true);
         expect(s.threadType).toBe('standard');
