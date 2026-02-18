@@ -206,8 +206,32 @@ public final class ChatViewModel: ObservableObject {
             callback(text)
         }
 
-        // Block rapid-fire only when bootstrapping (no session yet)
+        // Block rapid-fire only when bootstrapping with a queued message.
+        // When a message-less bootstrap is in flight (e.g. private thread
+        // pre-allocation), adopt the user's message as the pending message
+        // so it gets sent when session_info arrives instead of being dropped.
         if isSending && sessionId == nil {
+            if pendingUserMessage == nil {
+                let attachments = pendingAttachments
+                pendingAttachments = []
+                pendingUserMessage = text
+                pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
+                    IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                }
+                isThinking = true
+                messages.append(ChatMessage(role: .user, text: text, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
+                pendingSkillInvocation = nil
+                inputText = ""
+                suggestion = nil
+                pendingSuggestionRequestId = nil
+                errorText = nil
+                sessionError = nil
+                lastFailedMessageText = nil
+                lastFailedMessageAttachments = nil
+                lastFailedSendError = nil
+                currentTurnUserText = text
+                return
+            }
             pendingSkillInvocation = nil
             return
         }
