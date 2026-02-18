@@ -105,6 +105,7 @@ import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
 import { addMessage, createConversation, getConversationMemoryScopeId } from '../memory/conversation-store.js';
+import { backfillJob } from '../memory/job-handlers/backfill.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   conversations,
@@ -4184,5 +4185,51 @@ describe('Memory regressions', () => {
 
     const ids = results.map((r) => r.id);
     expect(ids).toContain('seg-search-priv-scope');
+  });
+
+  // Backfill preserves private conversation scope on memory segments
+  test('backfillJob preserves private conversation scope during reindex', () => {
+    const db = getDb();
+
+    // Create a private conversation with a message
+    const conv = createConversation({ title: 'Backfill scope test', threadType: 'private' });
+    expect(conv.memoryScopeId).toMatch(/^private:/);
+
+    // Insert a message directly (bypassing addMessage to avoid pre-indexing)
+    const msgId = 'msg-backfill-scope-test';
+    db.insert(messages).values({
+      id: msgId,
+      conversationId: conv.id,
+      role: 'user',
+      content: 'My confidential backfill test content for private thread preservation.',
+      createdAt: conv.createdAt + 1,
+    }).run();
+
+    // Run the backfill job — it should look up the conversation scope
+    const fakeJob = {
+      id: 'job-backfill-scope',
+      type: 'backfill' as const,
+      payload: { force: true },
+      status: 'running' as const,
+      attempts: 0,
+      deferrals: 0,
+      runAfter: 0,
+      lastError: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    backfillJob(fakeJob, TEST_CONFIG);
+
+    // Verify the segments were indexed with the private scope
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msgId))
+      .all();
+
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.scopeId).toBe(conv.memoryScopeId);
+    }
   });
 });
