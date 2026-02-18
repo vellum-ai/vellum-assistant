@@ -261,6 +261,7 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
+    wrapCommandCallCount = 0;
 
     // Pass network_mode as if the model hallucinated the parameter —
     // host_bash must ignore it and run the command normally.
@@ -275,6 +276,8 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     // Must still spawn plain bash, not anything proxy-related
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe('bash');
+    // Must never route through sandbox wrapCommand, even with proxied-mode input
+    expect(wrapCommandCallCount).toBe(0);
   });
 
   test('execute ignores credential_ids even if supplied in input', async () => {
@@ -282,6 +285,7 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
+    wrapCommandCallCount = 0;
 
     const result = await hostShellTool.execute({
       command: 'echo creds-ignored',
@@ -293,6 +297,8 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     expect(result.content.trim()).toBe('creds-ignored');
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].command).toBe('bash');
+    // Must never route through sandbox wrapCommand, even with credential inputs
+    expect(wrapCommandCallCount).toBe(0);
   });
 
   test('tool name is host_bash (not bash)', () => {
