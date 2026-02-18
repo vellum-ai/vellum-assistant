@@ -619,7 +619,7 @@ struct ChatView: View {
                         }
                     }
 
-                    if isSending {
+                    if isSending && !(messages.last?.isStreaming == true) {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
