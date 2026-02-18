@@ -26,6 +26,7 @@ interface DocumentListRequest {
 
 /** Cast-through send for document messages that are no longer in the ServerMessage union. */
 function sendDoc(ctx: HandlerContext, socket: net.Socket, msg: Record<string, unknown>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx.send(socket, msg as any);
 }
 
@@ -40,7 +41,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 
   try {
     writeFileSync('/tmp/document-save-debug.log', logMsg, { flag: 'a' });
-  } catch (e) {
+  } catch {
     // Ignore logging errors
   }
 
@@ -56,6 +57,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Getting db...\n`, { flag: 'a' });
     const db = getDb();
     // Get the raw SQLite client from Drizzle
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sqlite = (db as any).$client;
     const now = Date.now();
 
@@ -96,6 +98,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sqlite = (db as any).$client;
 
     const result = sqlite.query(`
@@ -160,6 +163,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sqlite = (db as any).$client;
 
     let query = `

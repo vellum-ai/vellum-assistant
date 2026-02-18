@@ -71,7 +71,9 @@ function makeCapturingExecutor(result: ToolExecutionResult = { content: 'ok', is
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const noopPrompter = { prompt: mock(async () => ({ decision: 'allow' as const })) } as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const noopSecretPrompter = { prompt: mock(async () => ({ cancelled: true })) } as any;
 const noopLifecycleHandler = mock(() => {});
 
@@ -85,6 +87,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       executor as any,
       noopPrompter,
       noopSecretPrompter,
@@ -103,6 +106,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       executor as any,
       noopPrompter,
       noopSecretPrompter,
@@ -120,6 +124,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       executor as any,
       noopPrompter,
       noopSecretPrompter,

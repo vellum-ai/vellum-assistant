@@ -1,6 +1,6 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
-import type { ToolContext, ToolExecutionResult } from '../tools/types.js';
-import type { AppStore, ExecutorResult, ProxyResolver } from '../tools/apps/executors.js';
+import { describe, test, expect, mock } from 'bun:test';
+import type { ToolContext } from '../tools/types.js';
+import type { AppStore } from '../tools/apps/executors.js';
 import type { AppDefinition } from '../memory/app-store.js';
 import type { EditEngineResult } from '../tools/shared/filesystem/edit-engine.js';
 

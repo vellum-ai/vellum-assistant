@@ -90,6 +90,7 @@ export function createToolExecutor(
       conversationId: ctx.conversationId,
       requestId: ctx.currentRequestId,
       onOutput,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sendToClient: (msg) => ctx.sendToClient(msg as any),
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,

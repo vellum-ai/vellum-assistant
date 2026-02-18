@@ -7,7 +7,7 @@
  */
 
 import { withValidToken } from '../../security/token-manager.js';
-import { getProfile, getMessage, batchGetMessages } from '../../config/bundled-skills/gmail/client.js';
+import { getProfile, batchGetMessages } from '../../config/bundled-skills/gmail/client.js';
 import type { GmailMessage } from '../../config/bundled-skills/gmail/types.js';
 import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
 import { getLogger } from '../../util/logger.js';

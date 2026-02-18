@@ -65,7 +65,7 @@ describe('http-forwarder', () => {
   test('simple GET forwarded correctly', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
 
-    const res = await fetch(`${proxyUrl}`, {
+    const _res = await fetch(`${proxyUrl}`, {
       method: 'GET',
       // Absolute-URL form: the proxy sees the full URL as the request target
       headers: { Host: '' },
@@ -80,9 +80,10 @@ describe('http-forwarder', () => {
 
     // fetch doesn't support proxy mode natively — use the absolute-URL approach
     // by making a direct HTTP request to the proxy with the upstream URL as path.
-    const controller = new AbortController();
+    const _controller = new AbortController();
     const response = await new Promise<Response>((resolve, reject) => {
       const { hostname, port } = new URL(proxyUrl);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const http = require('node:http');
       const req = http.request(
         {
@@ -111,18 +112,19 @@ describe('http-forwarder', () => {
     });
 
     expect(response.status).toBe(200);
-    const data = await response.json() as any;
+    const data = await response.json() as Record<string, unknown>;
     expect(data.method).toBe('GET');
     expect(data.url).toBe('/hello?a=1');
-    expect(data.headers['x-custom']).toBe('test-value');
+    expect((data.headers as Record<string, string>)['x-custom']).toBe('test-value');
   });
 
   test('POST with body forwarded correctly', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
     const { hostname, port } = new URL(proxyUrl);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const http = require('node:http');
 
-    const response = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const response = await new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       const req = http.request(
         {
           hostname,
@@ -167,6 +169,7 @@ describe('http-forwarder', () => {
     servers.push(px);
 
     const { hostname, port } = new URL(px.url);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const http = require('node:http');
 
     const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
@@ -202,6 +205,7 @@ describe('http-forwarder', () => {
     servers.push(px);
 
     const { hostname, port } = new URL(px.url);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const http = require('node:http');
 
     // Point at a port that nothing is listening on
@@ -235,9 +239,10 @@ describe('http-forwarder', () => {
   test('hop-by-hop headers are stripped from forwarded request', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
     const { hostname, port } = new URL(proxyUrl);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const http = require('node:http');
 
-    const response = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const response = await new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       const req = http.request(
         {
           hostname,
@@ -267,9 +272,9 @@ describe('http-forwarder', () => {
 
     expect(response.status).toBe(200);
     // Custom header should be forwarded
-    expect(response.body.headers['x-custom']).toBe('keep-me');
+    expect((response.body.headers as Record<string, string>)['x-custom']).toBe('keep-me');
     // Hop-by-hop headers from the client should be stripped
-    expect(response.body.headers['proxy-authorization']).toBeUndefined();
+    expect((response.body.headers as Record<string, string>)['proxy-authorization']).toBeUndefined();
     // Note: Node's http.request adds its own Connection header at the
     // transport level, so we only verify our explicit hop-by-hop filter
     // removed Proxy-Authorization above.

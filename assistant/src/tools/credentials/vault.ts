@@ -411,6 +411,7 @@ class CredentialStoreTool implements Tool {
             { authUrl, tokenUrl, scopes, clientId, extraParams, userinfoUrl },
             {
               openUrl: (url) => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` } as any);
               },
             },
