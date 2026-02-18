@@ -20,6 +20,9 @@ struct AppDirectoryView: View {
     @State private var sharedApps: [SharedAppItem] = []
     @State private var pendingResponses = 0
 
+    /// Cache of lazily-loaded preview screenshots keyed by local app ID.
+    @State private var previewCache: [String: String] = [:]
+
     private let columns = [
         GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
         GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
@@ -90,6 +93,7 @@ struct AppDirectoryView: View {
                 LazyVGrid(columns: columns, spacing: VSpacing.lg) {
                     ForEach(filteredItems) { item in
                         appCard(item)
+                            .onAppear { fetchPreviewIfNeeded(item) }
                     }
                 }
                 .padding(.bottom, VSpacing.md)
@@ -102,6 +106,7 @@ struct AppDirectoryView: View {
 
     private func appCard(_ item: DirectoryAppItem) -> some View {
         let isHovered = hoveredAppId == item.id
+        let preview = item.isShared ? item.preview : previewCache[item.localAppId ?? ""]
 
         return Button {
             openApp(item)
@@ -109,7 +114,7 @@ struct AppDirectoryView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Preview thumbnail or placeholder
                 Group {
-                    if let preview = item.preview,
+                    if let preview,
                        let data = Data(base64Encoded: preview),
                        let nsImage = NSImage(data: data) {
                         Image(nsImage: nsImage)
@@ -290,6 +295,29 @@ struct AppDirectoryView: View {
         }
     }
 
+    /// Fetch preview for a local app when its card appears on screen.
+    private func fetchPreviewIfNeeded(_ item: DirectoryAppItem) {
+        guard let appId = item.localAppId, !item.isShared else { return }
+        guard previewCache[appId] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: appId)
+        } catch { return }
+
+        Task { @MainActor in
+            for await message in stream {
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    if let preview = response.preview {
+                        self.previewCache[appId] = preview
+                    }
+                    return
+                }
+            }
+        }
+    }
+
     private func buildDisplayItems() {
         var items: [DirectoryAppItem] = []
 
@@ -299,7 +327,7 @@ struct AppDirectoryView: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
-                preview: app.preview,
+                preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 appType: app.appType,

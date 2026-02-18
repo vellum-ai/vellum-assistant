@@ -44,6 +44,9 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
+    /// Cache of lazily-loaded preview screenshots keyed by local app ID.
+    @State private var previewCache: [String: String] = [:]
+
     // Slack sharing state
     @State private var slackSharingAppId: String?
     @State private var slackShareResult: (appId: String, success: Bool)?
@@ -163,6 +166,7 @@ struct GeneratedPanel: View {
                                     VStack(spacing: VSpacing.md) {
                                         ForEach(documentItems) { item in
                                             appRow(item)
+                                                .onAppear { fetchPreviewIfNeeded(item) }
                                         }
                                     }
                                 }
@@ -187,6 +191,7 @@ struct GeneratedPanel: View {
                                     VStack(spacing: VSpacing.md) {
                                         ForEach(otherItems) { item in
                                             appRow(item)
+                                                .onAppear { fetchPreviewIfNeeded(item) }
                                         }
                                     }
                                 }
@@ -229,10 +234,11 @@ struct GeneratedPanel: View {
     private func appRow(_ item: DisplayAppItem) -> some View {
         let isHovered = hoveredAppId == item.id
         let isBundlingThis = sharingAppId == item.id && isBundling
+        let preview = item.isShared ? item.preview : previewCache[item.localAppId ?? ""]
 
         return HStack(spacing: VSpacing.md) {
             // Icon / Preview thumbnail
-            if let preview = item.preview,
+            if let preview,
                let data = Data(base64Encoded: preview),
                let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
@@ -572,17 +578,40 @@ struct GeneratedPanel: View {
         }
     }
 
+    /// Fetch preview for a local app when its row appears on screen.
+    private func fetchPreviewIfNeeded(_ item: DisplayAppItem) {
+        guard let appId = item.localAppId, !item.isShared else { return }
+        guard previewCache[appId] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: appId)
+        } catch { return }
+
+        Task { @MainActor in
+            for await message in stream {
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    if let preview = response.preview {
+                        self.previewCache[appId] = preview
+                    }
+                    return
+                }
+            }
+        }
+    }
+
     private func buildDisplayItems() {
         var items: [DisplayAppItem] = []
 
-        // Local apps
+        // Local apps — preview is loaded lazily via fetchPreviewIfNeeded
         for app in localApps {
             items.append(DisplayAppItem(
                 id: "local-\(app.id)",
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
-                preview: app.preview,
+                preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 trustTier: nil,
