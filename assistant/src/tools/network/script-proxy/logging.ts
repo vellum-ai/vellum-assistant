@@ -67,8 +67,9 @@ export function sanitizeUrl(
     }
     return parsed.toString();
   } catch {
-    // If URL parsing fails, return the original to avoid masking bugs
-    return url;
+    // Fail closed: if we can't parse the URL, strip the query string
+    // entirely rather than risk leaking secrets in log output.
+    return url.slice(0, qIdx);
   }
 }
 
