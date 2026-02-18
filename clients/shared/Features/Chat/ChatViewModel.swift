@@ -181,7 +181,7 @@ public final class ChatViewModel: ObservableObject {
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
         // Intercept bare "/model" command — show inline picker instead of sending to daemon
-        if text == "/model" && !hasAttachments && !hasSkillInvocation {
+        if text == "/model" && !hasSkillInvocation {
             // Refresh model state from daemon in case it was changed via a text command
             // (e.g. "/model opus") which doesn't notify the client.
             try? daemonClient.send(ModelGetRequestMessage())
