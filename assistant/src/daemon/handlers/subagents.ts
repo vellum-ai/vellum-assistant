@@ -75,10 +75,24 @@ export function handleSubagentMessage(
   ctx: HandlerContext,
 ): void {
   const manager = getSubagentManager();
+  const callerSessionId = ctx.socketToSession.get(socket);
+
+  // Ownership check: verify the caller owns this subagent.
+  const state = manager.getState(msg.subagentId);
+  if (!state || (callerSessionId && state.config.parentSessionId !== callerSessionId)) {
+    log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Client sent message to unknown or unowned subagent');
+    ctx.send(socket, {
+      type: 'error',
+      message: `Subagent "${msg.subagentId}" not found or in terminal state.`,
+      category: 'subagent_not_found',
+    });
+    return;
+  }
+
   const sent = manager.sendMessage(msg.subagentId, msg.content);
 
   if (!sent) {
-    log.warn({ subagentId: msg.subagentId }, 'Client sent message to unknown or terminal subagent');
+    log.warn({ subagentId: msg.subagentId }, 'Client sent message to terminal subagent');
     ctx.send(socket, {
       type: 'error',
       message: `Subagent "${msg.subagentId}" not found or in terminal state.`,

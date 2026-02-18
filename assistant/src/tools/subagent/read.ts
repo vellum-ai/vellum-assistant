@@ -35,7 +35,7 @@ export const subagentReadTool: Tool = {
     return definition;
   },
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const subagentId = input.subagent_id as string;
     if (!subagentId) {
       return { content: '"subagent_id" is required.', isError: true };
@@ -44,6 +44,11 @@ export const subagentReadTool: Tool = {
     const manager = getSubagentManager();
     const state = manager.getState(subagentId);
     if (!state) {
+      return { content: `No subagent found with ID "${subagentId}".`, isError: true };
+    }
+
+    // Ownership check: only the parent session can read a subagent's output.
+    if (state.config.parentSessionId !== context.sessionId) {
       return { content: `No subagent found with ID "${subagentId}".`, isError: true };
     }
 

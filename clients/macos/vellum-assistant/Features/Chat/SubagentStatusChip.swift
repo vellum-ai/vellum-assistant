@@ -72,6 +72,12 @@ struct SubagentStatusChip: View {
         )
         .onAppear { startDotAnimation() }
         .onDisappear { timer?.invalidate() }
+        .onChange(of: subagent.status) { newStatus in
+            if newStatus.isTerminal {
+                timer?.invalidate()
+                timer = nil
+            }
+        }
     }
 
     private func dotOpacity(for index: Int) -> Double {
