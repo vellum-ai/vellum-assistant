@@ -18,6 +18,7 @@ import type {
   UsageRequest,
   SandboxSetRequest,
   ServerMessage,
+  ThreadType,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
 import {
@@ -196,7 +197,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void
       id: c.id,
       title: c.title ?? 'Untitled',
       updatedAt: c.updatedAt,
-      threadType: c.threadType,
+      threadType: c.threadType as ThreadType,
     })),
   });
 }
@@ -218,7 +219,7 @@ export async function handleSessionCreate(
 ): Promise<void> {
   const conversation = conversationStore.createConversation({
     title: msg.title ?? 'New Conversation',
-    threadType: msg.threadType as 'standard' | 'private' | undefined,
+    threadType: msg.threadType,
   });
   const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
@@ -238,7 +239,7 @@ export async function handleSessionCreate(
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
-    threadType: conversation.threadType,
+    threadType: conversation.threadType as ThreadType,
   });
 
   // Auto-send the initial message if provided, kick-starting the skill.
@@ -275,7 +276,7 @@ export async function handleSessionSwitch(
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'Untitled',
-    threadType: conversation.threadType,
+    threadType: conversation.threadType as ThreadType,
   });
 }
 

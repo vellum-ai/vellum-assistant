@@ -2,6 +2,8 @@ import type { GalleryManifest } from '../gallery/gallery-manifest.js';
 
 // === Shared types ===
 
+export type ThreadType = 'standard' | 'private';
+
 export interface IpcBlobRef {
   id: string;
   kind: 'ax_tree' | 'screenshot_jpeg';
@@ -73,7 +75,7 @@ export interface SessionCreateRequest {
   maxResponseTokens?: number;
   correlationId?: string;
   transport?: SessionTransportMetadata;
-  threadType?: 'standard' | 'private';
+  threadType?: ThreadType;
   /** Skill IDs to pre-activate in the new session (loaded before the first message). */
   preactivatedSkillIds?: string[];
   /** If provided, automatically sent as the first user message after session creation. */
@@ -860,12 +862,12 @@ export interface SessionInfo {
   sessionId: string;
   title: string;
   correlationId?: string;
-  threadType?: string;
+  threadType?: ThreadType;
 }
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: string }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType }>;
 }
 
 export interface SessionsClearResponse {
