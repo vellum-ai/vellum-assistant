@@ -8,7 +8,9 @@ import Foundation
 @MainActor
 public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
 
-    public var isConnected: Bool { apiKey != nil }
+    /// Always `true` — standalone mode doesn't require a persistent connection.
+    /// API key presence is checked at send time so the chat UI is always accessible.
+    public var isConnected: Bool { true }
     public var isBlobTransportAvailable: Bool { false }
 
     private var apiKey: String? {
@@ -50,10 +52,9 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
     }
 
     public func connect() async throws {
-        guard apiKey != nil else {
-            throw DirectClientError.noAPIKey
-        }
-        // No persistent connection needed — the Anthropic API is stateless HTTP
+        // No persistent connection needed — the Anthropic API is stateless HTTP.
+        // API key presence is validated at send time to keep the chat UI accessible
+        // even when no key is yet configured.
     }
 
     public func disconnect() {
@@ -75,7 +76,17 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
     }
 
     private func handleUserMessage(_ msg: UserMessageMessage) {
-        guard let key = apiKey else { return }
+        guard let key = apiKey else {
+            // No API key — emit an error message so the user sees actionable feedback
+            let sessionId = msg.sessionId
+            let errMsg = ServerMessage.error(ErrorMessage(
+                sessionId: sessionId,
+                message: "No API key configured. Go to Settings → Anthropic API Key to add your key.",
+                details: nil
+            ))
+            broadcast(errMsg)
+            return
+        }
         let sessionId = msg.sessionId
 
         // Add user message to conversation history
