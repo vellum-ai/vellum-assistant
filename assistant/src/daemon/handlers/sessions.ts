@@ -294,8 +294,10 @@ export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: Handle
       ctx.touchSession(sessionId);
       session.abort();
       // Also abort any child subagents spawned by this session.
-      const sendToClient = (m: ServerMessage) => ctx.send(socket, m);
-      getSubagentManager().abortAllForParent(sessionId, sendToClient);
+      // Omit sendToClient to suppress parent notifications — the parent is
+      // being cancelled, so enqueuing synthetic messages would trigger
+      // unwanted model activity after the user pressed stop.
+      getSubagentManager().abortAllForParent(sessionId);
     }
   }
 }

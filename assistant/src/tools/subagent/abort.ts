@@ -40,7 +40,11 @@ export const subagentAbortTool: Tool = {
 
     const manager = getSubagentManager();
     const sendToClient = context.sendToClient as ((msg: unknown) => void) | undefined;
-    const aborted = manager.abort(subagentId, sendToClient as ((msg: unknown) => void) | undefined);
+    const aborted = manager.abort(
+      subagentId,
+      sendToClient as ((msg: unknown) => void) | undefined,
+      context.sessionId,
+    );
 
     if (!aborted) {
       return {

@@ -640,7 +640,7 @@ struct ChatView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    if isThinking && !(messages.last?.isStreaming == true) {
+                    if isSending && !(messages.last?.isStreaming == true) {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
