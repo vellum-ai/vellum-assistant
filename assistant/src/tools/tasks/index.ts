@@ -3,3 +3,4 @@ export { taskRunTool } from './task-run.js';
 export { taskListTool } from './task-list.js';
 export { taskDeleteTool } from './task-delete.js';
 export { workItemListTool } from './work-item-list.js';
+export { workItemEnqueueTool } from './work-item-enqueue.js';
