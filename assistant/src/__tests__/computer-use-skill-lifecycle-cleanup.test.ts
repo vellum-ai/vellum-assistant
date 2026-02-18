@@ -94,7 +94,9 @@ describe('CU session skill tool lifecycle cleanup', () => {
     // enough to abort after skill projection has occurred.
     const hangingProvider: Provider = {
       name: 'mock',
-      sendMessage: () => new Promise<ProviderResponse>(() => {}),
+      sendMessage: (_msgs, _tools, _sys, opts) => new Promise<ProviderResponse>((_, reject) => {
+        opts?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      }),
     };
 
     const session = new ComputerUseSession(
