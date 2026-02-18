@@ -94,17 +94,16 @@ When `sandbox.backend` is set to `"docker"`, the daemon wraps every sandbox `bas
 
 - Docker installed and the `docker` CLI available in `PATH`.
 - Docker daemon running (Docker Desktop on macOS/Windows, or `systemd` service on Linux).
-- The configured image pulled locally. The default image is pinned with a `sha256` digest for reproducibility:
+- The sandbox image available locally. The default image (`vellum-sandbox:latest`) is built automatically from `assistant/Dockerfile.sandbox` on first use. It extends `node:20-slim` with `curl`, `ca-certificates`, and `bash`. To build it manually:
   ```
-  node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687
+  docker build -t vellum-sandbox:latest -f assistant/Dockerfile.sandbox assistant/
   ```
-  Pull it with: `docker pull node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687`
 
 **Docker configuration options** (all under `sandbox.docker`):
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `image` | `node:20-slim@sha256:...` | Container image (pinned with sha256 digest) |
+| `image` | `vellum-sandbox:latest` | Container image (auto-built from Dockerfile.sandbox) |
 | `shell` | `"bash"` | Shell used to wrap commands inside the container |
 | `cpus` | `1` | CPU limit per container |
 | `memoryMb` | `512` | Memory limit in MB |

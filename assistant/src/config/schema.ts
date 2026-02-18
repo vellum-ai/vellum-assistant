@@ -35,10 +35,10 @@ export const TimeoutConfigSchema = z.object({
 export const DockerConfigSchema = z.object({
   image: z
     .string({ error: 'sandbox.docker.image must be a string' })
-    .default('node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687'),
+    .default('vellum-sandbox:latest'),
   shell: z
     .string({ error: 'sandbox.docker.shell must be a string' })
-    .default('sh'),
+    .default('bash'),
   cpus: z
     .number({ error: 'sandbox.docker.cpus must be a number' })
     .finite('sandbox.docker.cpus must be finite')
@@ -71,8 +71,8 @@ export const SandboxConfigSchema = z.object({
     })
     .default('docker'),
   docker: DockerConfigSchema.default({
-    image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-    shell: 'sh',
+    image: 'vellum-sandbox:latest',
+    shell: 'bash',
     cpus: 1,
     memoryMb: 512,
     pidsLimit: 256,
@@ -894,8 +894,8 @@ export const AssistantConfigSchema = z.object({
     enabled: true,
     backend: 'docker',
     docker: {
-      image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-      shell: 'sh',
+      image: 'vellum-sandbox:latest',
+      shell: 'bash',
       cpus: 1,
       memoryMb: 512,
       pidsLimit: 256,

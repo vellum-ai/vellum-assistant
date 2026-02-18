@@ -41,7 +41,7 @@ let mockSandboxConfig: {
   enabled: true,
   backend: 'native',
   docker: {
-    image: 'node:20-slim',
+    image: 'vellum-sandbox:latest',
     cpus: 1,
     memoryMb: 512,
     pidsLimit: 256,
@@ -78,7 +78,7 @@ beforeEach(() => {
     enabled: true,
     backend: 'native',
     docker: {
-      image: 'node:20-slim',
+      image: 'vellum-sandbox:latest',
       cpus: 1,
       memoryMb: 512,
       pidsLimit: 256,
@@ -116,7 +116,7 @@ describe('runSandboxDiagnostics — config reporting', () => {
 
   test('reports docker image', () => {
     const result = runSandboxDiagnostics();
-    expect(result.config.dockerImage).toBe('node:20-slim');
+    expect(result.config.dockerImage).toBe('vellum-sandbox:latest');
   });
 });
 
