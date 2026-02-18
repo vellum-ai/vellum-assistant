@@ -125,11 +125,16 @@ describe('task_save tool', () => {
     expect(result.content).toContain('My Custom Title');
   });
 
-  test('returns error for missing conversation_id', async () => {
+  test('uses context conversation_id when missing', async () => {
+    const convId = createTestConversation(stubContext.conversationId);
+    addTestMessage(convId, 'user', 'Summarize the report');
+    addTestMessage(convId, 'assistant', 'Done.');
+
     const result = await taskSaveTool.execute({}, stubContext);
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('conversation_id is required');
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Task saved successfully');
+    expect(result.content).toContain('Summarize the report');
   });
 
   test('returns error for nonexistent conversation', async () => {
