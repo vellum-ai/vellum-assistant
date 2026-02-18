@@ -621,7 +621,8 @@ struct ChatView: View {
 
                     if isThinking && !(messages.last?.isStreaming == true) {
                         RunningIndicator(
-                            label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking"
+                            label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
+                            showIcon: false
                         )
                         .frame(maxWidth: 520, alignment: .leading)
                         .id("thinking-indicator")
@@ -2359,6 +2360,8 @@ private struct MarkdownTableView: View {
 /// Supports progressive labels that cycle on a timer for long-running tools.
 private struct RunningIndicator: View {
     var label: String = "Running"
+    /// Whether to show the terminal icon (appropriate for tool execution states).
+    var showIcon: Bool = true
     /// Optional sequence of labels to cycle through over time.
     var progressiveLabels: [String] = []
     /// Seconds between each label transition.
@@ -2393,9 +2396,11 @@ private struct RunningIndicator: View {
 
     private var indicatorContent: some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "terminal")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textSecondary)
+            if showIcon {
+                Image(systemName: "terminal")
+                    .font(.system(size: 10))
+                    .foregroundColor(VColor.textSecondary)
+            }
 
             Text(displayLabel)
                 .font(VFont.caption)
