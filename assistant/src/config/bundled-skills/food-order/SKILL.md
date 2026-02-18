@@ -16,11 +16,13 @@ Order food from delivery services (DoorDash, Uber Eats, Grubhub, etc.) using bro
 
 This is the most important step. Delivery sites block browsing and ordering without being signed in.
 
-1. **Navigate directly to the OAuth sign-in page.** For DoorDash, use this URL:
-   `https://identity.doordash.com/auth?client_id=1666519390426295040&layout=consumer_web&redirect_uri=https%3A%2F%2Fwww.doordash.com%2Fpost-login%2F&response_type=code&scope=%2A&state=%2Fhome`
-2. Take a `browser_snapshot`. If you see a sign-in form (email input), continue to step 5.
-3. **If the direct URL fails** (404, "State cannot be null or empty", or any error): fall back to the homepage approach — navigate to `https://www.doordash.com`, dismiss non-login modals, and click the "Sign In" button. **On DoorDash, clicking "Sign In" opens a sign-in MODAL — this modal IS the sign-in form, do NOT dismiss it.** Look for an email input inside the modal.
-4. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 3.
+1. **Navigate directly to the sign-in page.**
+   - **For DoorDash**, use this OAuth URL:
+     `https://identity.doordash.com/auth?client_id=1666519390426295040&layout=consumer_web&redirect_uri=https%3A%2F%2Fwww.doordash.com%2Fpost-login%2F&response_type=code&scope=%2A&state=%2Fhome`
+   - **For other services** (Uber Eats, Grubhub, etc.), navigate to their homepage and find the "Sign In" button.
+2. Take a `browser_snapshot`. If you see a sign-in form (email input), continue to sub-step 5 below (fill the email).
+3. **If the direct URL fails** (404, "State cannot be null or empty", or any error): fall back to the homepage approach — navigate to the service's homepage, dismiss non-login modals, and click the "Sign In" button. **On DoorDash, clicking "Sign In" opens a sign-in MODAL — this modal IS the sign-in form, do NOT dismiss it.** Look for an email input inside the modal.
+4. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 2.
 5. Fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` — NEVER type into the browser URL bar.
 6. Click "Continue" or equivalent submit button.
 7. The site will send a verification code via SMS/email. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. **Wait for the user to submit the form before proceeding** — do NOT use any previously collected code. Verification codes expire quickly; only the code from the most recent form submission is valid. Type the freshly submitted code into the verification input on the page.
@@ -35,27 +37,27 @@ This is the most important step. Delivery sites block browsing and ordering with
 - Take a fresh snapshot after dismissing to confirm the modal is gone.
 - Common DoorDash blocker modals: "NYC & NY law update" (click "Got It"), cookie banners, promotional popups.
 
-### Step 3: Set Delivery Address
+### Step 2: Set Delivery Address
 
 1. Find the address input field in the snapshot.
 2. Type the delivery address.
 3. Use `browser_press_key` with `ArrowDown` then `Enter` to select from the address suggestion dropdown.
 4. Do NOT click dropdown items directly — they are dynamic overlays and clicks are unreliable.
 
-### Step 4: Search for the Restaurant
+### Step 3: Search for the Restaurant
 
 1. Find the search bar in `browser_snapshot`.
 2. Type the restaurant name using `browser_type`.
 3. Use `browser_press_key` with `ArrowDown` then `Enter` to select from search suggestions.
 
-### Step 5: Find and Add the Item
+### Step 4: Find and Add the Item
 
 1. Browse the restaurant's menu page.
 2. Click the desired menu item.
 3. If there are required customizations (size, toppings, quantity), select them.
 4. Click "Add to Order" / "Add to Cart".
 
-### Step 6: Checkout
+### Step 5: Checkout
 
 1. Navigate to the cart / checkout.
 2. Review order details with the user before placing.
