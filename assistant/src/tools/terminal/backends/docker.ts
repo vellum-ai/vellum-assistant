@@ -278,6 +278,11 @@ export class DockerBackend implements SandboxBackend {
       'run',
       '--rm',
       `--network=${effectiveNetwork}`,
+      // When proxied, map host.docker.internal to the host machine so the
+      // container can reach the proxy daemon listening on the host loopback.
+      ...(options?.networkMode === 'proxied'
+        ? ['--add-host=host.docker.internal:host-gateway']
+        : []),
       `--cpus=${cpus}`,
       `--memory=${memoryMb}m`,
       `--pids-limit=${pidsLimit}`,
