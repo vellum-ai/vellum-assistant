@@ -529,6 +529,7 @@ describe('ToolExecutor prompter principal arg (PR fix3)', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -1109,15 +1110,23 @@ describe('ToolExecutor baseline: allow rule auto-allows file_edit USER.md', () =
   });
 
   test('file_edit to a non-USER.md path is NOT auto-allowed without a matching rule', async () => {
-    const executor = new ToolExecutor(makePrompter());
+    let promptCalled = false;
+    const trackingPrompter = {
+      prompt: async () => { promptCalled = true; return { decision: 'allow' as const }; },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(trackingPrompter);
     const result = await executor.execute(
       'file_edit',
       { path: '/tmp/project/other.md', content: 'hello' },
       makeContext(),
     );
-    // The executor prompts (check returned 'prompt') and the prompter mock
-    // allows it, so execution still succeeds — but the trust-rule path was
-    // exercised and correctly returned no match for other.md.
+    // check() returned 'prompt' (no matching trust rule for other.md),
+    // so the executor must have called the prompter.
+    expect(promptCalled).toBe(true);
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.toolName).toBe('file_edit');
