@@ -94,8 +94,8 @@ struct SurfaceContainerView: View {
                         viewModel.onAction("cancel", ["files": [Any]()])
                     }
                 )
-            case .table, .browserView:
-                // Table and browser surfaces are rendered inline in chat, not in floating panels.
+            case .table, .browserView, .documentPreview:
+                // Table, browser, and document preview surfaces are rendered inline in chat, not in floating panels.
                 EmptyView()
             }
 
@@ -113,7 +113,7 @@ struct SurfaceContainerView: View {
         switch surface.data {
         case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
-        case .card, .list, .table, .browserView:
+        case .card, .list, .table, .browserView, .documentPreview:
             return false
         }
     }
