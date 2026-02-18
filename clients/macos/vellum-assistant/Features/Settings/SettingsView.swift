@@ -19,7 +19,6 @@ public struct SettingsView: View {
     @State private var daemonEnvVars: [(String, String)] = []
     #endif
     @State private var skillsViewModel: SkillsSettingsViewModel?
-    @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var activationKey: ActivationKey = {
         let stored = UserDefaults.standard.string(forKey: "activationKey") ?? "fn"
         return ActivationKey(rawValue: stored) ?? .fn
@@ -264,36 +263,6 @@ public struct SettingsView: View {
             }
 
             if let daemonClient {
-                Section("Integrations") {
-                    ForEach(integrations, id: \.id) { integration in
-                        HStack {
-                            Text(integration.id == "gmail" ? "\u{1F4E7}" : "\u{1F517}")
-                            Text(integration.id == "gmail" ? "Gmail" : integration.id.capitalized)
-                            if let account = integration.accountInfo {
-                                Text("(\(account))")
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if integration.connected {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Button("Disconnect") {
-                                    try? daemonClient.sendIntegrationDisconnect(integrationId: integration.id)
-                                }
-                                .tint(.red)
-                            } else {
-                                Button("Connect") {
-                                    try? daemonClient.sendIntegrationConnect(integrationId: integration.id)
-                                }
-                            }
-                        }
-                    }
-                    if integrations.isEmpty {
-                        Text("No integrations available")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Section("Skills") {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -368,21 +337,8 @@ public struct SettingsView: View {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             checkPermissions()
-            daemonClient?.onIntegrationListResponse = { response in
-                Task { @MainActor in
-                    self.integrations = response.integrations
-                }
-            }
-            daemonClient?.onIntegrationConnectResult = { _ in
-                Task { @MainActor in
-                    try? self.daemonClient?.sendIntegrationList()
-                }
-            }
-            try? daemonClient?.sendIntegrationList()
         }
         .onDisappear {
-            daemonClient?.onIntegrationListResponse = nil
-            daemonClient?.onIntegrationConnectResult = nil
             #if DEBUG
             daemonClient?.onEnvVarsResponse = nil
             #endif
