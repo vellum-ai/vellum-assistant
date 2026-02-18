@@ -224,12 +224,30 @@ export async function handleSessionCreate(
     transport: msg.transport,
   });
   wireEscalationHandler(session, socket, ctx);
+
+  // Pre-activate skills before sending session_info so they're available
+  // for the initial message processing.
+  if (msg.preactivatedSkillIds?.length) {
+    session.preactivatedSkillIds = msg.preactivatedSkillIds;
+  }
+
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'New Conversation',
     ...(msg.correlationId ? { correlationId: msg.correlationId } : {}),
   });
+
+  // Auto-send the initial message if provided, kick-starting the skill.
+  if (msg.initialMessage) {
+    const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+    const requestId = uuid();
+    session.processMessage(msg.initialMessage, [], sendEvent, requestId).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, sessionId: conversation.id }, 'Error processing initial message');
+      ctx.send(socket, { type: 'error', message: `Failed to process initial message: ${message}` });
+    });
+  }
 }
 
 export async function handleSessionSwitch(

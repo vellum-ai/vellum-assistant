@@ -243,8 +243,8 @@ private func buildSessionTransportMetadata(
 }
 
 extension IPCSessionCreateRequest {
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType)
+    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
+        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
 
     public init(
@@ -267,7 +267,9 @@ extension IPCSessionCreateRequest {
                 hints: transportHints,
                 uxBrief: transportUxBrief
             ),
-            threadType: nil
+            threadType: nil,
+            preactivatedSkillIds: nil,
+            initialMessage: nil
         )
     }
 }

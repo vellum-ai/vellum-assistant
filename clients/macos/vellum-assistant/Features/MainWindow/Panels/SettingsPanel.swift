@@ -16,6 +16,8 @@ struct SettingsPanel: View {
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
+    /// Tracks integrations that need setup (e.g. missing Google Cloud client ID).
+    @State private var setupRequired: (id: String, skillId: String, hint: String)?
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
@@ -511,43 +513,44 @@ struct SettingsPanel: View {
     // MARK: - Integration Row
 
     private func integrationRow(_ integration: IPCIntegrationListResponseIntegration) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Text(integrationIcon(integration.id))
-                .font(.system(size: 14))
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(integrationDisplayName(integration.id))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                if let account = integration.accountInfo {
-                    Text(account)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                if let error = integrationError, error.id == integration.id {
-                    Text(error.message)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                }
-            }
-
-            Spacer()
-
-            if integration.connected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(VColor.success)
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.md) {
+                Text(integrationIcon(integration.id))
                     .font(.system(size: 14))
-                VButton(label: "Disconnect", style: .danger) {
-                    try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(integrationDisplayName(integration.id))
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    if let account = integration.accountInfo {
+                        Text(account)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    if let error = integrationError, error.id == integration.id, setupRequired?.id != integration.id {
+                        Text(error.message)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
                 }
-            } else {
-                if connectingIntegration == integration.id {
+
+                Spacer()
+
+                if integration.connected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    VButton(label: "Disconnect", style: .danger) {
+                        try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
+                    }
+                } else if connectingIntegration == integration.id {
                     ProgressView()
                         .controlSize(.small)
                 } else {
                     VButton(label: "Connect", style: .primary) {
                         integrationError = nil
+                        setupRequired = nil
                         connectingIntegration = integration.id
                         do {
                             try daemonClient?.sendIntegrationConnect(integrationId: integration.id)
@@ -556,6 +559,21 @@ struct SettingsPanel: View {
                         }
                     }
                 }
+            }
+
+            // Setup required card — shown when integration needs configuration
+            if let setup = setupRequired, setup.id == integration.id {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text(setup.hint)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VButton(label: "Set Up Google Cloud", style: .primary) {
+                        startIntegrationSetup(skillId: setup.skillId, integrationName: integrationDisplayName(integration.id))
+                    }
+                }
+                .padding(.leading, 32) // Align with text after icon
             }
         }
         .padding(VSpacing.md)
@@ -585,15 +603,45 @@ struct SettingsPanel: View {
         daemonClient?.onIntegrationConnectResult = { [self] result in
             Task { @MainActor in
                 self.connectingIntegration = nil
-                if !result.success {
+                if result.setupRequired == true, let skillId = result.setupSkillId {
+                    // Integration needs setup — show the setup card instead of an error
+                    self.integrationError = nil
+                    self.setupRequired = (
+                        id: result.integrationId,
+                        skillId: skillId,
+                        hint: result.setupHint ?? "This integration requires additional setup before it can be connected."
+                    )
+                } else if !result.success {
                     self.integrationError = (id: result.integrationId, message: result.error ?? "Connection failed")
                 } else {
                     self.integrationError = nil
+                    self.setupRequired = nil
                 }
                 // Refresh the list after connect/disconnect
                 try? self.daemonClient?.sendIntegrationList()
             }
         }
+    }
+
+    /// Creates a new chat session with the setup skill pre-activated and navigates to it.
+    private func startIntegrationSetup(skillId: String, integrationName: String) {
+        guard daemonClient != nil else { return }
+
+        // Create a new thread — its ChatViewModel will claim the session_info
+        // response via correlationId.
+        threadManager.createThread()
+
+        guard let activeVM = threadManager.activeViewModel else { return }
+
+        // Set the input text and send via ChatViewModel so it properly
+        // bootstraps (claims session_info, sets up message loop, shows the
+        // message in chat, etc.). The system prompt already instructs the
+        // agent to use the setup skill when asked about integration setup.
+        activeVM.inputText = "Please set up \(integrationName) for me."
+        activeVM.sendMessage()
+
+        // Close the settings panel so the user sees the chat
+        onClose()
     }
 
     // MARK: - Permission Row
