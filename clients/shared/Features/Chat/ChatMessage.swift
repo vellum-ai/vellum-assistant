@@ -431,38 +431,116 @@ public struct ToolCallData: Identifiable, Equatable {
         let name = lastName(of: inputSummary)
         switch toolName {
         case "bash", "host_bash":
-            return inputSummary.isEmpty ? "Ran a shell command" : "Ran `\(truncated(inputSummary, to: 60))`"
+            return inputSummary.isEmpty ? "Ran a command" : interpretBashCommand(inputSummary)
         case "file_edit", "host_file_edit":
-            return name.isEmpty ? "Edited a file" : "Edited \(name)"
+            return name.isEmpty ? "Made some edits" : "Edited \(name)"
         case "file_write", "host_file_write":
-            return name.isEmpty ? "Wrote a file" : "Wrote \(name)"
+            return name.isEmpty ? "Created a file" : "Created \(name)"
         case "file_read", "host_file_read":
             return name.isEmpty ? "Read a file" : "Read \(name)"
         case "glob":
-            return inputSummary.isEmpty ? "Found files" : "Found files matching \(inputSummary)"
+            return interpretGlobPattern(inputSummary)
         case "grep":
-            return inputSummary.isEmpty ? "Searched files" : "Searched for \"\(truncated(inputSummary, to: 40))\""
+            return "Searched through files"
         case "web_fetch":
             if let host = URL(string: inputSummary)?.host { return "Fetched data from \(host)" }
-            return "Fetched a URL"
+            return "Fetched a webpage"
         case "browser_navigate":
             if let host = URL(string: inputSummary)?.host { return "Opened \(host)" }
             return "Opened a page"
         case "browser_screenshot":
             return "Took a screenshot"
         case "browser_click":
-            return inputSummary.isEmpty ? "Clicked an element" : "Clicked \"\(truncated(inputSummary, to: 50))\""
+            return inputSummary.isEmpty ? "Clicked something on the page" : "Clicked \"\(truncated(inputSummary, to: 50))\""
         case "browser_type":
-            return inputSummary.isEmpty ? "Typed text" : "Typed \"\(truncated(inputSummary, to: 40))\""
+            return "Typed in a field"
         case "app_create":
             return "Created an app"
         case "app_update":
             return "Updated the app"
         case "request_system_permission":
-            return inputSummary.isEmpty ? "Requested a system permission" : "Requested \(inputSummary) permission"
+            return "Requested system access"
         default:
-            return inputSummary.isEmpty ? "Used \(friendlyName)" : "\(friendlyName): \(truncated(inputSummary, to: 60))"
+            return "Performed an action"
         }
+    }
+
+    private func interpretBashCommand(_ cmd: String) -> String {
+        let tokens = cmd.trimmingCharacters(in: .whitespaces)
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+        guard let first = tokens.first else { return "Ran a command" }
+        let base = (first as NSString).lastPathComponent.lowercased()
+        switch base {
+        case "ls", "find", "tree":
+            return "Listed files"
+        case "cat", "less", "more", "head", "tail":
+            let file = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return file.isEmpty ? "Read file contents" : "Read \(file)"
+        case "git":
+            switch tokens.dropFirst().first ?? "" {
+            case "status":          return "Checked git status"
+            case "diff":            return "Reviewed code changes"
+            case "add":             return "Staged changes"
+            case "commit":          return "Committed changes"
+            case "push":            return "Pushed code"
+            case "pull":            return "Pulled latest changes"
+            case "fetch":           return "Fetched remote changes"
+            case "checkout", "switch": return "Switched branch"
+            case "log":             return "Reviewed commit history"
+            case "clone":           return "Cloned repository"
+            case "merge":           return "Merged branch"
+            case "rebase":          return "Rebased branch"
+            case "stash":           return "Stashed changes"
+            case "reset", "restore": return "Undid changes"
+            default:                return "Used git"
+            }
+        case "npm", "yarn", "bun", "pnpm":
+            switch tokens.dropFirst().first ?? "" {
+            case "install", "i", "add": return "Installed dependencies"
+            case "run":
+                let script = tokens.dropFirst().dropFirst().first(where: { !$0.hasPrefix("-") }) ?? ""
+                return script.isEmpty ? "Ran a script" : "Ran \(script)"
+            case "test":    return "Ran tests"
+            case "build":   return "Built the project"
+            case "start":   return "Started the server"
+            default:        return "Ran a script"
+            }
+        case "swift":
+            return (tokens.dropFirst().first ?? "") == "test" ? "Ran tests" : "Built the project"
+        case "python", "python3":   return "Ran a Python script"
+        case "node":                return "Ran a Node script"
+        case "mkdir":               return "Created a folder"
+        case "rm", "rmdir":         return "Deleted files"
+        case "cp":                  return "Copied files"
+        case "mv":                  return "Moved files"
+        case "chmod", "chown":      return "Updated file permissions"
+        case "curl", "wget":        return "Made a network request"
+        case "open":                return "Opened a file"
+        case "defaults":            return "Updated system settings"
+        case "pkill", "kill", "killall": return "Stopped a process"
+        case "build.sh":            return "Built the project"
+        case "echo", "printf":      return "Output text"
+        case "export", "env":       return "Set environment variables"
+        default:                    return "Ran a command"
+        }
+    }
+
+    private func interpretGlobPattern(_ pattern: String) -> String {
+        guard !pattern.isEmpty else { return "Searched for files" }
+        let extMap: [String: String] = [
+            "swift": "Swift", "ts": "TypeScript", "js": "JavaScript",
+            "tsx": "TypeScript", "jsx": "JavaScript", "py": "Python",
+            "go": "Go", "rs": "Rust", "json": "JSON", "md": "Markdown",
+            "html": "HTML", "css": "CSS", "yaml": "YAML", "yml": "YAML",
+            "sh": "shell scripts", "sql": "SQL", "kt": "Kotlin", "java": "Java"
+        ]
+        if let ext = pattern.components(separatedBy: ".").last,
+           ext.count <= 6, !ext.contains("/"), !ext.contains("*"),
+           let lang = extMap[ext.lowercased()] {
+            return "Found \(lang) files"
+        }
+        return "Searched for files"
     }
 
     private func lastName(of path: String) -> String {
