@@ -150,6 +150,9 @@ public struct ToolConfirmationBubble: View {
                 .font(VFont.bodyBold)
                 .foregroundColor(VColor.textPrimary)
 
+            // Action buttons at top
+            buttonRow
+
             // Technical details accordion (collapsed by default)
             VStack(alignment: .leading, spacing: 0) {
                 Button {
@@ -171,7 +174,6 @@ public struct ToolConfirmationBubble: View {
 
                 if showTechnicalDetails {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        headerRow
                         if let preview = inlinePreviewText {
                             inlinePreview(preview)
                         }
@@ -184,9 +186,16 @@ public struct ToolConfirmationBubble: View {
                 }
             }
             .clipped()
-
-            buttonRow
         }
+        .padding(VSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Header Row
@@ -299,19 +308,30 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var buttonRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            VButton(label: "Don\u{2019}t Allow", style: .danger) {
-                onDeny()
-            }
-
-            VButton(label: "Allow", style: .primary) {
-                onAllow()
-            }
-
+        HStack(spacing: VSpacing.xs) {
+            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
+            confirmationButton("Allow", isPrimary: true, isDanger: false) { onAllow() }
             alwaysAllowInlineButton
-
             Spacer()
         }
+    }
+
+    @ViewBuilder
+    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(isPrimary || isDanger ? .white : VColor.textSecondary)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xxs + 1)
+                .background(isDanger ? Rose._600 : isPrimary ? Indigo._600 : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(isPrimary || isDanger ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Always Allow Button

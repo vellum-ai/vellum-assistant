@@ -200,49 +200,49 @@ public struct ToolConfirmationData: Equatable {
         return URL(string: urlString)
     }
 
-    /// Short, direct description of the action being requested.
+    /// Short, personable description of the action being requested.
     public var humanDescription: String {
         let reason = (input["reason"]?.value as? String) ?? ""
 
         switch toolName {
         case "request_system_permission":
             if reason.isEmpty {
-                return "Needs \(permissionFriendlyName) to proceed."
+                return "I need \(permissionFriendlyName) access to continue."
             }
             return reason
         case "bash", "host_bash":
-            if !reason.isEmpty { return "Wants to run a shell command \(reason)." }
-            return "Wants to run a shell command."
+            if !reason.isEmpty { return "I would like to run a shell command \(reason)." }
+            return "I would like to run a shell command."
         case "file_write", "host_file_write":
-            if !reason.isEmpty { return "Wants to write a file \(reason)." }
+            if !reason.isEmpty { return "I would like to write a file \(reason)." }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Wants to write a file." }
-            return "Wants to write to \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "I would like to write a file." }
+            return "I would like to write to \(URL(fileURLWithPath: path).lastPathComponent)."
         case "file_edit", "host_file_edit":
-            if !reason.isEmpty { return "Wants to edit a file \(reason)." }
+            if !reason.isEmpty { return "I would like to edit a file \(reason)." }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Wants to edit a file." }
-            return "Wants to edit \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "I would like to edit a file." }
+            return "I would like to edit \(URL(fileURLWithPath: path).lastPathComponent)."
         case "file_read", "host_file_read":
-            if !reason.isEmpty { return "Wants to read a file \(reason)." }
+            if !reason.isEmpty { return "I would like to read a file \(reason)." }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "Wants to read a file." }
-            return "Wants to read \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "I would like to read a file." }
+            return "I would like to read \(URL(fileURLWithPath: path).lastPathComponent)."
         case "web_fetch":
-            if !reason.isEmpty { return "Wants to fetch a URL \(reason)." }
+            if !reason.isEmpty { return "I would like to fetch a URL \(reason)." }
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
-                return "Wants to fetch data from \(host)."
+                return "I would like to fetch data from \(host)."
             }
-            return "Wants to fetch a URL."
+            return "I would like to fetch a URL."
         case "browser_navigate":
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
-                return "Wants to open \(host)."
+                return "I would like to open \(host)."
             }
-            return "Wants to open a page."
+            return "I would like to open a page."
         default:
-            return "Wants to use \(toolCategory)."
+            return "I would like to use \(toolCategory)."
         }
     }
 
