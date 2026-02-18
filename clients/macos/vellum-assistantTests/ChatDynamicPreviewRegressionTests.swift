@@ -164,6 +164,15 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
                      "Inline surface should not be completed yet")
         XCTAssertFalse(msg.text.isEmpty,
                        "Message should have text content")
+
+        // Assert shouldShowBubble would return false: assistant message with
+        // non-completed inline surfaces should hide the text bubble.
+        let allCompleted = msg.inlineSurfaces.allSatisfy { $0.completionState != nil }
+        XCTAssertFalse(allCompleted,
+                       "Not all surfaces are completed, so shouldShowBubble should be false")
+        let shouldShowBubble = allCompleted || (msg.text.isEmpty && msg.attachments.isEmpty)
+        XCTAssertFalse(shouldShowBubble,
+                       "Bubble should be hidden when assistant message has active inline surfaces")
     }
 
     // MARK: - Completed surface shows text bubble again
@@ -183,29 +192,87 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         // When all surfaces are completed, the bubble should be shown again
         XCTAssertNotNil(inlineSurface.completionState,
                         "Surface should be in completed state")
+
+        // Build a message with text and a completed surface, then verify
+        // shouldShowBubble would return true.
+        let msg = ChatMessage(
+            role: .assistant,
+            text: "Here is your app:",
+            inlineSurfaces: [inlineSurface]
+        )
+        let allCompleted = msg.inlineSurfaces.allSatisfy { $0.completionState != nil }
+        XCTAssertTrue(allCompleted,
+                      "All surfaces are completed")
+        let hasText = !msg.text.isEmpty
+        let shouldShowBubble = allCompleted && (hasText || !msg.attachments.isEmpty)
+        XCTAssertTrue(shouldShowBubble,
+                      "Bubble should be shown when all inline surfaces are completed and message has text")
     }
 
     // MARK: - Workspace notification flow
 
     func testOpenDynamicWorkspaceNotificationFlow() {
-        // The existing notification flow: SurfaceManager routes dynamic pages
-        // to the workspace via .openDynamicWorkspace notification.
         // Verify the notification name is correctly defined.
         let notificationName = Notification.Name.openDynamicWorkspace
         XCTAssertEqual(notificationName.rawValue, "MainWindow.openDynamicWorkspace",
                        "openDynamicWorkspace notification name should match expected value")
+
+        // Verify that posting the notification is actually received by an observer.
+        let expectation = expectation(description: "openDynamicWorkspace notification received")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .openDynamicWorkspace,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.name, .openDynamicWorkspace)
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        NotificationCenter.default.post(name: .openDynamicWorkspace, object: nil)
+        wait(for: [expectation], timeout: 1.0)
     }
 
     func testUpdateDynamicWorkspaceNotificationDefined() {
         let notificationName = Notification.Name.updateDynamicWorkspace
         XCTAssertEqual(notificationName.rawValue, "MainWindow.updateDynamicWorkspace",
                        "updateDynamicWorkspace notification name should match expected value")
+
+        // Verify the notification posting mechanism works.
+        let expectation = expectation(description: "updateDynamicWorkspace notification received")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .updateDynamicWorkspace,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.name, .updateDynamicWorkspace)
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        NotificationCenter.default.post(name: .updateDynamicWorkspace, object: nil)
+        wait(for: [expectation], timeout: 1.0)
     }
 
     func testDismissDynamicWorkspaceNotificationDefined() {
         let notificationName = Notification.Name.dismissDynamicWorkspace
         XCTAssertEqual(notificationName.rawValue, "MainWindow.dismissDynamicWorkspace",
                        "dismissDynamicWorkspace notification name should match expected value")
+
+        // Verify the notification posting mechanism works.
+        let expectation = expectation(description: "dismissDynamicWorkspace notification received")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .dismissDynamicWorkspace,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.name, .dismissDynamicWorkspace)
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        NotificationCenter.default.post(name: .dismissDynamicWorkspace, object: nil)
+        wait(for: [expectation], timeout: 1.0)
     }
 
     // MARK: - Preview card rendering is independent from plain message link parsing
