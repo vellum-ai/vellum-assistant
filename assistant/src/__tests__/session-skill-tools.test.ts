@@ -1640,6 +1640,77 @@ describe('bundled skill: app-builder', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Bundled skill: browser
+// ---------------------------------------------------------------------------
+
+describe('bundled skill: browser', () => {
+  let sessionState: Map<string, string>;
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    sessionState = new Map<string, string>();
+  });
+
+  test('browser skill activation via loaded_skill marker projects all 10 tool definitions', () => {
+    mockCatalog = [makeSkill('browser', '/path/to/bundled-skills/browser')];
+    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      ...buildSkillLoadHistory('browser', 'v1:testhash'),
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(10);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual([...BROWSER_TOOL_NAMES]);
+    expect(result.allowedToolNames).toEqual(new Set(BROWSER_TOOL_NAMES));
+  });
+
+  test('browser tools are NOT available when browser skill is not in active context', () => {
+    mockCatalog = [makeSkill('browser', '/path/to/bundled-skills/browser')];
+    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+    ];
+
+    const result = projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(result.toolDefinitions).toHaveLength(0);
+    expect(result.allowedToolNames.size).toBe(0);
+    for (const name of BROWSER_TOOL_NAMES) {
+      expect(result.allowedToolNames.has(name)).toBe(false);
+    }
+  });
+
+  test('browser skill tools have skill origin metadata', () => {
+    mockCatalog = [makeSkill('browser', '/path/to/bundled-skills/browser')];
+    mockManifests = { browser: makeManifest([...BROWSER_TOOL_NAMES]) };
+
+    const history: Message[] = [
+      ...buildSkillLoadHistory('browser', 'v1:testhash'),
+    ];
+
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    const tools = mockRegisteredTools.get('browser');
+    expect(tools).toBeDefined();
+    expect(tools!.length).toBe(10);
+
+    for (const tool of tools!) {
+      expect(tool.origin).toBe('skill');
+      expect(tool.ownerSkillId).toBe('browser');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tamper detection regression tests
 // ---------------------------------------------------------------------------
 
