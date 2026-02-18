@@ -171,6 +171,49 @@ describe('Memory regressions', () => {
     };
   }
 
+  // Baseline: indexMessageNow without explicit scopeId defaults to 'default'
+  test('baseline: memory segments default to scope "default" when no scopeId given', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-baseline-scope',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-baseline-scope',
+      conversationId: 'conv-baseline-scope',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'The user likes dark mode.' }]),
+      createdAt: now,
+    }).run();
+
+    // Index without explicit scopeId — should use 'default'
+    indexMessageNow({
+      messageId: 'msg-baseline-scope',
+      conversationId: 'conv-baseline-scope',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'The user likes dark mode.' }]),
+      createdAt: now,
+    }, DEFAULT_CONFIG.memory);
+
+    const segs = db.select().from(memorySegments)
+      .where(eq(memorySegments.messageId, 'msg-baseline-scope'))
+      .all();
+
+    expect(segs.length).toBeGreaterThan(0);
+    for (const seg of segs) {
+      expect(seg.scopeId).toBe('default');
+    }
+  });
+
   test('lexical recall accepts punctuation-heavy user queries without degrading', async () => {
     const db = getDb();
     const createdAt = 1_700_000_000_000;
