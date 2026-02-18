@@ -6,7 +6,7 @@ import VellumAssistantShared
 struct IdentityInfo {
     let name: String
     let role: String
-    let vibe: String
+    let personality: String
     let emoji: String
 
     static func load() -> IdentityInfo? {
@@ -15,7 +15,7 @@ struct IdentityInfo {
 
         var name = ""
         var role = ""
-        var vibe = ""
+        var personality = ""
         var emoji = ""
 
         for line in content.components(separatedBy: .newlines) {
@@ -24,15 +24,15 @@ struct IdentityInfo {
                 name = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
             } else if trimmed.lowercased().hasPrefix("- **role:**") {
                 role = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
-            } else if trimmed.lowercased().hasPrefix("- **vibe:**") {
-                vibe = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            } else if trimmed.lowercased().hasPrefix("- **personality:**") || trimmed.lowercased().hasPrefix("- **vibe:**") {
+                personality = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
             } else if trimmed.lowercased().hasPrefix("- **emoji:**") {
                 emoji = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
             }
         }
 
         guard !name.isEmpty else { return nil }
-        return IdentityInfo(name: name, role: role, vibe: vibe, emoji: emoji)
+        return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji)
     }
 
     /// Parses an optional `## Greetings` section from SOUL.md.
