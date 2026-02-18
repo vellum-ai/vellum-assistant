@@ -104,13 +104,28 @@ describe('evaluateRequest', () => {
     }
   });
 
-  test('works with query injection templates', () => {
+  test('excludes query templates from candidate matching', () => {
+    // Query templates are handled via URL rewriting in the MITM path and
+    // can't be injected by the HTTP forwarder, so they are excluded from
+    // candidate selection to avoid false ambiguity.
     const tpl = queryTemplate('maps.googleapis.com', 'key');
     const templates = new Map<string, CredentialInjectionTemplate[]>([
       ['cred-gcp', [tpl]],
     ]);
     const result = evaluateRequest('maps.googleapis.com', '/api/geocode', ['cred-gcp'], templates);
-    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-gcp', template: tpl });
+    expect(result).toEqual({ kind: 'missing' });
+  });
+
+  test('query template alongside header template does not cause ambiguity', () => {
+    // A host with both a query template and a header template should
+    // resolve to matched (header only), not ambiguous.
+    const headerTpl = headerTemplate('maps.googleapis.com');
+    const qTpl = queryTemplate('maps.googleapis.com', 'key');
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-gcp', [headerTpl, qTpl]],
+    ]);
+    const result = evaluateRequest('maps.googleapis.com', '/api/geocode', ['cred-gcp'], templates);
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-gcp', template: headerTpl });
   });
 
   test('matches hostnames case-insensitively', () => {

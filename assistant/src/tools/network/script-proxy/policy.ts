@@ -37,6 +37,11 @@ export function evaluateRequest(
     if (!tpls) continue;
 
     for (const tpl of tpls) {
+      // Query templates are handled via URL rewriting in the MITM path
+      // and can't be injected by the HTTP forwarder. Exclude them so
+      // a host with both query and header templates doesn't appear
+      // ambiguous — consistent with the MITM rewriteCallback filtering.
+      if (tpl.injectionType === 'query') continue;
       if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
         candidates.push({ credentialId: id, template: tpl });
       }
