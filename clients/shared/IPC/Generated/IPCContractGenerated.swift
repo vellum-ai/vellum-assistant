@@ -372,6 +372,15 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let preview: IPCDynamicPagePreview?
 }
 
+public struct IPCEnvVarsRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCEnvVarsResponse: Codable, Sendable {
+    public let type: String
+    public let vars: [String: String]
+}
+
 public struct IPCErrorMessage: Codable, Sendable {
     public let type: String
     public let message: String

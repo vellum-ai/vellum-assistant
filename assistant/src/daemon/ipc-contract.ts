@@ -452,6 +452,10 @@ export interface DiagnosticsExportRequest {
   anchorMessageId?: string;  // if omitted, use latest assistant message
 }
 
+export interface EnvVarsRequest {
+  type: 'env_vars_request';
+}
+
 export interface IpcBlobProbe {
   type: 'ipc_blob_probe';
   probeId: string;
@@ -632,6 +636,11 @@ export interface DiagnosticsExportResponse {
   error?: string;      // error message on failure
 }
 
+export interface EnvVarsResponse {
+  type: 'env_vars_response';
+  vars: Record<string, string>;
+}
+
 export interface AppFilesChanged {
   type: 'app_files_changed';
   appId: string;
@@ -715,7 +724,8 @@ export type ClientMessage =
   | AppUpdatePreviewRequest
   | PublishPageRequest
   | UnpublishPageRequest
-  | DiagnosticsExportRequest;
+  | DiagnosticsExportRequest
+  | EnvVarsRequest;
 
 // === Server → Client messages ===
 
@@ -1594,7 +1604,8 @@ export type ServerMessage =
   | UnpublishPageResponse
   | DiagnosticsExportResponse
   | AppFilesChanged
-  | BrowserFrame;
+  | BrowserFrame
+  | EnvVarsResponse;
 
 // === Contract schema ===
 

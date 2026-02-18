@@ -1558,6 +1558,20 @@ public struct BrowserFrameMessage: Decodable, Sendable {
     }
 }
 
+/// Request daemon environment variables (debug only).
+/// Backed by generated `IPCEnvVarsRequest`.
+public typealias EnvVarsRequestMessage = IPCEnvVarsRequest
+
+extension IPCEnvVarsRequest {
+    public init() {
+        self.init(type: "env_vars_request")
+    }
+}
+
+/// Response containing daemon environment variables (debug only).
+/// Backed by generated `IPCEnvVarsResponse`.
+public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
@@ -1634,6 +1648,7 @@ public enum ServerMessage: Decodable, Sendable {
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
     case browserFrame(BrowserFrameMessage)
+    case envVarsResponse(EnvVarsResponseMessage)
     case pong
     case unknown(String)
 
@@ -1865,6 +1880,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "browser_frame":
             let message = try BrowserFrameMessage(from: decoder)
             self = .browserFrame(message)
+        case "env_vars_response":
+            let message = try EnvVarsResponseMessage(from: decoder)
+            self = .envVarsResponse(message)
         case "pong":
             self = .pong
         default:

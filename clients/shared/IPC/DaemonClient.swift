@@ -231,6 +231,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `env_vars_response` message (debug builds only).
+    public var onEnvVarsResponse: ((EnvVarsResponseMessage) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -950,6 +953,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(DiagnosticsExportRequestMessage(conversationId: conversationId, anchorMessageId: anchorMessageId))
     }
 
+    // MARK: - Environment Variables (Debug)
+
+    /// Request the daemon's environment variables (debug builds only).
+    public func sendEnvVarsRequest() throws {
+        try send(EnvVarsRequestMessage())
+    }
+
     // MARK: - Link Open
 
     /// Send a link_open_request to the daemon, requesting it open a URL externally.
@@ -1240,6 +1250,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onDiagnosticsExportResponse?(msg)
         case .browserFrame(let msg):
             onBrowserFrame?(msg)
+        case .envVarsResponse(let msg):
+            onEnvVarsResponse?(msg)
         default:
             break
         }

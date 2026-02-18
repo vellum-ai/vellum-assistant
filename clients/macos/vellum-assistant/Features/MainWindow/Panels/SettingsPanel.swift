@@ -28,6 +28,11 @@ struct SettingsPanel: View {
     @State private var newAllowlistDomain = ""
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
+    #if DEBUG
+    @State private var showingEnvVars = false
+    @State private var appEnvVars: [(String, String)] = []
+    @State private var daemonEnvVars: [(String, String)] = []
+    #endif
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -592,6 +597,46 @@ struct SettingsPanel: View {
                 }
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
+
+                #if DEBUG
+                // DEVELOPER section (debug builds only)
+                if daemonClient != nil {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("DEVELOPER")
+                            .font(VFont.sectionTitle)
+                            .foregroundColor(VColor.textPrimary)
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Environment Variables")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                Text("View env vars for both the app and daemon processes")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "View...", style: .ghost) {
+                                appEnvVars = ProcessInfo.processInfo.environment
+                                    .sorted(by: { $0.key < $1.key })
+                                    .map { ($0.key, $0.value) }
+                                daemonEnvVars = []
+                                daemonClient?.onEnvVarsResponse = { response in
+                                    Task { @MainActor in
+                                        self.daemonEnvVars = response.vars
+                                            .sorted(by: { $0.key < $1.key })
+                                            .map { ($0.key, $0.value) }
+                                    }
+                                }
+                                try? daemonClient?.sendEnvVarsRequest()
+                                showingEnvVars = true
+                            }
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: VColor.surfaceSubtle)
+                }
+                #endif
             }
         }
         .task {
@@ -608,6 +653,9 @@ struct SettingsPanel: View {
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
+            #if DEBUG
+            daemonClient?.onEnvVarsResponse = nil
+            #endif
             permissionCheckTask?.cancel()
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
@@ -666,6 +714,11 @@ struct SettingsPanel: View {
                 RemindersView(daemonClient: daemonClient)
             }
         }
+        #if DEBUG
+        .sheet(isPresented: $showingEnvVars) {
+            SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
+        }
+        #endif
     }
 
     // MARK: - Integration Row
@@ -957,6 +1010,68 @@ private struct ModelPickerItem: View {
         }
     }
 }
+
+// MARK: - Environment Variables Sheet (Debug Only)
+
+#if DEBUG
+private struct SettingsPanelEnvVarsSheet: View {
+    let appEnvVars: [(String, String)]
+    let daemonEnvVars: [(String, String)]
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Environment Variables")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                VButton(label: "Done", style: .ghost) { dismiss() }
+            }
+            .padding(VSpacing.lg)
+
+            Divider().background(VColor.surfaceBorder)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: VSpacing.xl) {
+                    envVarsSection(title: "APP PROCESS", vars: appEnvVars)
+                    envVarsSection(title: "DAEMON PROCESS", vars: daemonEnvVars)
+                }
+                .padding(VSpacing.lg)
+            }
+        }
+        .frame(width: 600, height: 500)
+        .background(VColor.background)
+    }
+
+    private func envVarsSection(title: String, vars: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(title)
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+            if vars.isEmpty {
+                Text("Loading...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            } else {
+                ForEach(vars, id: \.0) { key, value in
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        Text(key)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 200, alignment: .trailing)
+                        Text(value)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textMuted)
+                            .textSelection(.enabled)
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
 
 struct SettingsPanel_Previews: PreviewProvider {
     static var previews: some View {
