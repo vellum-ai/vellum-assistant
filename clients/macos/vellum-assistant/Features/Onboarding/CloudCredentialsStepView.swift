@@ -1,5 +1,6 @@
 import VellumAssistantShared
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 struct CloudCredentialsStepView: View {
@@ -11,9 +12,11 @@ struct CloudCredentialsStepView: View {
     @State private var awsRoleArn: String = ""
     @State private var gcpProjectId: String = ""
     @State private var gcpServiceAccountKey: String = ""
+    @State private var gcpServiceAccountFileName: String = ""
     @State private var sshHost: String = ""
     @State private var sshUser: String = ""
     @State private var sshPrivateKey: String = ""
+    @State private var sshPrivateKeyFileName: String = ""
 
     @FocusState private var arnFieldFocused: Bool
     @FocusState private var projectIdFieldFocused: Bool
@@ -155,16 +158,15 @@ struct CloudCredentialsStepView: View {
                 Text("SSH Private Key")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextEditor(text: $sshPrivateKey)
-                    .font(.system(size: 12, weight: .regular, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.sm)
-                    .frame(height: 120)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
+                filePickerButton(
+                    fileName: sshPrivateKeyFileName,
+                    prompt: "Select SSH Private Key File",
+                    onPick: { pickSSHKeyFile() },
+                    onClear: {
+                        sshPrivateKey = ""
+                        sshPrivateKeyFileName = ""
+                    }
+                )
             }
 
             Text("Provide SSH credentials so we can connect to your machine and run the assistant remotely.")
@@ -199,22 +201,123 @@ struct CloudCredentialsStepView: View {
                 Text("Service Account Key (JSON)")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextEditor(text: $gcpServiceAccountKey)
-                    .font(.system(size: 12, weight: .regular, design: .monospaced))
-                    .foregroundColor(VColor.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(VSpacing.sm)
-                    .frame(height: 120)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
+                filePickerButton(
+                    fileName: gcpServiceAccountFileName,
+                    prompt: "Select Service Account JSON File",
+                    onPick: { pickGCPServiceAccountFile() },
+                    onClear: {
+                        gcpServiceAccountKey = ""
+                        gcpServiceAccountFileName = ""
+                    }
+                )
             }
 
-            Text("Create a service account with Compute Admin permissions and paste its JSON key here.")
+            Text("Create a service account with Compute Admin permissions and upload its JSON key file.")
                 .font(.system(size: 12))
                 .foregroundColor(VColor.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - File Picker UI
+
+    @ViewBuilder
+    private func filePickerButton(
+        fileName: String,
+        prompt: String,
+        onPick: @escaping () -> Void,
+        onClear: @escaping () -> Void
+    ) -> some View {
+        if fileName.isEmpty {
+            Button(action: onPick) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 14))
+                        .foregroundColor(VColor.textSecondary)
+                    Text(prompt)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.lg)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 3]))
+                )
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)), dark: Violet._600))
+                Text(fileName)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)), dark: Violet._600.opacity(0.3)), lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - File Picking
+
+    private func pickGCPServiceAccountFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select Service Account JSON File"
+        panel.allowedContentTypes = [UTType.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                gcpServiceAccountKey = contents
+                gcpServiceAccountFileName = url.lastPathComponent
+            } catch {
+                gcpServiceAccountKey = ""
+                gcpServiceAccountFileName = ""
+            }
+        }
+    }
+
+    private func pickSSHKeyFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select SSH Private Key File"
+        panel.allowedContentTypes = [UTType.data, UTType.plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
+        panel.treatsFilePackagesAsDirectories = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                sshPrivateKey = contents
+                sshPrivateKeyFileName = url.lastPathComponent
+            } catch {
+                sshPrivateKey = ""
+                sshPrivateKeyFileName = ""
+            }
         }
     }
 
@@ -361,6 +464,9 @@ struct CloudCredentialsStepView: View {
         }
         if let key = creds["serviceAccountKey"] as? String {
             gcpServiceAccountKey = key
+            if !key.isEmpty {
+                gcpServiceAccountFileName = "service-account-key.json"
+            }
         }
         if let host = creds["sshHost"] as? String {
             sshHost = host
@@ -370,6 +476,9 @@ struct CloudCredentialsStepView: View {
         }
         if let privKey = creds["sshPrivateKey"] as? String {
             sshPrivateKey = privKey
+            if !privKey.isEmpty {
+                sshPrivateKeyFileName = "id_rsa"
+            }
         }
     }
 }
