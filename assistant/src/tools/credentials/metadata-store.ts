@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from '
 import { join, dirname } from 'node:path';
 import { getDataDir } from '../../util/platform.js';
 import { randomUUID } from 'node:crypto';
+import type { CredentialInjectionTemplate } from './policy-types.js';
 
 export interface CredentialMetadata {
   credentialId: string;
@@ -25,12 +26,19 @@ export interface CredentialMetadata {
   oauth2TokenUrl?: string;
   /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
   oauth2ClientId?: string;
+  /** Human-friendly name for this credential (e.g. "fal-primary"). */
+  alias?: string;
+  /** Templates describing how to inject this credential into proxied requests. */
+  injectionTemplates?: CredentialInjectionTemplate[];
   createdAt: number;
   updatedAt: number;
 }
 
+/** Current on-disk schema version. */
+const CURRENT_VERSION = 2;
+
 interface MetadataFile {
-  version: 1;
+  version: typeof CURRENT_VERSION;
   credentials: CredentialMetadata[];
 }
 
@@ -56,27 +64,43 @@ function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
   return 'unknownVersion' in r;
 }
 
+/**
+ * Migrate a v1 record to v2 by backfilling new optional fields with defaults.
+ */
+function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadata {
+  return {
+    ...(record as CredentialMetadata),
+    alias: (record.alias as string | undefined) ?? undefined,
+    injectionTemplates: (record.injectionTemplates as CredentialInjectionTemplate[] | undefined) ?? undefined,
+  };
+}
+
 function loadFile(): LoadResult {
   const path = getMetadataPath();
   if (!existsSync(path)) {
-    return { version: 1, credentials: [] };
+    return { version: CURRENT_VERSION, credentials: [] };
   }
   try {
     const raw = readFileSync(path, 'utf-8');
     const data = JSON.parse(raw);
     if (typeof data !== 'object' || data === null) {
-      return { version: 1, credentials: [] };
+      return { version: CURRENT_VERSION, credentials: [] };
     }
-    if (typeof data.version === 'number' && data.version !== 1) {
-      // Newer numeric version we don't understand — refuse to touch it
+    const fileVersion = typeof data.version === 'number' ? data.version : 1;
+    if (fileVersion > CURRENT_VERSION) {
+      // Newer version we don't understand — refuse to touch it
       return { unknownVersion: true };
     }
-    return {
-      version: 1,
-      credentials: Array.isArray(data.credentials) ? data.credentials : [],
-    };
+    const rawCredentials: Record<string, unknown>[] = Array.isArray(data.credentials) ? data.credentials : [];
+
+    // Migrate from v1 (no alias/injectionTemplates) to v2
+    const credentials = fileVersion < 2
+      ? rawCredentials.map(migrateRecordV1toV2)
+      : (rawCredentials as unknown as CredentialMetadata[]);
+
+    return { version: CURRENT_VERSION, credentials };
   } catch {
-    return { version: 1, credentials: [] };
+    return { version: CURRENT_VERSION, credentials: [] };
   }
 }
 
@@ -121,6 +145,10 @@ export function upsertCredentialMetadata(
     accountInfo?: string | null;
     oauth2TokenUrl?: string;
     oauth2ClientId?: string;
+    /** Pass `null` to explicitly clear a previously-set alias. */
+    alias?: string | null;
+    /** Pass `null` to explicitly clear injection templates. */
+    injectionTemplates?: CredentialInjectionTemplate[] | null;
   },
 ): CredentialMetadata {
   const result = loadFile();
@@ -155,6 +183,20 @@ export function upsertCredentialMetadata(
     }
     if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
+    if (policy?.alias !== undefined) {
+      if (policy.alias === null) {
+        delete existing.alias;
+      } else {
+        existing.alias = policy.alias;
+      }
+    }
+    if (policy?.injectionTemplates !== undefined) {
+      if (policy.injectionTemplates === null) {
+        delete existing.injectionTemplates;
+      } else {
+        existing.injectionTemplates = policy.injectionTemplates;
+      }
+    }
     existing.updatedAt = now;
     saveFile(data);
     return existing;
@@ -172,6 +214,8 @@ export function upsertCredentialMetadata(
     accountInfo: policy?.accountInfo ?? undefined,
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
+    alias: policy?.alias ?? undefined,
+    injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,
     updatedAt: now,
   };
