@@ -24,8 +24,7 @@ export type MemoryItemKind =
   | 'event'
   | 'opinion'
   | 'instruction'
-  | 'style'
-  | 'playbook';
+  | 'style';
 
 interface ExtractedItem {
   kind: MemoryItemKind;
@@ -39,7 +38,6 @@ interface ExtractedItem {
 const VALID_KINDS = new Set<string>([
   'preference', 'profile', 'project', 'decision', 'todo',
   'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
-  'playbook',
 ]);
 
 const SUPERSEDE_KINDS = new Set<MemoryItemKind>(['decision', 'preference', 'constraint']);
@@ -84,7 +82,6 @@ Extract items in these categories:
 - opinion: Viewpoints, assessments, evaluations of tools/approaches
 - instruction: Explicit directives on how the assistant should behave
 - style: Communication style patterns — writing tone, formatting habits, vocabulary choices, greeting/sign-off conventions
-- playbook: Trigger→action rules for handling messages — e.g. "when I get a meeting request, check my calendar and propose 3 times", "archive newsletters automatically", "if an email is from my CEO, respond within 1 hour"
 
 For each item, provide:
 - kind: One of the categories above
@@ -404,9 +401,6 @@ function classifySentence(lower: string): { kind: MemoryItemKind; confidence: nu
   }
   if (includesAny(lower, ['remember', 'important', 'fact', 'noted'])) {
     return { kind: 'fact', confidence: 0.62, importance: 0.5 };
-  }
-  if (includesAny(lower, ['when i get', 'whenever', 'if i receive', 'archive', 'auto-reply', 'auto reply', 'respond within', 'when someone'])) {
-    return { kind: 'playbook', confidence: 0.72, importance: 0.8 };
   }
   return null;
 }
