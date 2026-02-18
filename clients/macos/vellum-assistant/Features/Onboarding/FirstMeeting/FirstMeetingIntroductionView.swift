@@ -188,6 +188,10 @@ struct FirstMeetingIntroductionView: View {
                 context: MilestoneContext(emoji: emoji)
             )
         }
+
+        // Resolve updated traits into appearance so EvolvingAvatarView picks up changes
+        let resolved = AvatarEvolutionResolver.resolve(state: evo)
+        AvatarAppearanceManager.shared.applyEvolutionResult(resolved)
     }
 
     // MARK: - Conversation Completion
