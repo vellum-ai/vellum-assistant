@@ -229,13 +229,10 @@ export function deleteKey(account: string): boolean {
 
 /**
  * List all account names in the encrypted store.
+ * Throws if the store file exists but cannot be read/parsed.
  */
 export function listKeys(): string[] {
-  try {
-    const store = readStore();
-    if (!store) return [];
-    return Object.keys(store.entries);
-  } catch {
-    return [];
-  }
+  const store = readStore();
+  if (!store) return [];
+  return Object.keys(store.entries);
 }

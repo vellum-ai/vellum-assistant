@@ -388,6 +388,20 @@ describe('credential_store tool', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].service).toBe('svc-b');
     });
+
+    test('returns error when secure storage is corrupt/unreadable', async () => {
+      // Store a credential so metadata exists
+      await credentialStoreTool.execute({
+        action: 'store', service: 'svc-x', field: 'key', value: 'val-x',
+      }, _ctx);
+
+      // Corrupt the encrypted store file so listKeys() throws
+      writeFileSync(STORE_PATH, 'not-valid-json!!!', 'utf-8');
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('failed to read secure storage');
+    });
   });
 
   // -----------------------------------------------------------------------

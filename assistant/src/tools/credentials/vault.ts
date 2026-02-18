@@ -3,9 +3,9 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
   setSecureKey,
-  getSecureKey,
   deleteSecureKey,
   getBackendType,
+  listSecureKeys,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
@@ -238,12 +238,22 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend we can cheaply verify each secret still exists,
-        // filtering out stale metadata left by divergent store/delete failures.
-        // On keychain we trust metadata since individual lookups are expensive.
+        // On the encrypted backend we can verify secrets still exist by reading
+        // all key names once (instead of per-entry getSecureKey calls that each
+        // re-read/re-derive the store). On keychain we trust metadata since the
+        // OS keychain has no batch list API.
         const verifySecrets = getBackendType() === 'encrypted';
+        let secureKeySet: Set<string> | undefined;
+        if (verifySecrets) {
+          try {
+            secureKeySet = new Set(listSecureKeys());
+          } catch (err) {
+            log.error({ err }, 'Failed to read secure store while listing credentials');
+            return { content: 'Error: failed to read secure storage; cannot list credentials', isError: true };
+          }
+        }
         const entries = allMetadata
-          .filter((m) => !verifySecrets || getSecureKey(`credential:${m.service}:${m.field}`) !== undefined)
+          .filter((m) => !secureKeySet || secureKeySet.has(`credential:${m.service}:${m.field}`))
           .map((m) => {
             const entry: Record<string, unknown> = {
               credential_id: m.credentialId,

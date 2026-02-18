@@ -141,6 +141,7 @@ export function deleteSecureKey(account: string): boolean {
 /**
  * List all account names in secure storage.
  * Only supported by the encrypted backend; keychain returns empty array.
+ * Throws if the store file exists but cannot be read (encrypted backend).
  */
 export function listSecureKeys(): string[] {
   const backend = getBackend();
