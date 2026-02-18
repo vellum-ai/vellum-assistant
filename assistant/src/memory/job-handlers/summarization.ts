@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
+import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { getDb } from '../db.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString, currentMonthWindow, currentWeekWindow, truncate } from '../job-utils.js';
@@ -75,6 +76,10 @@ export async function buildConversationSummaryJob(job: MemoryJob, config: Assist
     'conversation',
   );
 
+  // Inherit the conversation's memory scope so private conversation
+  // summaries stay isolated from default-scope retrieval.
+  const scopeId = getConversationMemoryScopeId(conversationId);
+
   const now = Date.now();
   const summaryId = existing?.id ?? uuid();
   const nextVersion = (existing?.version ?? 0) + 1;
@@ -84,6 +89,7 @@ export async function buildConversationSummaryJob(job: MemoryJob, config: Assist
         summary: summaryText,
         tokenEstimate: estimateTextTokens(summaryText),
         version: nextVersion,
+        scopeId,
         startAt: rows[rows.length - 1].createdAt,
         endAt: rows[0].createdAt,
         updatedAt: now,
@@ -95,6 +101,7 @@ export async function buildConversationSummaryJob(job: MemoryJob, config: Assist
       id: summaryId,
       scope: 'conversation',
       scopeKey: conversationId,
+      scopeId,
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
       version: nextVersion,

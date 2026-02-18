@@ -102,7 +102,8 @@ import {
   injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { addMessage, createConversation } from '../memory/conversation-store.js';
+import { addMessage, createConversation, getConversationMemoryScopeId } from '../memory/conversation-store.js';
+import { buildConversationSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   conversations,
   memoryEmbeddings,
@@ -3549,5 +3550,138 @@ describe('Memory regressions', () => {
     for (const item of defaultAfter) {
       expect(item.status).toBe('active');
     }
+  });
+
+  test('private conversation summary inherits private scope_id', async () => {
+    const db = getDb();
+    const conv = createConversation({ threadType: 'private' });
+    const scopeId = getConversationMemoryScopeId(conv.id);
+    expect(scopeId).toMatch(/^private:/);
+
+    // Insert messages and segments so the summarizer has input
+    db.insert(messages).values({
+      id: 'msg-priv-sum-1',
+      conversationId: conv.id,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Secret project details' }]),
+      createdAt: conv.createdAt + 1,
+    }).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text,
+        token_estimate, scope_id, created_at, updated_at
+      ) VALUES (
+        'seg-priv-sum-1', 'msg-priv-sum-1', '${conv.id}', 'user', 0,
+        'Secret project details', 5, '${scopeId}',
+        ${conv.createdAt + 1}, ${conv.createdAt + 1}
+      )
+    `);
+
+    // Run the conversation summarizer
+    const fakeJob = {
+      id: 'job-priv-sum',
+      type: 'build_conversation_summary' as const,
+      payload: { conversationId: conv.id },
+      status: 'running' as const,
+      attempts: 0,
+      deferrals: 0,
+      runAfter: 0,
+      lastError: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await buildConversationSummaryJob(fakeJob, TEST_CONFIG);
+
+    const summary = db.select().from(memorySummaries)
+      .where(and(
+        eq(memorySummaries.scope, 'conversation'),
+        eq(memorySummaries.scopeKey, conv.id),
+      ))
+      .get();
+
+    expect(summary).toBeDefined();
+    expect(summary!.scopeId).toBe(scopeId);
+  });
+
+  test('default-scope summary retrieval excludes private summaries', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Create a private conversation and build its summary
+    const privConv = createConversation({ threadType: 'private' });
+    const privScope = getConversationMemoryScopeId(privConv.id);
+
+    db.insert(messages).values({
+      id: 'msg-scope-excl-1',
+      conversationId: privConv.id,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Private memo' }]),
+      createdAt: now + 1,
+    }).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text,
+        token_estimate, scope_id, created_at, updated_at
+      ) VALUES (
+        'seg-scope-excl-1', 'msg-scope-excl-1', '${privConv.id}', 'user', 0,
+        'Private memo', 3, '${privScope}',
+        ${now + 1}, ${now + 1}
+      )
+    `);
+
+    await buildConversationSummaryJob({
+      id: 'job-scope-excl-priv',
+      type: 'build_conversation_summary' as const,
+      payload: { conversationId: privConv.id },
+      status: 'running' as const,
+      attempts: 0, deferrals: 0, runAfter: 0, lastError: null,
+      createdAt: now, updatedAt: now,
+    }, TEST_CONFIG);
+
+    // Create a standard conversation and build its summary
+    const stdConv = createConversation({ title: 'Standard conv' });
+    const stdScope = getConversationMemoryScopeId(stdConv.id);
+    expect(stdScope).toBe('default');
+
+    db.insert(messages).values({
+      id: 'msg-scope-excl-2',
+      conversationId: stdConv.id,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Public notes' }]),
+      createdAt: now + 2,
+    }).run();
+    db.run(`
+      INSERT INTO memory_segments (
+        id, message_id, conversation_id, role, segment_index, text,
+        token_estimate, scope_id, created_at, updated_at
+      ) VALUES (
+        'seg-scope-excl-2', 'msg-scope-excl-2', '${stdConv.id}', 'user', 0,
+        'Public notes', 3, 'default',
+        ${now + 2}, ${now + 2}
+      )
+    `);
+
+    await buildConversationSummaryJob({
+      id: 'job-scope-excl-std',
+      type: 'build_conversation_summary' as const,
+      payload: { conversationId: stdConv.id },
+      status: 'running' as const,
+      attempts: 0, deferrals: 0, runAfter: 0, lastError: null,
+      createdAt: now, updatedAt: now,
+    }, TEST_CONFIG);
+
+    // Query summaries scoped to 'default' — should only include the standard one
+    const defaultSummaries = db.select().from(memorySummaries)
+      .where(eq(memorySummaries.scopeId, 'default'))
+      .all();
+    const privateSummaries = db.select().from(memorySummaries)
+      .where(eq(memorySummaries.scopeId, privScope))
+      .all();
+
+    expect(defaultSummaries).toHaveLength(1);
+    expect(defaultSummaries[0].scopeKey).toBe(stdConv.id);
+
+    expect(privateSummaries).toHaveLength(1);
+    expect(privateSummaries[0].scopeKey).toBe(privConv.id);
   });
 });
