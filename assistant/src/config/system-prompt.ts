@@ -631,6 +631,12 @@ function buildBrowserInteractionSection(): string {
     '- Do NOT try to click individual dropdown items — they are dynamically rendered overlays and clicks are unreliable.',
     '- For native `<select>` elements, clicking to open + arrow keys + Enter also works reliably.',
     '',
+    '### Popups, modals, and banners',
+    '- Dismiss cookie banners, legal notices, promotional popups, regulatory disclosures, and similar overlays YOURSELF by clicking "Got It", "Accept", "Close", "OK", "Dismiss", "X", or whatever dismiss button is available.',
+    '- Do NOT ask the user to dismiss these. Take a `browser_snapshot`, find the dismiss button, and click it.',
+    '- If Escape doesn\'t work, look for the actual dismiss/close button in the snapshot and click it directly.',
+    '- These overlays are routine — handle them immediately and continue with the task.',
+    '',
     '### Interaction workflow',
     '1. `browser_navigate` → load the page',
     '2. `browser_snapshot` → get interactive elements with IDs',
@@ -651,6 +657,11 @@ function buildBrowserInteractionSection(): string {
     '4. If the site sends a verification code (SMS/email), tell the user "I\'ve entered your email. You should receive a verification code — please enter it below" and use `ui_show` with `surface_type: "form"` and `await_action: true` to collect the code mid-turn. Then type the code into the page.',
     '5. Only hand off to the user for actual CAPTCHAs (Cloudflare, reCAPTCHA, hCaptcha) — these are the ONLY things you cannot handle.',
     '6. You have full permission to handle credentials via `browser_fill_credential` — this is exactly what it\'s designed for.',
+    '',
+    '### Skill-first workflow',
+    'Before starting any task that matches an available skill, ALWAYS call `skill_load` first to load the full instructions. Skills contain critical workflow steps (like sign-in-first ordering) that you will miss if you skip loading them.',
+    '- Food ordering (pizza, delivery, DoorDash, Uber Eats, Grubhub) → load "food-order" skill first',
+    '- Check the <available_skills> catalog for other matches',
   ].join('\n');
 }
 

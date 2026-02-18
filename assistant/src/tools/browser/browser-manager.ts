@@ -35,9 +35,9 @@ export type Page = {
   title(): Promise<string>;
   url(): string;
   evaluate(expression: string): Promise<unknown>;
-  click(selector: string): Promise<void>;
-  fill(selector: string, value: string): Promise<void>;
-  press(selector: string, key: string): Promise<void>;
+  click(selector: string, options?: { timeout?: number }): Promise<void>;
+  fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
+  press(selector: string, key: string, options?: { timeout?: number }): Promise<void>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
   route(pattern: string, handler: RouteHandler): Promise<void>;
@@ -98,6 +98,8 @@ class BrowserManager {
   private _browserMode: 'headless' | 'cdp' = 'headless';
   private cdpUrl: string = 'http://localhost:9222';
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
+  private browserCdpSession: CDPSession | null = null;
+  private browserWindowId: number | null = null;
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
@@ -213,6 +215,7 @@ class BrowserManager {
           const contexts = browser.contexts();
           const ctx = contexts[0] || await browser.newContext();
           this.setBrowserMode('cdp');
+          await this.initBrowserCdpSession();
           log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
           return ctx as unknown as BrowserContext;
         } catch (err) {
@@ -230,17 +233,14 @@ class BrowserManager {
             channel: 'chrome',
             headless: false,
             args: [
-              '--window-position=-32000,-32000',
-              '--window-size=1,1',
               '--disable-blink-features=AutomationControlled',
             ],
           });
           const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
           this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
           this.setBrowserMode('cdp');
-          // Hide Chrome on macOS — window.moveTo doesn't work on main browser windows.
-          // Use AppleScript to hide the Chrome app entirely.
-          this.hideChrome();
+          await this.initBrowserCdpSession();
+          await this.moveWindowOffscreen();
           log.info('Launched headed Chromium (hidden) for interactive handoff support');
           return ctx as unknown as BrowserContext;
         } catch (err2) {
@@ -305,6 +305,8 @@ class BrowserManager {
           log.warn('Browser context closed unexpectedly, resetting state');
           this.context = null;
           this.contextCloseHandler = null;
+          this.browserCdpSession = null;
+          this.browserWindowId = null;
           this.cdpBrowser = null;
           // Resolve any pending handoffs before clearing state
           for (const resolver of this.handoffResolvers.values()) {
@@ -344,9 +346,9 @@ class BrowserManager {
     this.rawPages.set(sessionId, page);
 
     // In headed mode, newPage() may bring Chrome to the foreground on macOS.
-    // Hide it unless we're in an active handoff.
+    // Move it offscreen unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
-      this.hideChrome();
+      await this.moveWindowOffscreen();
     }
 
     log.debug({ sessionId }, 'Session page created');
@@ -412,6 +414,15 @@ class BrowserManager {
       }
       this.context = null;
       log.info('Browser context closed');
+    }
+
+    // Detach browser-level CDP session used for window management
+    if (this.browserCdpSession) {
+      try {
+        await this.browserCdpSession.detach();
+      } catch {}
+      this.browserCdpSession = null;
+      this.browserWindowId = null;
     }
 
     // Disconnect CDP browser connection if present
@@ -482,29 +493,63 @@ class BrowserManager {
   }
 
   /**
-   * Hide Chrome app on macOS using AppleScript.
-   * window.moveTo/resizeTo don't work on main browser windows.
+   * Create a browser-level CDP session and discover the window ID.
+   * Called once after browser launch/connect so moveWindowOffscreen/Onscreen can work.
    */
-  hideChrome(): void {
-    if (process.platform !== 'darwin') return;
+  private async initBrowserCdpSession(): Promise<void> {
+    if (!this.cdpBrowser) return;
     try {
-      const { spawn } = require('node:child_process');
-      spawn('osascript', ['-e', 'tell application "System Events" to set visible of process "Google Chrome" to false'], { stdio: 'ignore', detached: true }).unref();
-    } catch {
-      // Best effort
+      const browser = this.cdpBrowser as { newBrowserCDPSession?: () => Promise<CDPSession> };
+      if (typeof browser.newBrowserCDPSession !== 'function') return;
+
+      this.browserCdpSession = await browser.newBrowserCDPSession();
+
+      const targets = await this.browserCdpSession.send('Target.getTargets') as {
+        targetInfos: Array<{ targetId: string; type: string }>;
+      };
+      const pageTarget = targets.targetInfos.find((t: { type: string }) => t.type === 'page');
+      if (pageTarget) {
+        const result = await this.browserCdpSession.send('Browser.getWindowForTarget', {
+          targetId: pageTarget.targetId,
+        }) as { windowId: number };
+        this.browserWindowId = result.windowId;
+        log.debug({ windowId: this.browserWindowId }, 'Got browser window ID via CDP');
+      }
+    } catch (err) {
+      log.warn({ err }, 'Failed to init browser CDP session');
     }
   }
 
   /**
-   * Show Chrome app on macOS and bring to front using AppleScript.
+   * Move the browser window offscreen using CDP Browser.setWindowBounds.
+   * Only affects the specific Playwright-managed window (not the user's personal Chrome).
    */
-  showChrome(): void {
-    if (process.platform !== 'darwin') return;
+  async moveWindowOffscreen(): Promise<void> {
+    if (!this.browserCdpSession || this.browserWindowId == null) return;
     try {
-      const { spawn } = require('node:child_process');
-      spawn('osascript', ['-e', 'tell application "Google Chrome" to activate'], { stdio: 'ignore', detached: true }).unref();
-    } catch {
-      // Best effort
+      await this.browserCdpSession.send('Browser.setWindowBounds', {
+        windowId: this.browserWindowId,
+        bounds: { left: -32000, top: -32000, windowState: 'normal' },
+      });
+      log.debug('moveWindowOffscreen: moved window offscreen via CDP');
+    } catch (err) {
+      log.warn({ err }, 'moveWindowOffscreen: CDP setWindowBounds failed');
+    }
+  }
+
+  /**
+   * Move the browser window onscreen and resize it for user interaction.
+   */
+  async moveWindowOnscreen(): Promise<void> {
+    if (!this.browserCdpSession || this.browserWindowId == null) return;
+    try {
+      await this.browserCdpSession.send('Browser.setWindowBounds', {
+        windowId: this.browserWindowId,
+        bounds: { left: 100, top: 100, width: 1280, height: 960, windowState: 'normal' },
+      });
+      log.debug('moveWindowOnscreen: moved window onscreen via CDP');
+    } catch (err) {
+      log.warn({ err }, 'moveWindowOnscreen: CDP setWindowBounds failed');
     }
   }
 

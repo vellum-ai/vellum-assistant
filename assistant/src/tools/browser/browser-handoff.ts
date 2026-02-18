@@ -35,7 +35,7 @@ export async function startHandoff(
     } catch (err) {
       log.warn({ err, sessionId }, 'Failed to bring browser to front');
     }
-    browserManager.showChrome();
+    await browserManager.moveWindowOnscreen();
   }
 
   const surfaceId = getScreencastSurfaceId(sessionId);
@@ -61,7 +61,7 @@ export async function startHandoff(
 
   // Hide Chrome again so it doesn't distract the user.
   if (options.bringToFront) {
-    browserManager.hideChrome();
+    await browserManager.moveWindowOffscreen();
   }
 
   sendToClient({
