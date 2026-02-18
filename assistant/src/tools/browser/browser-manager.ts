@@ -182,27 +182,25 @@ class BrowserManager {
     this.contextCreating = (async () => {
       // If not already in CDP mode, try to detect or negotiate CDP
       let useCdp = this._browserMode === 'cdp';
+      const hasSender = !!(invokingSessionId && this.sessionSenders.get(invokingSessionId));
       if (!useCdp) {
         const cdpAvailable = await this.detectCDP();
         if (cdpAvailable) {
           useCdp = true;
-        } else {
-          // Try requesting Chrome restart from the client using the invoking session's sender
-          const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
-          if (invokingSessionId && sender) {
-            log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
-            const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
-            if (accepted) {
-              // Verify CDP is now available after client confirmed restart
-              const nowAvailable = await this.detectCDP();
-              if (nowAvailable) {
-                useCdp = true;
-              } else {
-                log.warn('Client accepted CDP request but CDP not detected, falling back to headless');
-              }
+        } else if (hasSender) {
+          // Try requesting Chrome restart from the client
+          const sender = this.sessionSenders.get(invokingSessionId!)!;
+          log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
+          const accepted = await this.requestCDPFromClient(invokingSessionId!, sender);
+          if (accepted) {
+            const nowAvailable = await this.detectCDP();
+            if (nowAvailable) {
+              useCdp = true;
             } else {
-              log.info('Client declined CDP request, falling back to headless');
+              log.warn('Client accepted CDP request but CDP not detected');
             }
+          } else {
+            log.info('Client declined CDP request');
           }
         }
       }
@@ -210,7 +208,7 @@ class BrowserManager {
       if (useCdp) {
         try {
           const pw = await import('playwright');
-          const browser = await pw.chromium.connectOverCDP(this.cdpUrl);
+          const browser = await pw.chromium.connectOverCDP(this.cdpUrl, { timeout: 10_000 });
           this.cdpBrowser = browser;
           const contexts = browser.contexts();
           const ctx = contexts[0] || await browser.newContext();
@@ -218,7 +216,32 @@ class BrowserManager {
           log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
           return ctx as unknown as BrowserContext;
         } catch (err) {
-          log.warn({ err }, 'CDP connection failed, falling back to headless');
+          log.warn({ err }, 'CDP connectOverCDP failed');
+        }
+      }
+
+      // If a client is connected, launch headed Chromium (minimized) so the user
+      // can interact directly when handoff triggers (e.g. CAPTCHAs).
+      // The window stays offscreen until bringToFront() is called during handoff.
+      if (hasSender) {
+        try {
+          const pw2 = await import('playwright');
+          const headedBrowser = await pw2.chromium.launch({
+            channel: 'chrome',
+            headless: false,
+            args: [
+              '--window-position=-9999,-9999',
+              '--window-size=1,1',
+              '--disable-blink-features=AutomationControlled',
+            ],
+          });
+          const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
+          this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
+          this.setBrowserMode('cdp');
+          log.info('Launched headed Chromium (minimized) for interactive handoff support');
+          return ctx as unknown as BrowserContext;
+        } catch (err2) {
+          log.warn({ err: err2 }, 'Headed Chromium launch failed, falling back to headless');
           this._browserMode = 'headless';
         }
       }

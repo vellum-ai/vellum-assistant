@@ -27,6 +27,21 @@ export async function startHandoff(
 
   log.info({ sessionId, reason: options.reason }, 'Starting handoff to user');
 
+  // Bring the actual browser window to the front so the user can interact directly.
+  // Also resize from minimized state if using the headed-Chromium fallback.
+  if (options.bringToFront) {
+    try {
+      const page = await browserManager.getOrCreateSessionPage(sessionId);
+      await page.evaluate(() => {
+        window.resizeTo(1280, 960);
+        window.moveTo(100, 100);
+      }).catch(() => {});
+      await page.bringToFront();
+    } catch (err) {
+      log.warn({ err, sessionId }, 'Failed to bring browser to front');
+    }
+  }
+
   const surfaceId = getScreencastSurfaceId(sessionId);
   if (!surfaceId) {
     log.warn({ sessionId }, 'No active screencast surface for handoff');

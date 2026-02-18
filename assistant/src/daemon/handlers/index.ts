@@ -260,7 +260,7 @@ const handlers: DispatchMap = {
     try {
       const page = await browserManager.getOrCreateSessionPage(msg.sessionId);
       const viewport = await page.evaluate('(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()') as { vw: number; vh: number };
-      const scale = Math.min(800 / viewport.vw, 600 / viewport.vh);
+      const scale = Math.min(1280 / viewport.vw, 960 / viewport.vh);
       const pageX = msg.x / scale;
       const pageY = msg.y / scale;
       const options: Record<string, unknown> = {};
