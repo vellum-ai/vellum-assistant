@@ -574,7 +574,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.allowsUndo = true
-        textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
+        textView.font = NSFont.systemFont(ofSize: 13)
         textView.textColor = NSColor(VColor.textPrimary)
         textView.insertionPointColor = NSColor(VColor.accent)
         textView.textContainerInset = NSSize(width: 0, height: 8)
@@ -760,7 +760,7 @@ private final class ComposerNativeTextView: NSTextView {
         if let match = text.range(of: #"^/\w+"#, options: .regularExpression) {
             let nsRange = NSRange(match, in: text)
             layoutManager.addTemporaryAttributes(
-                [.foregroundColor: NSColor(Indigo._500)],
+                [.foregroundColor: NSColor(VColor.accent)],
                 forCharacterRange: nsRange
             )
         }
