@@ -304,6 +304,7 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
 
     managed.session.status = 'stopped';
     managed.session.port = null;
+    managed.approvalCallback = null;
     managed.stopPromise = null;
   };
 
