@@ -43,6 +43,72 @@ enum MessageURLExtractor {
         return results
     }
 
+    // Matches markdown-style links: [text](url) and [text](url "title")
+    // The URL group captures everything up to the first closing paren,
+    // optional whitespace, optional quoted title, then the final paren.
+    private static let markdownLinkPattern: NSRegularExpression = {
+        // Captures: [any text](url) or [any text](url "title")
+        // Group 1 = the URL portion (before optional whitespace + title).
+        let pattern = #"\[(?:[^\[\]]|\[.*?\])*\]\(\s*((?:[^()\s"]+|\([^)]*\))+)(?:\s+"[^"]*")?\s*\)"#
+        return try! NSRegularExpression(pattern: pattern, options: [])
+    }()
+
+    /// Extracts `http(s)://` URLs that appear as markdown link targets
+    /// (`[text](url)`) in `text`, returned in first-occurrence order.
+    static func extractMarkdownLinkURLs(from text: String) -> [URL] {
+        let nsRange = NSRange(text.startIndex..., in: text)
+        let matches = markdownLinkPattern.matches(in: text, options: [], range: nsRange)
+
+        var seen = Set<String>()
+        var results: [URL] = []
+
+        for match in matches {
+            guard match.numberOfRanges >= 2,
+                  let urlRange = Range(match.range(at: 1), in: text) else {
+                continue
+            }
+
+            let rawURL = String(text[urlRange])
+            guard let url = URL(string: rawURL) else { continue }
+
+            let scheme = url.scheme?.lowercased() ?? ""
+            guard scheme == "http" || scheme == "https" else { continue }
+
+            let canonical = url.absoluteString
+            guard !seen.contains(canonical) else { continue }
+            seen.insert(canonical)
+            results.append(url)
+        }
+
+        return results
+    }
+
+    /// Combines plain-text and markdown-link URL extraction, returning a
+    /// deduplicated list in first-occurrence order across both sources.
+    static func extractAllURLs(from text: String) -> [URL] {
+        let plain = extractPlainURLs(from: text)
+        let markdown = extractMarkdownLinkURLs(from: text)
+
+        var seen = Set<String>()
+        var results: [URL] = []
+
+        for url in plain {
+            let canonical = url.absoluteString
+            guard !seen.contains(canonical) else { continue }
+            seen.insert(canonical)
+            results.append(url)
+        }
+
+        for url in markdown {
+            let canonical = url.absoluteString
+            guard !seen.contains(canonical) else { continue }
+            seen.insert(canonical)
+            results.append(url)
+        }
+
+        return results
+    }
+
     /// Strips trailing prose punctuation from a URL that NSDataDetector
     /// may have over-eagerly included.
     private static func trimTrailingPunctuation(_ url: URL) -> URL {

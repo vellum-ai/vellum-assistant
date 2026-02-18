@@ -243,13 +243,8 @@ private func buildSessionTransportMetadata(
 }
 
 extension IPCSessionCreateRequest {
-<<<<<<< HEAD
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil) {
         self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType)
-=======
-    public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil) {
-        self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: nil)
->>>>>>> e3021c06 (feat: add plain URL extractor for media embed pipeline)
     }
 
     public init(
