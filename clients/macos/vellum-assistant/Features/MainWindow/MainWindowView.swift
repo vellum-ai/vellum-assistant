@@ -1587,18 +1587,6 @@ private struct DynamicWorkspaceWrapper: View {
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
 
-    private var composerReservedHeight: CGFloat {
-        guard !isChatDockOpen else { return 0 }
-        let editorClamped = min(max(workspaceEditorContentHeight, 14), 200)
-        let contentHeight = max(editorClamped, 28)
-        let expanded = windowState.workspaceComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.lg : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 28 + VSpacing.xs : 0
-        let hasAttachments = !viewModel.pendingAttachments.isEmpty
-        let attachmentStrip: CGFloat = hasAttachments ? VSpacing.sm + 36 + VSpacing.xs : 0
-        return VSpacing.sm + VSpacing.md + topPad + VSpacing.sm + contentHeight + buttonRow + attachmentStrip
-    }
-
     var body: some View {
         ZStack {
             DynamicPageSurfaceView(
@@ -1628,7 +1616,7 @@ private struct DynamicWorkspaceWrapper: View {
                     surfaceManager.onLinkOpen?(url, metadata)
                 },
                 topContentInset: 56,
-                bottomContentInset: composerReservedHeight
+                bottomContentInset: 0
             )
 
             VStack(spacing: 0) {
@@ -1818,34 +1806,6 @@ private struct DynamicWorkspaceWrapper: View {
                 .padding(.top, VSpacing.md)
 
                 Spacer()
-
-                if !isChatDockOpen {
-                    WorkspaceActivityFeed(viewModel: viewModel)
-                }
-
-                if !isChatDockOpen {
-                    ComposerView(
-                        inputText: Binding(
-                            get: { viewModel.inputText },
-                            set: { viewModel.inputText = $0 }
-                        ),
-                        hasAPIKey: windowState.hasAPIKey,
-                        isSending: viewModel.isSending,
-                        isRecording: viewModel.isRecording,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        onSend: viewModel.sendMessage,
-                        onStop: viewModel.stopGenerating,
-                        onAcceptSuggestion: viewModel.acceptSuggestion,
-                        onAttach: { openFilePicker(viewModel: viewModel) },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        placeholderText: "Message your assistant...",
-                        editorContentHeight: $workspaceEditorContentHeight,
-                        isComposerExpanded: $windowState.workspaceComposerExpanded
-                    )
-                }
             }
         }
     }
