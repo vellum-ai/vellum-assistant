@@ -161,11 +161,22 @@ export class WorkspaceGitService {
         }
 
         if (existsSync(gitDir)) {
-          // Repo is healthy
-          this.initialized = true;
-          return;
+          // .git exists and passed the corruption check, but we still
+          // need to verify that at least one commit exists. A partial
+          // init (e.g. git init succeeded but the initial commit failed)
+          // leaves .git present with an undefined HEAD. In that case,
+          // fall through to the initial commit logic below.
+          try {
+            await this.execGit(['rev-parse', 'HEAD']);
+            // HEAD resolves — repo is fully initialized
+            this.initialized = true;
+            return;
+          } catch {
+            // HEAD doesn't resolve — no commits yet.
+            // Fall through to create the initial commit.
+          }
         }
-        // Otherwise fall through to reinitialize
+        // Otherwise fall through to reinitialize / create initial commit
       }
 
       // Initialize new git repository
