@@ -20,12 +20,17 @@ struct InlineVideoEmbedCard: View {
         VideoEmbedURLBuilder.buildEmbedURL(provider: provider, videoID: videoID) ?? embedURL
     }
 
-    private var isExpanded: Bool {
+    /// Card height varies by state: expanded for active playback,
+    /// medium for the click-to-play placeholder, compact for the
+    /// link-only fallback shown after a load failure.
+    private var cardHeight: CGFloat {
         switch stateManager.state {
         case .playing, .initializing:
-            return true
-        case .placeholder, .failed:
-            return false
+            return 315
+        case .placeholder:
+            return 180
+        case .failed:
+            return 60
         }
     }
 
@@ -41,8 +46,8 @@ struct InlineVideoEmbedCard: View {
             stateContent
         }
         .frame(maxWidth: .infinity)
-        .frame(height: isExpanded ? 315 : 180)
-        .animation(.easeInOut(duration: 0.25), value: isExpanded)
+        .frame(height: cardHeight)
+        .animation(.easeInOut(duration: 0.25), value: cardHeight)
         .onDisappear {
             // Tear down active/loading webviews when scrolled offscreen
             // to prevent memory leaks and background audio playback.
@@ -103,24 +108,29 @@ struct InlineVideoEmbedCard: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
+    /// Link-only fallback shown when the webview fails to load.
+    /// Displays the provider name and the original embed URL as a
+    /// clickable link that opens in the default browser.
     private func failedView(_ message: String) -> some View {
-        VStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 32))
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "play.rectangle.fill")
+                .font(.system(size: 16))
                 .foregroundStyle(VColor.textSecondary)
 
-            Text(message)
+            Text(provider.capitalized)
                 .font(VFont.caption)
                 .foregroundStyle(VColor.textSecondary)
-                .multilineTextAlignment(.center)
 
-            Text("Tap to retry")
+            Text(embedURL.absoluteString)
                 .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary.opacity(0.7))
+                .foregroundStyle(VColor.accent)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
+        .padding(.horizontal, VSpacing.md)
         .contentShape(Rectangle())
         .onTapGesture {
-            stateManager.requestPlay()
+            NSWorkspace.shared.open(embedURL)
         }
     }
 }

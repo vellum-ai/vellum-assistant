@@ -112,7 +112,7 @@ final class InlineVideoWebViewFailureTests: XCTestCase {
         stateManager.didFail("Timed out")
         XCTAssertEqual(stateManager.state, .failed("Timed out"))
 
-        // Tap-to-retry invokes requestPlay again
+        // requestPlay from failed transitions back to initializing
         stateManager.requestPlay()
         XCTAssertEqual(stateManager.state, .initializing)
     }
