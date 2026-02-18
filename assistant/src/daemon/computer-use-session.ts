@@ -19,7 +19,7 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
-import { projectSkillTools } from './session-skill-tools.js';
+import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -559,6 +559,7 @@ export class ComputerUseSession {
   private notifyTerminal(): void {
     if (this.terminalNotified) return;
     this.terminalNotified = true;
+    resetSkillToolProjection(this.skillProjectionState);
     this.onTerminal?.(this.sessionId);
   }
 
