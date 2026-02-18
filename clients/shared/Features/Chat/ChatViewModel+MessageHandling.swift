@@ -259,8 +259,7 @@ extension ChatViewModel {
             } else {
                 // Create new assistant message
                 var msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
-                if messages.last(where: { $0.role == .user })?.text
-                    .trimmingCharacters(in: .whitespacesAndNewlines) == "/models" {
+                if currentTurnUserText == "/models" {
                     msg.modelList = ModelListData()
                 }
                 currentAssistantMessageId = msg.id
@@ -283,6 +282,7 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
+            currentTurnUserText = nil
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
                 isSending = false
@@ -438,10 +438,12 @@ extension ChatViewModel {
         case .messageDequeued(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
-            // Mark the associated user message as processing
+            // Mark the associated user message as processing and track its text
+            // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
                let index = messages.firstIndex(where: { $0.id == messageId }) {
                 messages[index].status = .processing
+                currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             // Recompute positions for remaining queued messages
             for i in messages.indices {

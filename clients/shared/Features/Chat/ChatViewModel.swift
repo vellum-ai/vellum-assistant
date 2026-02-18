@@ -86,6 +86,10 @@ public final class ChatViewModel: ObservableObject {
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     private var messageLoopGeneration: UInt64 = 0
     var currentAssistantMessageId: UUID?
+    /// The trimmed user text that initiated the current assistant turn.
+    /// Used to tag the assistant message (e.g. modelList for "/models") without
+    /// scanning the whole transcript, which would be fragile under queued messages.
+    var currentTurnUserText: String?
     /// Tracks whether the current assistant message has received any text content.
     /// Used to determine `arrivedBeforeText` for each tool call in the message.
     var currentAssistantHasText: Bool = false
@@ -251,6 +255,13 @@ public final class ChatViewModel: ObservableObject {
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+        }
+
+        // Track the user text for this turn so assistantTextDelta can tag the
+        // response correctly (e.g. modelList for "/models") without scanning the
+        // whole transcript. For queued messages this is set in messageDequeued.
+        if !willBeQueued {
+            currentTurnUserText = text
         }
 
         if sessionId == nil {
