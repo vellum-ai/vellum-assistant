@@ -20,7 +20,11 @@ import {
 import { connect as netConnect, type Socket } from 'node:net';
 import { issueLeafCert } from './certs.js';
 
-/** Hop-by-hop headers stripped during forwarding. */
+/**
+ * Hop-by-hop headers stripped during forwarding.
+ * transfer-encoding is intentionally preserved: we forward body bytes raw,
+ * so stripping it would cause upstream to misparse chunked bodies.
+ */
 const HOP_BY_HOP = new Set([
   'connection',
   'keep-alive',
@@ -29,7 +33,6 @@ const HOP_BY_HOP = new Set([
   'proxy-connection',
   'te',
   'trailer',
-  'transfer-encoding',
   'upgrade',
 ]);
 
@@ -143,7 +146,7 @@ export async function handleMitm(
   bridge.on('end', () => clientSocket.end());
   clientSocket.on('end', () => bridge.end());
 
-  bridge.on('error', () => clientSocket.destroy());
+  bridge.on('error', () => { clientSocket.destroy(); tlsServer.close(); });
   clientSocket.on('error', () => {
     bridge.destroy();
     tlsServer.close();
@@ -166,6 +169,7 @@ function handleDecryptedConnection(
     if (!parsed) return;
 
     tlsSocket.removeListener('data', onData);
+    tlsSocket.pause();
     processRequest(tlsSocket, parsed, hostname, port, rewriteCallback, upstreamTlsOptions);
   };
 
@@ -204,6 +208,8 @@ async function processRequest(
     if (!finalHeaders['host']) {
       finalHeaders['host'] = port === 443 ? hostname : `${hostname}:${port}`;
     }
+    // Force close so each request gets a fresh MITM cycle with rewrite
+    finalHeaders['connection'] = 'close';
 
     const upstream = tlsConnect(
       {
@@ -227,6 +233,7 @@ async function processRequest(
 
         // Manual forwarding — no pipe()
         tlsSocket.on('data', (chunk) => upstream.write(chunk));
+        tlsSocket.resume();
         upstream.on('data', (chunk) => tlsSocket.write(chunk));
 
         upstream.on('end', () => tlsSocket.end());
