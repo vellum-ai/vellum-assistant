@@ -7,6 +7,30 @@ import { getLogger } from '../util/logger.js';
 const execFileAsync = promisify(execFile);
 const log = getLogger('workspace-git');
 
+/**
+ * Patterns excluded from workspace git tracking.
+ * These are written to .gitignore on init and appended to existing .gitignore files.
+ */
+const WORKSPACE_GITIGNORE_RULES = [
+  'data/',
+  'logs/',
+  '*.log',
+  '*.sock',
+  '*.pid',
+  '*.sqlite',
+  '*.sqlite-journal',
+  '*.sqlite-wal',
+  '*.sqlite-shm',
+  '*.db',
+  '*.db-journal',
+  '*.db-wal',
+  '*.db-shm',
+  'vellum.sock',
+  'vellum.pid',
+  'session-token',
+  'http-token',
+];
+
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
   killed?: boolean;
@@ -210,28 +234,16 @@ export class WorkspaceGitService {
 
       // Ensure .gitignore contains runtime exclusions.
       // Preserve any existing rules the workspace already had.
-      const runtimeIgnores = [
-        'data/',
-        'logs/',
-        '*.log',
-        '*.sock',
-        '*.pid',
-        'vellum.sock',
-        'vellum.pid',
-        'session-token',
-        'http-token',
-      ];
-
       const gitignorePath = join(this.workspaceDir, '.gitignore');
       if (existsSync(gitignorePath)) {
         const existing = readFileSync(gitignorePath, 'utf-8');
-        const missingRules = runtimeIgnores.filter(rule => !existing.includes(rule));
+        const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !existing.includes(rule));
         if (missingRules.length > 0) {
           const section = '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
           writeFileSync(gitignorePath, existing + section, 'utf-8');
         }
       } else {
-        const gitignore = '# Runtime state - excluded from git tracking\n' + runtimeIgnores.join('\n') + '\n';
+        const gitignore = '# Runtime state - excluded from git tracking\n' + WORKSPACE_GITIGNORE_RULES.join('\n') + '\n';
         writeFileSync(gitignorePath, gitignore, 'utf-8');
       }
 
