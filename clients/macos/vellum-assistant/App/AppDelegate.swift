@@ -383,6 +383,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.handleEscalationToComputerUse(routed: routed)
         }
 
+        daemonClient.onDocumentEditorShow = { [weak self] msg in
+            self?.mainWindow?.handleDocumentEditorShow(msg)
+        }
+        daemonClient.onDocumentEditorUpdate = { [weak self] msg in
+            self?.mainWindow?.handleDocumentEditorUpdate(msg)
+        }
+        daemonClient.onDocumentSaveResponse = { [weak self] msg in
+            self?.mainWindow?.handleDocumentSaveResponse(msg)
+        }
+
         // Handle diagnostics export response — show a toast in the main window
         daemonClient.onDiagnosticsExportResponse = { [weak self] response in
             guard let self else { return }

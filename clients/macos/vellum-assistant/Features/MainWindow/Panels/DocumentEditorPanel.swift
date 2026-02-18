@@ -1,0 +1,41 @@
+import SwiftUI
+import VellumAssistantShared
+
+struct DocumentEditorPanelView: View {
+    @ObservedObject var documentManager: DocumentManager
+    let daemonClient: DaemonClient
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header toolbar
+            HStack {
+                Text(documentManager.title)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+                if documentManager.isSaving {
+                    ProgressView().controlSize(.small).scaleEffect(0.7)
+                } else {
+                    VIconButton(label: "Save", icon: "square.and.arrow.down", isActive: false, iconOnly: true) {
+                        documentManager.save()
+                    }
+                }
+                VIconButton(label: "Close", icon: "xmark", isActive: false, iconOnly: true, action: onClose)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.backgroundSubtle)
+
+            Divider().background(VColor.surfaceBorder)
+
+            DocumentEditorView(
+                documentManager: documentManager,
+                onContentChanged: { title, content, wordCount in
+                    documentManager.updateContent(title: title, content: content, wordCount: wordCount)
+                }
+            )
+        }
+    }
+}
