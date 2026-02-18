@@ -66,9 +66,9 @@ describe('buildStarterTaskPlaybookSection', () => {
     expect(section).toContain('user_selected');
   });
 
-  test('make_it_yours uses app_update instead of invalid ui_show config_update', () => {
+  test('make_it_yours uses app_file_edit instead of invalid ui_show config_update', () => {
     const section = buildStarterTaskPlaybookSection();
-    expect(section).toContain('app_update');
+    expect(section).toContain('app_file_edit');
     expect(section).not.toContain('config_update');
     expect(section).not.toContain('surface_type: "config_update"');
   });
