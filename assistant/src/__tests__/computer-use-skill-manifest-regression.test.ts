@@ -1,9 +1,11 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { initializeTools, __resetRegistryForTesting } from '../tools/registry.js';
+import { initializeTools, getTool, registerSkillTools, unregisterSkillTools, __resetRegistryForTesting } from '../tools/registry.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { COMPUTER_USE_TOOL_NAMES, COMPUTER_USE_TOOL_COUNT } from './test-support/computer-use-skill-harness.js';
+import { RiskLevel } from '../permissions/types.js';
+import type { Tool } from '../tools/types.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
 
@@ -67,5 +69,39 @@ describe('computer-use skill manifest regression', () => {
       expect(manifestTool).toBeDefined();
       expect(manifestTool.input_schema).toEqual(def.input_schema);
     }
+  });
+
+  test('CU action tools are not registered as core tools after initializeTools()', async () => {
+    await initializeTools();
+
+    // The 12 computer_use_* action tools must NOT be in the global registry
+    // after initializeTools(). If they were, registerSkillTools() would throw
+    // a "collides with core tool" error when the computer-use skill is activated.
+    for (const name of COMPUTER_USE_TOOL_NAMES) {
+      expect(getTool(name)).toBeUndefined();
+    }
+  });
+
+  test('registerSkillTools succeeds for manifest tool names after initializeTools()', async () => {
+    await initializeTools();
+
+    // Simulate what projectSkillTools() does when the computer-use skill is
+    // activated: create skill-origin Tool objects matching the manifest names
+    // and register them. This must not throw.
+    const skillTools: Tool[] = manifest.tools.map((entry: { name: string; description: string }) => ({
+      name: entry.name,
+      description: entry.description,
+      category: 'computer-use',
+      defaultRiskLevel: RiskLevel.Low,
+      origin: 'skill' as const,
+      ownerSkillId: 'computer-use',
+      getDefinition: () => ({ name: entry.name, description: entry.description, input_schema: { type: 'object' as const, properties: {} } }),
+      execute: async () => ({ content: 'stub', isError: false }),
+    }));
+
+    expect(() => registerSkillTools(skillTools)).not.toThrow();
+
+    // Clean up
+    unregisterSkillTools('computer-use');
   });
 });
