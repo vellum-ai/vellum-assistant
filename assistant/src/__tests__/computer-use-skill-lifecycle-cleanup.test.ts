@@ -89,21 +89,37 @@ describe('CU session skill tool lifecycle cleanup', () => {
     expect(getSkillRefCount('computer-use')).toBe(0);
   });
 
-  test('computer-use skill refcount is 0 after session is aborted', () => {
-    const provider = createProvider([doneResponse]);
+  test('computer-use skill refcount is 0 after session is aborted', async () => {
+    // Use a provider that never responds so the session stays active long
+    // enough to abort after skill projection has occurred.
+    const hangingProvider: Provider = {
+      name: 'mock',
+      sendMessage: () => new Promise<ProviderResponse>(() => {}),
+    };
+
     const session = new ComputerUseSession(
       'cleanup-abort',
       'test abort cleanup',
       1440, 900,
-      provider,
+      hangingProvider,
       () => {},
       'computer_use',
     );
 
-    // Projection hasn't happened yet so refcount should be 0
     expect(getSkillRefCount('computer-use')).toBe(0);
 
+    // Start the session (don't await — it will hang on the provider call).
+    // Skill projection happens synchronously at the start of runAgentLoop,
+    // so by the time sendMessage is called the refcount has been incremented.
+    const sessionPromise = session.handleObservation({ ...observation, sessionId: 'cleanup-abort' });
+
+    // Yield to let runAgentLoop start and reach the provider call
+    await new Promise((r) => setTimeout(r, 50));
+
     session.abort();
+
+    // Let the session finish its cleanup
+    await sessionPromise;
 
     expect(session.getState()).toBe('error');
     expect(getSkillRefCount('computer-use')).toBe(0);
