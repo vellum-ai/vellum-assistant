@@ -81,6 +81,13 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   fi
 ' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}"
 
+# Verify tests actually ran — catch xargs startup failures
+actual_runs=$(ls "${results_dir}"/*.out 2>/dev/null | wc -l)
+if [[ ${actual_runs} -eq 0 ]]; then
+  echo "ERROR: No tests were executed (xargs may have failed to start)"
+  exit 1
+fi
+
 # Print output for any failed tests
 if [[ -f "${results_dir}/failures" ]]; then
   echo ""
