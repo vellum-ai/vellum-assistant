@@ -102,11 +102,11 @@ export interface SessionMemoryPolicy {
   strictSideEffects: boolean;
 }
 
-export const DEFAULT_MEMORY_POLICY: SessionMemoryPolicy = {
+export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> = Object.freeze({
   scopeId: 'default',
   includeDefaultFallback: false,
   strictSideEffects: false,
-};
+});
 
 const log = getLogger('session');
 
@@ -203,7 +203,7 @@ export class Session {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.broadcastToAllClients = broadcastToAllClients;
-    this.memoryPolicy = memoryPolicy ?? DEFAULT_MEMORY_POLICY;
+    this.memoryPolicy = memoryPolicy ? { ...memoryPolicy } : { ...DEFAULT_MEMORY_POLICY };
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.secretPrompter = new SecretPrompter(sendToClient);
