@@ -1684,6 +1684,23 @@ private struct DynamicWorkspaceWrapper: View {
                             .frame(width: 1, height: 1)
                         )
                     }
+
+                    Button(action: {
+                        showSharePicker = false
+                        windowState.closeDynamicPanel()
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(VColor.surface.opacity(0.85))
+                                    .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close workspace")
                 }
                 .padding(.leading, trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
