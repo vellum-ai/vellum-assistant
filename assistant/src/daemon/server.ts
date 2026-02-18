@@ -708,7 +708,7 @@ export class DaemonServer {
     };
 
     // Persist session options so they survive eviction/recreation.
-    if (options && (options.systemPromptOverride || options.maxResponseTokens || options.transport)) {
+    if (options && Object.values(options).some(v => v !== undefined)) {
       this.sessionOptions.set(conversationId, {
         ...this.sessionOptions.get(conversationId),
         ...options,
