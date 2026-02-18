@@ -821,8 +821,7 @@ private struct ChatBubble: View {
 
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
-    @State private var imageEmbedIntents: [MediaEmbedIntent] = []
-    @State private var videoEmbedIntents: [MediaEmbedIntent] = []
+    @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -912,14 +911,12 @@ private struct ChatBubble: View {
                     }
                 }
 
-                // Media embeds rendered below the text
-                ForEach(imageEmbedIntents.indices, id: \.self) { idx in
-                    if case .image(let url) = imageEmbedIntents[idx] {
+                // Media embeds rendered below the text, preserving source order
+                ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
+                    switch mediaEmbedIntents[idx] {
+                    case .image(let url):
                         InlineImageEmbedView(url: url)
-                    }
-                }
-                ForEach(videoEmbedIntents.indices, id: \.self) { idx in
-                    if case .video(let provider, let videoID, let embedURL) = videoEmbedIntents[idx] {
+                    case .video(let provider, let videoID, let embedURL):
                         InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
                     }
                 }
@@ -983,13 +980,10 @@ private struct ChatBubble: View {
         }
         .task(id: message.text) {
             guard let settings = mediaEmbedSettings else {
-                imageEmbedIntents = []
-                videoEmbedIntents = []
+                mediaEmbedIntents = []
                 return
             }
-            let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
-            imageEmbedIntents = resolved.filter { if case .image = $0 { return true } else { return false } }
-            videoEmbedIntents = resolved.filter { if case .video = $0 { return true } else { return false } }
+            mediaEmbedIntents = await MediaEmbedResolver.resolve(message: message, settings: settings)
         }
     }
 
