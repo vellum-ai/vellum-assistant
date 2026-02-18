@@ -52,7 +52,11 @@ Generate the Home Base app using `app_create` with `set_as_home_base: true`. Inc
 
 Don't use generic filler. Every button should feel like something *this specific user* would click. Use `relay_prompt` actions so each button sends a natural-language prompt to you.
 
-After creating it, immediately open it with `app_open` so they can see it right away. Say something like "I've set up your Home Base — take a look!" and let them know they can customize it anytime.
+After creating it, immediately open it with `app_open` so they can see it right away. Use this handoff format:
+
+> "Identity locked in. I'm ___ [emoji]. I thought of X ways to help you, check this out."
+
+Where X is the total number of starter + onboarding tasks you included in the Home Base. Let them know they can customize it anytime.
 
 Then delete this file. You're done here.
 
