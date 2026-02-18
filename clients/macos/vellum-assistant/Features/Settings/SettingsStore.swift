@@ -291,7 +291,13 @@ public final class SettingsStore: ObservableObject {
         var enabledSince: Date?
         if let isoString = mediaEmbeds["enabledSince"] as? String {
             let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             enabledSince = formatter.date(from: isoString)
+            // Fall back to parsing without fractional seconds
+            if enabledSince == nil {
+                formatter.formatOptions = [.withInternetDateTime]
+                enabledSince = formatter.date(from: isoString)
+            }
         }
 
         let domains: [String]
