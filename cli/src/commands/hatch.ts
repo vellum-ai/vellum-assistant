@@ -13,12 +13,11 @@ import {
 } from "../lib/constants";
 import type { Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { instanceExists, syncFirewallRules } from "../lib/gcp";
+import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
 
-const GCP_PROJECT = "vellum-nonprod";
 const DEFAULT_ZONE = "us-central1-a";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
@@ -445,7 +444,7 @@ export async function hatch(): Promise<void> {
   const { species, detached, name } = parseArgs();
   try {
     await activateGcpCredentialsFromConfig();
-    const project = GCP_PROJECT;
+    const project = process.env.GCP_PROJECT ?? (await getActiveProject());
     let instanceName: string;
 
     if (name) {
