@@ -6,52 +6,71 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension AppDelegate {
 
+    // MARK: - Accessibility Permission
+
+    /// Poll for accessibility permission after prompting, giving the user time to grant it in System Settings.
+    /// `AXIsProcessTrustedWithOptions` returns immediately even with `prompt: true`, so we need to poll.
+    private func waitForAccessibilityPermission() async -> Bool {
+        // Already granted — no need to prompt or poll
+        if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
+
+        // Show the OS prompt
+        _ = ActionExecutor.checkAccessibilityPermission(prompt: true)
+
+        // Poll every 500ms for up to 30 seconds
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
+        }
+        return false
+    }
+
     // MARK: - Escalation
 
     /// Handle escalation from an active text_qa session to foreground computer use.
     func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
-        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
-            log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
-            try? daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
-            self.mainWindow?.windowState.showToast(
-                message: "Computer control requires Accessibility permission. Grant it in System Settings → Privacy & Security → Accessibility.",
-                style: .error
-            )
-            return
-        }
-
-        let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
-        let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-        let session = ComputerUseSession(
-            task: routed.task ?? "Escalated task",
-            daemonClient: self.daemonClient,
-            maxSteps: maxSteps,
-            sessionId: routed.sessionId,
-            skipSessionCreate: true,
-            notificationService: self.services.activityNotificationService
-        )
-        // Don't bind relatedViewModel for escalated sessions — the active view model
-        // may be unrelated if the user switched threads. Tool calls for escalated
-        // sessions are tracked by the daemon session, not by ChatViewModel.
-        self.currentSession = session
-
-        let overlay = SessionOverlayWindow(session: session)
-        overlay.show()
-        self.overlayWindow = overlay
-        self.ambientAgent.pause()
-
-        // Close the text response window but keep the text session reference
-        // (no de-escalation for MVP — text session is effectively done)
-        self.textResponseWindow?.close()
-        self.textResponseWindow = nil
-
-        // Hide main window so the target app becomes frontmost for CU
-        let mainWindowWasVisible = self.mainWindow?.isVisible ?? false
-        if mainWindowWasVisible {
-            self.mainWindow?.hide()
-        }
-
         Task { @MainActor in
+            guard await waitForAccessibilityPermission() else {
+                log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
+                try? daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                self.mainWindow?.windowState.showToast(
+                    message: "Computer control requires Accessibility permission. Grant it in System Settings → Privacy & Security → Accessibility.",
+                    style: .error
+                )
+                return
+            }
+
+            let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
+            let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+            let session = ComputerUseSession(
+                task: routed.task ?? "Escalated task",
+                daemonClient: self.daemonClient,
+                maxSteps: maxSteps,
+                sessionId: routed.sessionId,
+                skipSessionCreate: true,
+                notificationService: self.services.activityNotificationService
+            )
+            // Don't bind relatedViewModel for escalated sessions — the active view model
+            // may be unrelated if the user switched threads. Tool calls for escalated
+            // sessions are tracked by the daemon session, not by ChatViewModel.
+            self.currentSession = session
+
+            let overlay = SessionOverlayWindow(session: session)
+            overlay.show()
+            self.overlayWindow = overlay
+            self.ambientAgent.pause()
+
+            // Close the text response window but keep the text session reference
+            // (no de-escalation for MVP — text session is effectively done)
+            self.textResponseWindow?.close()
+            self.textResponseWindow = nil
+
+            // Hide main window so the target app becomes frontmost for CU
+            let mainWindowWasVisible = self.mainWindow?.isVisible ?? false
+            if mainWindowWasVisible {
+                self.mainWindow?.hide()
+            }
+
             await session.run()
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
@@ -147,7 +166,7 @@ extension AppDelegate {
 
             switch routed.interactionType {
             case "computer_use":
-                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
+                guard await self.waitForAccessibilityPermission() else {
                     log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
                     try? self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
                     return
