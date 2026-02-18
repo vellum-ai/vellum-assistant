@@ -157,7 +157,10 @@ struct MainWindowView: View {
 
     private func requestHomeBaseDashboardIfNeeded() {
         guard !isBootstrapOnboardingActive else { return }
-        guard homeBaseDashboardDefaultEnabled else { return }
+        // Auto-enable the dashboard once bootstrap is complete.
+        if !homeBaseDashboardDefaultEnabled {
+            homeBaseDashboardDefaultEnabled = true
+        }
         guard daemonClient.isConnected else { return }
         guard !requestedHomeBaseAtLaunch else { return }
         guard !windowState.isDynamicExpanded else {
