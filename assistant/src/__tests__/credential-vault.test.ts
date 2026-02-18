@@ -683,6 +683,92 @@ describe('credential_store tool', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Multi-key same-service vault storage
+  // -----------------------------------------------------------------------
+  describe('multi-key same-service storage', () => {
+    test('stores two credentials with same service but different aliases', async () => {
+      const result1 = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_prod',
+        value: 'sk-prod-abc',
+        alias: 'production',
+      }, _ctx);
+      expect(result1.isError).toBe(false);
+
+      const result2 = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_staging',
+        value: 'sk-staging-xyz',
+        alias: 'staging',
+      }, _ctx);
+      expect(result2.isError).toBe(false);
+
+      // Verify both stored independently in metadata
+      const meta1 = getCredentialMetadata('openai', 'api_key_prod');
+      const meta2 = getCredentialMetadata('openai', 'api_key_staging');
+      expect(meta1).toBeDefined();
+      expect(meta2).toBeDefined();
+      expect(meta1!.alias).toBe('production');
+      expect(meta2!.alias).toBe('staging');
+    });
+
+    test('listing shows both same-service credentials independently', async () => {
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_prod',
+        value: 'sk-prod-abc',
+        alias: 'production',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_staging',
+        value: 'sk-staging-xyz',
+        alias: 'staging',
+      }, _ctx);
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.isError).toBe(false);
+
+      const entries = JSON.parse(result.content);
+      const openaiEntries = entries.filter((e: { service: string }) => e.service === 'openai');
+      expect(openaiEntries).toHaveLength(2);
+
+      const aliases = openaiEntries.map((e: { alias?: string }) => e.alias).sort();
+      expect(aliases).toEqual(['production', 'staging']);
+    });
+
+    test('each same-service credential has its own credential_id', async () => {
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_prod',
+        value: 'sk-prod-abc',
+        alias: 'production',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key_staging',
+        value: 'sk-staging-xyz',
+        alias: 'staging',
+      }, _ctx);
+
+      const meta1 = getCredentialMetadata('openai', 'api_key_prod');
+      const meta2 = getCredentialMetadata('openai', 'api_key_staging');
+      expect(meta1).toBeDefined();
+      expect(meta2).toBeDefined();
+      expect(meta1!.credentialId).not.toBe(meta2!.credentialId);
+      // Both should be valid UUIDs (non-empty strings)
+      expect(meta1!.credentialId.length).toBeGreaterThan(0);
+      expect(meta2!.credentialId.length).toBeGreaterThan(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Namespace isolation
   // -----------------------------------------------------------------------
   describe('namespace isolation', () => {

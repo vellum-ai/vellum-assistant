@@ -222,3 +222,105 @@ describe('rankCredentialsForEndpoint', () => {
     expect(result.topChoice?.confidence).toBe('high');
   });
 });
+
+describe('multi-key same-service selection', () => {
+  test('two OpenAI credentials targeting the same endpoint — deterministic chosen credential_id', () => {
+    const creds = [
+      makeCred({
+        credentialId: 'openai-key-1',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+      makeCred({
+        credentialId: 'openai-key-2',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 2000000,
+      }),
+    ];
+
+    const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
+    // Both have exact host match (score 100), differ only by recency.
+    // Recency difference is small (< SCORE_ALIAS_SET=10), so this is ambiguous.
+    expect(result.ambiguous).toBe(true);
+    expect(result.topChoice?.confidence).toBe('low');
+    // Despite ambiguity, topChoice is deterministic: the more recent key wins.
+    expect(result.topChoice?.credentialId).toBe('openai-key-2');
+    expect(result.candidates).toHaveLength(2);
+  });
+
+  test('ambiguity fallback path when two credentials have identical scores', () => {
+    const creds = [
+      makeCred({
+        credentialId: 'key-a',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+      makeCred({
+        credentialId: 'key-b',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+    ];
+
+    const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
+    expect(result.ambiguous).toBe(true);
+    expect(result.topChoice?.confidence).toBe('low');
+    // Both candidates are present
+    expect(result.candidates).toHaveLength(2);
+  });
+
+  test('one credential with specific host template wins over one with generic template', () => {
+    const creds = [
+      makeCred({
+        credentialId: 'generic-key',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: '*.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 2000000,
+      }),
+      makeCred({
+        credentialId: 'specific-key',
+        service: 'openai',
+        injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+    ];
+
+    const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
+    // exact host (100) vs wildcard (50) — not ambiguous, specific key wins
+    expect(result.topChoice?.credentialId).toBe('specific-key');
+    expect(result.topChoice?.confidence).toBe('high');
+    expect(result.ambiguous).toBe(false);
+  });
+
+  test('both credentials have aliases — alias alone does not break ties', () => {
+    const creds = [
+      makeCred({
+        credentialId: 'aliased-1',
+        service: 'openai',
+        alias: 'production-key',
+        injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+      makeCred({
+        credentialId: 'aliased-2',
+        service: 'openai',
+        alias: 'staging-key',
+        injectionTemplates: [{ hostPattern: 'api.openai.com', injectionType: 'header', headerName: 'Authorization' }],
+        updatedAt: 1000000,
+      }),
+    ];
+
+    const result = rankCredentialsForEndpoint(creds, 'api.openai.com');
+    // Both have exact host (100) + alias (10) = 110 each + identical recency
+    // Score difference is 0, which is < SCORE_ALIAS_SET, so ambiguous
+    expect(result.ambiguous).toBe(true);
+    expect(result.topChoice?.confidence).toBe('low');
+    expect(result.candidates).toHaveLength(2);
+    // Both candidates score 110 + same recency
+    expect(result.candidates[0].score).toBeCloseTo(result.candidates[1].score, 5);
+  });
+});
