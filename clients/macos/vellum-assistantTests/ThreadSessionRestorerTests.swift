@@ -60,13 +60,22 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 // MARK: - Helpers
 
 /// Build an IPCSessionListResponse via JSON round-trip.
-private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int)]) -> SessionListResponseMessage {
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
     let sessionDicts = sessions.map { session -> [String: Any] in
-        ["id": session.id, "title": session.title, "updatedAt": session.updatedAt]
+        var dict: [String: Any] = ["id": session.id, "title": session.title, "updatedAt": session.updatedAt]
+        if let threadType = session.threadType {
+            dict["threadType"] = threadType
+        }
+        return dict
     }
     let dict: [String: Any] = ["type": "session_list_response", "sessions": sessionDicts]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+}
+
+/// Convenience overload without threadType for existing tests.
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int)]) -> SessionListResponseMessage {
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, nil) })
 }
 
 /// Build an IPCHistoryResponse via JSON round-trip.
@@ -352,5 +361,68 @@ struct ThreadSessionRestorerTests {
         #expect(delegate.createThreadCallCount == 0)
         #expect(delegate.threads.count == 2)
         #expect(delegate.threads.contains(where: { $0.id == activeThread.id }))
+    }
+
+    // MARK: - Thread Type Mapping
+
+    @Test @MainActor
+    func privateThreadTypeRestoresAsPrivateKind() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Private Chat", updatedAt: 2000, threadType: "private"),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .private)
+        #expect(delegate.threads[0].sessionId == "s1")
+    }
+
+    @Test @MainActor
+    func nilThreadTypeRestoresAsStandardKind() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Regular Chat", updatedAt: 2000, threadType: nil),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
+    }
+
+    @Test @MainActor
+    func standardThreadTypeRestoresAsStandardKind() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Standard Chat", updatedAt: 2000, threadType: "standard"),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
     }
 }
