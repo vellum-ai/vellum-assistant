@@ -44,9 +44,10 @@ struct MainWindowView: View {
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
+    @ObservedObject var documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -56,6 +57,7 @@ struct MainWindowView: View {
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
         self.windowState = windowState
+        self.documentManager = documentManager
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
@@ -1165,6 +1167,20 @@ struct MainWindowView: View {
                         }
                     }
                 )
+            } else if panelType == .documentEditor {
+                let config = windowState.layoutConfig
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: documentManager.hasActiveDocument,
+                    main: { slotView(for: config.center.content) },
+                    panel: {
+                        DocumentEditorPanelView(
+                            documentManager: documentManager,
+                            daemonClient: daemonClient,
+                            onClose: { windowState.selection = nil }
+                        )
+                    }
+                )
             } else {
                 // Full-window panels: settings, skills, debug, doctor, identity
                 fullWindowPanel(panelType)
@@ -1252,6 +1268,10 @@ struct MainWindowView: View {
             // if we reach here, isDynamicExpanded is false — clear selection so
             // the user falls back to the chat view instead of seeing a blank screen.
             Color.clear.frame(width: 0, height: 0)
+                .onAppear { windowState.dismissOverlay() }
+        case .documentEditor:
+            // Document editor is handled inline in chatContentView
+            EmptyView()
                 .onAppear { windowState.dismissOverlay() }
         default:
             EmptyView()
@@ -1772,7 +1792,7 @@ private struct DynamicWorkspaceWrapper: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState(), documentManager: DocumentManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

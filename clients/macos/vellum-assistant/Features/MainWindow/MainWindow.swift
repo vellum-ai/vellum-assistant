@@ -94,6 +94,7 @@ final class MainWindow {
     let appListManager = AppListManager()
     let traceStore = TraceStore()
     let windowState = MainWindowState()
+    let documentManager = DocumentManager()
     var onMicrophoneToggle: (() -> Void)?
 
     // Forwarding accessors — keeps existing references working while
@@ -126,6 +127,7 @@ final class MainWindow {
             activityNotificationService: services.activityNotificationService
         )
         self.threadManager.ambientAgent = services.ambientAgent
+        documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
             Task { @MainActor in
                 self?.traceStore.ingest(msg)
@@ -157,6 +159,25 @@ final class MainWindow {
             }
     }
 
+    func handleDocumentEditorShow(_ msg: DocumentEditorShowMessage) {
+        documentManager.createDocument(
+            surfaceId: msg.surfaceId,
+            sessionId: msg.sessionId,
+            title: msg.title,
+            initialContent: msg.initialContent
+        )
+        show()
+        windowState.togglePanel(.documentEditor)
+    }
+
+    func handleDocumentEditorUpdate(_ msg: DocumentEditorUpdateMessage) {
+        documentManager.updateDocument(markdown: msg.markdown, mode: msg.mode)
+    }
+
+    func handleDocumentSaveResponse(_ msg: DocumentSaveResponseMessage) {
+        documentManager.handleSaveResponse(success: msg.success, error: msg.error)
+    }
+
     func show() {
         // Switch to regular activation policy FIRST so macOS allows window
         // foregrounding — calling makeKeyAndOrderFront while still .accessory
@@ -173,7 +194,7 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth: CGFloat = 780
