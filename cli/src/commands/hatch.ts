@@ -13,15 +13,17 @@ import {
 } from "../lib/constants";
 import type { Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
+import { instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
 
+const GCP_PROJECT = "vellum-nonprod";
 const DEFAULT_ZONE = "us-central1-a";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
+const HATCH_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const DEFAULT_SPECIES: Species = "velly";
 
 const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
@@ -369,6 +371,17 @@ async function watchHatching(
         return;
       }
 
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= HATCH_TIMEOUT_MS) {
+        clearInterval(interval);
+        console.log("");
+        console.log(`   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
+        console.log(`   Monitor with: vel logs ${instanceName}`);
+        console.log("");
+        resolve(true);
+        return;
+      }
+
       if (Date.now() >= nextPollAt) {
         poll();
       }
@@ -391,7 +404,7 @@ export async function hatch(): Promise<void> {
   const startTime = Date.now();
   const { species, detached, name } = parseArgs();
   try {
-    const project = await getActiveProject();
+    const project = GCP_PROJECT;
     let instanceName: string;
 
     if (name) {
