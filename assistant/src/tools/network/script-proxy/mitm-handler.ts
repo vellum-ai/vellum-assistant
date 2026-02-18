@@ -97,6 +97,11 @@ function filterHeaders(raw: Record<string, string>): Record<string, string> {
       out[key] = value;
     }
   }
+  // Prevent request-smuggling: when Transfer-Encoding is present,
+  // Content-Length creates ambiguous framing. Drop it per RFC 7230 §3.3.3.
+  if (out['transfer-encoding']) {
+    delete out['content-length'];
+  }
   return out;
 }
 
