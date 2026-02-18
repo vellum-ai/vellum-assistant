@@ -20,7 +20,7 @@ public final class WatchSession: ObservableObject {
     public let durationSeconds: Int
     public let intervalSeconds: Int
 
-    private var daemonClient: DaemonClient?
+    private var daemonClient: (any DaemonClientProtocol)?
     private var captureTask: Task<Void, Never>?
     private var elapsedTask: Task<Void, Never>?
     private var startedAt: Date?
@@ -35,7 +35,7 @@ public final class WatchSession: ObservableObject {
         self.intervalSeconds = intervalSeconds
     }
 
-    public func start(daemonClient: DaemonClient) {
+    public func start(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
         state = .capturing
         totalExpected = durationSeconds / intervalSeconds
