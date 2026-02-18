@@ -555,7 +555,8 @@ extension ChatViewModel {
                 diff: msg.diff,
                 allowlistOptions: msg.allowlistOptions,
                 scopeOptions: msg.scopeOptions,
-                executionTarget: msg.executionTarget
+                executionTarget: msg.executionTarget,
+                persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true
             )
             let confirmMsg = ChatMessage(
                 role: .assistant,
