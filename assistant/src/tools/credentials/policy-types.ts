@@ -24,6 +24,26 @@ export interface CredentialPolicy {
   createdByFlow?: CredentialCreationFlow;
 }
 
+/** How a credential value is injected into an outbound proxied request. */
+export type CredentialInjectionType = 'header' | 'query';
+
+/**
+ * Describes where and how to inject a credential into proxied requests
+ * matching a specific host pattern.
+ */
+export interface CredentialInjectionTemplate {
+  /** Glob pattern for matching request hosts (e.g. "*.fal.ai"). */
+  hostPattern: string;
+  /** Where the credential value is injected. */
+  injectionType: CredentialInjectionType;
+  /** Header name when injectionType is 'header' (e.g. "Authorization"). */
+  headerName?: string;
+  /** Prefix prepended to the secret value (e.g. "Key ", "Bearer "). */
+  valuePrefix?: string;
+  /** Query parameter name when injectionType is 'query'. */
+  queryParamName?: string;
+}
+
 /** Input fields for specifying policy when storing a credential. */
 export interface CredentialPolicyInput {
   allowed_tools?: string[];
