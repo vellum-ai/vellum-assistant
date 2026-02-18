@@ -204,12 +204,18 @@ async function processRequest(
     if (!finalHeaders['host']) {
       finalHeaders['host'] = port === 443 ? hostname : `${hostname}:${port}`;
     }
+    // Each MITM interception handles a single request-response cycle,
+    // so always close the upstream connection after the response.
+    finalHeaders['connection'] = 'close';
 
+    // Default to skipping upstream cert validation because the proxy is
+    // already performing MITM.  The caller can override via upstreamTlsOptions.
     const upstream = tlsConnect(
       {
         host: hostname,
         port,
         servername: hostname,
+        rejectUnauthorized: false,
         ...upstreamTlsOptions,
       },
       () => {
