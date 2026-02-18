@@ -13,6 +13,10 @@ extension AppDelegate {
         guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
             log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
             try? daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+            self.mainWindow?.windowState.showToast(
+                message: "Computer control requires Accessibility permission. Grant it in System Settings → Privacy & Security → Accessibility.",
+                style: .error
+            )
             return
         }
 
@@ -41,6 +45,12 @@ extension AppDelegate {
         self.textResponseWindow?.close()
         self.textResponseWindow = nil
 
+        // Hide main window so the target app becomes frontmost for CU
+        let mainWindowWasVisible = self.mainWindow?.isVisible ?? false
+        if mainWindowWasVisible {
+            self.mainWindow?.hide()
+        }
+
         Task { @MainActor in
             await session.run()
             try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -49,6 +59,9 @@ extension AppDelegate {
             self.currentSession = nil
             self.currentTextSession = nil
             self.ambientAgent.resume()
+            if mainWindowWasVisible {
+                self.mainWindow?.show()
+            }
         }
     }
 
