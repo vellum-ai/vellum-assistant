@@ -102,7 +102,7 @@ export class ComputerUseSession {
     this.sendToClient = sendToClient;
     this.interactionType = interactionType ?? 'computer_use';
     this.onTerminal = onTerminal;
-    this.preactivatedSkillIds = preactivatedSkillIds ?? [];
+    this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
   }
 
   // ---------------------------------------------------------------------------

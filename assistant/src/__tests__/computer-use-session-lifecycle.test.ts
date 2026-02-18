@@ -28,9 +28,6 @@ mock.module('../config/loader.js', () => ({
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
 import type { Provider, ProviderResponse } from '../providers/types.js';
 import type { CuObservation, ServerMessage } from '../daemon/ipc-protocol.js';
-import { registerComputerUseTools } from '../tools/computer-use/registry.js';
-
-registerComputerUseTools();
 
 function createProvider(responses: ProviderResponse[]): { provider: Provider; getCalls: () => number } {
   let calls = 0;
@@ -230,7 +227,7 @@ describe('ComputerUseSession lifecycle', () => {
     expect(completes[0].isResponse).toBe(true);
   });
 
-  test('default construction (no preactivated skills) uses legacy CU tool definitions', async () => {
+  test('default construction preactivates computer-use skill and provides 12 CU tools', async () => {
     let capturedTools: string[] = [];
     const provider: Provider = {
       name: 'mock',

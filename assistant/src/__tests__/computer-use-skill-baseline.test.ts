@@ -17,13 +17,12 @@ import {
 afterAll(() => { __resetRegistryForTesting(); });
 
 describe('computer-use skill baseline: registry tool surfaces', () => {
-  test('all 12 computer_use_* tools are registered after initializeTools()', async () => {
+  test('no computer_use_* tools are registered after initializeTools() (migrated to skill)', async () => {
     await initializeTools();
 
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       const tool = getTool(name);
-      expect(tool).toBeDefined();
-      expect(tool?.executionMode).toBe('proxy');
+      expect(tool).toBeUndefined();
     }
   });
 
@@ -63,11 +62,11 @@ describe('computer-use skill baseline: registry tool surfaces', () => {
     assertComputerUseToolsAbsent(defNames);
   });
 
-  test('baseline count: 12 computer_use_* proxy tools in core registry', async () => {
+  test('post-cutover count: 0 computer_use_* tools in core registry', async () => {
     await initializeTools();
 
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(COMPUTER_USE_TOOL_COUNT);
+    expect(cuTools).toHaveLength(0);
   });
 });
