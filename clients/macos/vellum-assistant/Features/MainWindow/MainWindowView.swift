@@ -1405,7 +1405,6 @@ private struct ActiveChatViewWrapper: View {
             onPaste: { viewModel.addAttachmentFromPasteboard() },
             onMicrophoneToggle: onMicrophoneToggle,
             onModelPickerSelect: { messageId, modelId in
-                settingsStore.selectedModel = modelId
                 settingsStore.setModel(modelId)
             },
             selectedModel: settingsStore.selectedModel,

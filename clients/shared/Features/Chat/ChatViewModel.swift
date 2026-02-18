@@ -1009,15 +1009,22 @@ public final class ChatViewModel: ObservableObject {
 
         // Tag assistant messages that follow "/model" or "/models" user messages
         // so the client renders the picker/table UI instead of plain text.
+        var hasModelCommand = false
         for i in chatMessages.indices {
             guard chatMessages[i].role == .user,
                   i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant else { continue }
             let userText = chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines)
             if userText == "/model" {
                 chatMessages[i + 1].modelPicker = ModelPickerData()
+                hasModelCommand = true
             } else if userText == "/models" {
                 chatMessages[i + 1].modelList = ModelListData()
+                hasModelCommand = true
             }
+        }
+        // Refresh model/provider state so the picker/table has correct data on restart
+        if hasModelCommand {
+            try? daemonClient.send(ModelGetRequestMessage())
         }
 
         let hasUserSentMessages = messages.contains { $0.role == .user }
