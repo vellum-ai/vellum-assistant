@@ -6,7 +6,7 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
 import * as net from 'node:net';
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
