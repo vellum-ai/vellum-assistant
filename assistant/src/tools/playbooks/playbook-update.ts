@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
+import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
@@ -58,8 +58,7 @@ async function execute(input: Record<string, unknown>, context: ToolContext): Pr
     const subject = `Playbook: ${updated.trigger}`.slice(0, 80);
     const now = Date.now();
 
-    const normalized = `${scopeId}|playbook|${subject.toLowerCase()}|${statement.toLowerCase()}`;
-    const fingerprint = createHash('sha256').update(normalized).digest('hex');
+    const fingerprint = computeMemoryFingerprint(scopeId, 'playbook', subject, statement);
 
     // Check if another playbook already has this fingerprint
     const collision = db

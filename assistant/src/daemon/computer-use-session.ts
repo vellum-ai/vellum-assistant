@@ -10,16 +10,18 @@ import { v4 as uuid } from 'uuid';
 import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
 import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
 import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
-import type { ToolExecutionResult } from '../tools/types.js';
+import type { Tool, ToolExecutionResult } from '../tools/types.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
-import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
+import { allComputerUseTools } from '../tools/computer-use/definitions.js';
+import { registerSkillTools } from '../tools/registry.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
+import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -56,6 +58,8 @@ export class ComputerUseSession {
   private sendToClient: (msg: ServerMessage) => void;
   private readonly interactionType: 'computer_use' | 'text_qa';
   private readonly onTerminal?: (sessionId: string) => void;
+  private readonly preactivatedSkillIds: string[];
+  private readonly skillProjectionState = new Map<string, string>();
 
   private state: SessionState = 'idle';
   private stepCount = 0;
@@ -88,6 +92,7 @@ export class ComputerUseSession {
     sendToClient: (msg: ServerMessage) => void,
     interactionType?: 'computer_use' | 'text_qa',
     onTerminal?: (sessionId: string) => void,
+    preactivatedSkillIds?: string[],
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -97,6 +102,7 @@ export class ComputerUseSession {
     this.sendToClient = sendToClient;
     this.interactionType = interactionType ?? 'computer_use';
     this.onTerminal = onTerminal;
+    this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
   }
 
   // ---------------------------------------------------------------------------
@@ -148,9 +154,26 @@ export class ComputerUseSession {
     }, SESSION_TIMEOUT_MS);
 
     const messages = this.buildMessages(obs, hadPreviousAXTree);
-    this.loopPromise = this.runAgentLoop(messages);
+    this.loopPromise = this.runAgentLoop(messages).catch((err) => {
+      // Catches errors from setup code (e.g. skill projection failures) that
+      // occur before runAgentLoop's internal try-catch takes over.
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, sessionId: this.sessionId }, 'Agent loop startup failed');
+      if (this.sessionTimer) {
+        clearTimeout(this.sessionTimer);
+        this.sessionTimer = null;
+      }
+      if (this.state !== 'complete' && this.state !== 'error') {
+        this.state = 'error';
+        this.sendToClient({
+          type: 'cu_error',
+          sessionId: this.sessionId,
+          message,
+        });
+        this.notifyTerminal();
+      }
+    });
 
-    // Await the loop; errors are caught inside runAgentLoop
     await this.loopPromise;
   }
 
@@ -197,6 +220,38 @@ export class ComputerUseSession {
     return this.state;
   }
 
+  /**
+   * Compute CU tool definitions from the bundled computer-use skill via
+   * skill projection. Returns null if projection fails so the caller can
+   * fall back to legacy hardcoded tool definitions.
+   */
+  private getProjectedCuToolDefinitions(): ToolDefinition[] | null {
+    if (this.preactivatedSkillIds.length === 0) {
+      log.warn('No preactivatedSkillIds configured, falling back to legacy CU tools');
+      return null;
+    }
+
+    try {
+      const projection = projectSkillTools([], {
+        preactivatedSkillIds: this.preactivatedSkillIds,
+        previouslyActiveSkillIds: this.skillProjectionState,
+      });
+
+      if (projection.toolDefinitions.length === 0) {
+        log.warn(
+          { preactivatedSkillIds: this.preactivatedSkillIds },
+          'Skill projection produced no tool definitions, falling back to legacy CU tools',
+        );
+        return null;
+      }
+
+      return projection.toolDefinitions;
+    } catch (err) {
+      log.warn({ err }, 'Skill projection failed, falling back to legacy CU tools');
+      return null;
+    }
+  }
+
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
     const pending = this.pendingSurfaceActions.get(surfaceId);
     if (!pending) {
@@ -221,8 +276,28 @@ export class ComputerUseSession {
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
+
+    let cuToolDefs = this.getProjectedCuToolDefinitions();
+    if (!cuToolDefs) {
+      // Fallback: register the legacy CU tools as skill-origin tools so
+      // ToolExecutor can resolve them via getTool(), but using the same
+      // ownerSkillId as the bundled computer-use skill. This avoids
+      // core-vs-skill collisions that would permanently block skill
+      // projection recovery on subsequent sessions.
+      const fallbackSkillId = this.preactivatedSkillIds[0] ?? 'computer-use';
+      const fallbackTools: Tool[] = allComputerUseTools.map((t) => ({
+        ...t,
+        origin: 'skill' as const,
+        ownerSkillId: fallbackSkillId,
+      }));
+      registerSkillTools(fallbackTools);
+      // Track in the session map so resetSkillToolProjection cleans up
+      this.skillProjectionState.set(fallbackSkillId, 'fallback');
+      cuToolDefs = allComputerUseTools.map((t) => t.getDefinition());
+    }
+
     const toolDefs: ToolDefinition[] = [
-      ...allComputerUseTools.map((t) => t.getDefinition()),
+      ...cuToolDefs,
       ...allUiSurfaceTools
         .filter((t) => t.name !== 'request_file')
         .map((t) => t.getDefinition()),
@@ -512,7 +587,8 @@ export class ComputerUseSession {
         this.notifyTerminal();
       }
     } finally {
-      // Always clear session timer to prevent resource leaks
+      // Always clean up skill projection state and session timer
+      resetSkillToolProjection(this.skillProjectionState);
       if (this.sessionTimer) {
         clearTimeout(this.sessionTimer);
         this.sessionTimer = null;
@@ -523,6 +599,7 @@ export class ComputerUseSession {
   private notifyTerminal(): void {
     if (this.terminalNotified) return;
     this.terminalNotified = true;
+    resetSkillToolProjection(this.skillProjectionState);
     this.onTerminal?.(this.sessionId);
   }
 

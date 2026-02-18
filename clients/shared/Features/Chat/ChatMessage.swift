@@ -36,6 +36,8 @@ public struct ToolConfirmationData: Equatable {
     public let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
     public let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
     public let executionTarget: String?
+    /// When false, hide "Always Allow" and trust-rule persistence controls.
+    public let persistentDecisionsAllowed: Bool
     public var state: ToolConfirmationState = .pending
 
     /// Normalized target label shown in confirmation UIs.
@@ -292,7 +294,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -301,6 +303,7 @@ public struct ToolConfirmationData: Equatable {
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
         self.executionTarget = executionTarget
+        self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.state = state
     }
 }

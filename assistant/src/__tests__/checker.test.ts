@@ -52,7 +52,7 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
-import { registerTool } from '../tools/registry.js';
+import { registerTool, getTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
 
 // Import managed skill tools so they register in the tool registry.
@@ -98,8 +98,10 @@ registerTool(mockBundledSkillTool);
 
 // Register CU tools so classifyRisk returns their declared Low risk level
 // instead of falling through to Medium (unknown tool).
-import { registerComputerUseTools } from '../tools/computer-use/registry.js';
-registerComputerUseTools();
+import { registerComputerUseActionTools } from '../tools/computer-use/registry.js';
+import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+registerComputerUseActionTools();
+registerTool(requestComputerControlTool);
 
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
@@ -175,6 +177,18 @@ describe('Permission Checker', () => {
           allow_private_network: true,
         });
         expect(risk).toBe(RiskLevel.High);
+      });
+    });
+
+    describe('network_request', () => {
+      test('network_request is always medium risk', async () => {
+        const risk = await classifyRisk('network_request', { url: 'https://api.example.com/v1/data' });
+        expect(risk).toBe(RiskLevel.Medium);
+      });
+
+      test('network_request is medium risk even without url', async () => {
+        const risk = await classifyRisk('network_request', {});
+        expect(risk).toBe(RiskLevel.Medium);
       });
     });
 
@@ -476,11 +490,11 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.id).toBe('default:ask-computer_use_click-global');
     });
 
-    test('request_computer_control prompts by default via computer-use ask rule', async () => {
-      const result = await check('request_computer_control', { task: 'Open system settings' }, '/tmp');
+    test('computer_use_request_control prompts by default via computer-use ask rule', async () => {
+      const result = await check('computer_use_request_control', { task: 'Open system settings' }, '/tmp');
       expect(result.decision).toBe('prompt');
       expect(result.reason).toContain('ask rule');
-      expect(result.matchedRule?.id).toBe('default:ask-request_computer_control-global');
+      expect(result.matchedRule?.id).toBe('default:ask-computer_use_request_control-global');
     });
 
     test('higher-priority allow rule can override default computer-use ask rule', async () => {
@@ -651,6 +665,51 @@ describe('Permission Checker', () => {
     test('web_fetch deny rule blocks percent-encoded path equivalents after normalization', async () => {
       addRule('web_fetch', 'web_fetch:https://example.com/private/*', 'everywhere', 'deny');
       const result = await check('web_fetch', { url: 'https://example.com/%70rivate/doc' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    // ── network_request trust rule integration ──────────────────
+
+    test('network_request prompts without a matching rule (medium risk)', async () => {
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request allow rule auto-approves matching origin', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('network_request allow rule does not match a different host', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.other.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request deny rule blocks matching urls', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/secret/*', 'everywhere', 'deny');
+      const result = await check('network_request', { url: 'https://api.example.com/secret/key' }, '/tmp');
+      expect(result.decision).toBe('deny');
+    });
+
+    test('network_request rule is scoped to working directory', async () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/home/user/project');
+      const allowed = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/home/user/project');
+      expect(allowed.decision).toBe('allow');
+      const notAllowed = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp/other');
+      expect(notAllowed.decision).toBe('prompt');
+    });
+
+    test('network_request rules do not cross-match web_fetch rules', async () => {
+      addRule('web_fetch', 'web_fetch:https://api.example.com/*', '/tmp');
+      const result = await check('network_request', { url: 'https://api.example.com/v1/data' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('network_request normalizes scheme-less host:port urls for rule matching', async () => {
+      addRule('network_request', 'network_request:https://api.example.com:8443/*', 'everywhere', 'deny');
+      const result = await check('network_request', { url: 'api.example.com:8443/v1/data' }, '/tmp');
       expect(result.decision).toBe('deny');
     });
 
@@ -961,7 +1020,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips fragments when generating allowlist options', () => {
@@ -969,7 +1028,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips trailing-dot hostnames when generating allowlist options', () => {
@@ -977,7 +1036,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: strips userinfo when generating allowlist options', () => {
@@ -990,7 +1049,7 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
       expect(options[0].pattern).not.toContain('demo:cred123@');
     });
 
@@ -999,14 +1058,14 @@ describe('Permission Checker', () => {
       expect(options).toHaveLength(3);
       expect(options[0].pattern).toBe('web_fetch:https://example.com:8443/docs/page');
       expect(options[1].pattern).toBe('web_fetch:https://example.com:8443/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
     });
 
     test('web_fetch: does not coerce path-only urls to https hostnames in allowlist options', () => {
       const options = generateAllowlistOptions('web_fetch', { url: '/docs/getting-started' });
       expect(options).toHaveLength(2);
       expect(options[0].pattern).toBe('web_fetch:/docs/getting-started');
-      expect(options[1].pattern).toBe('web_fetch:*');
+      expect(options[1].pattern).toBe('**');
     });
 
     test('scaffold_managed_skill: generates per-skill and wildcard options', () => {
@@ -1040,7 +1099,58 @@ describe('Permission Checker', () => {
       expect(options[0].label).toBe('https://[2001:db8::1]/search?q=test');
       expect(options[0].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/search\\?q=test');
       expect(options[1].pattern).toBe('web_fetch:https://\\[2001:db8::1\\]/*');
-      expect(options[2].pattern).toBe('web_fetch:*');
+      expect(options[2].pattern).toBe('**');
+    });
+
+    // ── network_request allowlist options ─────────────────────────
+
+    test('network_request: generates exact url, origin wildcard, and tool wildcard', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://api.example.com/v1/data' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com/v1/data');
+      expect(options[1].pattern).toBe('network_request:https://api.example.com/*');
+      expect(options[2].pattern).toBe('**');
+      expect(options[2].label).toBe('network_request:*');
+      expect(options[2].description).toBe('All network requests');
+    });
+
+    test('network_request: origin wildcard uses friendly hostname', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://www.example.com/path' });
+      expect(options[1].description).toBe('Any page on example.com');
+    });
+
+    test('network_request: normalizes scheme-less host:port input', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'api.example.com:8443/v1/data' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com:8443/v1/data');
+      expect(options[1].pattern).toBe('network_request:https://api.example.com:8443/*');
+      expect(options[2].pattern).toBe('**');
+    });
+
+    test('network_request: strips fragments and userinfo', () => {
+      const username = 'demo';
+      const credential = ['c', 'r', 'e', 'd', '1', '2', '3'].join('');
+      const credentialedUrl = new URL('https://api.example.com/v1/data#section');
+      credentialedUrl.username = username;
+      credentialedUrl.password = credential;
+      const options = generateAllowlistOptions('network_request', { url: credentialedUrl.href });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://api.example.com/v1/data');
+      expect(options[0].pattern).not.toContain('demo:cred123@');
+      expect(options[0].pattern).not.toContain('#section');
+    });
+
+    test('network_request: escapes minimatch metacharacters', () => {
+      const options = generateAllowlistOptions('network_request', { url: 'https://[2001:db8::1]/api?key=val' });
+      expect(options).toHaveLength(3);
+      expect(options[0].pattern).toBe('network_request:https://\\[2001:db8::1\\]/api\\?key=val');
+      expect(options[1].pattern).toBe('network_request:https://\\[2001:db8::1\\]/*');
+    });
+
+    test('network_request: empty url produces only tool wildcard', () => {
+      const options = generateAllowlistOptions('network_request', { url: '' });
+      expect(options).toHaveLength(1);
+      expect(options[0].pattern).toBe('**');
     });
   });
 
@@ -2730,9 +2840,9 @@ describe('Permission Checker', () => {
       clearCache();
     }
 
-    // ── skill_load: version-specific rule allows v1 but prompts for v2 ──
+    // ── skill_load: version-specific rule allows v1; v2 falls through to default allow rule ──
 
-    test('skill_load: version-specific rule allows v1 but prompts for v2 (strict mode)', async () => {
+    test('skill_load: version-specific rule allows v1; v2 falls through to default allow rule (strict mode)', async () => {
       ensureSkillsDir();
       writeSkill('pr35-hash-skill', 'PR35 Hash Change Skill');
       testConfig.permissions.mode = 'strict';
@@ -3548,10 +3658,8 @@ describe('Permission Checker', () => {
     // (which depends on playwright and browser-manager).
     beforeAll(() => {
       for (const name of browserToolNames) {
-        const existing = (() => {
-          try { return (registerTool as any).__registry?.get(name); } catch { return undefined; }
-        })();
-        if (existing) continue;
+        // Skip if already registered (e.g. via initializeTools)
+        if (getTool(name)) continue;
 
         registerTool({
           name,
@@ -3636,12 +3744,93 @@ describe('Permission Checker', () => {
       }
     });
 
+    test('browser_navigate with a real URL is allowed in strict mode', async () => {
+      const result = await check('browser_navigate', { url: 'https://example.com/path/to/page' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
     test('non-browser skill tools are NOT auto-allowed', async () => {
       // skill_test_tool is a registered skill-origin tool without a default
       // allow rule — it should prompt in strict mode.
       const result = await check('skill_test_tool', {}, '/tmp');
       expect(result.decision).not.toBe('allow');
     });
+  });
+});
+
+describe('bash network_mode=proxied force prompt (PR 14)', () => {
+  beforeEach(() => {
+    clearCache();
+    testConfig.permissions = { mode: 'legacy' };
+    testConfig.skills = { load: { extraDirs: [] } };
+  });
+
+  test('proxied bash always prompts even when trust rules would allow', async () => {
+    // Add a trust rule that would normally auto-allow any bash command
+    addRule('bash', '*', 'everywhere');
+    const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Proxied network mode');
+  });
+
+  test('host_bash with network_mode=proxied follows normal flow (not force-prompted)', async () => {
+    // host_bash does not support network_mode — proxied-mode force-prompt
+    // applies only to sandboxed bash, not host_bash. The decision may still
+    // be prompt/allow based on normal risk+trust-rule evaluation, but the
+    // reason must NOT be the proxied-mode bypass.
+    addRule('host_bash', '**', 'everywhere');
+    const result = await check('host_bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('non-proxied bash follows normal flow (auto-allowed)', async () => {
+    const result = await check('bash', { command: 'ls' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    // Should NOT contain the proxied reason
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('non-proxied bash with trust rule follows normal flow', async () => {
+    addRule('bash', 'rm *', '/tmp');
+    const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('proxied bash prompt reason is descriptive', async () => {
+    const result = await check('bash', { command: 'wget http://example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toBe('Proxied network mode requires explicit approval for each invocation.');
+  });
+
+  test('proxied bash with network_mode=off follows normal flow', async () => {
+    const result = await check('bash', { command: 'ls', network_mode: 'off' }, '/tmp');
+    expect(result.decision).toBe('allow');
+  });
+
+  test('proxied bash prompts even in strict mode with matching rule', async () => {
+    testConfig.permissions = { mode: 'strict' };
+    addRule('bash', '*', 'everywhere');
+    const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Proxied network mode');
+  });
+
+  test('deny rule still blocks proxied bash command', async () => {
+    addRule('bash', 'sudo *', 'everywhere', 'deny');
+    const result = await check('bash', { command: 'sudo rm -rf /', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('deny');
+    expect(result.reason).toContain('deny rule');
+  });
+
+  test('deny rule still blocks proxied host_bash command', async () => {
+    addRule('host_bash', 'curl *', 'everywhere', 'deny');
+    // Use a command without URL slashes so minimatch's '*' (which doesn't
+    // cross '/') can match the argument.
+    const result = await check('host_bash', { command: 'curl evil.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('deny');
+    expect(result.reason).toContain('deny rule');
   });
 });
 
@@ -3670,8 +3859,8 @@ describe('computer-use tool permission defaults', () => {
     }
   });
 
-  test('request_computer_control classifies as Low risk', async () => {
-    const risk = await classifyRisk('request_computer_control', {});
+  test('computer_use_request_control classifies as Low risk', async () => {
+    const risk = await classifyRisk('computer_use_request_control', {});
     expect(risk).toBe(RiskLevel.Low);
   });
 });

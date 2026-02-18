@@ -2,18 +2,113 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
+  getSecureKey,
   setSecureKey,
+  getSecureKey,
   deleteSecureKey,
+  getBackendType,
+  listSecureKeys,
+  isDowngradedFromKeychain,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
+import { authTest, conversationsOpen, postMessage } from '../../messaging/providers/slack/client.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-vault');
+
+// ---------------------------------------------------------------------------
+// Well-known OAuth configurations for auto-connect.
+// When oauth2_connect is called with just a service name, missing parameters
+// (auth_url, token_url, scopes, etc.) are filled from this registry.
+// ---------------------------------------------------------------------------
+
+interface WellKnownOAuthConfig {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  userinfoUrl?: string;
+  extraParams?: Record<string, string>;
+}
+
+const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
+  'integration:gmail': {
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scopes: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ],
+    userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
+    extraParams: { access_type: 'offline', prompt: 'consent' },
+  },
+  'integration:slack': {
+    authUrl: 'https://slack.com/oauth/v2/authorize',
+    tokenUrl: 'https://slack.com/api/oauth.v2.access',
+    scopes: [
+      'channels:read', 'channels:history',
+      'groups:read', 'groups:history',
+      'im:read', 'im:history', 'im:write',
+      'mpim:read', 'mpim:history',
+      'users:read', 'chat:write',
+      'search:read', 'reactions:write',
+    ],
+    extraParams: {
+      user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
+    },
+  },
+};
+
+/** Map shorthand aliases to canonical service names. */
+const SERVICE_ALIASES: Record<string, string> = {
+  gmail: 'integration:gmail',
+  slack: 'integration:slack',
+};
+
+/** Resolve a service name through aliases. */
+function resolveService(service: string): string {
+  return SERVICE_ALIASES[service] ?? service;
+}
+
+/**
+ * Look up a stored client_id or client_secret for a service.
+ * Checks common field names across both the canonical and alias service names.
+ */
+function findStoredOAuthField(service: string, fieldNames: string[]): string | undefined {
+  const servicesToCheck = [service];
+  // Also check the alias if the input is the canonical name, or vice versa
+  for (const [alias, canonical] of Object.entries(SERVICE_ALIASES)) {
+    if (canonical === service) servicesToCheck.push(alias);
+    if (alias === service) servicesToCheck.push(canonical);
+  }
+  for (const svc of servicesToCheck) {
+    for (const field of fieldNames) {
+      const value = getSecureKey(`credential:${svc}:${field}`);
+      if (value) return value;
+    }
+  }
+
+  // Fallback: check credential metadata on the access_token record, where
+  // oauth2_connect persists the client config after a successful flow.
+  const metadataKey = fieldNames.some((f) => f.includes('client_id'))
+    ? 'oauth2ClientId' as const
+    : 'oauth2ClientSecret' as const;
+  for (const svc of servicesToCheck) {
+    const meta = getCredentialMetadata(svc, 'access_token');
+    const value = meta?.[metadataKey];
+    if (value) return value;
+  }
+
+  return undefined;
+}
 
 class CredentialStoreTool implements Tool {
   name = 'credential_store';
@@ -31,7 +126,7 @@ class CredentialStoreTool implements Tool {
           action: {
             type: 'string',
             enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
-            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization.',
+            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
             type: 'string',
@@ -73,20 +168,20 @@ class CredentialStoreTool implements Tool {
           },
           auth_url: {
             type: 'string',
-            description: 'OAuth2 authorization endpoint (only for oauth2_connect action)',
+            description: 'OAuth2 authorization endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           token_url: {
             type: 'string',
-            description: 'OAuth2 token endpoint (only for oauth2_connect action)',
+            description: 'OAuth2 token endpoint (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           scopes: {
             type: 'array',
             items: { type: 'string' },
-            description: 'OAuth2 scopes to request (only for oauth2_connect action)',
+            description: 'OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).',
           },
           client_id: {
             type: 'string',
-            description: 'OAuth2 client ID (only for oauth2_connect action)',
+            description: 'OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.',
           },
           extra_params: {
             type: 'object',
@@ -95,6 +190,10 @@ class CredentialStoreTool implements Tool {
           userinfo_url: {
             type: 'string',
             description: 'Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)',
+          },
+          client_secret: {
+            type: 'string',
+            description: 'OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)',
           },
           alias: {
             type: 'string',
@@ -151,7 +250,10 @@ class CredentialStoreTool implements Tool {
         }
         const policy = toPolicyFromInput(policyInput);
 
-        const alias = input.alias as string | undefined;
+        const alias = input.alias;
+        if (alias !== undefined && typeof alias !== 'string') {
+          return { content: 'Error: alias must be a string', isError: true };
+        }
         const rawTemplates = input.injection_templates as unknown[] | undefined;
 
         // Validate injection templates
@@ -181,6 +283,9 @@ class CredentialStoreTool implements Tool {
               if (typeof t.queryParamName !== 'string' || t.queryParamName.trim().length === 0) {
                 templateErrors.push(`injection_templates[${i}].queryParamName is required when injectionType is 'query'`);
               }
+            }
+            if (t.valuePrefix !== undefined && typeof t.valuePrefix !== 'string') {
+              templateErrors.push(`injection_templates[${i}].valuePrefix must be a string`);
             }
             if (templateErrors.length === 0) {
               injectionTemplates.push({
@@ -223,24 +328,58 @@ class CredentialStoreTool implements Tool {
       }
 
       case 'list': {
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot list credentials', isError: true };
+        }
+
         const allMetadata = listCredentialMetadata();
-        const entries = allMetadata.map((m) => {
-          const entry: Record<string, unknown> = {
-            credential_id: m.credentialId,
-            service: m.service,
-            field: m.field,
-          };
-          if (m.alias) {
-            entry.alias = m.alias;
+        // On the encrypted backend we can verify secrets still exist by reading
+        // all key names once (instead of per-entry getSecureKey calls that each
+        // re-read/re-derive the store). On keychain we trust metadata since the
+        // OS keychain has no batch list API.
+        // In downgraded mode (keychain failed, switched to encrypted), we verify
+        // readability per-entry via getSecureKey which tries both the encrypted
+        // store and the keychain fallback. This ensures credentials that are
+        // truly unreadable from both backends are filtered out.
+        const downgraded = isDowngradedFromKeychain();
+        const verifySecrets = getBackendType() === 'encrypted' && !downgraded;
+        let secureKeySet: Set<string> | undefined;
+        if (verifySecrets) {
+          try {
+            secureKeySet = new Set(listSecureKeys());
+          } catch (err) {
+            log.error({ err }, 'Failed to read secure store while listing credentials');
+            return { content: 'Error: failed to read secure storage; cannot list credentials', isError: true };
           }
-          if (m.injectionTemplates && m.injectionTemplates.length > 0) {
-            entry.injection_templates = {
-              count: m.injectionTemplates.length,
-              host_patterns: m.injectionTemplates.map((t) => t.hostPattern),
+        }
+        const entries = allMetadata
+          .filter((m) => {
+            const key = `credential:${m.service}:${m.field}`;
+            if (secureKeySet) return secureKeySet.has(key);
+            // In downgraded mode, verify each entry is actually readable
+            // (getSecureKey checks encrypted store then falls back to keychain)
+            if (downgraded) return getSecureKey(key) !== undefined;
+            return true;
+          })
+          .map((m) => {
+            const entry: Record<string, unknown> = {
+              credential_id: m.credentialId,
+              service: m.service,
+              field: m.field,
             };
-          }
-          return entry;
-        });
+            if (m.alias) {
+              entry.alias = m.alias;
+            }
+            if (m.injectionTemplates && m.injectionTemplates.length > 0) {
+              entry.injection_templates = {
+                count: m.injectionTemplates.length,
+                host_patterns: m.injectionTemplates.map((t) => t.hostPattern),
+              };
+            }
+            return entry;
+          });
         return { content: JSON.stringify(entries, null, 2), isError: false };
       }
 
@@ -380,19 +519,30 @@ class CredentialStoreTool implements Tool {
       }
 
       case 'oauth2_connect': {
-        const service = input.service as string | undefined;
-        const authUrl = input.auth_url as string | undefined;
-        const tokenUrl = input.token_url as string | undefined;
-        const scopes = input.scopes as string[] | undefined;
-        const clientId = input.client_id as string | undefined;
-        const extraParams = input.extra_params as Record<string, string> | undefined;
-        const userinfoUrl = input.userinfo_url as string | undefined;
+        const rawService = input.service as string | undefined;
+        if (!rawService) return { content: 'Error: service is required for oauth2_connect action', isError: true };
 
-        if (!service) return { content: 'Error: service is required for oauth2_connect action', isError: true };
-        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action', isError: true };
-        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action', isError: true };
-        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action', isError: true };
-        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action', isError: true };
+        // Resolve aliases (e.g. "gmail" → "integration:gmail")
+        const service = resolveService(rawService);
+
+        // Fill missing params from well-known config
+        const wellKnown = WELL_KNOWN_OAUTH[service];
+        const authUrl = (input.auth_url as string | undefined) ?? wellKnown?.authUrl;
+        const tokenUrl = (input.token_url as string | undefined) ?? wellKnown?.tokenUrl;
+        const scopes = (input.scopes as string[] | undefined) ?? wellKnown?.scopes;
+        const extraParams = (input.extra_params as Record<string, string> | undefined) ?? wellKnown?.extraParams;
+        const userinfoUrl = (input.userinfo_url as string | undefined) ?? wellKnown?.userinfoUrl;
+
+        // Look up client_id/client_secret from stored credentials if not provided
+        const clientId = (input.client_id as string | undefined)
+          ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
+        const clientSecret = (input.client_secret as string | undefined)
+          ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
+
+        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
         if (!context.isInteractive) {
           return { content: 'Error: oauth2_connect action requires an interactive client session', isError: true };
@@ -407,11 +557,11 @@ class CredentialStoreTool implements Tool {
         try {
           const allowedTools = input.allowed_tools as string[] | undefined;
 
-          const { tokens, grantedScopes } = await startOAuth2Flow(
-            { authUrl, tokenUrl, scopes, clientId, extraParams, userinfoUrl },
+          const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
+            { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl },
             {
               openUrl: (url) => {
-                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` } as any);
+                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
               },
             },
           );
@@ -445,12 +595,32 @@ class CredentialStoreTool implements Tool {
             accountInfo: accountInfo ?? null,
             oauth2TokenUrl: tokenUrl,
             oauth2ClientId: clientId,
+            ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
           });
 
           if (tokens.refreshToken) {
             const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
             if (refreshStored) {
               upsertCredentialMetadata(service, 'refresh_token', {});
+            }
+          }
+
+          // Send a welcome DM for Slack connections
+          if (service === 'integration:slack') {
+            try {
+              const botToken = rawTokenResponse.access_token as string | undefined;
+              const authedUser = rawTokenResponse.authed_user as Record<string, unknown> | undefined;
+              const installingUserId = authedUser?.id as string | undefined;
+              if (botToken && installingUserId) {
+                const identity = await authTest(botToken);
+                const dmChannel = await conversationsOpen(botToken, installingUserId);
+                const welcomeMsg =
+                  `You have installed ${identity.user}, an AI Assistant, on ${identity.team}. ` +
+                  `Manage the assistant experience for this workspace in the workspace settings page.`;
+                await postMessage(botToken, dmChannel.channel.id, welcomeMsg);
+              }
+            } catch (err) {
+              log.warn({ err }, 'Failed to send Slack welcome DM (non-fatal)');
             }
           }
 

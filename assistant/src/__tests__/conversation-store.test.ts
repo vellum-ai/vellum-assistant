@@ -482,7 +482,11 @@ describe('attachment reuse across thread lifecycles', () => {
     const convA = createConversation('Thread A');
     const convB = createConversation('Thread B');
 
+    // deleteLastExchange deletes from the last user message onward,
+    // so we need a user message before the assistant message that carries the attachment.
+    addMessage(convA.id, 'user', 'Please generate a chart');
     const msgA = addMessage(convA.id, 'assistant', 'Original');
+    addMessage(convB.id, 'user', 'Show me the chart');
     const msgB = addMessage(convB.id, 'assistant', 'Reused');
 
     const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'AAAA');

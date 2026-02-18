@@ -1,6 +1,14 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { createServer, type Server, type IncomingMessage } from 'node:http';
+import http, { createServer, type Server, type IncomingMessage } from 'node:http';
 import { createProxyServer } from '../tools/network/script-proxy/server.js';
+
+/** Shape of the JSON body echoed by the upstream test server. */
+interface EchoBody {
+  method: string;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}
 
 /** Start an HTTP server and return its URL + cleanup handle. */
 function listenEphemeral(server: Server): Promise<{ url: string; close: () => Promise<void> }> {
@@ -65,7 +73,7 @@ describe('http-forwarder', () => {
   test('simple GET forwarded correctly', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
 
-    const res = await fetch(`${proxyUrl}`, {
+    const _res = await fetch(`${proxyUrl}`, {
       method: 'GET',
       // Absolute-URL form: the proxy sees the full URL as the request target
       headers: { Host: '' },
@@ -80,10 +88,10 @@ describe('http-forwarder', () => {
 
     // fetch doesn't support proxy mode natively — use the absolute-URL approach
     // by making a direct HTTP request to the proxy with the upstream URL as path.
-    const controller = new AbortController();
+    const _controller = new AbortController();
     const response = await new Promise<Response>((resolve, reject) => {
       const { hostname, port } = new URL(proxyUrl);
-      const http = require('node:http');
+
       const req = http.request(
         {
           hostname,
@@ -111,7 +119,7 @@ describe('http-forwarder', () => {
     });
 
     expect(response.status).toBe(200);
-    const data = await response.json() as any;
+    const data = await response.json() as EchoBody;
     expect(data.method).toBe('GET');
     expect(data.url).toBe('/hello?a=1');
     expect(data.headers['x-custom']).toBe('test-value');
@@ -120,9 +128,8 @@ describe('http-forwarder', () => {
   test('POST with body forwarded correctly', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
     const { hostname, port } = new URL(proxyUrl);
-    const http = require('node:http');
 
-    const response = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const response = await new Promise<{ status: number; body: EchoBody }>((resolve, reject) => {
       const req = http.request(
         {
           hostname,
@@ -167,7 +174,6 @@ describe('http-forwarder', () => {
     servers.push(px);
 
     const { hostname, port } = new URL(px.url);
-    const http = require('node:http');
 
     const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const req = http.request(
@@ -202,7 +208,6 @@ describe('http-forwarder', () => {
     servers.push(px);
 
     const { hostname, port } = new URL(px.url);
-    const http = require('node:http');
 
     // Point at a port that nothing is listening on
     const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
@@ -235,9 +240,8 @@ describe('http-forwarder', () => {
   test('hop-by-hop headers are stripped from forwarded request', async () => {
     const { upstreamUrl, proxyUrl } = await setupPair();
     const { hostname, port } = new URL(proxyUrl);
-    const http = require('node:http');
 
-    const response = await new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const response = await new Promise<{ status: number; body: EchoBody }>((resolve, reject) => {
       const req = http.request(
         {
           hostname,

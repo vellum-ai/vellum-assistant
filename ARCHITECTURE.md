@@ -148,6 +148,22 @@ graph TB
             GMAIL_TOOLS["Gmail Tools<br/>(bundled skill: gmail)"]
         end
 
+        subgraph "Script Proxy"
+            PROXY_SESSION["SessionManager<br/>per-conversation proxy sessions"]
+            PROXY_SERVER["ProxyServer<br/>HTTP forward + CONNECT"]
+            PROXY_ROUTER["Router<br/>MITM vs tunnel decision"]
+            PROXY_POLICY["PolicyEngine<br/>credential template matching"]
+            PROXY_MITM["MITM Handler<br/>TLS termination + rewrite"]
+            PROXY_CERTS["Cert Manager<br/>local CA + leaf certs"]
+            PROXY_APPROVAL["ApprovalCallback<br/>→ PermissionPrompter"]
+        end
+
+        subgraph "Asset Tools"
+            ASSET_SEARCH["asset_search<br/>cross-thread metadata query"]
+            ASSET_MATERIALIZE["asset_materialize<br/>decode + write to sandbox"]
+            VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private thread gate"]
+        end
+
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
@@ -196,7 +212,7 @@ graph TB
     CLS -->|"textQA"| TEXT_SESS
 
     %% Text Q&A → CU escalation
-    TEXT_SESS -.->|"request_computer_control<br/>(explicit user request)"| PERCEIVE
+    TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage"| IPC_SERVER
@@ -328,6 +344,24 @@ graph TB
     SKILL_FACTORY -->|"register/unregister"| HANDLERS
     SKILL_FACTORY -->|"host tools"| SKILL_HOST_RUNNER
     SKILL_FACTORY -->|"sandbox tools"| SKILL_SANDBOX_RUNNER
+
+    %% Script proxy data flow
+    SESSION_MGR -->|"proxied bash<br/>network_mode"| PROXY_SESSION
+    PROXY_SESSION --> PROXY_SERVER
+    PROXY_SERVER --> PROXY_ROUTER
+    PROXY_ROUTER -->|"mitm: credential_injection"| PROXY_MITM
+    PROXY_MITM --> PROXY_CERTS
+    PROXY_SERVER --> PROXY_POLICY
+    PROXY_POLICY -->|"ask_*"| PROXY_APPROVAL
+    PROXY_APPROVAL --> HANDLERS
+
+    %% Asset tools data flow
+    SESSION_MGR -->|"tool_use"| ASSET_SEARCH
+    SESSION_MGR -->|"tool_use"| ASSET_MATERIALIZE
+    ASSET_SEARCH --> DB_ATTACH
+    ASSET_SEARCH --> VISIBILITY_POLICY
+    ASSET_MATERIALIZE --> DB_ATTACH
+    ASSET_MATERIALIZE --> VISIBILITY_POLICY
 
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS
@@ -835,7 +869,7 @@ Two columns on the `conversations` table drive the feature:
 | Column | Type | Values | Purpose |
 |---|---|---|---|
 | `thread_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'` | Determines whether the conversation uses shared or isolated memory and permission policies |
-| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments, embeddings) to this namespace |
+| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
@@ -863,7 +897,7 @@ graph TB
     PVT_READ -.->|"fallback"| DEFAULT_SCOPE
 ```
 
-**Write isolation**: All memory items, segments, and embeddings created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). They are invisible to standard threads and other private threads.
+**Write isolation**: All memory items and segments created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard threads and other private threads.
 
 **Read fallback**: When recalling memories for a private thread, the retriever queries both the thread's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard threads, while private-thread-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
 
@@ -1312,7 +1346,7 @@ graph TB
 
     subgraph "Text Q&A Session"
         TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill)"]
-        ESCALATE["request_computer_control<br/>(proxy tool)"]
+        ESCALATE["computer_use_request_control<br/>(proxy tool)"]
     end
 
     SUBMIT --> SLASH_CHECK
@@ -1337,9 +1371,9 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 | **BEST** | Sandboxed filesystem/shell | `file_*`, `bash` | Work that can stay isolated in sandbox filesystem |
 | **BETTER** | Explicit host filesystem/shell | `host_file_*`, `host_bash` | Host reads/writes/commands that must touch the real machine |
 | **GOOD** | Headless browser | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background) |
-| **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
+| **LAST RESORT** | Foreground computer use | `computer_use_request_control` | Only on explicit user request ("go ahead", "take over") |
 
-The `request_computer_control` tool is a proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use.
+The `computer_use_request_control` tool is a core proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use_*` action tools from the bundled `computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
@@ -1366,9 +1400,11 @@ graph TB
     PREFLIGHT -->|"any fail"| FAIL_CLOSED["ToolError<br/>(fail closed, no fallback)"]
     CONTAINER --> SB_FS
 
-    EXEC -->|"host_file_* / host_bash / cu_* / request_computer_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
+    EXEC -->|"host_file_* / host_bash / computer_use_request_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
+    EXEC -->|"computer_use_* (skill-projected<br/>in CU sessions only)"| SKILL_CU_TOOLS["CU skill tools<br/>(bundled computer-use skill)"]
     HOST_TOOLS --> CHECK["Permission checker + trust-store"]
-    CHECK --> DEFAULTS["Default rules<br/>ask for host_* + cu_*"]
+    SKILL_CU_TOOLS --> CHECK
+    CHECK --> DEFAULTS["Default rules<br/>ask for host_* + computer_use_*"]
     CHECK -->|"allow"| HOST_EXEC["Execute on host filesystem / shell / computer control"]
     CHECK -->|"deny"| BLOCK["Blocked"]
     CHECK -->|"prompt"| PROMPT["confirmation_request<br/>executionTarget='host'"]
@@ -1383,7 +1419,7 @@ graph TB
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
-- Prompt defaults: host tools, `request_computer_control`, and `cu_*` actions default to `ask` unless a trust rule allowlists/denylists them.
+- Prompt defaults: host tools, `computer_use_request_control`, and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 
@@ -1540,6 +1576,7 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 | `browser` | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential` | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules) |
 | `gmail` | Gmail search, archive, send, etc. | Email management via OAuth2 integration |
 | `claude-code` | Claude Code tool | Delegate coding tasks to Claude Code subprocess |
+| `computer-use` | `computer_use_click`, `computer_use_double_click`, `computer_use_right_click`, `computer_use_type_text`, `computer_use_key`, `computer_use_scroll`, `computer_use_drag`, `computer_use_open_app`, `computer_use_run_applescript`, `computer_use_wait`, `computer_use_done`, `computer_use_respond` | Computer-use action tools — internally preactivated by `ComputerUseSession` via `preactivatedSkillIds`; not user-invocable or model-discoverable in text sessions. Each wrapper script forwards to `forwardComputerUseProxyTool()` which uses the session's proxy resolver to send actions to the macOS client. |
 | `weather` | `get-weather` | Fetch current weather data |
 | `app-builder` | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write` | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool) |
 | `self-upgrade` | (instruction-only) | Self-improvement workflow |
@@ -1587,6 +1624,8 @@ graph TB
     RESOLVE --> PROVIDER
 ```
 
+**Internal preactivation**: Some bundled skills are preactivated programmatically rather than by user slash commands or model discovery. For example, `ComputerUseSession` sets `preactivatedSkillIds: ['computer-use']` in its constructor, causing `projectSkillTools()` to load the 12 `computer_use_*` tool definitions from the bundled skill's `TOOLS.json` on the first turn. These tools are never exposed in text sessions — they only appear in the CU session's agent loop.
+
 ### Skill Tool Execution
 
 Skill tool executors are TypeScript scripts that export a `run(input, context)` function. Execution is routed based on the `execution_target` field in `TOOLS.json`:
@@ -1624,7 +1663,7 @@ graph TB
 | File | Role |
 |------|------|
 | `assistant/src/config/skills.ts` | Skill catalog loading: bundled, managed, workspace, extra directories |
-| `assistant/src/config/bundled-skills/` | Bundled skill directories (browser, gmail, claude-code, weather, etc.) |
+| `assistant/src/config/bundled-skills/` | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.) |
 | `assistant/src/skills/tool-manifest.ts` | `TOOLS.json` parser and validator |
 | `assistant/src/skills/active-skill-tools.ts` | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers |
 | `assistant/src/skills/include-graph.ts` | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
@@ -1791,7 +1830,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global` | `browser_extract` | `browser_extract:*` | (same) |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same) |
 
-These rules are emitted by `buildDefaultRules()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Prompt UX
 
@@ -2109,13 +2148,82 @@ graph LR
 
 ---
 
-## Integrations — OAuth2 + Gmail
+## Integrations — OAuth2 + Unified Messaging
 
-The integration framework lets Vellum connect to third-party services (starting with Gmail) via OAuth2 PKCE. The architecture follows these principles:
+The integration framework lets Vellum connect to third-party services via OAuth2. The architecture follows these principles:
 
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
-- **PKCE flow, no client secret** — Desktop apps use the OAuth2 Authorization Code flow with PKCE (S256). A temporary `Bun.serve` HTTP server on `127.0.0.1` captures the callback.
-- **Extensible registry** — New integrations register via `IntegrationDefinition` objects. The registry derives connection status from vault presence rather than maintaining separate state.
+- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh.
+- **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
+- **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
+
+### Unified Messaging Architecture
+
+```mermaid
+graph TB
+    subgraph "Messaging Skill (bundled-skills/messaging/)"
+        SKILL_MD["SKILL.md<br/>agent instructions"]
+        TOOLS_JSON["TOOLS.json<br/>tool manifest"]
+        subgraph "Generic Tools"
+            AUTH_TEST["messaging_auth_test"]
+            LIST["messaging_list_conversations"]
+            READ["messaging_read"]
+            SEARCH["messaging_search"]
+            SEND["messaging_send"]
+            REPLY["messaging_reply"]
+            MARK_READ["messaging_mark_read"]
+            ACTIVITY["messaging_analyze_activity"]
+            STYLE["messaging_analyze_style"]
+            DRAFT["messaging_draft"]
+        end
+        subgraph "Slack-specific Tools"
+            REACT["slack_add_reaction"]
+            LEAVE["slack_leave_channel"]
+        end
+        subgraph "Gmail-specific Tools"
+            ARCHIVE["gmail_archive"]
+            LABEL["gmail_label"]
+            TRASH["gmail_trash"]
+            UNSUB["gmail_unsubscribe"]
+            GMAIL_DRAFT["gmail_draft"]
+        end
+        SHARED["shared.ts<br/>resolveProvider + withProviderToken"]
+    end
+
+    subgraph "Messaging Layer (messaging/)"
+        PROVIDER_IF["MessagingProvider interface"]
+        REGISTRY["Provider Registry"]
+        TYPES["Platform-agnostic types<br/>Conversation, Message, SearchResult"]
+        ACTIVITY_ANALYZER["Activity Analyzer"]
+        STYLE_ANALYZER["Style Analyzer"]
+        DRAFT_STORE["Draft Store"]
+    end
+
+    subgraph "Provider Adapters"
+        SLACK_ADAPTER["Slack Adapter<br/>messaging/providers/slack/"]
+        GMAIL_ADAPTER["Gmail Adapter<br/>messaging/providers/gmail/"]
+    end
+
+    subgraph "External APIs"
+        SLACK_API["Slack Web API"]
+        GMAIL_API["Gmail REST API"]
+    end
+
+    SHARED --> REGISTRY
+    REGISTRY --> PROVIDER_IF
+    SLACK_ADAPTER -.->|implements| PROVIDER_IF
+    GMAIL_ADAPTER -.->|implements| PROVIDER_IF
+    SLACK_ADAPTER --> SLACK_API
+    GMAIL_ADAPTER --> GMAIL_API
+    AUTH_TEST --> SHARED
+    LIST --> SHARED
+    SEARCH --> SHARED
+    SEND --> SHARED
+    REACT --> SLACK_ADAPTER
+    ARCHIVE --> GMAIL_ADAPTER
+    ACTIVITY --> ACTIVITY_ANALYZER
+    STYLE --> STYLE_ANALYZER
+```
 
 ### Data Flow
 
@@ -2174,27 +2282,31 @@ sequenceDiagram
 
 | Decision | Rationale |
 |----------|-----------|
-| PKCE (no client secret) | Desktop apps cannot securely store client secrets; PKCE is the recommended flow |
+| PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
-| `allowedTools` only (no `allowedDomains`) | Gmail tools run server-side; domain restrictions would block the credential broker's `serverUse` path |
+| Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
+| Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
-| Newsletter analyzer is a helper, not a tool | Grouping logic runs in the tool executor, not as a separate LLM-callable tool — reduces round-trips |
+| Platform-specific extension tools | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface |
 
 ### Source Files
 
 | File | Role |
 |------|------|
-| `assistant/src/integrations/types.ts` | `IntegrationDefinition`, `IntegrationStatus`, `OAuth2Config` type definitions |
-| `assistant/src/integrations/registry.ts` | In-memory registry; status derived from vault presence |
-| `assistant/src/integrations/oauth2.ts` | PKCE loopback flow: code_verifier, Bun.serve callback, token exchange |
-| `assistant/src/integrations/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
-| `assistant/src/integrations/definitions/gmail.ts` | Gmail `IntegrationDefinition` with scopes and allowed tools |
-| `assistant/src/integrations/gmail/client.ts` | Thin Gmail REST API wrapper (listMessages, getMessage, modify, send, etc.) |
-| `assistant/src/integrations/gmail/types.ts` | Gmail API response types |
-| `assistant/src/integrations/gmail/newsletter-analyzer.ts` | `groupBySender()` helper for email declutter flow |
-| `assistant/src/config/bundled-skills/gmail/TOOLS.json` | Gmail tool manifest (12 tools) loaded by skill-tool framework |
-| `assistant/src/config/bundled-skills/gmail/tools/` | Gmail skill scripts delegating to integration layer |
+| `assistant/src/security/oauth2.ts` | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange |
+| `assistant/src/security/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
+| `assistant/src/messaging/provider.ts` | `MessagingProvider` interface |
+| `assistant/src/messaging/provider-types.ts` | Platform-agnostic types (Conversation, Message, SearchResult) |
+| `assistant/src/messaging/registry.ts` | Provider registry: register, lookup, list connected |
+| `assistant/src/messaging/activity-analyzer.ts` | Activity classification for conversations |
+| `assistant/src/messaging/style-analyzer.ts` | Writing style extraction from message corpus |
+| `assistant/src/messaging/draft-store.ts` | Local draft storage (platform/id JSON files) |
+| `assistant/src/messaging/providers/slack/` | Slack adapter, client, types |
+| `assistant/src/messaging/providers/gmail/` | Gmail adapter, client, types |
+| `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
+| `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
+| `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 
 ---
 
@@ -2299,6 +2411,310 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | `assistant/src/security/secret-scanner.ts` | Regex + entropy-based secret detection |
 | `assistant/src/security/secret-ingress.ts` | Inbound message secret blocking |
 | `clients/macos/.../SecretPromptManager.swift` | Floating panel UI for secure credential entry |
+
+---
+
+## Script Proxy — Proxied Bash Execution and Credential Injection
+
+Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms. The session manager uses `createProxyServer()` with a fully configured MITM handler, policy callback, and rewrite callback — so credential injection, policy enforcement, and approval prompting are all active at runtime. `host_bash` is explicitly unaffected: only the `bash` tool participates in proxied-mode checks.
+
+### Proxied Bash Execution Path
+
+When a bash command requires network access with credential injection, the sandbox backend switches from `network=none` to `network=bridge` and injects proxy environment variables so all HTTP/HTTPS traffic routes through the session proxy.
+
+```mermaid
+graph TB
+    subgraph "Tool Invocation"
+        BASH_CALL["bash tool call<br/>network_mode: 'proxied'"]
+    end
+
+    subgraph "Permission Check"
+        EXECUTOR["ToolExecutor"]
+        PERM["PermissionChecker<br/>classifyRisk → Medium<br/>(proxied bash)"]
+        PROMPT["Prompt user<br/>persistentDecisionsAllowed: false<br/>(no trust rule saving for proxied bash)"]
+    end
+
+    subgraph "Sandbox"
+        DOCKER["DockerBackend.wrap()<br/>networkMode: 'proxied'<br/>→ --network=bridge<br/>--add-host=host.docker.internal:host-gateway"]
+        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS<br/>(proxy URL uses host.docker.internal)"]
+        CONTAINER["Container<br/>all traffic → proxy<br/>via host.docker.internal"]
+    end
+
+    subgraph "Proxy Server (on host)"
+        SERVER["ProxyServer<br/>127.0.0.1:ephemeral"]
+        HTTP_FWD["HTTP Forwarder<br/>(plain HTTP proxy)"]
+        CONNECT["CONNECT Handler"]
+        ROUTER["Hybrid Router<br/>shouldIntercept()"]
+    end
+
+    BASH_CALL --> EXECUTOR
+    EXECUTOR --> PERM
+    PERM --> PROMPT
+    PROMPT -->|"allowed"| DOCKER
+    DOCKER --> ENV_INJECT
+    ENV_INJECT --> CONTAINER
+    CONTAINER -->|"HTTP"| HTTP_FWD
+    CONTAINER -->|"HTTPS CONNECT"| CONNECT
+    CONNECT --> ROUTER
+```
+
+### Hybrid MITM + Tunnel Routing
+
+The proxy uses a two-mode routing strategy for HTTPS CONNECT requests. Only connections to hosts that match a credential injection template are MITM-intercepted; all other HTTPS traffic passes through a plain TCP tunnel with no TLS termination.
+
+```mermaid
+graph TB
+    CONNECT["CONNECT host:port"] --> ROUTE["routeConnection()"]
+    ROUTE --> CRED_CHECK{"Session has<br/>credential IDs?"}
+
+    CRED_CHECK -->|"none"| TUNNEL_NC["TUNNEL<br/>reason: no_credentials"]
+
+    CRED_CHECK -->|"yes"| HOST_MATCH{"Any template<br/>hostPattern matches?"}
+    HOST_MATCH -->|"yes"| MITM["MITM<br/>reason: credential_injection"]
+    HOST_MATCH -->|"no"| TUNNEL_NR["TUNNEL<br/>reason: no_rewrite"]
+
+    subgraph "MITM Path"
+        ISSUE_CERT["issueLeafCert(hostname)<br/>cached per-hostname"]
+        TLS_TERM["Loopback TLS server<br/>on ephemeral port"]
+        DECRYPT["Decrypt request"]
+        REWRITE["RewriteCallback<br/>inject credential headers"]
+        UPSTREAM["New TLS connection<br/>to real host"]
+    end
+
+    subgraph "Tunnel Path"
+        TCP["Raw TCP tunnel<br/>bidirectional pipe<br/>no TLS termination"]
+    end
+
+    MITM --> ISSUE_CERT
+    ISSUE_CERT --> TLS_TERM
+    TLS_TERM --> DECRYPT
+    DECRYPT --> REWRITE
+    REWRITE --> UPSTREAM
+
+    TUNNEL_NC --> TCP
+    TUNNEL_NR --> TCP
+```
+
+**MITM path**: The proxy issues a leaf certificate signed by a local CA (`proxy-ca/ca.pem`), terminates TLS on a loopback ephemeral port, reads the decrypted HTTP request, calls the `RewriteCallback` to inject credential headers, and forwards the rewritten request over a fresh TLS connection to the real upstream. The local CA cert is injected into the container via `NODE_EXTRA_CA_CERTS`.
+
+**Tunnel path**: For hosts that do not require credential injection, the proxy establishes a raw TCP tunnel (bidirectional pipe) and never sees the plaintext traffic. This avoids the overhead and security exposure of unnecessary TLS termination.
+
+### Proxy Policy Engine and Approval Loop
+
+The policy engine evaluates each outbound request against credential injection templates and determines whether credentials should be injected, whether the user should be prompted, or whether the request should pass through unauthenticated.
+
+```mermaid
+sequenceDiagram
+    participant Script as Script (in container)
+    participant Proxy as Proxy Server
+    participant Policy as Policy Engine
+    participant Approval as ProxyApprovalCallback
+    participant Prompter as PermissionPrompter
+    participant Trust as Trust Store
+    participant User as User
+
+    Script->>Proxy: outbound request to api.example.com
+    Proxy->>Policy: evaluateRequestWithApproval(hostname, port, path, ...)
+
+    alt Credential template matches host
+        Policy-->>Proxy: matched (credentialId, template)
+        Proxy->>Proxy: inject credential headers
+        Proxy->>Script: proxied response
+    else Known host pattern but no bound credential
+        Policy-->>Proxy: ask_missing_credential
+        Proxy->>Approval: request approval
+        Approval->>Trust: check existing rule (proxy:hostname)
+        alt Rule exists
+            Trust-->>Approval: allow / deny
+        else No rule
+            Approval->>Prompter: prompt user
+            Prompter->>User: confirmation dialog
+            User-->>Prompter: decision
+            Prompter-->>Approval: allow / deny / always_allow / always_deny
+            Note over Approval: Save trust rule if always_*
+        end
+        Approval-->>Proxy: approved (true) / denied (false)
+    else Unknown host, no credentials
+        Policy-->>Proxy: ask_unauthenticated
+        Proxy->>Approval: request approval
+        Note over Approval: Same trust store + prompt flow
+        Approval-->>Proxy: approved / denied
+    end
+```
+
+**Policy decisions** are deterministic and structured:
+
+| Decision | Meaning |
+|---|---|
+| `matched` | Exactly one credential template matches the host — inject it |
+| `ambiguous` | Multiple credential templates match — caller must disambiguate |
+| `missing` | Credentials exist but none match this host — no rewrite |
+| `unauthenticated` | No credentials configured for the session |
+| `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
+| `ask_unauthenticated` | Completely unknown host — prompt for unauthenticated access |
+
+**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` is wired into the session startup path and routes policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules use the `network_request` tool name (not `proxy:*`) with URL-based scope patterns (e.g., `https://api.example.com/*`), aligning with the `buildCommandCandidates()` allowlist generation in `checker.ts`.
+
+**Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
+
+### Session Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Starting : createSession(conversationId, credentialIds)
+    Starting --> Active : startSession() → ephemeral port assigned
+    Active --> Active : resetIdleTimer() on getSessionEnv()
+    Active --> Stopping : stopSession() or idle timeout (5min)
+    Stopping --> Stopped : server closed, timer cleared
+```
+
+Each proxy session is bound to a conversation and tracks authorized credential IDs. The `SessionManager` enforces a per-conversation limit (default 3 concurrent sessions). Sessions auto-stop after 5 minutes of inactivity. `stopAllSessions()` is called on daemon shutdown.
+
+### Local CA and Certificate Management
+
+The proxy generates and manages a local Certificate Authority for MITM interception:
+
+| Component | Location | Purpose |
+|---|---|---|
+| CA cert | `{dataDir}/proxy-ca/ca.pem` | Self-signed root cert (valid 10 years, permissions 0644) |
+| CA key | `{dataDir}/proxy-ca/ca-key.pem` | CA private key (permissions 0600) |
+| Leaf certs | `{dataDir}/proxy-ca/issued/{hostname}.pem` | Per-hostname certs (cached, verified against current CA) |
+
+`ensureLocalCA()` is idempotent — it only generates the CA if the files do not already exist. Leaf certificates are cached and revalidated via `X509Certificate.checkIssued()` to detect stale certs from a previous CA.
+
+### Log Sanitization
+
+All proxy logging passes through sanitization helpers (`logging.ts`) that redact credential values before they reach logs or lifecycle events:
+
+- `sanitizeHeaders()` — replaces values of sensitive header keys (e.g. `Authorization`) with `[REDACTED]`
+- `sanitizeUrl()` — redacts query parameter values for sensitive param names (e.g. `api_key`)
+- `createSafeLogEntry()` — combines both into a log-safe request snapshot
+
+### Security Invariants
+
+1. **Credential values never reach the LLM** — The proxy injects credentials at the network layer; the model only sees tool results, never the injected headers or query parameters.
+2. **Minimal MITM surface** — Only hosts matching a credential injection template are MITM-intercepted. All other HTTPS traffic passes through an opaque TCP tunnel.
+3. **CA key isolation** — The CA private key has 0600 permissions and never leaves the host filesystem. Container processes only receive the CA cert via `NODE_EXTRA_CA_CERTS`.
+4. **No persistent trust rules for proxied bash** — `persistentDecisionsAllowed: false` prevents saving trust rules that could auto-allow proxied commands across sessions with different credential scopes.
+5. **Auditable routing** — Every CONNECT routing decision carries a deterministic `RouteReason` code (`mitm:credential_injection`, `tunnel:no_rewrite`, `tunnel:no_credentials`) for audit and testing.
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/tools/network/script-proxy/server.ts` | Proxy server factory — HTTP forwarding, CONNECT handling, MITM dispatch |
+| `assistant/src/tools/network/script-proxy/router.ts` | Hybrid router — decides MITM vs tunnel per CONNECT target |
+| `assistant/src/tools/network/script-proxy/policy.ts` | Policy engine — evaluates requests against credential templates |
+| `assistant/src/tools/network/script-proxy/mitm-handler.ts` | MITM TLS interception — loopback TLS server, request rewrite, upstream forwarding |
+| `assistant/src/tools/network/script-proxy/connect-tunnel.ts` | Plain CONNECT tunnel — raw TCP bidirectional pipe |
+| `assistant/src/tools/network/script-proxy/http-forwarder.ts` | HTTP proxy forwarder — absolute-URL form forwarding with policy callback |
+| `assistant/src/tools/network/script-proxy/session-manager.ts` | Session lifecycle — create, start, stop, idle timeout, env var generation |
+| `assistant/src/tools/network/script-proxy/certs.ts` | Local CA management — ensureLocalCA, issueLeafCert, getCAPath |
+| `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization — header/URL redaction for credential values |
+| `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
+| `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
+| `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
+| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wired into session startup, uses `network_request` tool name with URL-based trust rules |
+| `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
+
+### Runtime Wiring Summary
+
+The proxy subsystem is wired for routing, policy evaluation, and approval prompts. Credential injection (header rewriting) is **not yet implemented** — the `rewriteCallback` and `policyCallback` currently pass through without injecting credentials (see TODO comments in `session-manager.ts`). The session manager's `startSession()` calls `createProxyServer()` with:
+
+- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that currently passes through unmodified headers (credential header injection is planned for a later PR)
+- **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback` for access control on non-MITM requests; CONNECT requests routed to the MITM handler skip the `policyCallback` path. Credential injection is not yet implemented for either HTTP or HTTPS
+- **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
+- **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge` with `--add-host=host.docker.internal:host-gateway`; proxy env vars use `host.docker.internal` so containers can reach the host-side proxy
+- **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the Docker backend
+- **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout and per-conversation limits
+
+---
+
+## Asset Search and Materialize — Cross-Thread Media Reuse
+
+The `asset_search` and `asset_materialize` tools enable the assistant to discover and use previously uploaded media assets (images, documents, audio) across conversations. Assets are stored as base64-encoded blobs in the `attachments` table and linked to messages via the `message_attachments` join table.
+
+### Asset Discovery and Materialization Flow
+
+```mermaid
+sequenceDiagram
+    participant Model as LLM
+    participant Search as asset_search tool
+    participant DB as SQLite (attachments)
+    participant Visibility as media-visibility-policy
+    participant Materialize as asset_materialize tool
+    participant Sandbox as Sandbox filesystem
+
+    Model->>Search: search(mime_type: "image/*", recency: "last_7_days")
+    Search->>DB: query attachments (filters)
+    DB-->>Search: matching rows (metadata only, no base64)
+    Search->>Visibility: filterVisibleAttachments(results, currentContext)
+    Note over Visibility: Private-thread attachments filtered out<br/>unless viewer is in the same thread
+    Visibility-->>Search: visible results
+    Search-->>Model: metadata list (IDs, filenames, types, sizes)
+
+    Model->>Materialize: materialize(attachment_id, destination_path)
+    Materialize->>Materialize: sandboxPolicy(destination_path)
+    Materialize->>DB: load attachment (including base64 data)
+    Materialize->>Visibility: isAttachmentVisible(attachmentCtx, currentCtx)
+    Note over Visibility: Second visibility check at materialize time<br/>prevents TOCTOU between search and materialize
+    Materialize->>Materialize: size check (max 50 MB)
+    Materialize->>Sandbox: write decoded bytes to destination
+    Materialize-->>Model: "Materialized 'photo.jpg' to /workspace/media/photo.jpg"
+```
+
+### Private Thread Visibility Gate
+
+Attachments from private threads are only visible to the same private thread. Standard-thread attachments are visible everywhere. The policy is enforced at both the search and materialize stages to prevent cross-thread data leakage.
+
+```mermaid
+graph TB
+    subgraph "Visibility Rules"
+        ATT_STD["Attachment from<br/>standard thread"]
+        ATT_PVT["Attachment from<br/>private thread"]
+
+        VIEWER_ANY["Any thread<br/>(standard or private)"]
+        VIEWER_SAME["Same private thread<br/>(matching conversationId)"]
+        VIEWER_OTHER["Different private thread<br/>or standard thread"]
+    end
+
+    ATT_STD -->|"always visible"| VIEWER_ANY
+    ATT_PVT -->|"visible"| VIEWER_SAME
+    ATT_PVT -->|"hidden"| VIEWER_OTHER
+```
+
+**Source conversation lookup**: The `getAttachmentSourceConversations()` function traces an attachment's lineage through `message_attachments` -> `messages` -> `conversations` to determine which threads it belongs to and whether any of them are private.
+
+**Mixed-source attachments**: If an attachment is linked to messages in both standard and private conversations (e.g., the user shared the same file in two threads), the attachment is treated as globally visible because at least one source is non-private.
+
+**Orphan attachments**: Attachments with no message linkage (orphans) are treated as universally visible rather than hidden, since they have no private-thread provenance.
+
+### Search Capabilities
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mime_type` | string | MIME type filter with wildcard support (`image/*`, `application/pdf`) |
+| `filename` | string | Case-insensitive substring match on original filename |
+| `recency` | enum | Time-based filter: `last_hour`, `last_24_hours`, `last_7_days`, `last_30_days`, `last_90_days` |
+| `conversation_id` | string | Scope results to attachments in a specific conversation |
+| `limit` | number | Maximum results (default 20, max 100) |
+
+### Materialize Safeguards
+
+- **Sandbox path enforcement**: Destination path must resolve inside the sandbox working directory
+- **Size limit**: 50 MB ceiling prevents materializing excessively large attachments
+- **Double visibility check**: Both `asset_search` and `asset_materialize` independently verify visibility, preventing TOCTOU races between search and use
+- **Risk level**: Both tools are `RiskLevel.Low` since they read existing data and write only within the sandbox
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/tools/assets/search.ts` | `asset_search` tool — cross-thread attachment metadata search with visibility filtering |
+| `assistant/src/tools/assets/materialize.ts` | `asset_materialize` tool — decode and write attachment to sandbox path |
+| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()` |
+| `assistant/src/memory/schema.ts` | `attachments` and `message_attachments` table schemas |
+| `assistant/src/memory/conversation-store.ts` | `getConversationThreadType()` — thread type lookup for visibility context |
 
 ---
 
@@ -2419,6 +2835,8 @@ graph TD
 
     subgraph "Provider Registry"
         GMAIL["Gmail Provider"]
+        SLACK_W["Slack Provider"]
+        GCAL["Google Calendar Provider"]
         FUTURE["Future Providers..."]
     end
 
@@ -2434,6 +2852,8 @@ graph TD
     WATCH --> CLAIM
     CLAIM --> POLL
     POLL --> GMAIL
+    POLL --> SLACK_W
+    POLL --> GCAL
     POLL --> FUTURE
     POLL --> DEDUP
     DEDUP --> PROCESS
@@ -2480,4 +2900,7 @@ graph TD
 | Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
+| Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
+| Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
+| Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |

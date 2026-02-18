@@ -7,8 +7,8 @@
  */
 
 import { withValidToken } from '../../security/token-manager.js';
-import { getProfile, getMessage, batchGetMessages } from '../../config/bundled-skills/gmail/client.js';
-import type { GmailMessage } from '../../config/bundled-skills/gmail/types.js';
+import { getProfile, batchGetMessages } from '../../messaging/providers/gmail/client.js';
+import type { GmailMessage } from '../../messaging/providers/gmail/types.js';
 import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -175,7 +175,7 @@ export const gmailProvider: WatcherProvider = {
  * Fallback when historyId expires: list recent unread inbox messages.
  */
 async function fallbackFetch(token: string): Promise<FetchResult> {
-  const { listMessages } = await import('../../config/bundled-skills/gmail/client.js');
+  const { listMessages } = await import('../../messaging/providers/gmail/client.js');
   const listResp = await listMessages(token, 'is:unread newer_than:1d', 20, undefined, ['INBOX']);
 
   if (!listResp.messages || listResp.messages.length === 0) {

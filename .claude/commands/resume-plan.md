@@ -84,11 +84,7 @@ Read the next PR section from the plan. Implement all changes in the worktree.
 
 #### 8c. Validate
 
-```bash
-cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
-```
-
-Fix any failures before proceeding.
+**Do NOT run tests, type-checking (`tsc`), or linting unless the plan's PR section explicitly specifies validation steps.** These steps are slow and rarely catch issues for well-scoped changes.
 
 #### 8d. Ship (do NOT merge)
 
@@ -140,6 +136,8 @@ Then **stop**. Do NOT continue to the next PR.
 
 ## Repo-specific gotchas
 
+- **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
 - **Project structure**: Bun + TypeScript project. Code is in `assistant/`.

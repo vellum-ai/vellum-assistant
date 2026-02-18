@@ -398,6 +398,14 @@ describe('credential metadata store', () => {
       expect(() => assertMetadataWritable()).toThrow(/unrecognized version/);
     });
 
+    test.each([0, -1, 1.5, 0.5])('invalid numeric version %d is rejected as unknown', (badVersion) => {
+      writeFileSync(META_PATH, JSON.stringify({ version: badVersion, credentials: [] }, null, 2), 'utf-8');
+
+      expect(listCredentialMetadata()).toEqual([]);
+      expect(getCredentialMetadata('any', 'field')).toBeUndefined();
+      expect(() => upsertCredentialMetadata('test', 'key')).toThrow(/unrecognized version/);
+    });
+
     test('upsert on migrated v1 file saves as v2', () => {
       const v1Data = {
         version: 1,

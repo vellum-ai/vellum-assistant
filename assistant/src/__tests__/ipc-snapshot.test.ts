@@ -351,6 +351,20 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   accept_starter_bundle: {
     type: 'accept_starter_bundle',
   },
+  env_vars_request: {
+    type: 'env_vars_request',
+  },
+  integration_list: {
+    type: 'integration_list',
+  },
+  integration_connect: {
+    type: 'integration_connect',
+    integrationId: 'gmail',
+  },
+  integration_disconnect: {
+    type: 'integration_disconnect',
+    integrationId: 'gmail',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1026,6 +1040,21 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     rulesAdded: 5,
     alreadyAccepted: false,
   },
+  env_vars_response: {
+    type: 'env_vars_response',
+    vars: { HOME: '/Users/test', PATH: '/usr/bin' },
+  },
+  integration_list_response: {
+    type: 'integration_list_response',
+    integrations: [
+      { id: 'gmail', connected: false },
+    ],
+  },
+  integration_connect_result: {
+    type: 'integration_connect_result',
+    integrationId: 'gmail',
+    success: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1214,20 +1243,20 @@ describe('IPC message snapshots', () => {
     test('session_create request includes threadType field', () => {
       const req = clientMessages.session_create;
       expect('threadType' in req).toBe(true);
-      expect((req as Record<string, unknown>).threadType).toBe('standard');
+      expect((req as unknown as Record<string, unknown>).threadType).toBe('standard');
     });
 
     test('session_info response includes threadType field', () => {
       const info = serverMessages.session_info;
       expect('threadType' in info).toBe(true);
-      expect((info as Record<string, unknown>).threadType).toBe('standard');
+      expect((info as unknown as Record<string, unknown>).threadType).toBe('standard');
     });
 
     test('session_list_response sessions include threadType field', () => {
-      const list = serverMessages.session_list_response;
+      const list = serverMessages.session_list_response as unknown as { sessions: Array<Record<string, unknown>> };
       for (const s of list.sessions) {
         expect('threadType' in s).toBe(true);
-        expect((s as Record<string, unknown>).threadType).toBe('standard');
+        expect(s.threadType).toBe('standard');
       }
     });
   });

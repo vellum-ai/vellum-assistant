@@ -205,4 +205,14 @@ final class MessageURLExtractorMarkdownTests: XCTestCase {
         XCTAssertEqual(urls[1].absoluteString, "https://b.com")
         XCTAssertEqual(urls[2].absoluteString, "https://c.com")
     }
+
+    func testExtractAllURLsPreservesGlobalOrder_WithEmoji() {
+        // Emoji are 1 Character but 2+ UTF-16 code units — positions must
+        // use the same coordinate space or the sort will be wrong.
+        let text = "🎉 [A](https://a.com) then https://b.com"
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertEqual(urls[0].absoluteString, "https://a.com")
+        XCTAssertEqual(urls[1].absoluteString, "https://b.com")
+    }
 }

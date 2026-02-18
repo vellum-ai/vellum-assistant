@@ -41,11 +41,33 @@ mock.module('../security/secure-keys.js', () => ({
   getBackendType: () => 'encrypted',
 }));
 
+// In-memory metadata store that mirrors storedKeys for list/get operations
+const metadataStore = new Map<string, { credentialId: string; service: string; field: string }>();
+
 mock.module('../tools/credentials/metadata-store.js', () => ({
-  upsertCredentialMetadata: () => {},
-  deleteCredentialMetadata: () => {},
-  getCredentialMetadata: () => null,
+  upsertCredentialMetadata: (meta: { credentialId?: string; service: string; field: string }) => {
+    const key = `${meta.service}:${meta.field}`;
+    metadataStore.set(key, {
+      credentialId: meta.credentialId ?? `cred-${meta.service}-${meta.field}`,
+      service: meta.service,
+      field: meta.field,
+    });
+  },
+  deleteCredentialMetadata: (service: string, field: string) => {
+    metadataStore.delete(`${service}:${field}`);
+  },
+  getCredentialMetadata: (service: string, field: string) => {
+    return metadataStore.get(`${service}:${field}`) ?? null;
+  },
+  getCredentialMetadataById: (id: string) => {
+    for (const m of metadataStore.values()) {
+      if (m.credentialId === id) return m;
+    }
+    return undefined;
+  },
+  listCredentialMetadata: () => [...metadataStore.values()],
   assertMetadataWritable: () => {},
+  _setMetadataPath: () => {},
 }));
 
 mock.module('../tools/credentials/policy-validate.js', () => ({
@@ -81,7 +103,7 @@ function makeContext(overrides: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 
 describe('E2E: secure store and list lifecycle', () => {
-  beforeEach(() => storedKeys.clear());
+  beforeEach(() => { storedKeys.clear(); metadataStore.clear(); });
 
   test('store persists credential and returns metadata-only confirmation', async () => {
     const result = await credentialStoreTool.execute(
@@ -99,6 +121,8 @@ describe('E2E: secure store and list lifecycle', () => {
   test('list returns service/field pairs without secret values', async () => {
     storedKeys.set('credential:github:token', 'secret1');
     storedKeys.set('credential:aws:access_key', 'secret2');
+    metadataStore.set('github:token', { credentialId: 'cred-github-token', service: 'github', field: 'token' });
+    metadataStore.set('aws:access_key', { credentialId: 'cred-aws-access_key', service: 'aws', field: 'access_key' });
 
     const result = await credentialStoreTool.execute(
       { action: 'list' },
@@ -186,6 +210,7 @@ describe('E2E: secret ingress blocking', () => {
 describe('E2E: one-time send override', () => {
   beforeEach(() => {
     storedKeys.clear();
+    metadataStore.clear();
     mockConfig.secretDetection.allowOneTimeSend = false;
   });
 

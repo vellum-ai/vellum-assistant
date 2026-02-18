@@ -12,9 +12,9 @@ interface ToolLifecycleEventBase {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
-  /** Security principal kind (e.g. 'core' or 'skill'). */
+  /** Security principal kind (e.g. 'core', 'skill', or 'task'). */
   principalKind?: ToolPrincipalKind;
-  /** Security principal ID (skill ID when principalKind is 'skill'). */
+  /** Security principal ID (skill ID when principalKind is 'skill'; task ID when 'task'). */
   principalId?: string;
   /** Content-hash of the principal's source at invocation time. */
   principalVersion?: string;
@@ -33,6 +33,7 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
   scopeOptions: ScopeOption[];
   diff?: DiffInfo;
   sandboxed?: boolean;
+  persistentDecisionsAllowed?: boolean;
 }
 
 export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
@@ -92,8 +93,6 @@ export interface ToolContext {
   requestId?: string;
   /** Optional callback for streaming incremental output to the client. */
   onOutput?: (chunk: string) => void;
-  /** Optional callback for sending messages directly to the client. */
-  sendToClient?: (msg: Record<string, unknown>) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
   /** Per-session sandbox override. When set, takes precedence over the global config. */
@@ -134,6 +133,8 @@ export interface ToolContext {
   memoryScopeId?: string;
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
+  /** Approval callback for proxy policy decisions that require user confirmation. */
+  proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
 }
 
 export interface DiffInfo {

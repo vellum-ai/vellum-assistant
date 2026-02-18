@@ -1,9 +1,30 @@
-import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from '../ipc-contract.js';
 import type { HandlerContext } from './shared.js';
+import type { ServerMessage } from '../ipc-protocol.js';
 import type * as net from 'node:net';
+import type { Database } from 'bun:sqlite';
 import { getDb } from '../../memory/db.js';
 
 import { writeFileSync } from 'node:fs';
+
+// These request types are not yet part of the IPC contract union — define locally.
+export interface DocumentSaveRequest {
+  type: 'document_save';
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+}
+
+export interface DocumentLoadRequest {
+  type: 'document_load';
+  surfaceId: string;
+}
+
+export interface DocumentListRequest {
+  type: 'document_list';
+  conversationId?: string;
+}
 
 export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket, ctx: HandlerContext): void {
   const logMsg = `[${new Date().toISOString()}] handleDocumentSave called: ${JSON.stringify({
@@ -16,7 +37,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 
   try {
     writeFileSync('/tmp/document-save-debug.log', logMsg, { flag: 'a' });
-  } catch (e) {
+  } catch {
     // Ignore logging errors
   }
 
@@ -32,7 +53,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Getting db...\n`, { flag: 'a' });
     const db = getDb();
     // Get the raw SQLite client from Drizzle
-    const sqlite = (db as any).$client;
+    const sqlite = (db as unknown as { $client: Database }).$client;
     const now = Date.now();
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Running sqlite.run()...\n`, { flag: 'a' });
@@ -53,7 +74,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: true,
-    });
+    } as unknown as ServerMessage);
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Response sent successfully\n`, { flag: 'a' });
 
@@ -65,19 +86,20 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       surfaceId: msg.surfaceId,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    } as unknown as ServerMessage);
   }
 }
 
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as unknown as { $client: Database }).$client;
 
-    const result = db.get(/*sql*/ `
+    const result = sqlite.prepare(/*sql*/ `
       SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
       FROM documents
       WHERE surface_id = ?
-    `, [msg.surfaceId]) as {
+    `).get(msg.surfaceId) as {
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -98,7 +120,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         createdAt: result.created_at,
         updatedAt: result.updated_at,
         success: true,
-      });
+      } as unknown as ServerMessage);
       console.log(`[documents] Loaded document: ${msg.surfaceId}`);
     } else {
       ctx.send(socket, {
@@ -112,7 +134,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         updatedAt: 0,
         success: false,
         error: 'Document not found',
-      });
+      } as unknown as ServerMessage);
       console.log(`[documents] Document not found: ${msg.surfaceId}`);
     }
   } catch (error) {
@@ -128,13 +150,14 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
       updatedAt: 0,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    } as unknown as ServerMessage);
   }
 }
 
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as unknown as { $client: Database }).$client;
 
     let query = /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
@@ -149,7 +172,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
 
     query += ' ORDER BY updated_at DESC';
 
-    const results = db.all(query, params) as Array<{
+    const results = sqlite.prepare(query).all(...params) as Array<{
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -168,7 +191,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
-    });
+    } as unknown as ServerMessage);
 
     console.log(`[documents] Listed ${results.length} documents`);
   } catch (error) {
@@ -176,6 +199,6 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
     ctx.send(socket, {
       type: 'document_list_response',
       documents: [],
-    });
+    } as unknown as ServerMessage);
   }
 }

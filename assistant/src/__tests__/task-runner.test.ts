@@ -1,0 +1,215 @@
+import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const testDir = mkdtempSync(join(tmpdir(), 'task-runner-test-'));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  migrateToDataLayout: () => {},
+  migrateToWorkspaceLayout: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+import { initializeDb, getDb } from '../memory/db.js';
+import { createTask } from '../tasks/task-store.js';
+import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
+import { renderTemplate, runTask } from '../tasks/task-runner.js';
+
+initializeDb();
+
+afterAll(() => {
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+// ── renderTemplate ──────────────────────────────────────────────────
+
+describe('renderTemplate', () => {
+  test('correctly substitutes placeholders', () => {
+    const template = 'Hello {{name}}, welcome to {{place}}!';
+    const result = renderTemplate(template, { name: 'Alice', place: 'Wonderland' });
+    expect(result).toBe('Hello Alice, welcome to Wonderland!');
+  });
+
+  test('leaves unmatched placeholders as-is', () => {
+    const template = 'Hello {{name}}, your id is {{id}}';
+    const result = renderTemplate(template, { name: 'Bob' });
+    expect(result).toBe('Hello Bob, your id is {{id}}');
+  });
+
+  test('handles template with no placeholders', () => {
+    const template = 'No placeholders here.';
+    const result = renderTemplate(template, { key: 'value' });
+    expect(result).toBe('No placeholders here.');
+  });
+
+  test('handles empty inputs', () => {
+    const template = '{{greeting}} world';
+    const result = renderTemplate(template, {});
+    expect(result).toBe('{{greeting}} world');
+  });
+});
+
+// ── runTask ─────────────────────────────────────────────────────────
+
+describe('runTask', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM task_runs');
+    db.run('DELETE FROM tasks');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('creates a conversation and task run, calls processMessage with rendered template', async () => {
+    const task = createTask({
+      title: 'Greet User',
+      template: 'Hello {{name}}, please do {{action}}',
+      requiredTools: ['read_file'],
+    });
+
+    const processedMessages: { conversationId: string; message: string }[] = [];
+    const mockProcess = async (conversationId: string, message: string) => {
+      processedMessages.push({ conversationId, message });
+    };
+
+    const result = await runTask(
+      { taskId: task.id, inputs: { name: 'Alice', action: 'testing' }, workingDir: '/tmp' },
+      mockProcess,
+    );
+
+    expect(result.status).toBe('completed');
+    expect(result.taskRunId).toBeTruthy();
+    expect(result.conversationId).toBeTruthy();
+    expect(result.error).toBeUndefined();
+
+    // Verify processMessage was called with rendered template
+    expect(processedMessages).toHaveLength(1);
+    expect(processedMessages[0].message).toBe('Hello Alice, please do testing');
+    expect(processedMessages[0].conversationId).toBe(result.conversationId);
+  });
+
+  test('sets up and cleans up ephemeral permissions', async () => {
+    const task = createTask({
+      title: 'File Task',
+      template: 'Read the file',
+      requiredTools: ['read_file', 'write_file'],
+    });
+
+    let rulesWhileRunning: ReturnType<typeof getTaskRunRules> = [];
+    let capturedTaskRunId = '';
+
+    const mockProcess = async (_conversationId: string, _message: string) => {
+      const db = getDb();
+      const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+      const row = raw.query('SELECT id FROM task_runs WHERE task_id = ?').get(task.id) as { id: string };
+      capturedTaskRunId = row.id;
+      rulesWhileRunning = getTaskRunRules(capturedTaskRunId);
+    };
+
+    await runTask(
+      { taskId: task.id, workingDir: '/home/user' },
+      mockProcess,
+    );
+
+    // During execution, rules should have been set
+    expect(rulesWhileRunning).toHaveLength(2);
+    expect(rulesWhileRunning[0].tool).toBe('read_file');
+    expect(rulesWhileRunning[1].tool).toBe('write_file');
+    expect(rulesWhileRunning[0].scope).toBe('/home/user');
+    expect(rulesWhileRunning[0].decision).toBe('allow');
+    expect(rulesWhileRunning[0].priority).toBe(50);
+
+    // After execution, rules should be cleaned up
+    const rulesAfter = getTaskRunRules(capturedTaskRunId);
+    expect(rulesAfter).toHaveLength(0);
+  });
+
+  test('handles errors and sets failed status', async () => {
+    const task = createTask({
+      title: 'Failing Task',
+      template: 'Do something',
+    });
+
+    const mockProcess = async (_conversationId: string, _message: string) => {
+      throw new Error('Something went wrong');
+    };
+
+    const result = await runTask(
+      { taskId: task.id, workingDir: '/tmp' },
+      mockProcess,
+    );
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe('Something went wrong');
+    expect(result.taskRunId).toBeTruthy();
+    expect(result.conversationId).toBeTruthy();
+  });
+
+  test('cleans up ephemeral rules even on error', async () => {
+    const task = createTask({
+      title: 'Error Cleanup Task',
+      template: 'Do something',
+      requiredTools: ['shell'],
+    });
+
+    let capturedTaskRunId = '';
+
+    const mockProcess = async (_conversationId: string, _message: string) => {
+      const db = getDb();
+      const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+      const row = raw.query('SELECT id FROM task_runs WHERE task_id = ?').get(task.id) as { id: string };
+      capturedTaskRunId = row.id;
+
+      // Verify rules are active during execution
+      const rules = getTaskRunRules(capturedTaskRunId);
+      expect(rules).toHaveLength(1);
+
+      throw new Error('Boom');
+    };
+
+    await runTask({ taskId: task.id, workingDir: '/tmp' }, mockProcess);
+
+    // Rules should be cleaned up in finally block
+    const rulesAfter = getTaskRunRules(capturedTaskRunId);
+    expect(rulesAfter).toHaveLength(0);
+  });
+
+  test('throws if task not found', async () => {
+    const mockProcess = async (_conversationId: string, _message: string) => {};
+
+    await expect(
+      runTask({ taskId: 'nonexistent-id', workingDir: '/tmp' }, mockProcess),
+    ).rejects.toThrow('Task not found: nonexistent-id');
+  });
+
+  test('works with no required tools', async () => {
+    const task = createTask({
+      title: 'Simple Task',
+      template: 'Just a message',
+    });
+
+    const mockProcess = async (_conversationId: string, _message: string) => {};
+
+    const result = await runTask(
+      { taskId: task.id, workingDir: '/tmp' },
+      mockProcess,
+    );
+
+    expect(result.status).toBe('completed');
+  });
+});

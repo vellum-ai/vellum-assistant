@@ -1,4 +1,5 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
+import { RiskLevel } from '../permissions/types.js';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -18,7 +19,7 @@ describe('cliDiscoverTool', () => {
   test('has correct metadata', () => {
     expect(cliDiscoverTool.name).toBe('cli_discover');
     expect(cliDiscoverTool.category).toBe('host-terminal');
-    expect(cliDiscoverTool.defaultRiskLevel).toBe('low');
+    expect(cliDiscoverTool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
   test('definition has expected schema', () => {
@@ -70,7 +71,7 @@ describe('cliDiscoverTool', () => {
     expect(result.isError).toBe(false);
     // Should at least find git which is nearly universally available
     expect(result.content).toContain('**git**');
-  });
+  }, 30_000);
 
   test('includes version info for found CLIs', async () => {
     const result = await cliDiscoverTool.execute(

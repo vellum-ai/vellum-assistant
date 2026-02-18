@@ -57,7 +57,7 @@ bun run src/index.ts daemon start
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
-- Host/computer-use prompts: `host_*`, `request_computer_control`, and `computer_use_*` default to `ask` unless allowlisted/denylisted in trust rules.
+- Host/computer-use prompts: `host_*` and `computer_use_*` (including `computer_use_request_control`) default to `ask` unless allowlisted/denylisted in trust rules.
 - Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
 
 ### Sandbox Backend Selection
@@ -232,7 +232,7 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 ### Permissions
 
-Both `skill_load` and all `browser_*` tools are default-allowed — no permission prompts are required to use them.
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
 
 ## Permission Modes and Trust Rules
 
@@ -449,7 +449,9 @@ Or for a focused feature: **`/blitz <feature>`** handles all of the above in one
 
 For controlled, sequential plan execution with human review at every step: **`/safe-execute-plan <file>`** → **`/safe-check-review`** → **`/resume-plan`** → repeat.
 
-All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md`.
+All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md` and `.private/UNREVIEWED_PRS.md`.
+
+**Validation**: Slash commands do **not** run tests, type-checking (`tsc`), or linting by default. These steps are only performed when the task specifically requires it (e.g., "fix the type errors", "make the tests pass"). This keeps agent-driven workflows fast for well-scoped changes.
 
 ## Release Management
 

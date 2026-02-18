@@ -17,6 +17,7 @@ import {
   getSkillToolNames,
   getSkillRefCount,
   __resetRegistryForTesting,
+  __clearRegistryForTesting,
 } from '../tools/registry.js';
 import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
@@ -175,7 +176,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(15);
+    expect(eagerModules.length).toBe(27);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -463,5 +464,24 @@ describe('skill tool reference counting', () => {
   test('unregister with no prior registration is a no-op', () => {
     unregisterSkillTools('nonexistent-skill');
     expect(getSkillRefCount('nonexistent-skill')).toBe(0);
+  });
+});
+
+describe('computer-use registration split', () => {
+  // Start each test from a completely empty registry so assertions are
+  // non-vacuous — the split functions must actually register tools.
+
+  test('registerComputerUseActionTools registers all 12 CU action tools and nothing else', async () => {
+    const { registerComputerUseActionTools } = await import('../tools/computer-use/registry.js');
+
+    __clearRegistryForTesting();
+    expect(getAllTools()).toHaveLength(0);
+
+    registerComputerUseActionTools();
+
+    const registered = getAllTools();
+    expect(registered).toHaveLength(12);
+    expect(registered.every((t) => t.name.startsWith('computer_use_'))).toBe(true);
+    expect(getTool('computer_use_request_control')).toBeUndefined();
   });
 });

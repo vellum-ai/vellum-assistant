@@ -2,7 +2,7 @@
  * Reusable constants and helpers for the computer-use skill migration test suite.
  */
 
-/** The 12 computer_use_* tool names in the core registry. */
+/** The 12 computer_use_* action tool names provided by the bundled computer-use skill. */
 export const COMPUTER_USE_TOOL_NAMES = [
   'computer_use_click',
   'computer_use_double_click',

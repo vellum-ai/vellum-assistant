@@ -154,6 +154,12 @@ export class ToolExecutor {
           sandboxed = wrapped.sandboxed;
         }
 
+        // Proxied bash prompts are non-persistent — no trust rule saving allowed
+        const persistentDecisionsAllowed = !(
+          name === 'bash'
+          && input.network_mode === 'proxied'
+        );
+
         emitLifecycleEvent(context, {
           type: 'permission_prompt',
           toolName: name,
@@ -169,6 +175,7 @@ export class ToolExecutor {
           scopeOptions,
           diff: previewDiff,
           sandboxed,
+          persistentDecisionsAllowed,
         });
 
         await getHookManager().trigger('permission-request', {
@@ -193,6 +200,7 @@ export class ToolExecutor {
             id: policyContext.principal.id,
             version: policyContext.principal.version,
           } : undefined,
+          persistentDecisionsAllowed,
         );
 
         decision = response.decision;
@@ -224,7 +232,7 @@ export class ToolExecutor {
         }
 
         if (response.decision === 'always_deny') {
-          const ruleSaved = !!(response.selectedPattern && response.selectedScope);
+          const ruleSaved = !!(persistentDecisionsAllowed && response.selectedPattern && response.selectedScope);
           if (ruleSaved) {
             addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
           }
@@ -247,7 +255,8 @@ export class ToolExecutor {
         }
 
         if (
-          (response.decision === 'always_allow' || response.decision === 'always_allow_high_risk')
+          persistentDecisionsAllowed
+          && (response.decision === 'always_allow' || response.decision === 'always_allow_high_risk')
           && response.selectedPattern
           && response.selectedScope
         ) {
@@ -653,7 +662,7 @@ function resolveExecutionTarget(toolName: string): ExecutionTarget {
     return 'host';
   }
   // Prefix heuristics for core tools that don't declare an explicit target.
-  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
+  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_')) {
     return 'host';
   }
   return 'sandbox';

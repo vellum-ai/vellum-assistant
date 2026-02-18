@@ -201,6 +201,18 @@ export function storePayload(eventId: string, payload: Record<string, unknown>):
     .run();
 }
 
+/**
+ * Clear a previously stored payload. Used when the ingress check
+ * detects secret-bearing content — the payload must not remain on disk.
+ */
+export function clearPayload(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ rawPayload: null, updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
 /** Mark an event as successfully processed. */
 export function markProcessed(eventId: string): void {
   const db = getDb();

@@ -1,0 +1,43 @@
+/**
+ * MessagingProvider — the contract that all messaging platform adapters implement.
+ *
+ * Generic tools delegate to the provider, so adding a new platform is just
+ * implementing one adapter file + an OAuth setup skill.
+ */
+
+import type {
+  Conversation,
+  Message,
+  SearchResult,
+  SendResult,
+  ConnectionInfo,
+  ListOptions,
+  HistoryOptions,
+  SearchOptions,
+  SendOptions,
+} from './provider-types.js';
+
+export interface MessagingProvider {
+  /** Unique provider key (e.g. 'slack', 'gmail', 'discord'). */
+  id: string;
+  /** Human-readable name (e.g. 'Slack', 'Gmail'). */
+  displayName: string;
+  /** Credential service name for token-manager (e.g. 'integration:slack'). */
+  credentialService: string;
+
+  // ── Universal operations (every platform must implement) ──────────
+
+  testConnection(token: string): Promise<ConnectionInfo>;
+  listConversations(token: string, options?: ListOptions): Promise<Conversation[]>;
+  getHistory(token: string, conversationId: string, options?: HistoryOptions): Promise<Message[]>;
+  search(token: string, query: string, options?: SearchOptions): Promise<SearchResult>;
+  sendMessage(token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult>;
+
+  // ── Optional operations (platforms implement what they support) ───
+
+  getThreadReplies?(token: string, conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]>;
+  markRead?(token: string, conversationId: string, messageId?: string): Promise<void>;
+
+  /** Platform-specific capabilities for tool routing (e.g. 'reactions', 'threads', 'labels'). */
+  capabilities: Set<string>;
+}

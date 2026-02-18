@@ -117,6 +117,43 @@ describe('classifySessionError', () => {
     }
   });
 
+  describe('context-too-large errors', () => {
+    const cases = [
+      'context_length_exceeded',
+      'maximum context length is 200000 tokens',
+      'token_limit_exceeded: too many tokens in request',
+      'token limit exceeded',
+      'prompt is too long',
+      'Request too large for model',
+      'too many input tokens: 250000',
+      'max_tokens exceeded',
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as CONTEXT_TOO_LARGE`, () => {
+        const result = classifySessionError(new Error(msg), baseCtx);
+        expect(result.code).toBe('CONTEXT_TOO_LARGE');
+        expect(result.retryable).toBe(false);
+      });
+    }
+  });
+
+  describe('context-too-large via ProviderError (400)', () => {
+    it('classifies ProviderError 400 with context length message as CONTEXT_TOO_LARGE', () => {
+      const err = new ProviderError('context_length_exceeded: your prompt is too long', 'anthropic', 400);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('CONTEXT_TOO_LARGE');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('classifies ProviderError 400 without context length message as PROVIDER_API', () => {
+      const err = new ProviderError('invalid_request: missing field', 'anthropic', 400);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.retryable).toBe(false);
+    });
+  });
+
   describe('abort/cancel errors (non-user-initiated)', () => {
     it('classifies "aborted" as SESSION_ABORTED', () => {
       const result = classifySessionError(new Error('Request aborted'), baseCtx);

@@ -9,9 +9,9 @@ enum ConnectionMode: String, CaseIterable {
 
 struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @AppStorage("connection_mode") private var connectionMode: String = ConnectionMode.standalone.rawValue
-    @AppStorage("daemon_tls_enabled") private var tlsEnabled: Bool = false
-    @AppStorage("appearance_mode") private var appearanceMode: String = "system"
+    @AppStorage(UserDefaultsKeys.connectionMode) private var connectionMode: String = ConnectionMode.standalone.rawValue
+    @AppStorage(UserDefaultsKeys.daemonTLSEnabled) private var tlsEnabled: Bool = false
+    @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
     @State private var apiKey: String = ""
     @State private var daemonHostname: String = ""
     @State private var daemonPort: String = ""
@@ -101,10 +101,13 @@ struct SettingsView: View {
                                 showingDaemonAlert = true
                                 return
                             }
-                            UserDefaults.standard.set(daemonHostname, forKey: "daemon_hostname")
-                            UserDefaults.standard.set(port, forKey: "daemon_port")
-                            let tokenKey = "daemon_" + "auth" + "_token"
-                            UserDefaults.standard.set(sessionToken.isEmpty ? nil : sessionToken, forKey: tokenKey)
+                            UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
+                            UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
+                            if sessionToken.isEmpty {
+                                _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
+                            } else {
+                                _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
+                            }
                             daemonAlertMessage = "Daemon connection settings updated"
                             showingDaemonAlert = true
                         }
@@ -156,10 +159,10 @@ struct SettingsView: View {
 
     private func loadSettings() {
         apiKey = APIKeyManager.shared.getAPIKey() ?? ""
-        daemonHostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
-        let portValue = UserDefaults.standard.integer(forKey: "daemon_port")
+        daemonHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
+        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
         daemonPort = portValue > 0 ? String(portValue) : "8765"
-        sessionToken = UserDefaults.standard.string(forKey: "daemon_" + "auth" + "_token") ?? ""
+        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
     }
 }
 

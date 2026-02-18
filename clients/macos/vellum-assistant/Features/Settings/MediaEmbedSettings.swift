@@ -22,14 +22,14 @@ public enum MediaEmbedSettings {
         Date()
     }
 
-    /// Normalizes a user-provided domain list: trims whitespace, lowercases,
+    /// Normalizes a user-provided domain list: trims whitespace and newlines, lowercases,
     /// strips URL schemes/paths/query strings/fragments, removes empty strings,
     /// and deduplicates while preserving first-occurrence order.
     public static func normalizeDomains(_ domains: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         for domain in domains {
-            var normalized = domain.trimmingCharacters(in: .whitespaces).lowercased()
+            var normalized = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !normalized.isEmpty else { continue }
             normalized = extractHost(from: normalized)
             guard !normalized.isEmpty, !seen.contains(normalized) else { continue }
@@ -49,6 +49,9 @@ public enum MediaEmbedSettings {
             if let components = URLComponents(string: value), let host = components.host, !host.isEmpty {
                 return host
             }
+            // Scheme was present but URLComponents couldn't extract a host;
+            // return the original value rather than slicing at the scheme's slashes.
+            return value
         }
 
         // No scheme — strip anything after the first `/` (path, query, fragment).

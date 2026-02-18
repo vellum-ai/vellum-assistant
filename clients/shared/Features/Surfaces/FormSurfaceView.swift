@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct FormSurfaceView: View {
     public let data: FormSurfaceData
@@ -9,6 +12,7 @@ public struct FormSurfaceView: View {
     @State private var selectValues: [String: String] = [:]
     @State private var currentPageIndex: Int = 0
     @State private var showingSecurityInfo: Bool = false
+    @State private var isSubmitted: Bool = false
 
     private var safePageIndex: Int {
         guard let pages = data.pages, !pages.isEmpty else { return 0 }
@@ -62,12 +66,16 @@ public struct FormSurfaceView: View {
                     fieldView(for: field)
                 }
 
-                VButton(
-                    label: data.submitLabel ?? "Submit",
-                    style: .primary,
-                    isFullWidth: true
-                ) {
-                    submitForm()
+                if isSubmitted {
+                    submittedIndicator
+                } else {
+                    VButton(
+                        label: data.submitLabel ?? "Submit",
+                        style: .primary,
+                        isFullWidth: true
+                    ) {
+                        doSubmit()
+                    }
                 }
             }
         }
@@ -117,11 +125,15 @@ public struct FormSurfaceView: View {
                     }
                 }
             } else {
-                VButton(
-                    label: data.pageLabels?.submit ?? data.submitLabel ?? "Submit",
-                    style: .primary
-                ) {
-                    submitForm()
+                if isSubmitted {
+                    submittedIndicator
+                } else {
+                    VButton(
+                        label: data.pageLabels?.submit ?? data.submitLabel ?? "Submit",
+                        style: .primary
+                    ) {
+                        doSubmit()
+                    }
                 }
             }
         }
@@ -183,6 +195,7 @@ public struct FormSurfaceView: View {
                     placeholder: field.placeholder ?? "",
                     text: textBinding(for: field.id)
                 )
+                .onSubmit { handleEnterKey() }
             case .textarea:
                 VTextEditor(
                     placeholder: field.placeholder ?? "",
@@ -193,6 +206,7 @@ public struct FormSurfaceView: View {
                     placeholder: field.placeholder ?? "",
                     text: textBinding(for: field.id)
                 )
+                .onSubmit { handleEnterKey() }
             case .select:
                 selectField(for: field)
             case .password:
@@ -210,6 +224,7 @@ public struct FormSurfaceView: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
+                .onSubmit { handleEnterKey() }
             case .toggle:
                 Toggle(isOn: toggleBinding(for: field.id)) {
                     EmptyView()
@@ -299,6 +314,29 @@ public struct FormSurfaceView: View {
         }
     }
 
+    /// In multi-page forms, Enter advances to the next page instead of submitting.
+    /// Only submits on the last page or in single-page mode.
+    private func handleEnterKey() {
+        if let pages = data.pages, !pages.isEmpty, safePageIndex < pages.count - 1 {
+            withAnimation(VAnimation.fast) {
+                currentPageIndex += 1
+            }
+        } else {
+            doSubmit()
+        }
+    }
+
+    /// Resign focus and submit the form with visual feedback.
+    private func doSubmit() {
+        guard !isSubmitted else { return }
+        isSubmitted = true
+        #if os(macOS)
+        // Resign first responder so the SecureField doesn't swallow the click
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        #endif
+        submitForm()
+    }
+
     private func submitForm() {
         var values: [String: Any] = [:]
         let allFields: [FormField]
@@ -318,5 +356,17 @@ public struct FormSurfaceView: View {
             }
         }
         onSubmit(values)
+    }
+
+    private var submittedIndicator: some View {
+        HStack(spacing: VSpacing.sm) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Submitting\u{2026}")
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 32)
     }
 }

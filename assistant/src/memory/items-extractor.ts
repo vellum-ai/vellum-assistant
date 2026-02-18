@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { and, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getConfig } from '../config/loader.js';
 import type { MemoryExtractionConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
+import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getDb } from './db.js';
@@ -186,13 +186,13 @@ async function extractItemsWithLLM(
     const toolBlock = response.content.find((b) => b.type === 'tool_use');
     if (!toolBlock || toolBlock.type !== 'tool_use') {
       log.warn('No tool_use block in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text);
+      return extractItemsPatternBased(text, scopeId);
     }
 
     const input = toolBlock.input as { items?: LLMExtractedItem[] };
     if (!Array.isArray(input.items)) {
       log.warn('Invalid items in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text);
+      return extractItemsPatternBased(text, scopeId);
     }
 
     const items: ExtractedItem[] = [];
@@ -203,8 +203,7 @@ async function extractItemsWithLLM(
       const statement = String(raw.statement).slice(0, 500);
       const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
       const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
-      const normalized = `${scopeId}|${raw.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
-      const fingerprint = createHash('sha256').update(normalized).digest('hex');
+      const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
       items.push({
         kind: raw.kind as MemoryItemKind,
         subject,
@@ -352,7 +351,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
 
 // ── Pattern-based extraction (fallback) ────────────────────────────────
 
-function extractItemsPatternBased(text: string, scopeId: string): ExtractedItem[] {
+function extractItemsPatternBased(text: string, scopeId: string = 'default'): ExtractedItem[] {
   const sentences = text
     .split(/[\n\r]+|(?<=[.!?])\s+/)
     .map((s) => s.trim())
@@ -365,8 +364,7 @@ function extractItemsPatternBased(text: string, scopeId: string): ExtractedItem[
     if (!classification) continue;
     const subject = inferSubject(sentence, classification.kind);
     const statement = sentence.replace(/\s+/g, ' ').trim();
-    const normalized = `${scopeId}|${classification.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
-    const fingerprint = createHash('sha256').update(normalized).digest('hex');
+    const fingerprint = computeMemoryFingerprint(scopeId, classification.kind, subject, statement);
     items.push({
       kind: classification.kind,
       subject,

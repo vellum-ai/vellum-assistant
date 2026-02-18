@@ -18,6 +18,7 @@ Everything after stripping flags is the **feature description**.
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Don't pipe to them.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
@@ -195,7 +196,7 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
 ## Important
 
-- `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
+- `.private/TODO.md` and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
 - If an agent reports failure, put the item back in TODO.md and note the failure.
 - If an agent hits merge conflicts, tell it to rebase: `git pull --rebase origin main`.

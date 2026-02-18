@@ -279,8 +279,8 @@ extension IPCSessionCreateRequest {
 public typealias UserMessageMessage = IPCUserMessage
 
 extension IPCUserMessage {
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage)
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck)
     }
 }
 
@@ -828,20 +828,77 @@ public struct UiSurfaceCompleteMessage: Decodable, Sendable {
 }
 
 /// Document editor show command from daemon.
-/// Backed by generated `IPCDocumentEditorShow`.
-public typealias DocumentEditorShowMessage = IPCDocumentEditorShow
+/// Defined inline — removed from the IPC contract but still used by the macOS client.
+public struct DocumentEditorShowMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let title: String
+    public let initialContent: String
+}
 
 /// Document editor update command from daemon.
-/// Backed by generated `IPCDocumentEditorUpdate`.
-public typealias DocumentEditorUpdateMessage = IPCDocumentEditorUpdate
+public struct DocumentEditorUpdateMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let markdown: String
+    public let mode: String
+}
 
-/// Document persistence messages
-public typealias DocumentSaveRequestMessage = IPCDocumentSaveRequest
-public typealias DocumentSaveResponseMessage = IPCDocumentSaveResponse
-public typealias DocumentLoadRequestMessage = IPCDocumentLoadRequest
-public typealias DocumentLoadResponseMessage = IPCDocumentLoadResponse
-public typealias DocumentListRequestMessage = IPCDocumentListRequest
-public typealias DocumentListResponseMessage = IPCDocumentListResponse
+/// Document persistence messages — defined inline (removed from IPC contract).
+public struct DocumentSaveRequestMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let content: String
+    public let wordCount: Int
+}
+
+public struct DocumentSaveResponseMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let success: Bool
+    public let error: String?
+}
+
+public struct DocumentLoadRequestMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+}
+
+public struct DocumentLoadResponseMessage: Codable, Sendable {
+    public let type: String
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let content: String
+    public let wordCount: Int
+    public let createdAt: Int
+    public let updatedAt: Int
+    public let success: Bool
+    public let error: String?
+}
+
+public struct DocumentListRequestMessage: Codable, Sendable {
+    public let type: String
+    public let conversationId: String?
+}
+
+public struct DocumentListResponseMessage: Codable, Sendable {
+    public let type: String
+    public let documents: [DocumentListResponseDocument]
+}
+
+public struct DocumentListResponseDocument: Codable, Sendable {
+    public let surfaceId: String
+    public let conversationId: String
+    public let title: String
+    public let wordCount: Int
+    public let createdAt: Int
+    public let updatedAt: Int
+}
 
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
@@ -892,8 +949,8 @@ extension IPCMessageDequeued {
 public typealias ErrorMessage = IPCErrorMessage
 
 extension IPCErrorMessage {
-    public init(message: String) {
-        self.init(type: "error", message: message)
+    public init(message: String, category: String? = nil) {
+        self.init(type: "error", message: message, category: category)
     }
 }
 
@@ -1217,6 +1274,7 @@ public enum SessionErrorCode: String, CaseIterable, Codable, Sendable {
     case providerNetwork = "PROVIDER_NETWORK"
     case providerRateLimit = "PROVIDER_RATE_LIMIT"
     case providerApi = "PROVIDER_API"
+    case contextTooLarge = "CONTEXT_TOO_LARGE"
     case queueFull = "QUEUE_FULL"
     case sessionAborted = "SESSION_ABORTED"
     case sessionProcessingFailed = "SESSION_PROCESSING_FAILED"

@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getDb } from '../../memory/db.js';
+import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { searchMemoryItems, formatRelativeTime } from '../../memory/retriever.js';
@@ -93,10 +93,7 @@ export async function handleMemorySave(
     const now = Date.now();
     const trimmedStatement = statement.trim().slice(0, 500);
 
-    // Build fingerprint for dedup — salt with scopeId so identical statements
-    // in different scopes produce distinct fingerprints and stay separate.
-    const normalized = `${scopeId}|${kind}|${subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
-    const fingerprint = createHash('sha256').update(normalized).digest('hex');
+    const fingerprint = computeMemoryFingerprint(scopeId, kind, subject, trimmedStatement);
 
     const existing = db
       .select()
@@ -190,10 +187,7 @@ export async function handleMemoryUpdate(
     const now = Date.now();
     const trimmedStatement = statement.trim().slice(0, 500);
 
-    // Salt fingerprint with scopeId so identical statements in different
-    // scopes stay distinct — mirrors the pattern in handleMemorySave.
-    const normalized = `${scopeId}|${existing.kind}|${existing.subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
-    const fingerprint = createHash('sha256').update(normalized).digest('hex');
+    const fingerprint = computeMemoryFingerprint(scopeId, existing.kind, existing.subject, trimmedStatement);
 
     // Collision detection also constrained to the current scope.
     const collision = db

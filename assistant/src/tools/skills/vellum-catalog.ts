@@ -20,6 +20,7 @@ interface CatalogEntry {
   name: string;
   description: string;
   emoji?: string;
+  includes?: string[];
 }
 
 function parseCatalogEntry(directory: string): CatalogEntry | null {
@@ -66,7 +67,21 @@ function parseCatalogEntry(directory: string): CatalogEntry | null {
       }
     }
 
-    return { id: basename(directory), name, description, emoji };
+    let includes: string[] | undefined;
+    const includesRaw = fields.includes?.trim();
+    if (includesRaw) {
+      try {
+        const parsed = JSON.parse(includesRaw);
+        if (Array.isArray(parsed) && parsed.every((item: unknown) => typeof item === 'string')) {
+          const filtered = (parsed as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
+          if (filtered.length > 0) includes = filtered;
+        }
+      } catch {
+        // ignore malformed includes
+      }
+    }
+
+    return { id: basename(directory), name, description, emoji, includes };
   } catch (err) {
     log.warn({ err, directory }, 'Failed to read catalog entry');
     return null;
@@ -173,6 +188,7 @@ class VellumSkillsCatalogTool implements Tool {
           description: entry.description,
           bodyMarkdown,
           emoji: entry.emoji,
+          includes: entry.includes,
           overwrite: input.overwrite === true,
           addToIndex: true,
         });

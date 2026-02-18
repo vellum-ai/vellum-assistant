@@ -48,7 +48,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
     var visibleThreads: [ThreadModel] {
-        threads.filter { !$0.isArchived }.sorted { a, b in
+        threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
             if a.isPinned && b.isPinned {
                 return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
             }
@@ -60,6 +60,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     var archivedThreads: [ThreadModel] {
         threads.filter { $0.isArchived }
+    }
+
+    var activeThread: ThreadModel? {
+        guard let id = activeThreadId else { return nil }
+        return threads.first { $0.id == id }
     }
 
     var activeViewModel: ChatViewModel? {
@@ -80,11 +85,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func createThread() {
-        // If the active thread is still empty, just keep it instead of creating another
+        // If the active thread is still empty, just keep it instead of creating another.
+        // Skip this optimisation for private threads — they have different persistence
+        // semantics and should not be silently reused as standard threads.
         if let activeId = activeThreadId,
            let vm = chatViewModels[activeId],
            !vm.messages.contains(where: { $0.role == .user }) {
-            return
+            let activeThread = threads.first(where: { $0.id == activeId })
+            if activeThread?.kind != .private {
+                return
+            }
         }
 
         let thread = ThreadModel()

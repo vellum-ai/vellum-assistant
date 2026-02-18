@@ -9,6 +9,7 @@ IMPORTANT: If the task is "Address the feedback on <PR URL>", first check if the
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Avoid `cmd | tail -N`. Instead, run the command directly and let output truncate naturally, or use the Read tool on output files.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 
@@ -36,8 +37,7 @@ If you can implement it in a single PR:
 
 After you've handled the item:
 
-- Append a deatiled description of what was done to the end of .private/DONE.md, separated by a horizontal rule.
 - If the handled task exists in `.private/TODO.md`, remove that exact item from the list. Be very careful to not accidentally overwrite other changes or remove other items unless you're absolutely sure you're doing the right thing.
 - Provide a detailed description of what you did.
 
-IMPORTANT: .private/TODO.md, .private/DONE.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md, .private/DONE.md and .private/UNREVIEWED_PRS.md are gitignored.
+IMPORTANT: .private/TODO.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md and .private/UNREVIEWED_PRS.md are gitignored.

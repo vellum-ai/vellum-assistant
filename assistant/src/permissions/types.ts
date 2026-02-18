@@ -41,13 +41,13 @@ export interface ScopeOption {
 
 // ── Principal + policy context types (PR 3) ──────────────────
 
-/** Distinguishes whether a tool is a built-in core tool or provided by a skill. */
-export type ToolPrincipalKind = 'core' | 'skill';
+/** Distinguishes whether a tool is a built-in core tool, provided by a skill, or scoped to a one-shot task. */
+export type ToolPrincipalKind = 'core' | 'skill' | 'task';
 
 /** Identifies the security principal that owns a tool invocation. */
 export interface ToolPrincipal {
   kind: ToolPrincipalKind;
-  /** Skill ID when kind is 'skill'. */
+  /** Skill ID when kind is 'skill'; task ID when kind is 'task'. */
   id?: string;
   /** Content-hash of the skill source at the time of approval. */
   version?: string;
@@ -57,4 +57,6 @@ export interface ToolPrincipal {
 export interface PolicyContext {
   principal?: ToolPrincipal;
   executionTarget?: string;
+  /** Ephemeral rules for task-scoped permissions — checked before persistent trust.json rules. */
+  ephemeralRules?: TrustRule[];
 }

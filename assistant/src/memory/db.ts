@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { computeMemoryFingerprint } from './fingerprint.js';
 import * as schema from './schema.js';
 import { getDbPath, ensureDataDir, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 
@@ -532,6 +533,7 @@ export function initializeDb(): void {
   migrateToolInvocationsFk(database);
   migrateMemoryEntityRelationDedup(database);
   migrateMemoryItemsFingerprintScopeUnique(database);
+  migrateMemoryItemsScopeSaltedFingerprints(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
@@ -694,6 +696,55 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_contact_id ON followups(contact_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel_thread ON followups(channel, thread_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status_expected ON followups(status, expected_response_by)`);
+
+  // ── Tasks ─────────────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      template TEXT NOT NULL,
+      input_schema TEXT,
+      context_flags TEXT,
+      required_tools TEXT,
+      created_from_conversation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      conversation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      started_at INTEGER,
+      finished_at INTEGER,
+      error TEXT,
+      principal_id TEXT,
+      memory_scope_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS task_candidates (
+      id TEXT PRIMARY KEY,
+      source_conversation_id TEXT NOT NULL,
+      compiled_template TEXT NOT NULL,
+      confidence REAL,
+      required_tools TEXT,
+      created_at INTEGER NOT NULL,
+      promoted_task_id TEXT
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_candidates_promoted ON task_candidates(promoted_task_id)`);
 
   migrateMemoryFtsBackfill(database);
 }
@@ -891,13 +942,14 @@ function migrateMemoryItemsFingerprintScopeUnique(database: ReturnType<typeof dr
   ).get(checkpointKey);
   if (checkpoint) return;
 
-  // Check if the old column-level UNIQUE constraint still exists — indicated
-  // by the sqlite_autoindex on fingerprint alone.
-  const autoIdx = raw.query(
-    `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'memory_items' AND name LIKE 'sqlite_autoindex_%'`,
-  ).get() as { name: string } | null;
-  if (!autoIdx) {
-    // No auto-index — either fresh DB (no UNIQUE in CREATE TABLE) or already migrated.
+  // Check if the old column-level UNIQUE constraint still exists by inspecting
+  // the CREATE TABLE DDL for the word UNIQUE (the PK also creates an autoindex,
+  // so we cannot rely on sqlite_autoindex_* presence alone).
+  const tableDdl = raw.query(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_items'`,
+  ).get() as { sql: string } | null;
+  if (!tableDdl || !tableDdl.sql.match(/fingerprint\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i)) {
+    // No column-level UNIQUE on fingerprint — either fresh DB or already migrated.
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
     ).run(checkpointKey, Date.now());
@@ -953,5 +1005,65 @@ function migrateMemoryItemsFingerprintScopeUnique(database: ReturnType<typeof dr
     throw e;
   } finally {
     raw.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+/**
+ * One-shot migration: recompute fingerprints for existing memory items to
+ * include the scope_id prefix introduced in the scope-salted fingerprint PR.
+ *
+ * Old format: sha256(`${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`)
+ * New format: sha256(`${scopeId}|${kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`)
+ *
+ * Without this migration, pre-upgrade items would never match on re-extraction,
+ * causing duplicates and broken deduplication.
+ */
+function migrateMemoryItemsScopeSaltedFingerprints(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_memory_items_scope_salted_fingerprints_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  interface ItemRow {
+    id: string;
+    kind: string;
+    subject: string;
+    statement: string;
+    scope_id: string;
+  }
+
+  const items = raw.query(
+    `SELECT id, kind, subject, statement, scope_id FROM memory_items`,
+  ).all() as ItemRow[];
+
+  if (items.length === 0) {
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
+  try {
+    raw.exec('BEGIN');
+
+    const updateStmt = raw.prepare(
+      `UPDATE memory_items SET fingerprint = ? WHERE id = ?`,
+    );
+
+    for (const item of items) {
+      const fingerprint = computeMemoryFingerprint(item.scope_id, item.kind, item.subject, item.statement);
+      updateStmt.run(fingerprint, item.id);
+    }
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
   }
 }

@@ -101,7 +101,7 @@ enum MediaEmbedResolver {
     ) -> VideoParseResult? {
         for parser in videoParsers {
             if let result = parser(url) {
-                guard DomainAllowlistMatcher.isAllowed(result.embedURL, allowedDomains: allowedDomains) else {
+                guard DomainAllowlistMatcher.isAllowed(url, allowedDomains: allowedDomains) else {
                     return nil
                 }
                 return result

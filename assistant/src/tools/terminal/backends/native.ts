@@ -151,7 +151,7 @@ function buildBwrapArgs(workingDir: string, command: string): string[] {
  * macOS sandbox-exec (SBPL profiles) and Linux bwrap (bubblewrap).
  */
 export class NativeBackend implements SandboxBackend {
-  wrap(command: string, workingDir: string): SandboxResult {
+  wrap(command: string, workingDir: string, _options?: import('./types.js').WrapOptions): SandboxResult {
     if (isMacOS()) {
       if (!isSafeForSBPL(workingDir)) {
         throw new ToolError(

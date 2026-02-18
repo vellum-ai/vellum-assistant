@@ -293,7 +293,7 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('Included Skills (immediate): none');
   });
 
-  test('e2e: load parent with includes shows child metadata and emits only parent marker', async () => {
+  test('e2e: load parent with includes shows child metadata and emits markers for parent and included children', async () => {
     // Set up a parent + child fixture using the helpers
     writeSkill('e2e-child', 'E2E Child', 'Child for e2e test', 'Child instructions.');
     writeSkillWithIncludes('e2e-parent', 'E2E Parent', 'Parent with includes', 'Parent instructions.', ['e2e-child']);
@@ -309,13 +309,11 @@ describe('skill_load tool', () => {
     expect(result.content).toContain('Included Skills (immediate):');
     expect(result.content).toContain('e2e-child: E2E Child');
 
-    // Should emit exactly one <loaded_skill> marker — for the parent only
+    // Should emit markers for both parent and included child so child tools get projected
     const markers = result.content.match(/<loaded_skill/g) || [];
-    expect(markers.length).toBe(1);
+    expect(markers.length).toBe(2);
     expect(result.content).toMatch(/<loaded_skill id="e2e-parent" version="v1:[a-f0-9]{64}" \/>/);
-
-    // Should NOT contain a loaded_skill marker for the child
-    expect(result.content).not.toContain('<loaded_skill id="e2e-child"');
+    expect(result.content).toMatch(/<loaded_skill id="e2e-child" version="v1:[a-f0-9]{64}" \/>/);
   });
 
   test('parent skill lists only immediate children, not transitive grandchildren', async () => {
@@ -347,7 +345,7 @@ describe('skill_load tool', () => {
     expect(result.content).toMatch(/<loaded_skill id="grandparent" version="v1:[a-f0-9]{64}" \/>/);
   });
 
-  test('succeeds with diamond dependency and shows only immediate children', async () => {
+  test('succeeds with diamond dependency and emits markers for root and immediate children', async () => {
     // Diamond: root includes A and B, both A and B include shared-leaf
     writeSkill('shared-leaf', 'Shared Leaf', 'Shared dependency', 'Shared body');
     writeSkillWithIncludes('branch-a', 'Branch A', 'First branch', 'Branch A body', ['shared-leaf']);
@@ -373,10 +371,12 @@ describe('skill_load tool', () => {
     expect(immediateSection).not.toBeNull();
     expect(immediateSection![0]).not.toContain('shared-leaf');
 
-    // Exactly one loaded_skill marker (for root only)
+    // Markers for root + immediate includes (branch-a and branch-b)
     const markers = result.content.match(/<loaded_skill/g) || [];
-    expect(markers.length).toBe(1);
+    expect(markers.length).toBe(3);
     expect(result.content).toMatch(/<loaded_skill id="diamond-root" version="v1:[a-f0-9]{64}" \/>/);
+    expect(result.content).toMatch(/<loaded_skill id="branch-a" version="v1:[a-f0-9]{64}" \/>/);
+    expect(result.content).toMatch(/<loaded_skill id="branch-b" version="v1:[a-f0-9]{64}" \/>/);
   });
 
   test('returns error when skill includes itself (self-cycle)', async () => {

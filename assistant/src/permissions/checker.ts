@@ -102,7 +102,7 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
   return parsed;
 }
 
-function normalizeWebFetchUrl(rawUrl: string): URL | null {
+export function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 
@@ -173,7 +173,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
     return [`${toolName}:${skillId}`];
   }
 
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
     const rawUrl = getStringField(input, 'url').trim();
     const candidates: string[] = [];
 
@@ -253,6 +253,9 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   }
   // All other browser tools are low risk — the browser is sandboxed and user-visible.
   if (toolName.startsWith('browser_')) return RiskLevel.Low;
+  // Proxy-authenticated network requests are Medium risk — they carry injected
+  // credentials and the user should approve the target host/origin.
+  if (toolName === 'network_request') return RiskLevel.Medium;
   if (toolName === 'skill_load') return RiskLevel.Low;
 
   // Escalate host file mutations targeting skill source paths to High risk.
@@ -346,12 +349,22 @@ export async function check(
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
 
-  if (matchedRule) {
-    if (matchedRule.decision === 'deny') {
-      // Deny rules apply at ALL risk levels
-      return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
-    }
+  // Deny rules apply at ALL risk levels — including proxied network mode.
+  // Evaluate them first so hard blocks are never downgraded to a prompt.
+  if (matchedRule && matchedRule.decision === 'deny') {
+    return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
+  }
 
+  // Proxied network mode requires explicit user approval for every
+  // invocation because the command routes through an authenticated
+  // proxy with injected credentials. This runs after deny rules but
+  // before allow/ask rules so that trust rules cannot auto-approve
+  // proxied commands.
+  if (toolName === 'bash' && input.network_mode === 'proxied') {
+    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+  }
+
+  if (matchedRule) {
     if (matchedRule.decision === 'ask') {
       // Ask rules always prompt — never auto-allow or auto-deny
       return { decision: 'prompt', reason: `Matched ask rule: ${matchedRule.pattern}`, matchedRule };
@@ -423,6 +436,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_edit: 'host file edits',
   web_fetch: 'URL fetches',
   browser_navigate: 'browser navigations',
+  network_request: 'network requests',
 };
 
 function friendlyBasename(filePath: string): string {
@@ -501,7 +515,7 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
     return options;
   }
 
-  if (toolName === 'web_fetch' || toolName === 'browser_navigate') {
+  if (toolName === 'web_fetch' || toolName === 'browser_navigate' || toolName === 'network_request') {
     const rawUrl = getStringField(input, 'url').trim();
     const normalized = normalizeWebFetchUrl(rawUrl);
     const exact = normalized?.href ?? rawUrl;
@@ -519,7 +533,10 @@ export function generateAllowlistOptions(toolName: string, input: Record<string,
       });
     }
     const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
-    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `${toolName}:*` });
+    // Use standalone "**" globstar — minimatch only treats ** as globstar when
+    // it is its own path segment, so "${toolName}:*" would fail to match URL
+    // candidates containing "/".  The tool field is already filtered separately.
+    options.push({ label: `${toolName}:*`, description: `All ${toolLabel}`, pattern: `**` });
 
     const seen = new Set<string>();
     return options.filter((o) => {

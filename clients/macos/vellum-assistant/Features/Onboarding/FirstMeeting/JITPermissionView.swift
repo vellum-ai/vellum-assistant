@@ -146,13 +146,14 @@ struct JITPermissionView: View {
             )
             .opacity(showContent ? 1 : 0)
 
-            // Action buttons
+            // Action buttons — "Allow" comes first; intentional design
+            // choice to make the positive action the default leftmost button.
             HStack(spacing: VSpacing.sm) {
-                permissionButton("Don't Allow", isPrimary: false) {
-                    dismiss()
-                }
                 permissionButton("Allow", isPrimary: false) {
                     manager.grantActivePermission()
+                }
+                permissionButton("Don't Allow", isPrimary: false) {
+                    dismiss()
                 }
                 permissionButton("Always Allow", isPrimary: true) {
                     manager.grantActivePermission(always: true)

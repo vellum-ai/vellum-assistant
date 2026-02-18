@@ -529,6 +529,7 @@ describe('ToolExecutor prompter principal arg (PR fix3)', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -1109,15 +1110,23 @@ describe('ToolExecutor baseline: allow rule auto-allows file_edit USER.md', () =
   });
 
   test('file_edit to a non-USER.md path is NOT auto-allowed without a matching rule', async () => {
-    const executor = new ToolExecutor(makePrompter());
+    let promptCalled = false;
+    const trackingPrompter = {
+      prompt: async () => { promptCalled = true; return { decision: 'allow' as const }; },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(trackingPrompter);
     const result = await executor.execute(
       'file_edit',
       { path: '/tmp/project/other.md', content: 'hello' },
       makeContext(),
     );
-    // The executor prompts (check returned 'prompt') and the prompter mock
-    // allows it, so execution still succeeds — but the trust-rule path was
-    // exercised and correctly returned no match for other.md.
+    // check() returned 'prompt' (no matching trust rule for other.md),
+    // so the executor must have called the prompter.
+    expect(promptCalled).toBe(true);
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.toolName).toBe('file_edit');
@@ -1568,6 +1577,318 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     expect(result.isError).toBe(false);
     // list is read-only — must NOT trigger forced prompting
     expect(promptCalled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persistentDecisionsAllowed contract (PR 15)
+// ---------------------------------------------------------------------------
+
+describe('ToolExecutor persistentDecisionsAllowed contract', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+    checkFnOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  function setupAddRuleSpy() {
+    addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      },
+    );
+    return addRuleSpy;
+  }
+
+  test('proxied bash always_allow does NOT save a trust rule', async () => {
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'bash:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl https://example.com', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('non-proxied bash always_allow DOES save a trust rule', async () => {
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'bash:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'git status' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('proxied bash always_deny does NOT save a trust rule', async () => {
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_deny', 'bash:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl https://evil.com', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('persistentDecisionsAllowed: false is emitted in lifecycle event for proxied bash', async () => {
+    let capturedEvent: any;
+    const prompter = makePrompterWithDecision('allow');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl https://example.com', network_mode: 'proxied' },
+      makeContext({
+        onToolLifecycleEvent: (event: any) => {
+          if (event.type === 'permission_prompt') {
+            capturedEvent = event;
+          }
+        },
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(capturedEvent).toBeDefined();
+    expect(capturedEvent.persistentDecisionsAllowed).toBe(false);
+  });
+
+  test('persistentDecisionsAllowed: true is emitted in lifecycle event for non-proxied bash', async () => {
+    let capturedEvent: any;
+    const prompter = makePrompterWithDecision('allow');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'echo hello' },
+      makeContext({
+        onToolLifecycleEvent: (event: any) => {
+          if (event.type === 'permission_prompt') {
+            capturedEvent = event;
+          }
+        },
+      }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(capturedEvent).toBeDefined();
+    expect(capturedEvent.persistentDecisionsAllowed).toBe(true);
+  });
+
+  test('persistentDecisionsAllowed is passed to prompter confirmation_request for proxied bash', async () => {
+    let capturedPersistent: unknown;
+    const prompter = {
+      prompt: async (
+        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
+        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
+        _sessionId: any, _executionTarget: any, _principal: any, persistentDecisionsAllowed: any,
+      ) => {
+        capturedPersistent = persistentDecisionsAllowed;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl https://example.com', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(capturedPersistent).toBe(false);
+  });
+
+  test('host_bash with proxied network_mode still allows persistent decisions', async () => {
+    // host_bash does not support network_mode — proxied-mode persistence
+    // blocking applies only to sandboxed bash, not host_bash.
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'host_bash:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'host_bash',
+      { command: 'curl https://example.com', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E2E: Proxied bash vs. proxy approval persistence invariants (PR 32)
+//
+// Design invariant: the proxied-run activation prompt (when the agent wants
+// to run `bash` with `network_mode=proxied`) must NOT allow saving persistent
+// trust rules — each invocation must be explicitly approved. In contrast,
+// the proxy-request approval path (when the proxy service asks the user
+// about a specific outbound request) CAN save persistent trust rules so the
+// user doesn't get re-prompted for the same host/pattern.
+// ---------------------------------------------------------------------------
+
+describe('E2E: proxied bash activation vs proxy approval persistence', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = { decision: 'prompt', reason: 'Requires explicit approval' };
+    checkFnOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  function setupAddRuleSpy() {
+    addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      },
+    );
+    return addRuleSpy;
+  }
+
+  test('proxied bash: always_allow skips rule, always_deny skips rule, non-proxied bash saves both', async () => {
+    const spy = setupAddRuleSpy();
+
+    // 1. Proxied bash always_allow -> NO rule saved
+    const p1 = makePrompterWithDecision('always_allow', 'bash:curl*', '/tmp/project');
+    const e1 = new ToolExecutor(p1);
+    const r1 = await e1.execute('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, makeContext());
+    expect(r1.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+
+    // 2. Proxied bash always_deny -> NO rule saved
+    const p2 = makePrompterWithDecision('always_deny', 'bash:curl*', '/tmp/project');
+    const e2 = new ToolExecutor(p2);
+    const r2 = await e2.execute('bash', { command: 'curl https://evil.com', network_mode: 'proxied' }, makeContext());
+    expect(r2.isError).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+
+    // 3. Non-proxied bash always_allow -> rule IS saved
+    const p3 = makePrompterWithDecision('always_allow', 'bash:git*', '/tmp/project');
+    const e3 = new ToolExecutor(p3);
+    const r3 = await e3.execute('bash', { command: 'git push' }, makeContext());
+    expect(r3.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe('bash');
+    expect(spy.mock.calls[0][1]).toBe('bash:git*');
+    expect(spy.mock.calls[0][3]).toBe('allow');
+  });
+
+  test('proxied bash always_allow_high_risk also skips rule saving', async () => {
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'bash:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl -X POST https://api.example.com/deploy', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('non-proxied bash always_deny DOES save a deny rule', async () => {
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_deny', 'bash:rm*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'rm -rf /' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe('bash');
+    expect(spy.mock.calls[0][1]).toBe('bash:rm*');
+    expect(spy.mock.calls[0][3]).toBe('deny');
+  });
+
+  test('file_write with proxied network_mode is NOT affected (persistence still allowed)', async () => {
+    // Only bash with proxied mode disables persistence
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'file_write:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'file_write',
+      { path: '/tmp/test.txt', content: 'data', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('host_bash proxied always_allow_high_risk still saves rule (host_bash ignores network_mode)', async () => {
+    // host_bash does not support network_mode — persistence blocking
+    // applies only to sandboxed bash.
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow_high_risk', 'host_bash:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'host_bash',
+      { command: 'wget https://example.com/data.tar.gz', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('proxied bash denied result message omits "rule saved" suffix', async () => {
+    setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_deny', 'bash:*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'curl https://malicious.com', network_mode: 'proxied' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    // Since no rule was saved, the message should NOT include "(rule saved)"
+    expect(result.content).toBe('Permission denied by user');
+    expect(result.content).not.toContain('rule saved');
+  });
+
+  test('non-proxied bash denied result message includes "rule saved" suffix', async () => {
+    setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_deny', 'bash:rm*', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'rm -rf /' },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe('Permission denied by user (rule saved)');
   });
 });
 

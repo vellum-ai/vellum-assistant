@@ -4,6 +4,8 @@ export type {
   ProxySessionConfig,
   ProxySessionStatus,
   ProxyEnvVars,
+  ProxyApprovalRequest,
+  ProxyApprovalCallback,
 } from './types.js';
 
 export {
@@ -12,6 +14,13 @@ export {
   stopSession,
   getSessionEnv,
   getActiveSession,
+  getOrStartSession,
   getSessionsForConversation,
   stopAllSessions,
 } from './session-manager.js';
+
+export {
+  ensureLocalCA,
+  issueLeafCert,
+  getCAPath,
+} from './certs.js';

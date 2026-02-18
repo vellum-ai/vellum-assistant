@@ -10,21 +10,9 @@ import {
   getAllToolDefinitions,
   __resetRegistryForTesting,
 } from '../tools/registry.js';
+import { BROWSER_TOOL_NAMES } from './test-support/browser-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
-
-const BROWSER_TOOL_NAMES = [
-  'browser_navigate',
-  'browser_snapshot',
-  'browser_screenshot',
-  'browser_close',
-  'browser_click',
-  'browser_type',
-  'browser_press_key',
-  'browser_wait_for',
-  'browser_extract',
-  'browser_fill_credential',
-] as const;
 
 beforeAll(async () => {
   // Reset first to clear any browser tools registered via ESM side-effect
@@ -52,20 +40,20 @@ describe('browser skill cutover — startup tool payload', () => {
 
   test('total tool definition count reflects removal of 10 browser tools', () => {
     const definitions = getAllToolDefinitions();
-    // Startup has exactly 36 definitions (no browser tools).
+    // Startup has exactly 48 definitions (no browser tools).
     // Allow ±2 for minor additions/removals in unrelated modules.
-    expect(definitions.length).toBeGreaterThanOrEqual(34);
-    expect(definitions.length).toBeLessThanOrEqual(38);
+    expect(definitions.length).toBeGreaterThanOrEqual(46);
+    expect(definitions.length).toBeLessThanOrEqual(50);
   });
 
   test('serialized tool definitions payload still exceeds a reasonable floor', () => {
     const definitions = getAllToolDefinitions();
     const serialized = JSON.stringify(definitions);
-    // Startup payload is ~22 483 chars without browser tools.
-    // Floor at 20 000 catches accidental wholesale removal; ceiling ensures
+    // Startup payload is ~32 771 chars without browser tools.
+    // Floor at 30 000 catches accidental wholesale removal; ceiling ensures
     // browser tools (~4 640 chars) haven't leaked back in.
-    expect(serialized.length).toBeGreaterThan(20_000);
-    expect(serialized.length).toBeLessThan(28_000);
+    expect(serialized.length).toBeGreaterThan(30_000);
+    expect(serialized.length).toBeLessThan(38_000);
   });
 
   test('no browser-categorised tools remain in startup registry', () => {

@@ -24,6 +24,10 @@ struct MainWindowView: View {
     @State private var showAllApps: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
+    /// Stores the thread ID the user was on before entering temporary chat,
+    /// so we can restore it when they exit instead of jumping to visibleThreads.first
+    /// (which may be a pinned thread unrelated to what they were doing).
+    @State private var preTemporaryChatThreadId: UUID?
 
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -127,6 +131,25 @@ struct MainWindowView: View {
     /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+    }
+
+    private func toggleTemporaryChat() {
+        if threadManager.activeThread?.kind == .private {
+            // Restore the thread the user was on before entering temporary chat.
+            // Fall back to visibleThreads.first only if the stored thread no longer exists.
+            if let savedId = preTemporaryChatThreadId,
+               threadManager.visibleThreads.contains(where: { $0.id == savedId }) {
+                threadManager.selectThread(id: savedId)
+            } else if let recent = threadManager.visibleThreads.first {
+                threadManager.selectThread(id: recent.id)
+            } else {
+                threadManager.createThread()
+            }
+            preTemporaryChatThreadId = nil
+        } else {
+            preTemporaryChatThreadId = threadManager.activeThreadId
+            threadManager.createPrivateThread()
+        }
     }
 
     private func requestHomeBaseDashboardIfNeeded() {
@@ -260,6 +283,16 @@ struct MainWindowView: View {
                                 .transition(.opacity)
                             }
                         }
+                        .overlay(alignment: .topTrailing) {
+                            if !isGeneratedWorkspaceOpen {
+                                TemporaryChatToggle(
+                                    isActive: threadManager.activeThread?.kind == .private,
+                                    onToggle: { toggleTemporaryChat() }
+                                )
+                                .padding(.trailing, VSpacing.lg)
+                                .frame(height: 36)
+                            }
+                        }
                 }
                 .coordinateSpace(name: drawerDragCoordinateSpaceName)
             }
@@ -390,6 +423,7 @@ struct MainWindowView: View {
             default: return thread.id == threadManager.activeThreadId && windowState.selection == nil
             }
         }()
+        let isHovered = isHoveredThread == thread.id
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -401,13 +435,25 @@ struct MainWindowView: View {
                 threadManager.selectThread(id: thread.id)
             }
         }) {
-            HStack(spacing: VSpacing.sm) {
-                if thread.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
+            HStack(spacing: VSpacing.xs) {
+                Button {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
+                } label: {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                         .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .opacity(thread.isPinned || isHovered ? 1 : 0)
+                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -420,10 +466,11 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
-                if isSelected || isHoveredThread == thread.id {
+                if isSelected || isHovered {
                     VColor.hoverOverlay.opacity(0.08)
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
@@ -452,31 +499,19 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHoveredThread == thread.id {
-                Menu {
-                    Button(thread.isPinned ? "Unpin" : "Pin to Top") {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    }
-                    Divider()
-                    Button("Archive", role: .destructive) {
-                        threadPendingDeletion = thread.id
-                    }
+            } else if isHovered {
+                Button {
+                    threadPendingDeletion = thread.id
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
-                        .rotationEffect(.degrees(90))
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 24)
+                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
+                .accessibilityLabel("Archive \(thread.title)")
             }
         }
         .padding(.horizontal, VSpacing.sm)
@@ -489,19 +524,6 @@ struct MainWindowView: View {
                     isHoveredThread = nil
                 }
                 NSCursor.pop()
-            }
-        }
-        .contextMenu {
-            Button(thread.isPinned ? "Unpin" : "Pin to Top") {
-                if thread.isPinned {
-                    threadManager.unpinThread(id: thread.id)
-                } else {
-                    threadManager.pinThread(id: thread.id)
-                }
-            }
-            Divider()
-            Button("Archive", role: .destructive) {
-                threadPendingDeletion = thread.id
             }
         }
         .draggable(thread.id.uuidString)
@@ -1066,7 +1088,8 @@ struct MainWindowView: View {
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
-                onMicrophoneToggle: onMicrophoneToggle
+                onMicrophoneToggle: onMicrophoneToggle,
+                isTemporaryChat: threadManager.activeThread?.kind == .private
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -1363,6 +1386,7 @@ private struct ActiveChatViewWrapper: View {
     let ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
+    var isTemporaryChat: Bool = false
 
     var body: some View {
         ChatView(
@@ -1387,6 +1411,8 @@ private struct ActiveChatViewWrapper: View {
             onDismissError: viewModel.dismissError,
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
+            isSecretBlockError: viewModel.isSecretBlockError,
+            onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
             onAttach: { openFilePicker(viewModel: viewModel) },
             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
@@ -1442,7 +1468,8 @@ private struct ActiveChatViewWrapper: View {
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
-            )
+            ),
+            isTemporaryChat: isTemporaryChat
         )
     }
 }

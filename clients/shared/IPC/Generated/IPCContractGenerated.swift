@@ -218,6 +218,8 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let principalId: String?
     /// Content-hash of the skill source for version tracking.
     public let principalVersion: String?
+    /// When false, the client should hide "always allow" / trust-rule persistence affordances.
+    public let persistentDecisionsAllowed: Bool?
 }
 
 public struct IPCConfirmationRequestAllowlistOption: Codable, Sendable {
@@ -348,75 +350,6 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     public let error: String?
 }
 
-public struct IPCDocumentEditorShow: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let title: String
-    public let initialContent: String
-}
-
-public struct IPCDocumentEditorUpdate: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    public let surfaceId: String
-    public let markdown: String
-    public let mode: String
-}
-
-public struct IPCDocumentListRequest: Codable, Sendable {
-    public let type: String
-    public let conversationId: String?
-}
-
-public struct IPCDocumentListResponse: Codable, Sendable {
-    public let type: String
-    public let documents: [IPCDocumentListResponseDocument]
-}
-
-public struct IPCDocumentListResponseDocument: Codable, Sendable {
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let wordCount: Int
-    public let createdAt: Int
-    public let updatedAt: Int
-}
-
-public struct IPCDocumentLoadRequest: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-}
-
-public struct IPCDocumentLoadResponse: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let content: String
-    public let wordCount: Int
-    public let createdAt: Int
-    public let updatedAt: Int
-    public let success: Bool
-    public let error: String?
-}
-
-public struct IPCDocumentSaveRequest: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let conversationId: String
-    public let title: String
-    public let content: String
-    public let wordCount: Int
-}
-
-public struct IPCDocumentSaveResponse: Codable, Sendable {
-    public let type: String
-    public let surfaceId: String
-    public let success: Bool
-    public let error: String?
-}
-
 public struct IPCDynamicPagePreview: Codable, Sendable {
     public let title: String
     public let subtitle: String?
@@ -453,6 +386,8 @@ public struct IPCEnvVarsResponse: Codable, Sendable {
 public struct IPCErrorMessage: Codable, Sendable {
     public let type: String
     public let message: String
+    /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
+    public let category: String?
 }
 
 public struct IPCFileUploadSurfaceData: Codable, Sendable {
@@ -678,11 +613,8 @@ public struct IPCIntegrationConnectResult: Codable, Sendable {
     public let success: Bool
     public let accountInfo: String?
     public let error: String?
-    /// When true, the integration requires setup before connecting (e.g. missing clientId).
     public let setupRequired: Bool?
-    /// Skill ID that can automate the setup process.
     public let setupSkillId: String?
-    /// Human-readable hint for resolving the setup requirement.
     public let setupHint: String?
 }
 
@@ -1394,7 +1326,7 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let interactionType: String
     /// The task text passed to the escalated session.
     public let task: String?
-    /// Set when a text_qa session escalates to computer_use via request_computer_control.
+    /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
     public let escalatedFrom: String?
 }
 
@@ -1681,6 +1613,8 @@ public struct IPCUserMessage: Codable, Sendable {
     public let activeSurfaceId: String?
     /// The page currently displayed in the WebView (e.g. "settings.html").
     public let currentPage: String?
+    /// When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway".
+    public let bypassSecretCheck: Bool?
 }
 
 public struct IPCUserMessageAttachment: Codable, Sendable {
@@ -1714,6 +1648,18 @@ public struct IPCWatchCompleteRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let watchId: String
+}
+
+public struct IPCWatcherEscalation: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+}
+
+public struct IPCWatcherNotification: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
 }
 
 public struct IPCWatchObservation: Codable, Sendable {

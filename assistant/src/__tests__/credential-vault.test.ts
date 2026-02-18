@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -356,6 +356,51 @@ describe('credential_store tool', () => {
       expect(entries[0].service).toBe('keychain-test');
       expect(entries[0].field).toBe('token');
       expect(typeof entries[0].credential_id).toBe('string');
+    });
+
+    test('returns error when metadata file has unrecognized version', async () => {
+      // Write a metadata file with a future version that the current code cannot handle
+      const metadataPath = join(TEST_DIR, 'metadata.json');
+      writeFileSync(metadataPath, JSON.stringify({ version: 999, credentials: [] }), 'utf-8');
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('unrecognized version');
+    });
+
+    test('excludes metadata entries whose secret was deleted from secure storage', async () => {
+      // Store two credentials so both metadata and secrets exist
+      await credentialStoreTool.execute({
+        action: 'store', service: 'svc-a', field: 'key', value: 'val-a',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store', service: 'svc-b', field: 'key', value: 'val-b',
+      }, _ctx);
+
+      // Delete the secret directly without going through the tool (simulates
+      // a divergence where metadata write failed after secret deletion)
+      deleteSecureKey('credential:svc-a:key');
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.isError).toBe(false);
+      const entries = JSON.parse(result.content);
+      // svc-a's secret is gone, so it should be excluded even though metadata exists
+      expect(entries).toHaveLength(1);
+      expect(entries[0].service).toBe('svc-b');
+    });
+
+    test('returns error when secure storage is corrupt/unreadable', async () => {
+      // Store a credential so metadata exists
+      await credentialStoreTool.execute({
+        action: 'store', service: 'svc-x', field: 'key', value: 'val-x',
+      }, _ctx);
+
+      // Corrupt the encrypted store file so listKeys() throws
+      writeFileSync(STORE_PATH, 'not-valid-json!!!', 'utf-8');
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('failed to read secure storage');
     });
   });
 

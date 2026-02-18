@@ -48,6 +48,8 @@ export const eagerModules: string[] = [
   './contacts/contact-upsert.js',
   './contacts/contact-search.js',
   './contacts/contact-merge.js',
+  './assets/search.js',
+  './assets/materialize.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -80,6 +82,8 @@ export const eagerModuleToolNames: string[] = [
   'contact_upsert',
   'contact_search',
   'contact_merge',
+  'asset_search',
+  'asset_materialize',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -170,6 +174,16 @@ export const lazyTools: LazyToolDescriptor[] = [
           timeout_seconds: {
             type: 'number',
             description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
+          },
+          network_mode: {
+            type: 'string',
+            enum: ['off', 'proxied'],
+            description: 'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
+          },
+          credential_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
           },
         },
         required: ['command'],

@@ -9,30 +9,26 @@ import {
 import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
 import {
   COMPUTER_USE_TOOL_NAMES,
-  COMPUTER_USE_TOOL_COUNT,
-  assertComputerUseToolsPresent,
   assertComputerUseToolsAbsent,
 } from './test-support/computer-use-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
 
 describe('computer-use skill baseline: registry tool surfaces', () => {
-  test('all 12 computer_use_* tools are registered after initializeTools()', async () => {
+  test('no computer_use_* action tools are registered after initializeTools() (migrated to skill)', async () => {
     await initializeTools();
 
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       const tool = getTool(name);
-      expect(tool).toBeDefined();
-      expect(tool?.executionMode).toBe('proxy');
+      expect(tool).toBeUndefined();
     }
   });
 
-  test('request_computer_control is registered after initializeTools()', async () => {
+  test('computer_use_request_control is registered in core after initializeTools()', async () => {
     await initializeTools();
 
-    const tool = getTool('request_computer_control');
+    const tool = getTool('computer_use_request_control');
     expect(tool).toBeDefined();
-    expect(tool?.executionMode).toBe('proxy');
   });
 
   test('getAllToolDefinitions() excludes all computer_use_* tools (proxy exclusion)', async () => {
@@ -42,32 +38,37 @@ describe('computer-use skill baseline: registry tool surfaces', () => {
     assertComputerUseToolsAbsent(defNames);
   });
 
-  test('getAllToolDefinitions() excludes request_computer_control (proxy exclusion)', async () => {
+  test('getAllToolDefinitions() excludes computer_use_request_control (proxy exclusion)', async () => {
     await initializeTools();
 
     const defNames = getAllToolDefinitions().map((d) => d.name);
-    expect(defNames).not.toContain('request_computer_control');
+    expect(defNames).not.toContain('computer_use_request_control');
   });
 
-  test('buildToolDefinitions() includes request_computer_control for text sessions', async () => {
+  test('buildToolDefinitions() includes computer_use_request_control for text sessions', async () => {
     await initializeTools();
 
     const defNames = buildToolDefinitions().map((d) => d.name);
-    expect(defNames).toContain('request_computer_control');
+    expect(defNames).toContain('computer_use_request_control');
   });
 
-  test('buildToolDefinitions() excludes all computer_use_* tools from text sessions', async () => {
+  test('buildToolDefinitions() excludes all computer_use_* action tools from text sessions', async () => {
     await initializeTools();
 
     const defNames = buildToolDefinitions().map((d) => d.name);
-    assertComputerUseToolsAbsent(defNames);
+    // The only computer_use_* tool in text sessions is the escalation tool
+    const cuActionTools = defNames.filter(
+      (n) => n.startsWith('computer_use_') && n !== 'computer_use_request_control',
+    );
+    expect(cuActionTools).toHaveLength(0);
   });
 
-  test('baseline count: 12 computer_use_* proxy tools in core registry', async () => {
+  test('post-cutover count: 1 computer_use_* tool in core registry (escalation only)', async () => {
     await initializeTools();
 
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(COMPUTER_USE_TOOL_COUNT);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 });

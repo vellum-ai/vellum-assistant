@@ -4,6 +4,11 @@ import type { GalleryManifest } from '../gallery/gallery-manifest.js';
 
 export type ThreadType = 'standard' | 'private';
 
+/** Runtime normalizer — collapses unknown/legacy DB values to 'standard'. */
+export function normalizeThreadType(raw: string | null | undefined): ThreadType {
+  return raw === 'private' ? 'private' : 'standard';
+}
+
 export interface IpcBlobRef {
   id: string;
   kind: 'ax_tree' | 'screenshot_jpeg';
@@ -28,6 +33,8 @@ export interface UserMessage {
   activeSurfaceId?: string;
   /** The page currently displayed in the WebView (e.g. "settings.html"). */
   currentPage?: string;
+  /** When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway". */
+  bypassSecretCheck?: boolean;
 }
 
 export interface UserMessageAttachment {
@@ -839,6 +846,8 @@ export interface ConfirmationRequest {
   principalId?: string;
   /** Content-hash of the skill source for version tracking. */
   principalVersion?: string;
+  /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
+  persistentDecisionsAllowed?: boolean;
 }
 
 export interface SecretRequest {
@@ -887,6 +896,8 @@ export interface SessionsClearResponse {
 export interface ErrorMessage {
   type: 'error';
   message: string;
+  /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
+  category?: string;
 }
 
 export interface AuthResult {
@@ -1081,6 +1092,7 @@ export type SessionErrorCode =
   | 'PROVIDER_NETWORK'
   | 'PROVIDER_RATE_LIMIT'
   | 'PROVIDER_API'
+  | 'CONTEXT_TOO_LARGE'
   | 'QUEUE_FULL'
   | 'SESSION_ABORTED'
   | 'SESSION_PROCESSING_FAILED'
@@ -1102,7 +1114,7 @@ export interface TaskRouted {
   interactionType: 'computer_use' | 'text_qa';
   /** The task text passed to the escalated session. */
   task?: string;
-  /** Set when a text_qa session escalates to computer_use via request_computer_control. */
+  /** Set when a text_qa session escalates to computer_use via computer_use_request_control. */
   escalatedFrom?: string;
 }
 

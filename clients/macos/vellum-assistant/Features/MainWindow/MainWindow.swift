@@ -238,6 +238,11 @@ final class MainWindow {
         ))
     }
 
+    /// Hide the window without destroying it (can be restored with `show()`).
+    func hide() {
+        window?.orderOut(nil)
+    }
+
     func close() {
         if let observer = layoutObserver {
             NotificationCenter.default.removeObserver(observer)

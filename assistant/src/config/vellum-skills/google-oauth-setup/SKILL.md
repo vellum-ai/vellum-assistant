@@ -2,6 +2,7 @@
 name: "Google OAuth Setup"
 description: "Create Google Cloud OAuth credentials for Gmail integration using browser automation"
 user-invocable: true
+includes: ["browser"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 

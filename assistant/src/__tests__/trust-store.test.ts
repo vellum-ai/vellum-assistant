@@ -727,6 +727,7 @@ describe('Trust Store', () => {
         'computer_use_drag',
         'computer_use_key',
         'computer_use_open_app',
+        'computer_use_request_control',
         'computer_use_right_click',
         'computer_use_run_applescript',
         'computer_use_scroll',
@@ -740,7 +741,6 @@ describe('Trust Store', () => {
         'host_file_edit',
         'host_file_read',
         'host_file_write',
-        'request_computer_control',
         'scaffold_managed_skill',
         'skill_load',
       ]);
@@ -859,12 +859,12 @@ describe('Trust Store', () => {
       expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-computer_use_click-global')!);
     });
 
-    test('findHighestPriorityRule matches default ask for request_computer_control', () => {
-      const match = findHighestPriorityRule('request_computer_control', ['request_computer_control:'], '/tmp');
+    test('findHighestPriorityRule matches default ask for computer_use_request_control', () => {
+      const match = findHighestPriorityRule('computer_use_request_control', ['computer_use_request_control:'], '/tmp');
       expect(match).not.toBeNull();
-      expect(match!.id).toBe('default:ask-request_computer_control-global');
+      expect(match!.id).toBe('default:ask-computer_use_request_control-global');
       expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-request_computer_control-global')!);
+      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-computer_use_request_control-global')!);
     });
 
     test('bootstrap delete rule matches only when workingDir is the workspace dir', () => {
@@ -1026,7 +1026,10 @@ describe('Trust Store', () => {
         const rule = templates.find(t => t.id === `default:allow-${tool}-global`);
         expect(rule).toBeDefined();
         expect(rule!.tool).toBe(tool);
-        expect(rule!.pattern).toBe(`${tool}:*`);
+        // browser_navigate uses standalone "**" because its candidates
+        // contain URLs with "/" that single "*" cannot match.
+        const expectedPattern = tool === 'browser_navigate' ? '**' : `${tool}:*`;
+        expect(rule!.pattern).toBe(expectedPattern);
         expect(rule!.decision).toBe('allow');
         expect(rule!.scope).toBe('everywhere');
       }
@@ -1914,6 +1917,133 @@ describe('Trust Store', () => {
       });
     });
   });
+
+  // ── network_request trust rule matching ────────────────────────
+
+  describe('network_request trust rules', () => {
+    test('exact origin rule matches network_request candidates', () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere');
+      const rule = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v1/data', 'network_request:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(rule).not.toBeNull();
+      expect(rule!.decision).toBe('allow');
+    });
+
+    test('exact url rule matches only that url candidate', () => {
+      addRule('network_request', 'network_request:https://api.example.com/v1/data', 'everywhere');
+      const match = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v1/data', 'network_request:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(match).not.toBeNull();
+
+      const noMatch = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v2/other'],
+        '/tmp',
+      );
+      expect(noMatch).toBeNull();
+    });
+
+    test('globstar rule matches any network_request candidate', () => {
+      // minimatch treats standalone "**" as globstar (matching "/"), but
+      // "network_request:*" uses single "*" which doesn't cross slashes.
+      // The tool field is already filtered by findHighestPriorityRule, so
+      // "**" is the correct catch-all pattern.
+      addRule('network_request', '**', 'everywhere');
+      const rule = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://any-host.example.org/path'],
+        '/tmp',
+      );
+      expect(rule).not.toBeNull();
+    });
+
+    test('single-star wildcard matches flat candidates only', () => {
+      // "network_request:*" won't match URLs with slashes — consistent
+      // with the behavior of web_fetch:* and browser_navigate:* patterns.
+      addRule('network_request', 'network_request:*', 'everywhere');
+      const noSlashMatch = findHighestPriorityRule(
+        'network_request',
+        ['network_request:flat-target'],
+        '/tmp',
+      );
+      expect(noSlashMatch).not.toBeNull();
+
+      const slashNoMatch = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://example.com/path'],
+        '/tmp',
+      );
+      // Single "*" does not match "/" so this URL candidate won't match.
+      expect(slashNoMatch).toBeNull();
+    });
+
+    test('network_request rule does not match web_fetch tool', () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere');
+      const rule = findHighestPriorityRule(
+        'web_fetch',
+        ['web_fetch:https://api.example.com/v1/data', 'web_fetch:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(rule).toBeNull();
+    });
+
+    test('web_fetch rule does not match network_request tool', () => {
+      addRule('web_fetch', 'web_fetch:https://api.example.com/*', 'everywhere');
+      const rule = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v1/data', 'network_request:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(rule).toBeNull();
+    });
+
+    test('deny rule takes precedence over allow at same priority', () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere', 'allow', 100);
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere', 'deny', 100);
+      const rule = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v1/data', 'network_request:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(rule).not.toBeNull();
+      expect(rule!.decision).toBe('deny');
+    });
+
+    test('higher-priority allow overrides lower-priority deny', () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere', 'deny', 50);
+      addRule('network_request', 'network_request:https://api.example.com/*', 'everywhere', 'allow', 100);
+      const rule = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/v1/data', 'network_request:https://api.example.com/*'],
+        '/tmp',
+      );
+      expect(rule).not.toBeNull();
+      expect(rule!.decision).toBe('allow');
+    });
+
+    test('scope restricts network_request rule matching', () => {
+      addRule('network_request', 'network_request:https://api.example.com/*', '/home/user/project');
+      const inScope = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/*'],
+        '/home/user/project',
+      );
+      expect(inScope).not.toBeNull();
+
+      const outOfScope = findHighestPriorityRule(
+        'network_request',
+        ['network_request:https://api.example.com/*'],
+        '/tmp/other',
+      );
+      expect(outOfScope).toBeNull();
+    });
+  });
 });
 
 describe('computer-use tool trust rule matching', () => {
@@ -1923,7 +2053,7 @@ describe('computer-use tool trust rule matching', () => {
     const actionableCuTools = [
       'computer_use_click',
       'computer_use_type_text',
-      'request_computer_control',
+      'computer_use_request_control',
     ];
 
     for (const name of actionableCuTools) {

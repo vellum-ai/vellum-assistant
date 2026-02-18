@@ -47,6 +47,8 @@ struct InlineVideoWebView: NSViewRepresentable {
         let webView = Self.makeConfiguredWebView()
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        let request = URLRequest(url: url)
+        webView.load(request)
         return webView
     }
 
@@ -64,9 +66,6 @@ struct InlineVideoWebView: NSViewRepresentable {
         // recreating the coordinator.
         context.coordinator.onLoadSuccess = onLoadSuccess
         context.coordinator.onLoadFailure = onLoadFailure
-
-        let request = URLRequest(url: url)
-        webView.load(request)
     }
 
     /// Build a WKWebView with the privacy-hardened configuration used for embeds.
@@ -98,6 +97,9 @@ struct InlineVideoWebView: NSViewRepresentable {
         }
         return false
     }
+
+    /// URL schemes that are safe to open externally from untrusted embed content.
+    private static let safeExternalSchemes: Set<String> = ["http", "https", "mailto"]
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let provider: String
@@ -137,22 +139,17 @@ struct InlineVideoWebView: NSViewRepresentable {
                     return
                 }
 
-                if let host = navigationAction.request.url?.host,
+                if let host = navigationAction.request.url?.host?.lowercased(),
                    InlineVideoWebView.isAllowedHost(host, forProvider: provider) {
                     decisionHandler(.allow)
                 } else {
-                    // Subresource from an unknown domain — block it and open externally
-                    // so the user can still reach it if they need to.
-                    if let url = navigationAction.request.url {
-                        NSWorkspace.shared.open(url)
-                    }
+                    // Silently block — unlike user-initiated navigations, programmatic
+                    // requests (analytics, telemetry, CDN) shouldn't open browser tabs.
                     decisionHandler(.cancel)
                 }
             default:
                 // User-initiated navigation — open in the default browser instead
-                if let url = navigationAction.request.url {
-                    NSWorkspace.shared.open(url)
-                }
+                Self.openExternallyIfSafe(navigationAction.request.url)
                 decisionHandler(.cancel)
             }
         }
@@ -162,6 +159,7 @@ struct InlineVideoWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard !Self.isCancellationError(error) else { return }
             onLoadFailure?(error.localizedDescription)
         }
 
@@ -170,19 +168,44 @@ struct InlineVideoWebView: NSViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
+            guard !Self.isCancellationError(error) else { return }
             onLoadFailure?(error.localizedDescription)
+        }
+
+        /// WebKit fires cancellation errors (NSURLErrorCancelled) for benign
+        /// reasons like a load being superseded by a new request or a navigation
+        /// policy cancellation. These are not real failures.
+        private static func isCancellationError(_ error: Error) -> Bool {
+            (error as NSError).code == NSURLErrorCancelled
         }
 
         // MARK: - WKUIDelegate
 
-        /// Block all popup windows by returning nil.
+        /// Handle popup/new-window requests. Only open the URL externally when the
+        /// user explicitly clicked a link; script-driven window.open() calls are
+        /// silently blocked to prevent malicious embeds from triggering unsolicited
+        /// browser navigations.
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            nil
+            if navigationAction.navigationType == .linkActivated {
+                Self.openExternallyIfSafe(navigationAction.request.url)
+            }
+            return nil
+        }
+
+        /// Open a URL in the default browser only if its scheme is safe.
+        /// Blocks arbitrary URL scheme handlers (e.g. zoommtg://, itms-apps://)
+        /// that untrusted embed content could try to trigger.
+        private static func openExternallyIfSafe(_ url: URL?) {
+            guard let url, let scheme = url.scheme?.lowercased(),
+                  InlineVideoWebView.safeExternalSchemes.contains(scheme) else {
+                return
+            }
+            NSWorkspace.shared.open(url)
         }
     }
 }

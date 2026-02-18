@@ -64,10 +64,10 @@ describe('browser skill migration end-state', () => {
 
   test('startup tool definition count is reduced (no browser tools)', () => {
     const definitions = getAllToolDefinitions();
-    // Startup has exactly 36 definitions (no browser tools).
+    // Startup has exactly 48 definitions (no browser tools).
     // Allow ±2 for minor additions/removals in unrelated modules.
-    expect(definitions.length).toBeGreaterThanOrEqual(34);
-    expect(definitions.length).toBeLessThanOrEqual(38);
+    expect(definitions.length).toBeGreaterThanOrEqual(46);
+    expect(definitions.length).toBeLessThanOrEqual(50);
 
     const defNames = definitions.map((d) => d.name);
     for (const name of BROWSER_TOOLS) {
@@ -75,9 +75,9 @@ describe('browser skill migration end-state', () => {
     }
 
     // Payload ceiling: browser tools contribute ~4 640 chars.  If they leak
-    // back into startup definitions the payload would exceed 28 000.
+    // back into startup definitions the payload would exceed 38 000.
     const payloadSize = JSON.stringify(definitions).length;
-    expect(payloadSize).toBeLessThan(28_000);
+    expect(payloadSize).toBeLessThan(38_000);
   });
 
   // ── 2. Browser skill exists and is active ──────────────────────────
@@ -118,7 +118,10 @@ describe('browser skill migration end-state', () => {
       const rule = templates.find((t) => t.id === `default:allow-${tool}-global`);
       expect(rule).toBeDefined();
       expect(rule!.decision).toBe('allow');
-      expect(rule!.pattern).toBe(`${tool}:*`);
+      // browser_navigate uses standalone "**" globstar because navigate
+      // candidates contain URLs with "/" (e.g. "browser_navigate:https://example.com/path").
+      const expectedPattern = tool === 'browser_navigate' ? '**' : `${tool}:*`;
+      expect(rule!.pattern).toBe(expectedPattern);
     }
   });
 

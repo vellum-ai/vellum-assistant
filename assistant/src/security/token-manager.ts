@@ -65,11 +65,12 @@ async function doRefresh(service: string): Promise<string> {
     );
   }
 
+  const clientSecret = meta?.oauth2ClientSecret as string | undefined;
   const resolvedTokenUrl = tokenUrl;
 
   log.info({ service }, 'Refreshing OAuth2 access token');
 
-  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken);
+  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret);
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
     throw new Error(`Failed to store refreshed access token for "${service}"`);

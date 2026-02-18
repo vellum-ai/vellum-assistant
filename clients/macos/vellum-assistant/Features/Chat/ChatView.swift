@@ -66,6 +66,8 @@ struct ChatView: View {
     let onDismissError: () -> Void
     let isRetryableError: Bool
     let onRetryError: () -> Void
+    let isSecretBlockError: Bool
+    let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
     let onAttach: () -> Void
     let onRemoveAttachment: (String) -> Void
@@ -91,6 +93,7 @@ struct ChatView: View {
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
+    var isTemporaryChat: Bool = false
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -140,7 +143,11 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 apiKeyBanner
                 if isEmptyState {
-                    emptyStateView
+                    if isTemporaryChat {
+                        temporaryChatEmptyStateView
+                    } else {
+                        emptyStateView
+                    }
                 } else {
                     ZStack(alignment: .bottom) {
                         messageList
@@ -268,6 +275,69 @@ struct ChatView: View {
         .onDisappear {
             emptyStateVisible = false
         }
+    }
+
+    private var temporaryChatEmptyStateView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Spacer()
+
+            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                .frame(width: 80, height: 80)
+                .allowsHitTesting(false)
+                .padding(.bottom, VSpacing.lg)
+
+            Text("Temporary Chat")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, VSpacing.sm)
+
+            Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.bottom, VSpacing.xxl)
+
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                placeholderText: "Ask anything...",
+                editorContentHeight: $editorContentHeight,
+                isComposerExpanded: $isComposerExpanded
+            )
+
+            Spacer()
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    VColor.accent.opacity(0.07),
+                    VColor.accent.opacity(0.02),
+                    Color.clear,
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 350
+            )
+            .offset(y: -40)
+        )
     }
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
@@ -612,11 +682,22 @@ struct ChatView: View {
 
             Text(text)
                 .font(VFont.caption)
-                .lineLimit(2)
+                .lineLimit(4)
 
             Spacer()
 
-            if isRetryableError {
+            if isSecretBlockError {
+                Button(action: onSendAnyway) {
+                    Text("Send Anyway")
+                        .font(VFont.captionMedium)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(Color.white.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Send message anyway")
+            } else if isRetryableError {
                 Button(action: onRetryError) {
                     Text("Retry")
                         .font(VFont.captionMedium)
@@ -721,6 +802,8 @@ struct ChatView: View {
             return "clock.badge.exclamationmark"
         case .providerApi:
             return "exclamationmark.icloud.fill"
+        case .contextTooLarge:
+            return "text.badge.xmark"
         case .queueFull:
             return "tray.full.fill"
         case .sessionAborted:
@@ -742,6 +825,8 @@ struct ChatView: View {
             return Amber._500
         case .sessionAborted:
             return VColor.textSecondary
+        case .contextTooLarge:
+            return VColor.warning
         default:
             return VColor.error
         }
@@ -826,6 +911,13 @@ private struct ChatBubble: View {
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil
+    }
+
+    /// Composite identity for the `.task` modifier so it re-runs when either
+    /// the message text or the embed settings change.
+    private var mediaEmbedTaskID: String {
+        let s = mediaEmbedSettings
+        return "\(message.text)|\(s?.enabled ?? false)|\(s?.enabledSince?.timeIntervalSince1970 ?? 0)|\(s?.allowedDomains ?? [])"
     }
 
     private var statusLabel: String? {
@@ -983,12 +1075,14 @@ private struct ChatBubble: View {
                 isHovered = false
             }
         }
-        .task(id: message.text) {
+        .task(id: mediaEmbedTaskID) {
             guard let settings = mediaEmbedSettings else {
                 mediaEmbedIntents = []
                 return
             }
-            mediaEmbedIntents = await MediaEmbedResolver.resolve(message: message, settings: settings)
+            let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
+            guard !Task.isCancelled else { return }
+            mediaEmbedIntents = resolved
         }
     }
 
@@ -1086,8 +1180,9 @@ private struct ChatBubble: View {
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
             // All done (or denied) — show chips + regenerate on one line
+            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
             HStack(spacing: VSpacing.sm) {
-                if hasCompletedTools {
+                if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
                     compactToolChip
                 } else if hasInProgressTools && permissionWasDenied {
                     compactFailedToolChip
@@ -2525,6 +2620,8 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissError: {},
                 isRetryableError: false,
                 onRetryError: {},
+                isSecretBlockError: false,
+                onSendAnyway: {},
                 onAcceptSuggestion: {},
                 onAttach: {},
                 onRemoveAttachment: { _ in },

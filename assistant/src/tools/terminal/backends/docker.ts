@@ -4,7 +4,7 @@ import { resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
 import type { DockerConfig } from '../../../config/types.js';
-import type { SandboxBackend, SandboxResult } from './types.js';
+import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
 
 const log = getLogger('docker-sandbox');
 
@@ -237,7 +237,7 @@ export class DockerBackend implements SandboxBackend {
     return resolveShell(this.config.image, this.config.shell);
   }
 
-  wrap(command: string, workingDir: string): SandboxResult {
+  wrap(command: string, workingDir: string, options?: WrapOptions): SandboxResult {
     // Preflight: fail closed if Docker is not usable.
     const shell = this.preflight();
 
@@ -267,11 +267,22 @@ export class DockerBackend implements SandboxBackend {
 
     const { image, cpus, memoryMb, pidsLimit, network } = this.config;
 
+    // Per-invocation network override: proxied mode needs bridge networking
+    // so the container can reach the proxy on the host. Default ('off' or
+    // undefined) preserves the config-level network setting.
+    const effectiveNetwork =
+      options?.networkMode === 'proxied' ? 'bridge' : network;
+
     // Every flag is a separate argv segment — no shell interpolation occurs.
     const args: string[] = [
       'run',
       '--rm',
-      `--network=${network}`,
+      `--network=${effectiveNetwork}`,
+      // When proxied, map host.docker.internal to the host machine so the
+      // container can reach the proxy daemon listening on the host loopback.
+      ...(options?.networkMode === 'proxied'
+        ? ['--add-host=host.docker.internal:host-gateway']
+        : []),
       `--cpus=${cpus}`,
       `--memory=${memoryMb}m`,
       `--pids-limit=${pidsLimit}`,

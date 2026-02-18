@@ -13,7 +13,7 @@ import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateScopeOptions } from '../permissions/checker.js';
+import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { coreAppProxyTools } from '../tools/apps/definitions.js';
@@ -25,6 +25,7 @@ import {
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { registerSessionSender } from '../tools/browser/browser-screencast.js';
+import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -90,16 +91,16 @@ export function createToolExecutor(
       conversationId: ctx.conversationId,
       requestId: ctx.currentRequestId,
       onOutput,
-      sendToClient: (msg) => ctx.sendToClient(msg as ServerMessage),
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
-      sendToClient: (msg) => ctx.sendToClient(msg as any),
+      sendToClient: (msg) => ctx.sendToClient(msg as unknown as ServerMessage),
       isInteractive: !ctx.hasNoClient,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
           params.service, params.field, params.label,
@@ -171,5 +172,94 @@ export function createToolExecutor(
     }
 
     return result;
+  };
+}
+
+// ── createProxyApprovalCallback ──────────────────────────────────────
+
+/**
+ * Build a proxy approval callback that routes `ask_missing_credential` and
+ * `ask_unauthenticated` policy decisions through the existing permission
+ * prompter UI. The proxy service calls this when an outbound request needs
+ * user confirmation before proceeding.
+ */
+export function createProxyApprovalCallback(
+  prompter: PermissionPrompter,
+  ctx: ToolSetupContext,
+): ProxyApprovalCallback {
+  return async (request: ProxyApprovalRequest): Promise<boolean> => {
+    const { decision } = request;
+    const { hostname, port, path } = decision.target;
+
+    // Use the standard network_request tool name so trust rules align with
+    // the checker's URL-based candidate generation and allowlist options.
+    const toolName = 'network_request';
+    const { scheme } = decision.target;
+    const url = `${scheme}://${hostname}${port ? ':' + port : ''}${path}`;
+
+    const input: Record<string, unknown> = {
+      url,
+      proxy_session_id: request.sessionId,
+    };
+    if (decision.kind === 'ask_missing_credential') {
+      input.matching_patterns = decision.matchingPatterns;
+    }
+
+    const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
+
+    // Check trust store before prompting — build candidates that mirror
+    // buildCommandCandidates() in checker.ts for network_request.
+    const candidates: string[] = [`${toolName}:${url}`];
+    const normalized = normalizeWebFetchUrl(url);
+    if (normalized) {
+      candidates.push(`${toolName}:${normalized.href}`);
+      candidates.push(`${toolName}:${normalized.origin}/*`);
+    }
+    candidates.push(`${toolName}:*`);
+    // Deduplicate
+    const uniqueCandidates = [...new Set(candidates)];
+
+    const existingRule = findHighestPriorityRule(toolName, uniqueCandidates, ctx.workingDir);
+    if (existingRule && existingRule.decision !== 'ask') {
+      if (existingRule.decision === 'deny') return false;
+      // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
+      // must fall through to prompting — mirroring the checker's behavior.
+      if (riskLevel !== 'high' || existingRule.allowHighRisk === true) return true;
+    }
+
+    // Use the checker's built-in allowlist generation for network_request
+    const allowlistOptions = generateAllowlistOptions('network_request', { url });
+
+    const scopeOptions = generateScopeOptions(ctx.workingDir);
+
+    // Non-interactive sessions have no client to prompt — fast-deny to avoid
+    // blocking for the full permission timeout before auto-denying.
+    if (ctx.hasNoClient) {
+      return false;
+    }
+
+    const response = await prompter.prompt(
+      toolName,
+      input,
+      riskLevel,
+      allowlistOptions,
+      scopeOptions,
+      undefined,
+      undefined,
+      ctx.conversationId,
+    );
+
+    // Persist trust rule if the user chose "always allow" or "always deny"
+    if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
+        response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
+    }
+    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    }
+
+    return response.decision === 'allow'
+      || response.decision === 'always_allow'
+      || response.decision === 'always_allow_high_risk';
   };
 }

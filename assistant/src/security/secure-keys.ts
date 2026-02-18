@@ -141,6 +141,7 @@ export function deleteSecureKey(account: string): boolean {
 /**
  * List all account names in secure storage.
  * Only supported by the encrypted backend; keychain returns empty array.
+ * Throws if the store file exists but cannot be read (encrypted backend).
  */
 export function listSecureKeys(): string[] {
   const backend = getBackend();
@@ -155,6 +156,15 @@ export function listSecureKeys(): string[] {
  */
 export function getBackendType(): 'keychain' | 'encrypted' | null {
   return getBackend();
+}
+
+/**
+ * Whether the backend was downgraded from keychain to encrypted at runtime.
+ * When true, credentials may still be readable from keychain via fallback
+ * even though the active backend is encrypted.
+ */
+export function isDowngradedFromKeychain(): boolean {
+  return downgradedFromKeychain;
 }
 
 /** @internal Test-only: reset the cached backend so it's re-evaluated. */

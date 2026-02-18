@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import * as realFs from 'node:fs';
-import type { Message, ToolDefinition } from '../providers/types.js';
+import type { Message, ToolDefinition, ToolUseContent, ToolResultContent } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import type { Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -98,6 +98,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
     skillId: string,
     _skillDir: string,
     versionHash: string,
+    bundled?: boolean,
   ): Tool[] => {
     return entries.map((entry) => ({
       name: entry.name,
@@ -107,6 +108,7 @@ mock.module('../tools/skills/skill-tool-factory.js', () => ({
       origin: 'skill' as const,
       ownerSkillId: skillId,
       ownerSkillVersionHash: versionHash,
+      ownerSkillBundled: bundled ?? undefined,
       getDefinition: () => ({
         name: entry.name,
         description: entry.description,
@@ -140,6 +142,17 @@ mock.module('../tools/registry.js', () => ({
     }
     mockSkillRefCount.delete(skillId);
     mockRegisteredTools.delete(skillId);
+  },
+  getTool: (name: string): Tool | undefined => {
+    // Return the last matching tool to match production behavior where
+    // re-registering a tool overwrites the previous entry (last wins).
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) found = tool;
+      }
+    }
+    return found;
   },
   getSkillToolNames: () => {
     const names: string[] = [];
@@ -2377,13 +2390,21 @@ describe('browser skill migration harness', () => {
     expect(history[0].role).toBe('assistant');
     expect(history[1].role).toBe('user');
     // Verify tool_use block
-    const toolUse = history[0].content[0];
+    const toolUse = history[0].content[0] as ToolUseContent;
     expect(toolUse.type).toBe('tool_use');
     expect(toolUse.name).toBe('skill_load');
     // Verify tool_result has marker
-    const toolResult = history[1].content[0];
+    const toolResult = history[1].content[0] as ToolResultContent;
     expect(toolResult.type).toBe('tool_result');
     expect(toolResult.content).toContain('<loaded_skill id="browser" version="v1:abc123" />');
+  });
+
+  test('buildSkillLoadHistory generates unique tool_use IDs per call', () => {
+    const h1 = buildSkillLoadHistory('browser', 'v1:abc');
+    const h2 = buildSkillLoadHistory('browser', 'v1:def');
+    const id1 = (h1[0].content[0] as { id: string }).id;
+    const id2 = (h2[0].content[0] as { id: string }).id;
+    expect(id1).not.toBe(id2);
   });
 
   test('BROWSER_TOOL_NAMES contains all 10 browser tools', () => {

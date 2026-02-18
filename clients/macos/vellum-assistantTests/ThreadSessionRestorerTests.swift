@@ -366,7 +366,7 @@ struct ThreadSessionRestorerTests {
     // MARK: - Thread Type Mapping
 
     @Test @MainActor
-    func privateThreadTypeRestoresAsPrivateKind() {
+    func privateThreadTypeIsExcludedFromRestore() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -381,9 +381,10 @@ struct ThreadSessionRestorerTests {
         ])
         restorer.handleSessionListResponse(response)
 
+        // Private sessions are filtered out; empty default is removed and a new thread created
         #expect(delegate.threads.count == 1)
-        #expect(delegate.threads[0].kind == .private)
-        #expect(delegate.threads[0].sessionId == "s1")
+        #expect(delegate.threads[0].kind == .standard)
+        #expect(delegate.createThreadCallCount == 1)
     }
 
     @Test @MainActor

@@ -14,7 +14,7 @@ import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { TraceEmitter } from './trace-emitter.js';
-import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
+import { classifySessionError, isUserCancellation, isContextTooLarge, buildSessionErrorMessage } from './session-error.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import {
@@ -376,7 +376,7 @@ export class Session {
 
   /**
    * Set a callback for when a text_qa session escalates to computer use
-   * via the `request_computer_control` tool.
+   * via the `computer_use_request_control` tool.
    */
   setEscalationHandler(handler: (task: string, sourceSessionId: string) => boolean): void {
     this.onEscalateToComputerUse = handler;
@@ -802,6 +802,7 @@ export class Session {
 
       let orderingErrorDetected = false;
       let deferredOrderingError: string | null = null;
+      let contextTooLargeDetected = false;
       let preRunHistoryLength = runMessages.length;
 
       // Track whether llm_call_started has been emitted for the current provider turn.
@@ -888,6 +889,9 @@ export class Session {
               orderingErrorDetected = true;
               // Defer the error event — only forward if retry also fails
               deferredOrderingError = event.error.message;
+            } else if (isContextTooLarge(event.error.message)) {
+              contextTooLargeDetected = true;
+              // Defer — attempt compaction + retry before surfacing to user
             } else {
               const classified = classifySessionError(event.error, { phase: 'agent_loop' });
               onEvent(buildSessionErrorMessage(this.conversationId, classified));
@@ -1043,6 +1047,73 @@ export class Session {
 
         if (orderingErrorDetected) {
           rlog.error({ phase: 'retry' }, 'Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.');
+        }
+      }
+
+      // One-shot context-too-large recovery: force compaction and retry once.
+      if (contextTooLargeDetected && updatedHistory.length === preRunHistoryLength) {
+        rlog.warn({ phase: 'retry' }, 'Context too large — attempting forced compaction and retry');
+        const emergencyCompact = await this.contextWindowManager.maybeCompact(
+          this.messages,
+          abortController.signal,
+          { lastCompactedAt: this.contextCompactedAt ?? undefined, force: true },
+        );
+        if (emergencyCompact.compacted) {
+          this.messages = emergencyCompact.messages;
+          this.contextCompactedMessageCount += emergencyCompact.compactedPersistedMessages;
+          this.contextCompactedAt = Date.now();
+          conversationStore.updateConversationContextWindow(
+            this.conversationId,
+            emergencyCompact.summaryText,
+            this.contextCompactedMessageCount,
+          );
+          onEvent({
+            type: 'context_compacted',
+            previousEstimatedInputTokens: emergencyCompact.previousEstimatedInputTokens,
+            estimatedInputTokens: emergencyCompact.estimatedInputTokens,
+            maxInputTokens: emergencyCompact.maxInputTokens,
+            thresholdTokens: emergencyCompact.thresholdTokens,
+            compactedMessages: emergencyCompact.compactedMessages,
+            summaryCalls: emergencyCompact.summaryCalls,
+            summaryInputTokens: emergencyCompact.summaryInputTokens,
+            summaryOutputTokens: emergencyCompact.summaryOutputTokens,
+            summaryModel: emergencyCompact.summaryModel,
+          });
+          this.recordUsage(
+            emergencyCompact.summaryInputTokens,
+            emergencyCompact.summaryOutputTokens,
+            emergencyCompact.summaryModel,
+            onEvent,
+            'context_compactor',
+            reqId,
+          );
+
+          // Retry with compacted context
+          runMessages = applyRuntimeInjections(this.messages, {
+            softConflictInstruction,
+            activeSurface,
+            workspaceTopLevelContext: this.workspaceTopLevelContext,
+          });
+          preRepairMessages = runMessages;
+          preRunHistoryLength = runMessages.length;
+          contextTooLargeDetected = false;
+
+          updatedHistory = await this.agentLoop.run(
+            runMessages,
+            buildEventHandler(),
+            abortController.signal,
+            reqId,
+            onCheckpoint,
+          );
+        }
+
+        // Surface the error if compaction didn't help or wasn't possible
+        if (contextTooLargeDetected) {
+          const classified = classifySessionError(
+            new Error('context_length_exceeded'),
+            { phase: 'agent_loop' },
+          );
+          onEvent(buildSessionErrorMessage(this.conversationId, classified));
         }
       }
 

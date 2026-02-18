@@ -2,7 +2,6 @@ import { RiskLevel } from '../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
-import { registerComputerUseTools } from './computer-use/registry.js';
 import { allComputerUseTools } from './computer-use/definitions.js';
 import { requestComputerControlTool } from './computer-use/request-computer-control.js';
 import { registerUiSurfaceTools } from './ui-surface/registry.js';
@@ -223,10 +222,9 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // Computer-use proxy tools — registered so ToolExecutor can look them up
-  // and forward execution to the connected macOS client.  They are excluded
-  // from getAllToolDefinitions() since regular chat sessions don't use them.
-  registerComputerUseTools();
+  // The escalation tool is registered in core so text_qa sessions can execute it.
+  // The 12 action tools are provided by the bundled computer-use skill.
+  registerTool(requestComputerControlTool);
   registerUiSurfaceTools();
   registerAppTools();
 
@@ -286,4 +284,14 @@ export function __resetRegistryForTesting(): void {
       tools.set(name, tool);
     }
   }
+}
+
+/**
+ * Completely empty the registry (no snapshot restore). Exposed
+ * exclusively for tests that need to verify a registration function
+ * actually adds tools to an empty registry (i.e. non-vacuous assertions).
+ */
+export function __clearRegistryForTesting(): void {
+  tools.clear();
+  skillRefCount.clear();
 }

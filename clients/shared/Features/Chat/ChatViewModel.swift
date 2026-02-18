@@ -70,6 +70,14 @@ public final class ChatViewModel: ObservableObject {
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
     private(set) var lastFailedSendError: String?
+    /// Stores the text of a message that was blocked by the secret-ingress check.
+    /// Set when an error with category "secret_blocked" arrives.
+    internal(set) var secretBlockedMessageText: String?
+    /// Stashed context from the blocked send, so sendAnyway() can reconstruct
+    /// the original UserMessageMessage with attachments and surface metadata.
+    internal(set) var secretBlockedAttachments: [IPCAttachment]?
+    internal(set) var secretBlockedActiveSurfaceId: String?
+    internal(set) var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
@@ -206,8 +214,36 @@ public final class ChatViewModel: ObservableObject {
             callback(text)
         }
 
-        // Block rapid-fire only when bootstrapping (no session yet)
+        // Block rapid-fire only when bootstrapping with a queued message.
+        // When a message-less bootstrap is in flight (e.g. private thread
+        // pre-allocation), adopt the user's message as the pending message
+        // so it gets sent when session_info arrives instead of being dropped.
         if isSending && sessionId == nil {
+            if pendingUserMessage == nil {
+                let attachments = pendingAttachments
+                pendingAttachments = []
+                pendingUserMessage = text
+                pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
+                    IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                }
+                isThinking = true
+                messages.append(ChatMessage(role: .user, text: text, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
+                pendingSkillInvocation = nil
+                inputText = ""
+                suggestion = nil
+                pendingSuggestionRequestId = nil
+                errorText = nil
+                sessionError = nil
+                lastFailedMessageText = nil
+                lastFailedMessageAttachments = nil
+                lastFailedSendError = nil
+                secretBlockedMessageText = nil
+                secretBlockedAttachments = nil
+                secretBlockedActiveSurfaceId = nil
+                secretBlockedCurrentPage = nil
+                currentTurnUserText = text
+                return
+            }
             pendingSkillInvocation = nil
             return
         }
@@ -247,6 +283,10 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -694,6 +734,10 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
     }
 
     /// Dismiss the typed session error state. Clears both the typed error
@@ -751,6 +795,55 @@ public final class ChatViewModel: ObservableObject {
     /// offering to resend a stale cached message.
     public var isRetryableError: Bool {
         lastFailedMessageText != nil && lastFailedSendError != nil
+    }
+
+    /// Whether the current error is a secret-ingress block that can be bypassed.
+    public var isSecretBlockError: Bool {
+        secretBlockedMessageText != nil
+    }
+
+    /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
+    public func sendAnyway() {
+        guard let text = secretBlockedMessageText, let sessionId else { return }
+
+        guard daemonClient.isConnected else {
+            errorText = "Cannot connect to assistant. Please ensure it's running."
+            return
+        }
+
+        // Snapshot and clear stashed context
+        let attachments = secretBlockedAttachments
+        let surfaceId = secretBlockedActiveSurfaceId
+        let page = secretBlockedCurrentPage
+
+        secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
+        errorText = nil
+
+        isSending = true
+        isThinking = true
+
+        if messageLoopTask == nil {
+            startMessageLoop()
+        }
+
+        do {
+            try daemonClient.send(UserMessageMessage(
+                sessionId: sessionId,
+                content: text,
+                attachments: attachments,
+                activeSurfaceId: surfaceId,
+                currentPage: surfaceId != nil ? page : nil,
+                bypassSecretCheck: true
+            ))
+        } catch {
+            log.error("Failed to send bypassed message: \(error.localizedDescription)")
+            isSending = false
+            isThinking = false
+            errorText = "Failed to send message."
+        }
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).

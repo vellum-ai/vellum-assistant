@@ -9,8 +9,8 @@ enum ImageURLClassification {
 /// Classifies URLs as image candidates based purely on file extension.
 ///
 /// This is the first stage of image detection in the media-embed pipeline.
-/// URLs with unrecognized extensions return `.unknown` so that a later
-/// MIME-probe stage can resolve them via HTTP HEAD.
+/// Only truly extensionless URLs return `.unknown` (triggering the MIME-probe
+/// fallback); URLs with a non-image extension return `.notImage`.
 enum ImageURLClassifier {
 
     private static let imageExtensions: Set<String> = [
@@ -44,6 +44,7 @@ enum ImageURLClassifier {
             return .image
         }
 
-        return .unknown
+        // Has a non-image extension — no need for a MIME probe.
+        return .notImage
     }
 }

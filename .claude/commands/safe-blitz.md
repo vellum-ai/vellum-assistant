@@ -21,6 +21,7 @@ Everything after stripping flags is the **feature description**.
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Don't pipe to them.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
@@ -186,6 +187,7 @@ You are working on a single task in an isolated git worktree.
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
 - This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- Do NOT wait for CI checks to pass before merging. Merge immediately.
 - `tail` and `head` may not be available in the shell. Don't pipe to them.
 
 ## Your worktree
@@ -197,7 +199,7 @@ ALL work happens here. Do NOT touch the main repo.
 
 ## Workflow
 1. Make the changes in your worktree.
-2. Type-check: cd <worktree>/assistant && bunx tsc --noEmit
+2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
 3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
    cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base <feature-branch-name> --merge --assignee @me
 4. Send a message to "lead" with:
@@ -217,7 +219,6 @@ For "Address the feedback on <PR URL>" tasks:
 1. Read its completion message.
 2. Update tracking files (read fresh each time, write back carefully):
    - Remove the completed item from .private/TODO.md.
-   - Append a detailed description of what was done to the end of .private/DONE.md, separated by a horizontal rule.
    - Append the PR link to .private/UNREVIEWED_PRS.md.
 3. Mark the TaskCreate entry as completed.
 4. Increment the **completed count**.
@@ -321,7 +322,7 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
 ## Important
 
-- `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
+- `.private/TODO.md` and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
 - Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
 - If an agent reports failure, put the item back in TODO.md and note the failure.
 - If an agent hits merge conflicts after another agent's PR landed, tell it to rebase against the **feature branch**: `git pull --rebase origin <feature-branch-name>`.

@@ -74,10 +74,11 @@ struct PrivateThreadPersistenceTests {
         let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
         restorer.handleSessionListResponse(response)
 
-        // The restored thread should be private
+        // Private threads are excluded from restoration — the default thread
+        // is removed (it was empty) and no private sessions are restored,
+        // so a new empty thread is created via createThread().
         #expect(delegate.threads.count == 1)
-        #expect(delegate.threads[0].kind == .private)
-        #expect(delegate.threads[0].sessionId == "private-session-e2e")
+        #expect(delegate.threads[0].kind == .standard)
     }
 
     /// Verifies that a standard thread round-trips correctly through
@@ -147,13 +148,10 @@ struct PrivateThreadPersistenceTests {
         let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
         restorer.handleSessionListResponse(response)
 
-        #expect(delegate.threads.count == 3)
-        #expect(delegate.threads[0].kind == .private)
-        #expect(delegate.threads[0].sessionId == "s-private-1")
-        #expect(delegate.threads[1].kind == .standard)
-        #expect(delegate.threads[1].sessionId == "s-standard-1")
-        #expect(delegate.threads[2].kind == .private)
-        #expect(delegate.threads[2].sessionId == "s-private-2")
+        // Private threads are filtered out before restore — only standard threads appear
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
+        #expect(delegate.threads[0].sessionId == "s-standard-1")
     }
 
     // MARK: - Legacy Daemon Payload Fallback
@@ -210,11 +208,10 @@ struct PrivateThreadPersistenceTests {
         let response = try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
         restorer.handleSessionListResponse(response)
 
-        #expect(delegate.threads.count == 2)
-        #expect(delegate.threads[0].kind == .private)
-        #expect(delegate.threads[0].title == "Modern Private")
-        #expect(delegate.threads[1].kind == .standard)
-        #expect(delegate.threads[1].title == "Legacy Chat")
+        // Private threads are filtered out — only the legacy standard thread is restored
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
+        #expect(delegate.threads[0].title == "Legacy Chat")
     }
 
     // MARK: - ThreadManager.createPrivateThread Immediate Persistence

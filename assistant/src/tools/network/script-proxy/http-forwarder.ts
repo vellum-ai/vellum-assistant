@@ -26,18 +26,35 @@ const HOP_BY_HOP = new Set([
  */
 export type PolicyCallback = (
   hostname: string,
+  port: number | null,
   path: string,
+  scheme: 'http' | 'https',
 ) => Promise<Record<string, string> | null>;
 
 /**
- * Strip hop-by-hop headers from an incoming header set.
+ * Strip hop-by-hop headers and Connection-token headers (RFC 7230 s6.1)
+ * from an incoming header set, preserving multi-value arrays.
  */
-function filterHeaders(raw: IncomingMessage['headers']): Record<string, string> {
-  const out: Record<string, string> = {};
+function filterHeaders(raw: IncomingMessage['headers']): Record<string, string | string[]> {
+  // Collect extra headers listed in the Connection header (RFC 7230 s6.1)
+  const connectionTokens = new Set<string>();
+  const connValue = raw['connection'];
+  if (connValue) {
+    const values = Array.isArray(connValue) ? connValue : [connValue];
+    for (const v of values) {
+      for (const token of v.split(',')) {
+        connectionTokens.add(token.trim().toLowerCase());
+      }
+    }
+  }
+
+  const out: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (HOP_BY_HOP.has(key.toLowerCase())) continue;
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP.has(lower)) continue;
+    if (connectionTokens.has(lower)) continue;
     if (value === undefined) continue;
-    out[key] = Array.isArray(value) ? value.join(', ') : value;
+    out[key] = value;
   }
   return out;
 }
@@ -93,6 +110,9 @@ export function forwardHttpRequest(
       (upstreamRes: IncomingMessage) => {
         const responseHeaders = filterHeaders(upstreamRes.headers);
         clientRes.writeHead(upstreamRes.statusCode ?? 502, responseHeaders);
+        upstreamRes.on('error', () => {
+          clientRes.destroy();
+        });
         upstreamRes.pipe(clientRes);
       },
     );
@@ -110,7 +130,7 @@ export function forwardHttpRequest(
   };
 
   if (policyCallback) {
-    policyCallback(hostname, path)
+    policyCallback(hostname, parsed.port ? Number(parsed.port) : null, path, 'http')
       .then((extraHeaders) => {
         if (extraHeaders === null) {
           clientRes.writeHead(403, { 'Content-Type': 'text/plain' });

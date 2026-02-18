@@ -937,3 +937,127 @@ describe('DockerBackend — baseline: network isolation defaults', () => {
     expect(networkArgs).toEqual(['--network=none']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-invocation network override (proxied bash)
+// ---------------------------------------------------------------------------
+
+describe('DockerBackend — per-invocation network override', () => {
+  test('networkMode "proxied" overrides default to --network=bridge', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('curl http://127.0.0.1:8080', sandboxRoot, {
+      networkMode: 'proxied',
+    });
+    expect(result.args).toContain('--network=bridge');
+    expect(result.args).not.toContain('--network=none');
+  });
+
+  test('networkMode "off" preserves --network=none', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'off' });
+    expect(result.args).toContain('--network=none');
+    expect(result.args).not.toContain('--network=bridge');
+  });
+
+  test('no networkMode option preserves config default (none)', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, {});
+    expect(result.args).toContain('--network=none');
+  });
+
+  test('undefined options preserves config default (none)', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, undefined);
+    expect(result.args).toContain('--network=none');
+  });
+
+  test('proxied mode overrides config-level network=none', () => {
+    // Explicitly set config network to 'none', then override per-invocation
+    const backend = new DockerBackend(
+      sandboxRoot,
+      { network: 'none' },
+      1000,
+      1000,
+    );
+    const result = backend.wrap('wget http://proxy:3128', sandboxRoot, {
+      networkMode: 'proxied',
+    });
+    expect(result.args).toContain('--network=bridge');
+  });
+
+  test('proxied mode with config network=bridge still uses bridge', () => {
+    const backend = new DockerBackend(
+      sandboxRoot,
+      { network: 'bridge' },
+      1000,
+      1000,
+    );
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    expect(result.args).toContain('--network=bridge');
+  });
+
+  test('off mode with config network=bridge preserves config bridge', () => {
+    // When networkMode is 'off', we defer to the config-level network value,
+    // which happens to be 'bridge' here.
+    const backend = new DockerBackend(
+      sandboxRoot,
+      { network: 'bridge' },
+      1000,
+      1000,
+    );
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'off' });
+    // 'off' means "no override" — config-level 'bridge' is used
+    expect(result.args).toContain('--network=bridge');
+  });
+
+  test('only one --network flag is present in proxied mode', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    const networkArgs = result.args.filter((a: string) =>
+      a.startsWith('--network='),
+    );
+    expect(networkArgs).toEqual(['--network=bridge']);
+  });
+
+  test('all other security flags remain intact in proxied mode', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    expect(result.args).toContain('--cap-drop=ALL');
+    expect(result.args).toContain('--security-opt=no-new-privileges');
+    expect(result.args).toContain('--read-only');
+    expect(result.args).toContain('--rm');
+    expect(result.sandboxed).toBe(true);
+  });
+
+  test('resource limits still apply in proxied mode', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    expect(result.args).toContain('--cpus=1');
+    expect(result.args).toContain('--memory=512m');
+    expect(result.args).toContain('--pids-limit=256');
+  });
+
+  test('proxied mode adds --add-host=host.docker.internal:host-gateway', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('curl http://proxy:3128', sandboxRoot, {
+      networkMode: 'proxied',
+    });
+    expect(result.args).toContain('--add-host=host.docker.internal:host-gateway');
+  });
+
+  test('non-proxied mode does not add --add-host flag', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot);
+    const addHostArgs = result.args.filter((a: string) => a.startsWith('--add-host'));
+    expect(addHostArgs).toHaveLength(0);
+  });
+
+  test('--add-host appears before the image argument in proxied mode', () => {
+    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const result = backend.wrap('ls', sandboxRoot, { networkMode: 'proxied' });
+    const addHostIdx = result.args.indexOf('--add-host=host.docker.internal:host-gateway');
+    const imageIdx = result.args.indexOf(defaultImage);
+    expect(addHostIdx).toBeGreaterThan(-1);
+    expect(addHostIdx).toBeLessThan(imageIdx);
+  });
+});

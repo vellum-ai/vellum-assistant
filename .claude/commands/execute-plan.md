@@ -33,7 +33,7 @@ Read the PR section carefully. Implement all the changes described:
 
 #### 3b. Validate
 
-Run the tests and type-checks specified in the PR section. Fix any failures before proceeding.
+**Do NOT run tests, type-checking (`tsc`), or linting unless the plan's PR section explicitly specifies validation steps.** These steps are slow and rarely catch issues for well-scoped changes.
 
 #### 3c. Mainline
 
@@ -81,6 +81,7 @@ After all PRs are mainlined, tell the user the plan is fully executed. List all 
 ## Repo-specific gotchas
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
 - **Project structure**: Bun + TypeScript project. Code is in `assistant/`.

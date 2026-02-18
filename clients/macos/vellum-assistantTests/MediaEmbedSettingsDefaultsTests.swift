@@ -71,6 +71,11 @@ final class MediaEmbedSettingsDefaultsTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
+    func testNormalizeDomainsTrimsNewlines() {
+        let result = MediaEmbedSettings.normalizeDomains(["youtube.com\n", "\ryoutube.com\r\n", "vimeo.com\n"])
+        XCTAssertEqual(result, ["youtube.com", "vimeo.com"])
+    }
+
     func testNormalizeDomainsDeduplicatesAcrossCaseAndWhitespace() {
         let result = MediaEmbedSettings.normalizeDomains(["  YouTube.com ", "youtube.com", " YOUTUBE.COM  "])
         XCTAssertEqual(result, ["youtube.com"])
@@ -125,5 +130,16 @@ final class MediaEmbedSettingsDefaultsTests: XCTestCase {
             "youtube.com",
         ])
         XCTAssertEqual(result, ["youtube.com"])
+    }
+
+    func testNormalizeDomainsSchemeOnlyURLDoesNotProduceSchemePrefix() {
+        // Malformed URLs with scheme but no valid host should not produce "http:" or "https:"
+        let result = MediaEmbedSettings.normalizeDomains(["http://", "https://"])
+        // URLComponents parses these with empty host, so they pass through unchanged
+        // rather than being sliced at the scheme's slashes to produce "http:" / "https:"
+        for domain in result {
+            XCTAssertFalse(domain == "http:" || domain == "https:",
+                           "Should not produce scheme-only string, got: \(domain)")
+        }
     }
 }

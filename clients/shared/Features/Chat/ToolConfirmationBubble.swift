@@ -267,11 +267,11 @@ public struct ToolConfirmationBubble: View {
                     updateTruncation(truncatedHeight: truncatedHeight)
                 }
 
-            if isTruncated && !isPreviewExpanded {
+            if isTruncated {
                 HStack(spacing: 2) {
-                    Image(systemName: "chevron.down")
+                    Image(systemName: isPreviewExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 8, weight: .semibold))
-                    Text("Show more")
+                    Text(isPreviewExpanded ? "Show less" : "Show more")
                         .font(.system(size: 10))
                 }
                 .foregroundColor(VColor.textMuted)
@@ -350,10 +350,12 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var buttonRow: some View {
+        // "Allow" comes first — intentional design choice to make the
+        // positive action the default leftmost (primary) button.
         HStack(spacing: VSpacing.xs) {
-            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
             confirmationButton("Allow", isPrimary: true, isDanger: false) { onAllow() }
-            if hasRuleOptions { alwaysAllowInlineButton }
+            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
+            if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
             Spacer()
         }
     }
@@ -470,6 +472,10 @@ public struct ToolConfirmationBubble: View {
         let full = fullHeight ?? self.fullTextHeight
         let truncated = truncatedHeight ?? self.truncatedTextHeight
         guard full > 0, truncated > 0 else { return }
+        // Skip recalculating when expanded — the truncated height equals
+        // full height with no line limit, which would reset isTruncated to false
+        // and hide the "Show less" button.
+        guard !isPreviewExpanded else { return }
         isTruncated = full > truncated + 1
     }
 }

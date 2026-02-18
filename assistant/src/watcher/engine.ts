@@ -61,7 +61,7 @@ export function initWatcherEngine(): void {
 export async function runWatchersOnce(
   processMessage: WatcherMessageProcessor,
   notify: WatcherNotifier,
-  escalate: WatcherEscalator,
+  _escalate: WatcherEscalator,
 ): Promise<number> {
   const now = Date.now();
   let processed = 0;

@@ -9,7 +9,7 @@ enum MessageURLExtractor {
 
     // Characters that commonly trail a URL in natural prose but aren't
     // part of the URL itself.
-    private static let trailingPunctuationToTrim: CharacterSet = CharacterSet(charactersIn: ".,;!>\"')")
+    private static let trailingPunctuationToTrim: CharacterSet = CharacterSet(charactersIn: ".,;:!?)>\"'")
 
     /// Extracts all distinct `http(s)://` URLs from `text`, returned in
     /// first-occurrence order. Duplicates are suppressed (first wins).
@@ -17,7 +17,7 @@ enum MessageURLExtractor {
         extractPlainURLsWithPositions(from: text).map(\.url)
     }
 
-    /// Returns plain-text URLs paired with their character offset in
+    /// Returns plain-text URLs paired with their UTF-16 offset in
     /// `text`, used by `extractAllURLs` to merge-sort with markdown URLs.
     private static func extractPlainURLsWithPositions(from text: String) -> [(url: URL, position: Int)] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
@@ -69,7 +69,7 @@ enum MessageURLExtractor {
         extractMarkdownLinkURLsWithPositions(from: text).map(\.url)
     }
 
-    /// Returns markdown-link URLs paired with their character offset in
+    /// Returns markdown-link URLs paired with their UTF-16 offset in
     /// `text`, used by `extractAllURLs` to merge-sort with plain URLs.
     private static func extractMarkdownLinkURLsWithPositions(from text: String) -> [(url: URL, position: Int)] {
         let nsRange = NSRange(text.startIndex..., in: text)
@@ -94,7 +94,7 @@ enum MessageURLExtractor {
             guard !seen.contains(canonical) else { continue }
             seen.insert(canonical)
 
-            let position = text.distance(from: text.startIndex, to: urlRange.lowerBound)
+            let position = match.range(at: 1).location
             results.append((url: url, position: position))
         }
 

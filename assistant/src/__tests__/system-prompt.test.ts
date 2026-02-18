@@ -211,7 +211,7 @@ describe('buildSystemPrompt', () => {
     test('does not list app_open as skill-provided', () => {
       const result = buildSystemPrompt();
       // The "Loading app tools" section should NOT include app_open in the skill-provided list
-      const skillProvidedMatch = result.match(/The following app tools are provided by the `app-builder` skill:[^.]+\./);
+      const skillProvidedMatch = result.match(/Most `app_\*` tools \([^)]+\) are provided by the `app-builder` skill\./);
       expect(skillProvidedMatch).not.toBeNull();
       expect(skillProvidedMatch![0]).not.toContain('app_open');
     });

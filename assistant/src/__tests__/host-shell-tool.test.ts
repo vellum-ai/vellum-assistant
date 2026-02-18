@@ -230,3 +230,82 @@ describe('host_bash — baseline: no sandbox isolation', () => {
     expect(spawnCalls[0].command).toBe('bash');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: host_bash must NOT gain proxied-mode properties
+// ---------------------------------------------------------------------------
+// The sandboxed `bash` tool gained `network_mode` and `credential_ids` in
+// the media-reuse rollout (PR 13). The `host_bash` tool must never acquire
+// these — it runs unsandboxed on the host and has no proxy infrastructure.
+// These tests lock that boundary so any accidental addition is caught.
+
+describe('host_bash — regression: no proxied-mode additions', () => {
+  const definition = hostShellTool.getDefinition();
+  const schemaProps = (definition.input_schema as Record<string, unknown>).properties as Record<string, unknown>;
+
+  test('schema does not include network_mode property', () => {
+    expect(schemaProps).not.toHaveProperty('network_mode');
+  });
+
+  test('schema does not include credential_ids property', () => {
+    expect(schemaProps).not.toHaveProperty('credential_ids');
+  });
+
+  test('schema only contains the expected properties (command, working_dir, timeout_seconds)', () => {
+    const propertyNames = Object.keys(schemaProps).sort();
+    expect(propertyNames).toEqual(['command', 'timeout_seconds', 'working_dir']);
+  });
+
+  test('execute ignores network_mode even if supplied in input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-ignore-network-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+    wrapCommandCallCount = 0;
+
+    // Pass network_mode as if the model hallucinated the parameter —
+    // host_bash must ignore it and run the command normally.
+    const result = await hostShellTool.execute({
+      command: 'echo should-work',
+      working_dir: dir,
+      network_mode: 'proxied',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe('should-work');
+    // Must still spawn plain bash, not anything proxy-related
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].command).toBe('bash');
+    // Must never route through sandbox wrapCommand, even with proxied-mode input
+    expect(wrapCommandCallCount).toBe(0);
+  });
+
+  test('execute ignores credential_ids even if supplied in input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-ignore-creds-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+    wrapCommandCallCount = 0;
+
+    const result = await hostShellTool.execute({
+      command: 'echo creds-ignored',
+      working_dir: dir,
+      credential_ids: ['gmail-oauth', 'github-token'],
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe('creds-ignored');
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].command).toBe('bash');
+    // Must never route through sandbox wrapCommand, even with credential inputs
+    expect(wrapCommandCallCount).toBe(0);
+  });
+
+  test('tool name is host_bash (not bash)', () => {
+    expect(definition.name).toBe('host_bash');
+  });
+
+  test('required fields only contains command', () => {
+    expect((definition.input_schema as Record<string, unknown>).required).toEqual(['command']);
+  });
+});

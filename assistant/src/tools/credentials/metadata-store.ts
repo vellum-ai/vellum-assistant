@@ -26,6 +26,8 @@ export interface CredentialMetadata {
   oauth2TokenUrl?: string;
   /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
   oauth2ClientId?: string;
+  /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
+  oauth2ClientSecret?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */
@@ -96,6 +98,7 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
     accountInfo: typeof record.accountInfo === 'string' ? record.accountInfo : undefined,
     oauth2TokenUrl: typeof record.oauth2TokenUrl === 'string' ? record.oauth2TokenUrl : undefined,
     oauth2ClientId: typeof record.oauth2ClientId === 'string' ? record.oauth2ClientId : undefined,
+    oauth2ClientSecret: typeof record.oauth2ClientSecret === 'string' ? record.oauth2ClientSecret : undefined,
     alias: typeof record.alias === 'string' ? record.alias : undefined,
     injectionTemplates: Array.isArray(record.injectionTemplates)
       ? (record.injectionTemplates as CredentialInjectionTemplate[])
@@ -117,8 +120,8 @@ function loadFile(): LoadResult {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === 'number' ? data.version : 1;
-    if (fileVersion > CURRENT_VERSION) {
-      // Newer version we don't understand — refuse to touch it
+    if (fileVersion !== 1 && fileVersion !== 2) {
+      // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
     const rawCredentials: unknown[] = Array.isArray(data.credentials) ? data.credentials : [];
@@ -129,7 +132,7 @@ function loadFile(): LoadResult {
       // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
       const credentials = validRecords.map(migrateRecordV1toV2);
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
-      saveFile(migrated);
+      try { saveFile(migrated); } catch { /* persist failed — will retry on next write */ }
       return migrated;
     }
 
@@ -181,6 +184,8 @@ export function upsertCredentialMetadata(
     accountInfo?: string | null;
     oauth2TokenUrl?: string;
     oauth2ClientId?: string;
+    /** Pass `null` to explicitly clear a previously-set client secret. */
+    oauth2ClientSecret?: string | null;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
@@ -219,6 +224,13 @@ export function upsertCredentialMetadata(
     }
     if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
+    if (policy?.oauth2ClientSecret !== undefined) {
+      if (policy.oauth2ClientSecret === null) {
+        delete existing.oauth2ClientSecret;
+      } else {
+        existing.oauth2ClientSecret = policy.oauth2ClientSecret;
+      }
+    }
     if (policy?.alias !== undefined) {
       if (policy.alias === null) {
         delete existing.alias;
@@ -250,6 +262,7 @@ export function upsertCredentialMetadata(
     accountInfo: policy?.accountInfo ?? undefined,
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
+    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,

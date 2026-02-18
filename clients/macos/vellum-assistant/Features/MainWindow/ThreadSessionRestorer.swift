@@ -86,7 +86,7 @@ final class ThreadSessionRestorer {
             return
         }
 
-        let recentSessions = Array(response.sessions.prefix(5))
+        let recentSessions = Array(response.sessions.filter { $0.threadType != "private" }.prefix(5))
 
         let defaultThreadIsEmpty = delegate.threads.count == 1
             && delegate.chatViewModel(for: delegate.threads[0].id)?.messages.isEmpty ?? true

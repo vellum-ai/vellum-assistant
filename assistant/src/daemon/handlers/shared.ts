@@ -158,7 +158,7 @@ export function findSocketForSession(
 
 /**
  * Wire the escalation handler on a text_qa session so that invoking
- * `request_computer_control` creates a CU session and notifies the client.
+ * `computer_use_request_control` creates a CU session and notifies the client.
  *
  * Instead of closing over the original `socket`, the handler looks up the
  * current socket for the session at call time via `ctx.socketToSession`.

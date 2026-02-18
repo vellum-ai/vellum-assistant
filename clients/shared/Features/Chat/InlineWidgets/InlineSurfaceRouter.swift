@@ -121,6 +121,7 @@ public struct InlineSurfaceRouter: View {
                 }
                 onAction(surface.id, "submit", payload)
             }
+            .id(surface.id)
         case .confirmation(let data):
             ConfirmationSurfaceView(data: data, actions: surface.actions) { actionId in
                 onAction(surface.id, actionId, nil)

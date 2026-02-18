@@ -1,5 +1,5 @@
 /**
- * request_computer_control tool definition.
+ * computer_use_request_control tool definition.
  *
  * This tool allows a text_qa session to escalate to foreground computer use
  * when the user explicitly requests it (e.g. "go ahead and do it", "take over
@@ -9,6 +9,10 @@
  *
  * This tool is only available to text_qa sessions. It must NOT be added to
  * CU sessions (that would be recursive).
+ *
+ * Part of the bundled computer-use skill. The definition here is imported by
+ * buildToolDefinitions() so text_qa sessions can include it without
+ * preactivating the entire skill.
  */
 
 import { RiskLevel } from '../../permissions/types.js';
@@ -16,7 +20,7 @@ import type { Tool, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 
 export const requestComputerControlTool: Tool = {
-  name: 'request_computer_control',
+  name: 'computer_use_request_control',
   description:
     'Escalate to foreground computer use. Call this when the user explicitly asks you to ' +
     'take control of their computer to perform a task (e.g. "go ahead and do it", ' +

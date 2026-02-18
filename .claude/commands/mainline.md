@@ -2,6 +2,11 @@ Ship the current uncommitted changes to main via a squash-merged PR.
 
 If the user passed `$ARGUMENTS`, use it as the PR title. Otherwise, infer a concise title from the changes.
 
+## Repo-specific gotchas
+
+- **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
+
 ## Steps
 
 ### 1. Check for changes

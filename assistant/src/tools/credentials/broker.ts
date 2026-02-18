@@ -334,6 +334,16 @@ export class CredentialBroker {
       };
     }
 
+    // Fail-closed: verify the secret value actually exists in secure storage.
+    // Without this, downstream proxy code would attempt unauthenticated requests.
+    const value = getSecureKey(resolved.storageKey);
+    if (!value) {
+      return {
+        success: false,
+        reason: `Credential metadata exists but no stored value for ${metadata.service}/${metadata.field}`,
+      };
+    }
+
     log.info(
       { credentialId: request.credentialId, service: metadata.service, field: metadata.field, tool: request.requestingTool },
       'Server-side credential lookup by ID completed',

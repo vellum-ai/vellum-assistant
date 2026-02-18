@@ -183,6 +183,8 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'daemon/handlers/config.ts',     // Vercel API token + integration OAuth (split handler)
       'security/token-manager.ts',     // OAuth token refresh flow
       'email/providers/index.ts',      // email provider API key lookup
+      'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
+      'messaging/registry.ts',          // checks stored credentials for connected providers
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -421,5 +423,141 @@ describe('One-time send override', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { DEFAULT_CONFIG } = require('../config/defaults.js');
     expect(DEFAULT_CONFIG.secretDetection.blockIngress).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant 5 — Proxy Redaction and Sensitive Logging Guards
+// ---------------------------------------------------------------------------
+
+import {
+  sanitizeHeaders,
+  sanitizeUrl,
+  createSafeLogEntry,
+} from '../tools/network/script-proxy/logging.js';
+
+describe('Invariant 5: proxy log entries never contain secrets', () => {
+  test('Authorization headers are redacted in log entries', () => {
+    const headers: Record<string, string> = {
+      'Authorization': 'Bearer ghp_s3cr3tT0k3n',
+      'Content-Type': 'application/json',
+      'X-Custom': 'safe-value',
+    };
+
+    const sanitized = sanitizeHeaders(headers, ['authorization']);
+
+    expect(sanitized['Authorization']).toBe('[REDACTED]');
+    expect(sanitized['Content-Type']).toBe('application/json');
+    expect(sanitized['X-Custom']).toBe('safe-value');
+  });
+
+  test('header redaction is case-insensitive', () => {
+    const headers: Record<string, string> = {
+      'authorization': 'Bearer secret123',
+      'X-Api-Key': 'key-abc-123',
+    };
+
+    const sanitized = sanitizeHeaders(headers, ['Authorization', 'x-api-key']);
+
+    expect(sanitized['authorization']).toBe('[REDACTED]');
+    expect(sanitized['X-Api-Key']).toBe('[REDACTED]');
+  });
+
+  test('API key query params are redacted', () => {
+    const url = 'https://api.example.com/v1/search?api_key=sk-secret-value&q=hello';
+    const sanitized = sanitizeUrl(url, ['api_key']);
+
+    expect(sanitized).not.toContain('sk-secret-value');
+    expect(sanitized).toContain('api_key=%5BREDACTED%5D');
+    expect(sanitized).toContain('q=hello');
+  });
+
+  test('multiple sensitive query params are all redacted', () => {
+    const url = 'https://api.example.com/path?token=abc123&key=def456&safe=keep';
+    const sanitized = sanitizeUrl(url, ['token', 'key']);
+
+    expect(sanitized).not.toContain('abc123');
+    expect(sanitized).not.toContain('def456');
+    expect(sanitized).toContain('safe=keep');
+  });
+
+  test('sanitizeUrl handles path-only URLs', () => {
+    const url = '/v1/search?api_key=secret&q=hello';
+    const sanitized = sanitizeUrl(url, ['api_key']);
+
+    expect(sanitized).not.toContain('secret');
+    expect(sanitized).toContain('q=hello');
+    // Result should still be a path, not an absolute URL
+    expect(sanitized).toMatch(/^\//);
+  });
+
+  test('sanitizeUrl returns URL unchanged when no query string', () => {
+    const url = 'https://api.example.com/v1/resource';
+    expect(sanitizeUrl(url, ['api_key'])).toBe(url);
+  });
+
+  test('credential values from injection templates never appear in sanitized output', () => {
+    // Simulate a header-injected credential (e.g. "Authorization: Key <secret>")
+    const secretValue = ['Key ', 'fal_', 'superSecretApiKey'].join('');
+    const req = {
+      method: 'POST',
+      url: 'https://api.fal.ai/v1/generate',
+      headers: {
+        'Authorization': secretValue,
+        'Content-Type': 'application/json',
+        'Host': 'api.fal.ai',
+      },
+    };
+
+    const entry = createSafeLogEntry(req, ['Authorization']);
+    const serialized = JSON.stringify(entry);
+
+    expect(serialized).not.toContain('fal_');
+    expect(serialized).not.toContain('superSecretApiKey');
+    expect(entry.headers['Authorization']).toBe('[REDACTED]');
+    expect(entry.headers['Content-Type']).toBe('application/json');
+    expect(entry.method).toBe('POST');
+  });
+
+  test('credential values from query injection templates never appear in sanitized output', () => {
+    // Simulate a query-injected credential (e.g. "?api_key=<secret>")
+    const secretValue = ['sk-live-', 'abc123', 'xyz789'].join('');
+    const req = {
+      method: 'GET',
+      url: `https://api.example.com/v1/data?api_key=${secretValue}&format=json`,
+      headers: {
+        'Host': 'api.example.com',
+      },
+    };
+
+    const entry = createSafeLogEntry(req, ['api_key']);
+    const serialized = JSON.stringify(entry);
+
+    expect(serialized).not.toContain('sk-live-');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('xyz789');
+    expect(entry.url).toContain('format=json');
+  });
+
+  test('createSafeLogEntry redacts both headers and query params together', () => {
+    const headerSecret = ['Bearer ', 'ghp_', 'tokenValue'].join('');
+    const querySecret = ['secret-', 'key-', '42'].join('');
+    const req = {
+      method: 'GET',
+      url: `https://api.github.com/repos?access_token=${querySecret}`,
+      headers: {
+        'Authorization': headerSecret,
+        'Accept': 'application/json',
+      },
+    };
+
+    const entry = createSafeLogEntry(req, ['Authorization', 'access_token']);
+    const serialized = JSON.stringify(entry);
+
+    expect(serialized).not.toContain('ghp_');
+    expect(serialized).not.toContain('tokenValue');
+    expect(serialized).not.toContain('secret-');
+    expect(serialized).not.toContain('key-42');
+    expect(entry.headers['Accept']).toBe('application/json');
   });
 });

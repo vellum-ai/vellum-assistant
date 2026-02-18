@@ -360,7 +360,7 @@ final class MediaEmbedFinalRegressionTests: XCTestCase {
     func testImageURLClassifierNonImageExtension() {
         let url = URL(string: "https://cdn.example.com/document.pdf")!
         let result = ImageURLClassifier.classify(url)
-        XCTAssertEqual(result, .unknown, ".pdf should classify as .unknown")
+        XCTAssertEqual(result, .notImage, ".pdf should classify as .notImage")
     }
 
     func testImageURLClassifierNoExtension() {
