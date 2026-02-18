@@ -15,6 +15,11 @@ final class SecretPromptManager {
 
     private var panels: [String: NSPanel] = [:]
     private let panelWidth: CGFloat = 400
+    /// Injected presenter so tests can suppress visible panel popups.
+    /// Default behavior remains `orderFront(nil)` in app runtime.
+    var panelPresenter: (NSPanel) -> Void = { panel in
+        panel.orderFront(nil)
+    }
 
     /// Called when the user responds to a secret prompt.
     /// Parameters: (requestId, value?, delivery?) — value is nil if user cancelled.
@@ -84,7 +89,7 @@ final class SecretPromptManager {
         }
 
         panels[message.requestId] = panel
-        panel.orderFront(nil)
+        panelPresenter(panel)
 
         log.info("Showing secret prompt: requestId=\(message.requestId), service=\(message.service), field=\(message.field)")
     }
