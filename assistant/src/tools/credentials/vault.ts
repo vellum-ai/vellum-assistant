@@ -9,7 +9,7 @@ import {
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
-import type { CredentialPolicyInput } from './policy-types.js';
+import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
 import { getConfig } from '../../config/loader.js';
@@ -98,6 +98,25 @@ class CredentialStoreTool implements Tool {
             type: 'string',
             description: 'Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)',
           },
+          alias: {
+            type: 'string',
+            description: 'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
+          },
+          injection_templates: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                hostPattern: { type: 'string', description: 'Glob pattern for matching request hosts, e.g. "*.fal.ai"' },
+                injectionType: { type: 'string', enum: ['header', 'query'], description: 'Where to inject the credential value' },
+                headerName: { type: 'string', description: 'Header name when injectionType is "header"' },
+                valuePrefix: { type: 'string', description: 'Prefix prepended to the secret value, e.g. "Key ", "Bearer "' },
+                queryParamName: { type: 'string', description: 'Query parameter name when injectionType is "query"' },
+              },
+              required: ['hostPattern', 'injectionType'],
+            },
+            description: 'Templates describing how to inject this credential into proxied requests (only for store action)',
+          },
         },
         required: ['action'],
       },
@@ -134,6 +153,52 @@ class CredentialStoreTool implements Tool {
         }
         const policy = toPolicyFromInput(policyInput);
 
+        const alias = input.alias as string | undefined;
+        const rawTemplates = input.injection_templates as unknown[] | undefined;
+
+        // Validate injection templates
+        let injectionTemplates: CredentialInjectionTemplate[] | undefined;
+        if (rawTemplates !== undefined) {
+          if (!Array.isArray(rawTemplates)) {
+            return { content: 'Error: injection_templates must be an array', isError: true };
+          }
+          const templateErrors: string[] = [];
+          injectionTemplates = [];
+          for (let i = 0; i < rawTemplates.length; i++) {
+            const t = rawTemplates[i] as Record<string, unknown>;
+            if (typeof t !== 'object' || t === null) {
+              templateErrors.push(`injection_templates[${i}] must be an object`);
+              continue;
+            }
+            if (typeof t.hostPattern !== 'string' || t.hostPattern.trim().length === 0) {
+              templateErrors.push(`injection_templates[${i}].hostPattern must be a non-empty string`);
+            }
+            if (t.injectionType !== 'header' && t.injectionType !== 'query') {
+              templateErrors.push(`injection_templates[${i}].injectionType must be 'header' or 'query'`);
+            } else if (t.injectionType === 'header') {
+              if (typeof t.headerName !== 'string' || t.headerName.trim().length === 0) {
+                templateErrors.push(`injection_templates[${i}].headerName is required when injectionType is 'header'`);
+              }
+            } else if (t.injectionType === 'query') {
+              if (typeof t.queryParamName !== 'string' || t.queryParamName.trim().length === 0) {
+                templateErrors.push(`injection_templates[${i}].queryParamName is required when injectionType is 'query'`);
+              }
+            }
+            if (templateErrors.length === 0) {
+              injectionTemplates.push({
+                hostPattern: t.hostPattern as string,
+                injectionType: t.injectionType as 'header' | 'query',
+                headerName: typeof t.headerName === 'string' ? t.headerName : undefined,
+                valuePrefix: typeof t.valuePrefix === 'string' ? t.valuePrefix : undefined,
+                queryParamName: typeof t.queryParamName === 'string' ? t.queryParamName : undefined,
+              });
+            }
+          }
+          if (templateErrors.length > 0) {
+            return { content: `Error: ${templateErrors.join('; ')}`, isError: true };
+          }
+        }
+
         try {
           assertMetadataWritable();
         } catch {
@@ -150,6 +215,8 @@ class CredentialStoreTool implements Tool {
             allowedTools: policy.allowedTools,
             allowedDomains: policy.allowedDomains,
             usageDescription: policy.usageDescription,
+            alias,
+            injectionTemplates,
           });
         } catch (err) {
           log.warn({ service, field, err }, 'metadata write failed after storing credential');
