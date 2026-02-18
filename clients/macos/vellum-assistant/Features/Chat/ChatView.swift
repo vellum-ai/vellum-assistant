@@ -89,6 +89,7 @@ struct ChatView: View {
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
+    var mediaEmbedSettings: MediaEmbedResolverSettings?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -531,7 +532,8 @@ struct ChatView: View {
                                 onSurfaceAction: onSurfaceAction,
                                 onOpenActivity: onOpenActivity,
                                 isActivityPanelOpen: isActivityPanelOpen,
-                                onReportMessage: onReportMessage
+                                onReportMessage: onReportMessage,
+                                mediaEmbedSettings: mediaEmbedSettings
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -806,6 +808,7 @@ private struct ChatBubble: View {
     let onOpenActivity: (UUID) -> Void
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
+    var mediaEmbedSettings: MediaEmbedResolverSettings?
 
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
@@ -878,6 +881,12 @@ private struct ChatBubble: View {
         return hasText || !message.attachments.isEmpty
     }
 
+    /// Image embed intents resolved for assistant messages when the feature is enabled.
+    private var imageEmbedIntents: [MediaEmbedIntent] {
+        guard !isUser, let settings = mediaEmbedSettings else { return [] }
+        return MediaEmbedResolver.resolve(message: message, settings: settings)
+            .filter { if case .image = $0 { return true } else { return false } }
+    }
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -896,6 +905,13 @@ private struct ChatBubble: View {
                         ForEach(message.inlineSurfaces) { surface in
                             InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                         }
+                    }
+                }
+
+                // Image embeds rendered below the text for assistant messages
+                ForEach(imageEmbedIntents.indices, id: \.self) { idx in
+                    if case .image(let url) = imageEmbedIntents[idx] {
+                        InlineImageEmbedView(url: url)
                     }
                 }
 

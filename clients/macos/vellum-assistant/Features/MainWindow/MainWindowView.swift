@@ -1429,7 +1429,12 @@ private struct ActiveChatViewWrapper: View {
                         style: .error
                     )
                 }
-            }
+            },
+            mediaEmbedSettings: MediaEmbedResolverSettings(
+                enabled: settingsStore.mediaEmbedsEnabled,
+                enabledSince: settingsStore.mediaEmbedsEnabledSince,
+                allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
+            )
         )
     }
 }
