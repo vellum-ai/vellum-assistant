@@ -56,11 +56,11 @@ If the user didn't share much, use sensible defaults — don't make it feel empt
 
 Don't use generic filler. Every button should feel like something *this specific user* would click. Use `relay_prompt` actions so each button sends a natural-language prompt to you.
 
-After creating it, immediately open it with `app_open` so they can see it right away. ONLY NOW use this handoff — this is the one and only time you say it:
+After creating it, immediately open it with `app_open` so they can see it right away. Present it casually — like you just had an idea, not like you're delivering a product. Something like:
 
-> "Identity locked in. I'm ___ [emoji]. I thought of X ways to help you, check this out."
+> "I just thought of X ways to help you — check this out."
 
-Where X is the total number of starter + onboarding tasks you included in the Home Base. Let them know they can customize it anytime.
+Where X is the total number of starter + onboarding tasks you included in the Home Base. Don't call it "Home Base" by name — just show it. Let them know they can customize it anytime.
 
 Then delete this file. You're done here.
 

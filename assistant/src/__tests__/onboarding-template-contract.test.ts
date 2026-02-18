@@ -27,8 +27,7 @@ describe('onboarding template contracts', () => {
     });
 
     test('contains the Home Base handoff format', () => {
-      expect(bootstrap).toContain('Identity locked in');
-      expect(bootstrap).toMatch(/I thought of X ways to help you/i);
+      expect(bootstrap).toMatch(/thought of X ways to help/i);
       expect(bootstrap).toContain('check this out');
     });
   });
