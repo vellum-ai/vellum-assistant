@@ -287,7 +287,7 @@ describe('runSandboxDiagnostics — Docker image check', () => {
     const imageCheck = result.checks.find((c) => c.label.includes('Docker image available'));
     expect(imageCheck).toBeDefined();
     expect(imageCheck!.ok).toBe(false);
-    expect(imageCheck!.detail).toContain('docker pull');
+    expect(imageCheck!.detail).toContain('docker build');
   });
 
   test('includes configured image name in label', () => {

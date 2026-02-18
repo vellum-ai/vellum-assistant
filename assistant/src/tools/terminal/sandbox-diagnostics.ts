@@ -46,7 +46,7 @@ function checkDockerImage(image: string): SandboxCheckResult {
   } catch {
     // The default sandbox image is built locally from Dockerfile.sandbox — docker pull won't work.
     const remediation = image === DEFAULT_SANDBOX_IMAGE
-      ? 'build with: docker build --no-cache -t vellum-sandbox:latest -f Dockerfile.sandbox .'
+      ? 'build with: docker build --no-cache -t vellum-sandbox:latest -f assistant/Dockerfile.sandbox assistant'
       : `pull with: docker pull ${image}`;
     return { label: `Docker image available (${image})`, ok: false, detail: remediation };
   }

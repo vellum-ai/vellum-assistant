@@ -144,7 +144,7 @@ function checkImageAvailable(image: string): void {
       `Cannot find Dockerfile.sandbox to build "${image}". ` +
       'This image is built locally and is not available from a registry. ' +
       'If you have the Vellum source tree, build it manually:\n' +
-      '  docker build --no-cache -t vellum-sandbox:latest -f Dockerfile.sandbox .\n' +
+      '  docker build --no-cache -t vellum-sandbox:latest -f assistant/Dockerfile.sandbox assistant\n' +
       'Or set sandbox.docker.image to a different image in your config.',
       'bash',
     );
