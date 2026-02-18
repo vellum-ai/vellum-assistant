@@ -138,7 +138,7 @@ class CliDiscoverTool implements Tool {
       if (checkAuth && AUTH_CHECK_COMMANDS[name]) {
         const [cmd, ...args] = AUTH_CHECK_COMMANDS[name];
         const authOutput = await runQuick(cmd, args);
-        result.authenticated = authOutput !== null;
+        result.authenticated = authOutput !== null && authOutput.length > 0;
         if (authOutput) {
           // Keep auth info brief — first line, max 200 chars
           result.authInfo = authOutput.split('\n')[0].slice(0, 200);
