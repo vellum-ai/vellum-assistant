@@ -184,6 +184,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'security/token-manager.ts',     // OAuth token refresh flow
       'email/providers/index.ts',      // email provider API key lookup
       'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
+      'messaging/registry.ts',          // checks stored credentials for connected providers
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

@@ -90,8 +90,8 @@ describe('CU session skill tool lifecycle cleanup', () => {
   });
 
   test('computer-use skill refcount is 0 after session is aborted', async () => {
-    // Use a provider that never responds so the session stays active long
-    // enough to abort after skill projection has occurred.
+    // Use a provider that hangs until the abort signal fires, keeping the
+    // session active long enough to abort after skill projection has occurred.
     const hangingProvider: Provider = {
       name: 'mock',
       sendMessage: (_msgs, _tools, _sys, opts) => new Promise<ProviderResponse>((_, reject) => {

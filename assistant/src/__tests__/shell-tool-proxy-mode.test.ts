@@ -74,31 +74,25 @@ mock.module('../util/platform.js', () => ({
 
 // --- Proxy session mocks ---
 let mockActiveSession: { id: string; conversationId: string } | undefined;
-let createSessionCalls: { conversationId: string; credentialIds: string[] }[] = [];
-let startSessionCalls: string[] = [];
-let stopSessionCalls: string[] = [];
+let getOrStartSessionCalls: { conversationId: string; credentialIds: string[] }[] = [];
 let getSessionEnvCalls: string[] = [];
 
 const MOCK_SESSION_ID = 'mock-proxy-session-id';
 const MOCK_PROXY_PORT = 9876;
 
 mock.module('../tools/network/script-proxy/index.js', () => ({
+  getOrStartSession: async (conversationId: string, credentialIds: string[]) => {
+    getOrStartSessionCalls.push({ conversationId, credentialIds });
+    if (mockActiveSession && mockActiveSession.conversationId === conversationId) {
+      return { session: { id: mockActiveSession.id, conversationId, credentialIds, status: 'active', createdAt: new Date(), port: MOCK_PROXY_PORT }, created: false };
+    }
+    return { session: { id: MOCK_SESSION_ID, conversationId, credentialIds, status: 'active', createdAt: new Date(), port: MOCK_PROXY_PORT }, created: true };
+  },
   getActiveSession: (conversationId: string) => {
     if (mockActiveSession && mockActiveSession.conversationId === conversationId) {
       return mockActiveSession;
     }
     return undefined;
-  },
-  createSession: (conversationId: string, credentialIds: string[]) => {
-    createSessionCalls.push({ conversationId, credentialIds });
-    return { id: MOCK_SESSION_ID, conversationId, credentialIds, status: 'starting', createdAt: new Date(), port: null };
-  },
-  startSession: async (sessionId: string) => {
-    startSessionCalls.push(sessionId);
-    return { id: sessionId, conversationId: 'test-conv', credentialIds: [], status: 'active', createdAt: new Date(), port: MOCK_PROXY_PORT };
-  },
-  stopSession: async (sessionId: string) => {
-    stopSessionCalls.push(sessionId);
   },
   getSessionEnv: (sessionId: string) => {
     getSessionEnvCalls.push(sessionId);
@@ -131,9 +125,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
 afterEach(() => {
   spawnCalls.length = 0;
   wrapCommandCalls = [];
-  createSessionCalls = [];
-  startSessionCalls = [];
-  stopSessionCalls = [];
+  getOrStartSessionCalls = [];
   getSessionEnvCalls = [];
   mockActiveSession = undefined;
 });
@@ -146,8 +138,7 @@ describe('shell tool proxy mode', () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(createSessionCalls).toHaveLength(0);
-    expect(startSessionCalls).toHaveLength(0);
+    expect(getOrStartSessionCalls).toHaveLength(0);
 
     const lastCall = spawnCalls[spawnCalls.length - 1];
     expect(lastCall.env?.HTTP_PROXY).toBeUndefined();
@@ -161,7 +152,7 @@ describe('shell tool proxy mode', () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(createSessionCalls).toHaveLength(0);
+    expect(getOrStartSessionCalls).toHaveLength(0);
 
     const lastCall = spawnCalls[spawnCalls.length - 1];
     expect(lastCall.env?.HTTP_PROXY).toBeUndefined();
@@ -175,12 +166,10 @@ describe('shell tool proxy mode', () => {
 
     expect(result.isError).toBe(false);
 
-    // Session lifecycle
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].conversationId).toBe('test-conv');
-    expect(createSessionCalls[0].credentialIds).toEqual(['cred-1']);
-    expect(startSessionCalls).toHaveLength(1);
-    expect(startSessionCalls[0]).toBe(MOCK_SESSION_ID);
+    // Session acquired via getOrStartSession
+    expect(getOrStartSessionCalls).toHaveLength(1);
+    expect(getOrStartSessionCalls[0].conversationId).toBe('test-conv');
+    expect(getOrStartSessionCalls[0].credentialIds).toEqual(['cred-1']);
 
     // Env injection
     const lastCall = spawnCalls[spawnCalls.length - 1];
@@ -189,9 +178,9 @@ describe('shell tool proxy mode', () => {
     expect(lastCall.env?.NO_PROXY).toBe('localhost,127.0.0.1,::1');
     expect(lastCall.env?.NODE_EXTRA_CA_CERTS).toBe('/tmp/test-data/proxy-ca/ca.pem');
 
-    // Session stopped after command
-    expect(stopSessionCalls).toHaveLength(1);
-    expect(stopSessionCalls[0]).toBe(MOCK_SESSION_ID);
+    // Session is NOT stopped after command — idle timer handles cleanup
+    expect(getSessionEnvCalls).toHaveLength(1);
+    expect(getSessionEnvCalls[0]).toBe(MOCK_SESSION_ID);
   });
 
   test('proxied mode reuses existing active session', async () => {
@@ -204,9 +193,8 @@ describe('shell tool proxy mode', () => {
 
     expect(result.isError).toBe(false);
 
-    // Should NOT create a new session
-    expect(createSessionCalls).toHaveLength(0);
-    expect(startSessionCalls).toHaveLength(0);
+    // getOrStartSession is still called — it internally returns the existing session
+    expect(getOrStartSessionCalls).toHaveLength(1);
 
     // Should get env from existing session
     expect(getSessionEnvCalls).toHaveLength(1);
@@ -215,10 +203,6 @@ describe('shell tool proxy mode', () => {
     // Should still inject proxy env
     const lastCall = spawnCalls[spawnCalls.length - 1];
     expect(lastCall.env?.HTTP_PROXY).toBeDefined();
-
-    // Should stop the existing session after command
-    expect(stopSessionCalls).toHaveLength(1);
-    expect(stopSessionCalls[0]).toBe('existing-session-id');
   });
 
   test('safe env vars are preserved alongside proxy vars', async () => {

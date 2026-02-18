@@ -551,6 +551,32 @@ exports[`IPC message snapshots ClientMessage types accept_starter_bundle seriali
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types env_vars_request serializes to expected JSON 1`] = `
+{
+  "type": "env_vars_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_list serializes to expected JSON 1`] = `
+{
+  "type": "integration_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_connect serializes to expected JSON 1`] = `
+{
+  "integrationId": "gmail",
+  "type": "integration_connect",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types integration_disconnect serializes to expected JSON 1`] = `
+{
+  "integrationId": "gmail",
+  "type": "integration_disconnect",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1602,5 +1628,35 @@ exports[`IPC message snapshots ServerMessage types accept_starter_bundle_respons
   "alreadyAccepted": false,
   "rulesAdded": 5,
   "type": "accept_starter_bundle_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types env_vars_response serializes to expected JSON 1`] = `
+{
+  "type": "env_vars_response",
+  "vars": {
+    "HOME": "/Users/test",
+    "PATH": "/usr/bin",
+  },
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types integration_list_response serializes to expected JSON 1`] = `
+{
+  "integrations": [
+    {
+      "connected": false,
+      "id": "gmail",
+    },
+  ],
+  "type": "integration_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types integration_connect_result serializes to expected JSON 1`] = `
+{
+  "integrationId": "gmail",
+  "success": true,
+  "type": "integration_connect_result",
 }
 `;
