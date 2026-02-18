@@ -86,6 +86,18 @@ describe('formatSseFrame', () => {
     expect(frame).toContain('id: unique-evt-id-xyz\n');
   });
 
+  test('strips newline characters from event.id to prevent SSE frame injection', () => {
+    const event: AssistantEvent = { ...baseEvent, id: 'foo\ndata: {"injected":true}' };
+    const frame = formatSseFrame(event);
+    const lines = frame.split('\n');
+    // id line must not contain the injected payload
+    const idLine = lines.find((l) => l.startsWith('id: '))!;
+    expect(idLine).toBe('id: foodata: {"injected":true}');
+    // only one data line must exist
+    const dataLines = lines.filter((l) => l.startsWith('data: '));
+    expect(dataLines).toHaveLength(1);
+  });
+
   test('event type field is always "assistant_event"', () => {
     const frame = formatSseFrame(baseEvent);
     expect(frame.startsWith('event: assistant_event\n')).toBe(true);

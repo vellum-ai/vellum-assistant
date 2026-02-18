@@ -44,8 +44,9 @@ export interface AssistantEvent {
  * ```
  */
 export function formatSseFrame(event: AssistantEvent): string {
+  const sanitizedId = event.id.replace(/[\n\r]/g, '');
   const data = JSON.stringify(event);
-  return `event: assistant_event\nid: ${event.id}\ndata: ${data}\n\n`;
+  return `event: assistant_event\nid: ${sanitizedId}\ndata: ${data}\n\n`;
 }
 
 /**
