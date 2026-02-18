@@ -252,6 +252,9 @@ struct InputBarView: View {
             log.info("Voice recording started")
         } catch {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
+            // Remove the tap installed above before cleanupRecognition — otherwise the
+            // next recording attempt fails trying to install a second tap on bus 0.
+            audioEngine.inputNode.removeTap(onBus: 0)
             cleanupRecognition()
         }
     }

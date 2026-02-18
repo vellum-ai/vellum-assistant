@@ -112,6 +112,7 @@ struct ChatTabView: View {
                 onStop: viewModel.stopGenerating,
                 onVoiceResult: { _ in
                     viewModel.pendingVoiceMessage = true
+                    viewModel.sendMessage()
                 },
                 viewModel: viewModel
             )
