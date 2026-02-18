@@ -12,6 +12,15 @@ mock.module('../config/loader.js', () => ({
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
     skills: { load: { extraDirs: [] } },
     secretDetection: { enabled: false },
+    contextWindow: {
+      enabled: true,
+      maxInputTokens: 180000,
+      targetInputTokens: 110000,
+      compactThreshold: 0.8,
+      preserveRecentUserTurns: 8,
+      summaryMaxTokens: 1200,
+      chunkTokens: 12000,
+    },
   }),
   invalidateConfigCache: () => {},
 }));
@@ -119,5 +128,105 @@ describe('ComputerUseSession lifecycle', () => {
 
     expect(terminalCalls).toBe(1);
     expect(session.getState()).toBe('error');
+  });
+
+  test('CU session passes exactly 12 computer_use_* tools to the agent loop', async () => {
+    let capturedTools: string[] = [];
+    const provider: Provider = {
+      name: 'mock',
+      async sendMessage(_msgs, tools) {
+        capturedTools = (tools ?? []).map((t) => t.name);
+        return {
+          content: [{
+            type: 'tool_use',
+            id: 'tu-capture',
+            name: 'computer_use_done',
+            input: { summary: 'Done' },
+          }],
+          model: 'mock-model',
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: 'tool_use',
+        };
+      },
+    };
+
+    const session = new ComputerUseSession(
+      'cu-tool-capture',
+      'capture tools',
+      1440,
+      900,
+      provider,
+      () => {},
+      'computer_use',
+    );
+
+    await session.handleObservation({
+      type: 'cu_observation',
+      sessionId: 'cu-tool-capture',
+      axTree: 'Window "Test" [1]',
+    });
+
+    const cuTools = capturedTools.filter((n) => n.startsWith('computer_use_'));
+    expect(cuTools).toHaveLength(12);
+
+    // Assert exact set of expected CU tool names
+    const expectedCuTools = [
+      'computer_use_click',
+      'computer_use_double_click',
+      'computer_use_right_click',
+      'computer_use_type_text',
+      'computer_use_key',
+      'computer_use_scroll',
+      'computer_use_drag',
+      'computer_use_wait',
+      'computer_use_open_app',
+      'computer_use_run_applescript',
+      'computer_use_done',
+      'computer_use_respond',
+    ];
+    for (const name of expectedCuTools) {
+      expect(cuTools).toContain(name);
+    }
+  });
+
+  test('computer_use_respond is a terminal tool that completes the session', async () => {
+    const { provider } = createProvider([
+      {
+        content: [{
+          type: 'tool_use',
+          id: 'tu-respond',
+          name: 'computer_use_respond',
+          input: { answer: 'The meeting is at 3pm', reasoning: 'Found in calendar' },
+        }],
+        model: 'mock-model',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: 'tool_use',
+      },
+    ]);
+
+    const sentMessages: ServerMessage[] = [];
+    const session = new ComputerUseSession(
+      'cu-respond-test',
+      'check my schedule',
+      1440,
+      900,
+      provider,
+      (msg) => { sentMessages.push(msg); },
+      'computer_use',
+    );
+
+    await session.handleObservation({
+      type: 'cu_observation',
+      sessionId: 'cu-respond-test',
+      axTree: 'Window "Calendar" [1]',
+    });
+
+    expect(session.getState()).toBe('complete');
+    const completes = sentMessages.filter(
+      (msg): msg is Extract<ServerMessage, { type: 'cu_complete' }> => msg.type === 'cu_complete',
+    );
+    expect(completes).toHaveLength(1);
+    expect(completes[0].summary).toBe('The meeting is at 3pm');
+    expect(completes[0].isResponse).toBe(true);
   });
 });

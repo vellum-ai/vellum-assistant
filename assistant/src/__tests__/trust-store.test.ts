@@ -1915,3 +1915,33 @@ describe('Trust Store', () => {
     });
   });
 });
+
+describe('computer-use tool trust rule matching', () => {
+  test('actionable CU tools have default ask trust rules', () => {
+    // Actionable CU tools (those that perform screen interactions) should
+    // have default "ask" rules so strict mode prompts before use.
+    const actionableCuTools = [
+      'computer_use_click',
+      'computer_use_type_text',
+      'request_computer_control',
+    ];
+
+    for (const name of actionableCuTools) {
+      const rule = findHighestPriorityRule(name, [name], '/tmp/test');
+      expect(rule).not.toBeNull();
+      expect(rule!.decision).toBe('ask');
+    }
+  });
+
+  test('terminal CU tools (done/respond) have no default trust rules', () => {
+    // computer_use_done and computer_use_respond are terminal signal tools
+    // with RiskLevel.Low — they should not have ask rules since they don't
+    // perform any screen action.
+    const terminalCuTools = ['computer_use_done', 'computer_use_respond'];
+
+    for (const name of terminalCuTools) {
+      const defaultRule = DEFAULT_TEMPLATES.find((t) => t.tool === name);
+      expect(defaultRule).toBeUndefined();
+    }
+  });
+});

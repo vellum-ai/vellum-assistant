@@ -96,6 +96,11 @@ const mockBundledSkillTool: Tool = {
 };
 registerTool(mockBundledSkillTool);
 
+// Register CU tools so classifyRisk returns their declared Low risk level
+// instead of falling through to Medium (unknown tool).
+import { registerComputerUseTools } from '../tools/computer-use/registry.js';
+registerComputerUseTools();
+
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
@@ -3637,5 +3642,36 @@ describe('Permission Checker', () => {
       const result = await check('skill_test_tool', {}, '/tmp');
       expect(result.decision).not.toBe('allow');
     });
+  });
+});
+
+describe('computer-use tool permission defaults', () => {
+  test('computer_use_* tools classify as Low risk (proxy tools)', async () => {
+    const cuToolNames = [
+      'computer_use_click',
+      'computer_use_double_click',
+      'computer_use_right_click',
+      'computer_use_type_text',
+      'computer_use_key',
+      'computer_use_scroll',
+      'computer_use_drag',
+      'computer_use_wait',
+      'computer_use_open_app',
+      'computer_use_run_applescript',
+      'computer_use_done',
+      'computer_use_respond',
+    ];
+
+    for (const name of cuToolNames) {
+      const risk = await classifyRisk(name, {});
+      // CU tools are proxy tools with RiskLevel.Low, but classifyRisk looks them up
+      // in the registry. In legacy mode, Low risk tools are auto-allowed.
+      expect(risk).toBe(RiskLevel.Low);
+    }
+  });
+
+  test('request_computer_control classifies as Low risk', async () => {
+    const risk = await classifyRisk('request_computer_control', {});
+    expect(risk).toBe(RiskLevel.Low);
   });
 });
