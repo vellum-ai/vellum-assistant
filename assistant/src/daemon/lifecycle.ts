@@ -414,7 +414,7 @@ export async function runDaemon(): Promise<void> {
     log.info('Shutting down daemon...');
 
     hookManager.stopWatching();
-    heartbeat.stop();
+    await heartbeat.stop();
 
     // Force exit if graceful shutdown takes too long.
     // Set this BEFORE triggering daemon-stop hooks so it covers hook execution time.
