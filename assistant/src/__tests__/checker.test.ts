@@ -3813,6 +3813,20 @@ describe('bash network_mode=proxied force prompt (PR 14)', () => {
     expect(result.decision).toBe('prompt');
     expect(result.reason).toContain('Proxied network mode');
   });
+
+  test('deny rule still blocks proxied bash command', async () => {
+    addRule('bash', 'sudo *', 'everywhere', 'deny');
+    const result = await check('bash', { command: 'sudo rm -rf /', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('deny');
+    expect(result.reason).toContain('deny rule');
+  });
+
+  test('deny rule still blocks proxied host_bash command', async () => {
+    addRule('host_bash', 'curl *', 'everywhere', 'deny');
+    const result = await check('host_bash', { command: 'curl https://evil.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('deny');
+    expect(result.reason).toContain('deny rule');
+  });
 });
 
 describe('computer-use tool permission defaults', () => {

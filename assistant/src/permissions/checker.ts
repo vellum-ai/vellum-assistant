@@ -341,13 +341,6 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
-  // Proxied network mode bypasses all trust rules — every invocation
-  // requires explicit user approval because the command will route
-  // through an authenticated proxy with injected credentials.
-  if (toolName === 'bash' && input.network_mode === 'proxied') {
-    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
-  }
-
   const risk = await classifyRisk(toolName, input, workingDir);
 
   // Build command string candidates for rule matching
@@ -356,12 +349,22 @@ export async function check(
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
 
-  if (matchedRule) {
-    if (matchedRule.decision === 'deny') {
-      // Deny rules apply at ALL risk levels
-      return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
-    }
+  // Deny rules apply at ALL risk levels — including proxied network mode.
+  // Evaluate them first so hard blocks are never downgraded to a prompt.
+  if (matchedRule && matchedRule.decision === 'deny') {
+    return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
+  }
 
+  // Proxied network mode requires explicit user approval for every
+  // invocation because the command routes through an authenticated
+  // proxy with injected credentials. This runs after deny rules but
+  // before allow/ask rules so that trust rules cannot auto-approve
+  // proxied commands.
+  if ((toolName === 'bash' || toolName === 'host_bash') && input.network_mode === 'proxied') {
+    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+  }
+
+  if (matchedRule) {
     if (matchedRule.decision === 'ask') {
       // Ask rules always prompt — never auto-allow or auto-deny
       return { decision: 'prompt', reason: `Matched ask rule: ${matchedRule.pattern}`, matchedRule };
