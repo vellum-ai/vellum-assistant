@@ -26,7 +26,6 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/soffes/HotKey", from: "0.2.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
     ],
     targets: [
@@ -46,7 +45,7 @@ let package = Package(
         // iOS apps should depend only on VellumAssistantShared, not this target.
         .target(
             name: "VellumAssistantLib",
-            dependencies: ["VellumAssistantShared", "HotKey", "Sparkle"],
+            dependencies: ["VellumAssistantShared", "Sparkle"],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/bg.png"],
             resources: [
