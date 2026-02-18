@@ -7,6 +7,7 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from '../checkpoints.js';
+import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { indexMessageNow } from '../indexer.js';
 import {
   enqueueBackfillEntityRelationsJob,
@@ -42,13 +43,20 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
     .all();
 
   if (batch.length > 0) {
+    const scopeCache = new Map<string, string>();
     for (const message of batch) {
+      let scopeId = scopeCache.get(message.conversationId);
+      if (scopeId === undefined) {
+        scopeId = getConversationMemoryScopeId(message.conversationId);
+        scopeCache.set(message.conversationId, scopeId);
+      }
       indexMessageNow({
         messageId: message.id,
         conversationId: message.conversationId,
         role: message.role,
         content: message.content,
         createdAt: message.createdAt,
+        scopeId,
       }, config.memory);
     }
     const lastMessage = batch[batch.length - 1];
