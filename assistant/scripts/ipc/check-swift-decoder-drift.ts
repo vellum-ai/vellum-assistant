@@ -47,6 +47,8 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Watcher messages — not yet consumed by the macOS client
   'watcher_escalation',
   'watcher_notification',
+  // Browser handoff — not yet consumed by the macOS client
+  'browser_handoff_request',
 ]);
 
 /**
