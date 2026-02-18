@@ -6,6 +6,8 @@ import { OllamaProvider } from "./ollama/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { RetryProvider } from "./retry.js";
 import { FailoverProvider } from "./failover.js";
+import { LogfireProvider } from "./logfire.js";
+import { LOGFIRE_ENABLED } from "../flags.js";
 import { ConfigError } from "../util/errors.js";
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -80,6 +82,11 @@ export interface ProvidersConfig {
   model: string;
 }
 
+function wrapWithLogfire(provider: Provider): Provider {
+  if (!LOGFIRE_ENABLED) return provider;
+  return new LogfireProvider(provider);
+}
+
 function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
   if (config.provider === providerName) {
     // If a non-Anthropic provider is selected with the untouched global default
@@ -100,31 +107,31 @@ export function initializeProviders(config: ProvidersConfig): void {
   if (config.apiKeys.anthropic) {
     const model = resolveModel(config, 'anthropic');
     registerProvider('anthropic', new RetryProvider(
-      new AnthropicProvider(config.apiKeys.anthropic, model),
+      wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model)),
     ));
   }
   if (config.apiKeys.openai) {
     const model = resolveModel(config, 'openai');
     registerProvider('openai', new RetryProvider(
-      new OpenAIProvider(config.apiKeys.openai, model),
+      wrapWithLogfire(new OpenAIProvider(config.apiKeys.openai, model)),
     ));
   }
   if (config.apiKeys.gemini) {
     const model = resolveModel(config, 'gemini');
     registerProvider('gemini', new RetryProvider(
-      new GeminiProvider(config.apiKeys.gemini, model),
+      wrapWithLogfire(new GeminiProvider(config.apiKeys.gemini, model)),
     ));
   }
   if (config.provider === 'ollama' || config.apiKeys.ollama) {
     const model = resolveModel(config, 'ollama');
     registerProvider('ollama', new RetryProvider(
-      new OllamaProvider(model, { apiKey: config.apiKeys.ollama }),
+      wrapWithLogfire(new OllamaProvider(model, { apiKey: config.apiKeys.ollama })),
     ));
   }
   if (config.apiKeys.fireworks) {
     const model = resolveModel(config, 'fireworks');
     registerProvider('fireworks', new RetryProvider(
-      new FireworksProvider(config.apiKeys.fireworks, model),
+      wrapWithLogfire(new FireworksProvider(config.apiKeys.fireworks, model)),
     ));
   }
 }
