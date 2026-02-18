@@ -12,7 +12,9 @@ on:
 jobs:
   build-dmg:
     name: macOS DMG
-    if: contains(github.event.pull_request.labels.*.name, 'build-dmg')
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'build-dmg') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'build-dmg'))
     runs-on: macos-14
     timeout-minutes: 45
     env:
