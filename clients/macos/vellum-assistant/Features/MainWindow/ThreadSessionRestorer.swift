@@ -95,6 +95,8 @@ final class ThreadSessionRestorer {
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
+            // Private threads should not be restored — they are excluded from history
+            if kind == .private { continue }
             let thread = ThreadModel(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
