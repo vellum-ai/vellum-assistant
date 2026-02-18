@@ -289,6 +289,7 @@ export class ComputerUseSession {
         ...t,
         origin: 'skill' as const,
         ownerSkillId: fallbackSkillId,
+        ownerSkillBundled: true,
       }));
       registerSkillTools(fallbackTools);
       // Track in the session map so resetSkillToolProjection cleans up
