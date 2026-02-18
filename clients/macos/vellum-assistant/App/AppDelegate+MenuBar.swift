@@ -248,7 +248,10 @@ extension AppDelegate {
     @objc func openAppById(_ sender: NSMenuItem) {
         guard let appId = sender.representedObject as? String else { return }
         showMainWindow()
-        mainWindow?.appListManager.recordAppOpen(id: appId, name: sender.title)
+        let cachedApp = cachedApps.first(where: { $0.id == appId })
+        let appName = cachedApp?.name ?? sender.title
+        let appIcon = cachedApp?.icon
+        mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
         try? daemonClient.sendAppOpen(appId: appId)
     }
 
