@@ -178,19 +178,7 @@ public struct ToolConfirmationData: Equatable {
 
     /// Friendly display name for the permission type.
     public var permissionFriendlyName: String {
-        guard let type = permissionType else { return "Permission" }
-        switch type {
-        case "full_disk_access": return "Full Disk Access"
-        case "accessibility": return "Accessibility"
-        case "screen_recording": return "Screen Recording"
-        case "calendar": return "Calendar"
-        case "contacts": return "Contacts"
-        case "photos": return "Photos"
-        case "location": return "Location Services"
-        case "microphone": return "Microphone"
-        case "camera": return "Camera"
-        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
-        }
+        ToolDisplayHelpers.permissionFriendlyName(from: permissionType ?? "")
     }
 
     /// The macOS System Settings deep-link URL for the permission.
