@@ -107,6 +107,10 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         let sessionId = msg.sessionId ?? ""
         activeTasks[sessionId]?.cancel()
         activeTasks.removeValue(forKey: sessionId)
+        // History rollback is intentionally deferred to streamCompletion, which has access
+        // to assistantText. Rolling back here would race with a mid-stream cancel: the user
+        // message would be removed while assistantText is non-empty, then streamCompletion
+        // would append the partial assistant reply producing an orphaned assistant turn.
         broadcast(.generationCancelled(GenerationCancelledMessage(sessionId: sessionId)))
     }
 
@@ -150,6 +154,13 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
                 broadcast(.sessionError(SessionErrorMessage(sessionId: sessionId, code: .providerApi, userMessage: userMessage, retryable: false)))
                 broadcast(.messageComplete(MessageCompleteMessage(sessionId: sessionId)))
                 activeTasks.removeValue(forKey: sessionId)
+                // Roll back the user message — no assistant reply was produced
+                if var history = pendingMessages[sessionId],
+                   !history.isEmpty,
+                   history.last?["role"] as? String == "user" {
+                    history.removeLast()
+                    pendingMessages[sessionId] = history.isEmpty ? nil : history
+                }
                 return
             }
 
@@ -186,6 +197,18 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
                     userMessage: error.localizedDescription,
                     retryable: true
                 )))
+            }
+        }
+
+        // Roll back the user message if no assistant text was produced (error or cancellation),
+        // to preserve the alternating user/assistant invariant required by the Anthropic API.
+        // Guard on role == "user" to avoid a double-rollback if handleCancel already removed it.
+        if assistantText.isEmpty {
+            if var history = pendingMessages[sessionId],
+               !history.isEmpty,
+               history.last?["role"] as? String == "user" {
+                history.removeLast()
+                pendingMessages[sessionId] = history.isEmpty ? nil : history
             }
         }
 
