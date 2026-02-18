@@ -43,6 +43,13 @@ struct InlineVideoEmbedCard: View {
         .frame(maxWidth: .infinity)
         .frame(height: isExpanded ? 315 : 180)
         .animation(.easeInOut(duration: 0.25), value: isExpanded)
+        .onDisappear {
+            // Tear down active/loading webviews when scrolled offscreen
+            // to prevent memory leaks and background audio playback.
+            if stateManager.state == .playing || stateManager.state == .initializing {
+                stateManager.reset()
+            }
+        }
     }
 
     // MARK: - State-driven content
