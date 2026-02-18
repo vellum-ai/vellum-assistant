@@ -1443,7 +1443,7 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 | `gmail` | Gmail search, archive, send, etc. | Email management via OAuth2 integration |
 | `claude-code` | Claude Code tool | Delegate coding tasks to Claude Code subprocess |
 | `weather` | `get-weather` | Fetch current weather data |
-| `app-builder` | (instruction-only) | Dynamic app authoring guidance |
+| `app-builder` | `app_create`, `app_list`, `app_query`, `app_update`, `app_delete`, `app_file_list`, `app_file_read`, `app_file_edit`, `app_file_write` | Dynamic app authoring — CRUD and file-level editing for persistent apps (activated via `skill_load app-builder`; `app_open` remains a core proxy tool) |
 | `self-upgrade` | (instruction-only) | Self-improvement workflow |
 | `start-the-day` | (instruction-only) | Morning briefing routine |
 
