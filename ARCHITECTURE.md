@@ -1311,7 +1311,7 @@ graph TB
     end
 
     subgraph "Text Q&A Session"
-        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>headless-browser, ui_show, ...<br/>+ dynamically projected skill tools"]
+        TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill)"]
         ESCALATE["request_computer_control<br/>(proxy tool)"]
     end
 
@@ -1336,7 +1336,7 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 |----------|--------|------|-------------|
 | **BEST** | Sandboxed filesystem/shell | `file_*`, `bash` | Work that can stay isolated in sandbox filesystem |
 | **BETTER** | Explicit host filesystem/shell | `host_file_*`, `host_bash` | Host reads/writes/commands that must touch the real machine |
-| **GOOD** | Headless browser | `headless-browser` | Web automation, form filling, scraping (background) |
+| **GOOD** | Headless browser | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background) |
 | **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
 
 The `request_computer_control` tool is a proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use.
@@ -1384,6 +1384,7 @@ graph TB
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools, `request_computer_control`, and `cu_*` actions default to `ask` unless a trust rule allowlists/denylists them.
+- Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 
 ---
@@ -1516,7 +1517,7 @@ graph LR
 
 ## Dynamic Skill Tool System — Runtime Tool Projection
 
-Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools.
+Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKILL.md`. When a skill is activated during a session, its tools are dynamically loaded, registered, and made available to the agent loop. Browser, Gmail, Claude Code, Weather, and other capabilities are delivered as **bundled skills** rather than hardcoded tools. Browser tools (previously the core `headless-browser` tool) are now provided by the bundled `browser` skill with system default allow rules that preserve frictionless auto-approval.
 
 ### Skill Directory Structure
 
@@ -1536,6 +1537,7 @@ The following capabilities ship as bundled skills in `assistant/src/config/bundl
 
 | Skill ID | Tools | Purpose |
 |----------|-------|---------|
+| `browser` | `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_close`, `browser_click`, `browser_type`, `browser_press_key`, `browser_wait_for`, `browser_extract`, `browser_fill_credential` | Headless browser automation — web scraping, form filling, interaction (previously core-registered as `headless-browser`; now skill-provided with default allow rules) |
 | `gmail` | Gmail search, archive, send, etc. | Email management via OAuth2 integration |
 | `claude-code` | Claude Code tool | Delegate coding tasks to Claude Code subprocess |
 | `weather` | `get-weather` | Fetch current weather data |
@@ -1622,7 +1624,7 @@ graph TB
 | File | Role |
 |------|------|
 | `assistant/src/config/skills.ts` | Skill catalog loading: bundled, managed, workspace, extra directories |
-| `assistant/src/config/bundled-skills/` | Bundled skill directories (gmail, claude-code, weather, etc.) |
+| `assistant/src/config/bundled-skills/` | Bundled skill directories (browser, gmail, claude-code, weather, etc.) |
 | `assistant/src/skills/tool-manifest.ts` | `TOOLS.json` parser and validator |
 | `assistant/src/skills/active-skill-tools.ts` | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers |
 | `assistant/src/skills/include-graph.ts` | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
@@ -1675,6 +1677,8 @@ The `permissions.mode` config option (`legacy` or `strict`) controls the default
 | Medium-risk tools with no matching rule | Prompted | Prompted |
 | High-risk tools with no matching rule | Prompted | Prompted |
 | `skill_load` with no matching rule | Auto-allowed (low risk) | Prompted (explicit rule required) |
+| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
 | Skill-origin tools with no matching rule | Prompted | Prompted |
 | Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed |
 | Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
@@ -1752,7 +1756,7 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns.
+In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
@@ -1768,6 +1772,26 @@ The starter bundle is an opt-in set of low-risk allow rules that reduces prompt 
 | `web_fetch` | `web_fetch` | `web_fetch:**` |
 
 Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trust.json`. Rules are seeded at priority 90 (below user rules at 100, above system defaults at 50).
+
+### System Default Allow Rules
+
+In addition to the opt-in starter bundle, the permission system seeds unconditional default allow rules at priority 100 for two categories:
+
+| Rule ID | Tool | Pattern | Rationale |
+|---|---|---|---|
+| `default:allow-skill_load-global` | `skill_load` | `skill_load:*` | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills |
+| `default:allow-browser_navigate-global` | `browser_navigate` | `browser_navigate:*` | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
+| `default:allow-browser_snapshot-global` | `browser_snapshot` | `browser_snapshot:*` | (same) |
+| `default:allow-browser_screenshot-global` | `browser_screenshot` | `browser_screenshot:*` | (same) |
+| `default:allow-browser_close-global` | `browser_close` | `browser_close:*` | (same) |
+| `default:allow-browser_click-global` | `browser_click` | `browser_click:*` | (same) |
+| `default:allow-browser_type-global` | `browser_type` | `browser_type:*` | (same) |
+| `default:allow-browser_press_key-global` | `browser_press_key` | `browser_press_key:*` | (same) |
+| `default:allow-browser_wait_for-global` | `browser_wait_for` | `browser_wait_for:*` | (same) |
+| `default:allow-browser_extract-global` | `browser_extract` | `browser_extract:*` | (same) |
+| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same) |
+
+These rules are emitted by `buildDefaultRules()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Prompt UX
 
@@ -2237,7 +2261,7 @@ graph TB
 
 ```mermaid
 graph TB
-    TOOL["Tool (e.g. headless-browser)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
+    TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
     BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
     POLICY -->|denied| REJECT["PolicyDenied error"]
     POLICY -->|allowed| FETCH["getSecureKey(credential:svc:field)"]
