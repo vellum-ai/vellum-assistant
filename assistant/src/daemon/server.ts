@@ -700,6 +700,10 @@ export class DaemonServer {
     // appears in session_list on subsequent launches.
     const conversation = conversationStore.getLatestConversation();
     if (!conversation) {
+      this.send(socket, {
+        type: 'daemon_status',
+        httpPort: this.httpPort,
+      });
       return;
     }
 
