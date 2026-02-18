@@ -205,7 +205,16 @@ export async function handleChannelInbound(
       });
 
       const contentToCheck = content ?? '';
-      const ingressCheck = checkIngressForSecrets(contentToCheck);
+      let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
+      try {
+        ingressCheck = checkIngressForSecrets(contentToCheck);
+      } catch (checkErr) {
+        // If the secret check itself throws (e.g. ConfigError from corrupt
+        // config), clear the stored payload so secret-bearing content is
+        // never left on disk.
+        channelDeliveryStore.clearPayload(result.eventId);
+        throw checkErr;
+      }
       if (ingressCheck.blocked) {
         channelDeliveryStore.clearPayload(result.eventId);
         throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
