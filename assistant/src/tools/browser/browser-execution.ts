@@ -596,7 +596,7 @@ export async function executeBrowserScroll(
     return { content: 'Error: direction is required and must be one of: up, down, left, right.', isError: true };
   }
 
-  const amount = typeof input.amount === 'number' ? input.amount : 500;
+  const amount = typeof input.amount === 'number' ? Math.abs(input.amount) : 500;
 
   const sender = getSender(context.sessionId);
   if (sender) {
