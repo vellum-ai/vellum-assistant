@@ -73,6 +73,7 @@ export interface SessionCreateRequest {
   maxResponseTokens?: number;
   correlationId?: string;
   transport?: SessionTransportMetadata;
+  threadType?: 'standard' | 'private';
 }
 
 export interface SessionSwitchRequest {
@@ -855,11 +856,12 @@ export interface SessionInfo {
   sessionId: string;
   title: string;
   correlationId?: string;
+  threadType?: string;
 }
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: string }>;
 }
 
 export interface SessionsClearResponse {
