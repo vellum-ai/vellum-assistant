@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
@@ -623,8 +624,54 @@ async function hatchGcp(
   }
 }
 
+async function hatchLocal(species: Species, name: string | null): Promise<void> {
+  const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+
+  console.log(`🥚 Hatching local assistant: ${instanceName}`);
+  console.log(`   Species: ${species}`);
+  console.log("");
+
+  console.log("🔨 Starting local daemon...");
+  const child = spawn("bunx", ["vellum", "daemon", "start"], {
+    stdio: "inherit",
+    env: { ...process.env },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Daemon start exited with code ${code}`));
+      }
+    });
+    child.on("error", reject);
+  });
+
+  const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
+  saveAssistantEntry({
+    assistantId: instanceName,
+    runtimeUrl,
+    species,
+    hatchedAt: new Date().toISOString(),
+  });
+
+  console.log("");
+  console.log(`✅ Local assistant hatched!`);
+  console.log("");
+  console.log("Instance details:");
+  console.log(`  Name: ${instanceName}`);
+  console.log(`  Runtime: ${runtimeUrl}`);
+  console.log("");
+}
+
 export async function hatch(): Promise<void> {
   const { species, detached, name, remote } = parseArgs();
+
+  if (remote === "local") {
+    await hatchLocal(species, name);
+    return;
+  }
 
   if (remote === "gcp") {
     await hatchGcp(species, detached, name);

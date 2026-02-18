@@ -87,12 +87,12 @@ main() {
     ensure_git
     ensure_bun
 
-    info "Running velly hatch..."
+    info "Running vellum hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; bunx velly hatch"
+        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; bunx vellum hatch"
     else
-        bunx velly hatch
+        bunx vellum hatch
     fi
 }
 
