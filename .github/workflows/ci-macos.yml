@@ -11,6 +11,8 @@ jobs:
     name: macOS Build
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -99,7 +101,22 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vellum-assistant.dmg
+          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
           path: clients/macos/build/vellum-assistant.dmg
           if-no-files-found: error
           retention-days: 7
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Comment artifact link on PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [View artifacts]($ARTIFACT_URL)"
