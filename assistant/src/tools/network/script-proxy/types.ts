@@ -24,7 +24,7 @@ export interface ProxyEnvVars {
   HTTP_PROXY: string;
   HTTPS_PROXY: string;
   NO_PROXY: string;
-  SSL_CERT_FILE?: string;
+  NODE_EXTRA_CA_CERTS?: string;
 }
 
 // ---------------------------------------------------------------------------

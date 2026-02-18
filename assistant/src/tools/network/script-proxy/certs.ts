@@ -1,9 +1,13 @@
 import { mkdir, stat, readFile, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
+import { X509Certificate } from 'node:crypto';
 
 const CA_CERT_FILENAME = 'ca.pem';
 const CA_KEY_FILENAME = 'ca-key.pem';
 const ISSUED_DIR = 'issued';
+
+// Only allow valid hostname characters: alphanumeric, hyphens, dots, and wildcards
+const HOSTNAME_RE = /^[a-zA-Z0-9.*-]+$/;
 
 /**
  * Ensure a self-signed CA cert+key exists in `{dataDir}/proxy-ca/`.
@@ -66,22 +70,37 @@ export async function issueLeafCert(
   caDir: string,
   hostname: string,
 ): Promise<{ cert: string; key: string }> {
+  if (!HOSTNAME_RE.test(hostname)) {
+    throw new Error(`Invalid hostname: ${hostname}`);
+  }
+
   const issuedDir = join(caDir, ISSUED_DIR);
   const leafCertPath = join(issuedDir, `${hostname}.pem`);
   const leafKeyPath = join(issuedDir, `${hostname}-key.pem`);
 
-  // Return cached cert if it exists
+  // Return cached cert if it exists and is signed by the current CA
   const [certExists, keyExists] = await Promise.all([
     stat(leafCertPath).then(() => true, () => false),
     stat(leafKeyPath).then(() => true, () => false),
   ]);
 
   if (certExists && keyExists) {
-    const [cert, key] = await Promise.all([
+    const [cert, key, caCert] = await Promise.all([
       readFile(leafCertPath, 'utf-8'),
       readFile(leafKeyPath, 'utf-8'),
+      readFile(join(caDir, CA_CERT_FILENAME), 'utf-8'),
     ]);
-    return { cert, key };
+
+    // Verify cached cert was signed by the current CA, not a previous one
+    try {
+      const leaf = new X509Certificate(cert);
+      const ca = new X509Certificate(caCert);
+      if (leaf.checkIssued(ca)) {
+        return { cert, key };
+      }
+    } catch {
+      // Cert parsing failed — fall through to re-issue
+    }
   }
 
   await mkdir(issuedDir, { recursive: true });
@@ -142,7 +161,7 @@ export async function issueLeafCert(
 }
 
 /**
- * Return the path to the local CA cert for use as SSL_CERT_FILE or NODE_EXTRA_CA_CERTS.
+ * Return the path to the local CA cert for use as NODE_EXTRA_CA_CERTS.
  */
 export function getCAPath(dataDir: string): string {
   return join(dataDir, 'proxy-ca', CA_CERT_FILENAME);

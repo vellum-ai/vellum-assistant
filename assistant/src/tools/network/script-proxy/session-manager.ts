@@ -159,7 +159,7 @@ export function getSessionEnv(sessionId: ProxySessionId): ProxyEnvVars {
   };
 
   if (managed.dataDir) {
-    env.SSL_CERT_FILE = getCAPath(managed.dataDir);
+    env.NODE_EXTRA_CA_CERTS = getCAPath(managed.dataDir);
   }
 
   return env;
