@@ -267,8 +267,8 @@ describe('MITM rewriteCallback credential injection', () => {
   // handshakes, which is tested separately. Here we verify the core
   // injection logic that the rewriteCallback implements.
 
-  test('injects header for matched host in rewrite callback pattern', () => {
-    const { minimatch } = require('minimatch');
+  test('injects header for matched host in rewrite callback pattern', async () => {
+    const { minimatch } = await import('minimatch');
 
     const tpl = makeTemplate('*.fal.ai', 'authorization', 'Key ');
     const resolved = makeResolved('cred-fal', [tpl]);
@@ -307,8 +307,8 @@ describe('MITM rewriteCallback credential injection', () => {
     expect(headers['content-type']).toBe('application/json');
   });
 
-  test('no injection when hostname does not match any template', () => {
-    const { minimatch } = require('minimatch');
+  test('no injection when hostname does not match any template', async () => {
+    const { minimatch } = await import('minimatch');
 
     const tpl = makeTemplate('*.fal.ai', 'authorization', 'Key ');
     resolveByIdResults.set('cred-fal', makeResolved('cred-fal', [tpl]));
