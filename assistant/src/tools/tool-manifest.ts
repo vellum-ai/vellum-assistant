@@ -17,6 +17,7 @@ import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
+import { contactUpsertTool, contactSearchTool, contactMergeTool } from './contacts/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -83,6 +84,9 @@ export const explicitTools: Tool[] = [
   documentCreateTool,
   documentUpdateTool,
   cliDiscoverTool,
+  contactUpsertTool,
+  contactSearchTool,
+  contactMergeTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
