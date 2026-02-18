@@ -98,6 +98,9 @@ struct InlineVideoWebView: NSViewRepresentable {
         return false
     }
 
+    /// URL schemes that are safe to open externally from untrusted embed content.
+    private static let safeExternalSchemes: Set<String> = ["http", "https", "mailto"]
+
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let provider: String
         var onLoadSuccess: (() -> Void)?
@@ -140,18 +143,12 @@ struct InlineVideoWebView: NSViewRepresentable {
                    InlineVideoWebView.isAllowedHost(host, forProvider: provider) {
                     decisionHandler(.allow)
                 } else {
-                    // Subresource from an unknown domain — block it and open externally
-                    // so the user can still reach it if they need to.
-                    if let url = navigationAction.request.url {
-                        NSWorkspace.shared.open(url)
-                    }
+                    Self.openExternallyIfSafe(navigationAction.request.url)
                     decisionHandler(.cancel)
                 }
             default:
                 // User-initiated navigation — open in the default browser instead
-                if let url = navigationAction.request.url {
-                    NSWorkspace.shared.open(url)
-                }
+                Self.openExternallyIfSafe(navigationAction.request.url)
                 decisionHandler(.cancel)
             }
         }
@@ -174,14 +171,26 @@ struct InlineVideoWebView: NSViewRepresentable {
 
         // MARK: - WKUIDelegate
 
-        /// Block all popup windows by returning nil.
+        /// Block popup windows and open their URL in the default browser instead.
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            nil
+            Self.openExternallyIfSafe(navigationAction.request.url)
+            return nil
+        }
+
+        /// Open a URL in the default browser only if its scheme is safe.
+        /// Blocks arbitrary URL scheme handlers (e.g. zoommtg://, itms-apps://)
+        /// that untrusted embed content could try to trigger.
+        private static func openExternallyIfSafe(_ url: URL?) {
+            guard let url, let scheme = url.scheme?.lowercased(),
+                  InlineVideoWebView.safeExternalSchemes.contains(scheme) else {
+                return
+            }
+            NSWorkspace.shared.open(url)
         }
     }
 }
