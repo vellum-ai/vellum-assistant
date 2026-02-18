@@ -129,25 +129,75 @@ cmd_init() {
   local project_id
   project_id=$(gh project view "$project_number" --owner "vellum-ai" --format json | jq -r '.id')
 
-  echo "==> Adding Status field..."
+  echo "==> Fetching existing Status field..."
   local field_result
-  field_result=$(gh api graphql -f query='mutation {
-    addProjectV2SingleSelectField(input: {
-      projectId: "'"$project_id"'"
-      name: "Status"
-      options: [{name:"Triage",color:GRAY},{name:"Ready",color:BLUE},{name:"In Progress",color:YELLOW},{name:"In Review",color:ORANGE},{name:"Done",color:GREEN}]
-    }) { projectV2SingleSelectField { id options { id name } } }
+  field_result=$(gh api graphql -f query='{
+    node(id: "'"$project_id"'") {
+      ... on ProjectV2 {
+        fields(first: 20) {
+          nodes {
+            ... on ProjectV2SingleSelectField {
+              id
+              name
+              options { id name }
+            }
+          }
+        }
+      }
+    }
   }')
 
+  local status_field
+  status_field=$(echo "$field_result" | jq '.data.node.fields.nodes[] | select(.name == "Status")')
+
   local field_id
-  field_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.id')
+  field_id=$(echo "$status_field" | jq -r '.id')
+
+  # Map existing option names; create missing ones by name matching (case-insensitive)
+  get_option_id() {
+    local name="$1"
+    echo "$status_field" | jq -r --arg n "$name" '.options[] | select(.name | ascii_downcase == ($n | ascii_downcase)) | .id'
+  }
 
   local triage_id ready_id in_progress_id in_review_id done_id
-  triage_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Triage") | .id')
-  ready_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Ready") | .id')
-  in_progress_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "In Progress") | .id')
-  in_review_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "In Review") | .id')
-  done_id=$(echo "$field_result" | jq -r '.data.addProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == "Done") | .id')
+  triage_id=$(get_option_id "Triage")
+  ready_id=$(get_option_id "Ready")
+  in_progress_id=$(get_option_id "In Progress")
+  in_review_id=$(get_option_id "In Review")
+  done_id=$(get_option_id "Done")
+
+  # If any options are missing, add them via updateProjectV2SingleSelectField
+  add_option_if_missing() {
+    local label="$1"
+    local id_var="$2"
+    if [ -z "${!id_var}" ]; then
+      echo "==> Adding missing status option: $label"
+      local new_opts existing_opts
+      existing_opts=$(echo "$status_field" | jq '[.options[] | {name: .name, color: "GRAY"}]')
+      new_opts=$(echo "$existing_opts" | jq --arg l "$label" '. + [{name: $l, color: "GRAY"}]')
+      local opts_arg
+      opts_arg=$(echo "$new_opts" | jq -c '.')
+      local update_result
+      update_result=$(gh api graphql -f query='mutation($opts: [ProjectV2SingleSelectFieldOptionInput!]!) {
+        updateProjectV2SingleSelectField(input: {
+          projectId: "'"$project_id"'"
+          fieldId: "'"$field_id"'"
+          options: $opts
+        }) { projectV2SingleSelectField { options { id name } } }
+      }' -F opts="$opts_arg" 2>/dev/null || echo "{}")
+      local new_id
+      new_id=$(echo "$update_result" | jq -r --arg l "$label" '.data.updateProjectV2SingleSelectField.projectV2SingleSelectField.options[] | select(.name == $l) | .id' 2>/dev/null || echo "")
+      eval "$id_var=\"$new_id\""
+      # Refresh status_field options
+      status_field=$(echo "$status_field" | jq --arg id "$new_id" --arg l "$label" '.options += [{id: $id, name: $l}]')
+    fi
+  }
+
+  add_option_if_missing "Triage" triage_id
+  add_option_if_missing "Ready" ready_id
+  add_option_if_missing "In Progress" in_progress_id
+  add_option_if_missing "In Review" in_review_id
+  add_option_if_missing "Done" done_id
 
   echo "==> Writing config to $CONFIG_FILE"
   cat > "$CONFIG_FILE" <<ENVEOF

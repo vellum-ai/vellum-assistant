@@ -14,6 +14,9 @@ public class APIKeyManager {
     private init() {}
 
     public func getAPIKey(provider: String = "anthropic") -> String? {
+        #if targetEnvironment(simulator)
+        return UserDefaults.standard.string(forKey: udKey(provider))
+        #else
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -31,9 +34,14 @@ public class APIKeyManager {
         }
 
         return key
+        #endif
     }
 
     public func setAPIKey(_ key: String, provider: String = "anthropic") -> Bool {
+        #if targetEnvironment(simulator)
+        UserDefaults.standard.set(key, forKey: udKey(provider))
+        return true
+        #else
         guard let data = key.data(using: .utf8) else { return false }
 
         // Delete existing key (ignore status since key may not exist)
@@ -54,5 +62,10 @@ public class APIKeyManager {
         ]
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         return status == errSecSuccess
+        #endif
+    }
+
+    private func udKey(_ provider: String) -> String {
+        "apikey_\(service)_\(provider)"
     }
 }

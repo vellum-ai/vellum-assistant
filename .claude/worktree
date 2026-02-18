@@ -45,6 +45,11 @@ create() {
   export PATH="$HOME/.bun/bin:$PATH"
   cd "$dir/assistant" && bun install
 
+  # Copy local settings so agents spawned in this worktree have tool permissions
+  if [ -f "$REPO_ROOT/.claude/settings.local.json" ]; then
+    cp "$REPO_ROOT/.claude/settings.local.json" "$dir/.claude/settings.local.json"
+  fi
+
   echo ""
   echo "Ready! To start working:"
   echo "  cd $dir && claude"
