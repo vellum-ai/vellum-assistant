@@ -315,6 +315,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
     public let toolName: String
     public let inputSummary: String
+    /// Full (untruncated) input text for display in expanded views.
+    public let inputFull: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
@@ -348,10 +350,11 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.buildingStatus == rhs.buildingStatus
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
+        self.inputFull = inputFull ?? inputSummary
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
