@@ -188,8 +188,13 @@ export function getSkillRefCount(skillId: string): number {
 export function getAllToolDefinitions(): ToolDefinition[] {
   // Exclude proxy tools (e.g. computer_use_* tools) — they are only used
   // by ComputerUseSession which builds its own tool definitions list.
+  // Exclude skill-origin tools — they are managed by the session-level
+  // skill projection system (projectSkillTools) and must not leak into
+  // the base tool list, which is shared across sessions via the global
+  // registry.  Including them here causes "Tool names must be unique"
+  // errors when the projection appends the same tools a second time.
   return getAllTools()
-    .filter((t) => t.executionMode !== 'proxy')
+    .filter((t) => t.executionMode !== 'proxy' && t.origin !== 'skill')
     .map((t) => t.getDefinition());
 }
 
