@@ -44,6 +44,6 @@ enum ImageURLClassifier {
             return .image
         }
 
-        return .notImage
+        return .unknown
     }
 }
