@@ -57,6 +57,7 @@ struct SurfaceContainerView: View {
                     let actionId = surface.actions.first?.id ?? "submit"
                     viewModel.onAction(actionId, values)
                 })
+                .id(surface.id)
             case .list(let data):
                 ListSurfaceView(data: data, onSelect: { selectedIds in
                     viewModel.onAction("select", ["selectedIds": selectedIds])
