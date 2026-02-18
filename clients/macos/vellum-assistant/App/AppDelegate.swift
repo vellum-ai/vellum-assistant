@@ -140,11 +140,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         if !skipOnboarding && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            // If the user already has an API key, model, and provider configured,
+            // If the user already has an API key and model configured,
             // skip onboarding entirely — they're a returning user whose
             // hasCompletedOnboarding flag was cleared (e.g. by /scrub).
+            // Provider is not checked because the daemon defaults to 'anthropic'.
             let config = WorkspaceConfigIO.read()
-            if APIKeyManager.hasAnyKey(), config["model"] != nil, config["provider"] != nil {
+            if APIKeyManager.hasAnyKey(), config["model"] != nil {
                 UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
             } else {
                 showOnboarding()
