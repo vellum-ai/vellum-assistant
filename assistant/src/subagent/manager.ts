@@ -69,6 +69,12 @@ export class SubagentManager {
    */
   onSubagentFinished?: ParentNotifyCallback;
 
+  /**
+   * Shared rate-limit timestamps array from the daemon server.
+   * Set by DaemonServer at startup so subagents share the global rate limit.
+   */
+  sharedRequestTimestamps: number[] = [];
+
   // ── Spawn ───────────────────────────────────────────────────────────
 
   /**
@@ -78,7 +84,6 @@ export class SubagentManager {
   async spawn(
     config: Omit<SubagentConfig, 'id'>,
     parentSendToClient: (msg: ServerMessage) => void,
-    sharedRequestTimestamps: number[],
   ): Promise<string> {
     // ── Limit checks ────────────────────────────────────────────────
 
@@ -104,7 +109,7 @@ export class SubagentManager {
     let provider = getFailoverProvider(appConfig.provider, appConfig.providerOrder);
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
-      provider = new RateLimitProvider(provider, rateLimit, sharedRequestTimestamps);
+      provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
     }
 
     const systemPrompt = config.systemPromptOverride ?? buildSubagentSystemPrompt({ ...config, id: subagentId });
@@ -208,15 +213,18 @@ export class SubagentManager {
       await managed.session.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
-      const summary = this.extractSummary(managed);
-      managed.state.summary = summary;
-      managed.state.completedAt = Date.now();
-      this.setStatus(subagentId, 'completed', parentSendToClient, summary);
+      // Only update state + notify if still non-terminal (guards against abort race).
+      if (!TERMINAL_STATUSES.has(managed.state.status)) {
+        const summary = this.extractSummary(managed);
+        managed.state.summary = summary;
+        managed.state.completedAt = Date.now();
+        this.setStatus(subagentId, 'completed', parentSendToClient, summary);
 
-      log.info({ subagentId, summary: summary.slice(0, 200) }, 'Subagent completed');
+        log.info({ subagentId, summary: summary.slice(0, 200) }, 'Subagent completed');
 
-      // Notify the parent session so the LLM can inform the user.
-      this.notifyParent(managed, 'completed', parentSendToClient);
+        // Notify the parent session so the LLM can inform the user.
+        this.notifyParent(managed, 'completed', parentSendToClient);
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;

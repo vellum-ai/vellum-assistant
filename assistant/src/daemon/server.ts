@@ -103,6 +103,8 @@ export class DaemonServer {
   constructor() {
     this.socketPath = getSocketPath();
     this.evictor = new SessionEvictor(this.sessions);
+    // Share the global rate-limit timestamps with the subagent manager.
+    getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     // Abort subagents when their parent session is evicted.
     this.evictor.onEvict = (sessionId: string) => {
       getSubagentManager().abortAllForParent(sessionId);

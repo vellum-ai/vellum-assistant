@@ -237,3 +237,51 @@ describe('SubagentManager abortAllForParent', () => {
     expect(count).toBe(0);
   });
 });
+
+describe('SubagentManager sharedRequestTimestamps', () => {
+  test('defaults to an empty array', () => {
+    const manager = new SubagentManager();
+    expect(manager.sharedRequestTimestamps).toEqual([]);
+  });
+
+  test('uses the assigned shared array (not a copy)', () => {
+    const manager = new SubagentManager();
+    const shared: number[] = [100, 200, 300];
+    manager.sharedRequestTimestamps = shared;
+
+    // Should be the same reference, so mutations are shared globally.
+    expect(manager.sharedRequestTimestamps).toBe(shared);
+    shared.push(400);
+    expect(manager.sharedRequestTimestamps).toHaveLength(4);
+  });
+});
+
+describe('SubagentManager abort race guard', () => {
+  test('completed subagent does not notify if already aborted', async () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId, { status: 'aborted' });
+    injectFakeSubagent(manager, subagentId, state);
+
+    // Patch session to simulate successful completion after abort.
+    const managed = (manager as any).subagents.get(subagentId);
+    managed.session.loadFromDb = async () => {};
+    managed.session.persistUserMessage = () => 'msg-1';
+    managed.session.runAgentLoop = async () => {};
+    managed.session.messages = [
+      { role: 'assistant', content: [{ type: 'text', text: 'Done!' }] },
+    ];
+
+    const notifications: { parentSessionId: string; message: string }[] = [];
+    manager.onSubagentFinished = (parentSessionId, message) => {
+      notifications.push({ parentSessionId, message });
+    };
+
+    await (manager as any).runSubagent(subagentId, 'Do something', () => {});
+
+    // Should NOT notify — status was already terminal (aborted) when loop finished.
+    expect(notifications).toHaveLength(0);
+    // Status should remain aborted, not overwritten to completed.
+    expect(state.status).toBe('aborted');
+  });
+});

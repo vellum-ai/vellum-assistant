@@ -66,7 +66,6 @@ export const subagentSpawnTool: Tool = {
           context: extraContext,
         },
         sendToClient as (msg: unknown) => void,
-        [],
       );
 
       return {
