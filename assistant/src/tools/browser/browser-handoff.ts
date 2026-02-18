@@ -19,6 +19,12 @@ export async function startHandoff(
   sendToClient: (msg: ServerMessage) => void,
   options: HandoffOptions,
 ): Promise<void> {
+  // In headless mode there's no visible browser for the user to interact with
+  if (browserManager.browserMode === 'headless') {
+    log.info({ sessionId, reason: options.reason }, 'Skipping handoff in headless mode — no visible browser');
+    return;
+  }
+
   log.info({ sessionId, reason: options.reason }, 'Starting handoff to user');
 
   const surfaceId = getScreencastSurfaceId(sessionId);

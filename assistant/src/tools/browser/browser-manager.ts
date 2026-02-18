@@ -238,6 +238,12 @@ class BrowserManager {
           this.context = null;
           this.contextCloseHandler = null;
           this.cdpBrowser = null;
+          // Resolve any pending handoffs before clearing state
+          for (const resolver of this.handoffResolvers.values()) {
+            resolver();
+          }
+          this.handoffResolvers.clear();
+          this.interactiveModeSessions.clear();
           this.pages.clear();
           this.rawPages.clear();
           this.cdpSessions.clear();
@@ -274,6 +280,13 @@ class BrowserManager {
 
   async closeSessionPage(sessionId: string): Promise<void> {
     await this.stopScreencast(sessionId);
+    // Clean up any pending handoff for this session
+    this.interactiveModeSessions.delete(sessionId);
+    const handoffResolver = this.handoffResolvers.get(sessionId);
+    if (handoffResolver) {
+      handoffResolver();
+      this.handoffResolvers.delete(sessionId);
+    }
     const page = this.pages.get(sessionId);
     if (page && !page.isClosed()) {
       await page.close();
@@ -413,17 +426,30 @@ class BrowserManager {
   async waitForHandoffComplete(sessionId: string, timeoutMs: number = 300_000): Promise<void> {
     if (!this.interactiveModeSessions.has(sessionId)) return;
 
+    // Cancel any existing pending handoff for this session
+    const existing = this.handoffResolvers.get(sessionId);
+    if (existing) {
+      existing();
+    }
+
     return new Promise<void>((resolve) => {
+      const resolver = () => {
+        clearTimeout(timer);
+        if (this.handoffResolvers.get(sessionId) === resolver) {
+          this.handoffResolvers.delete(sessionId);
+        }
+        resolve();
+      };
+
       const timer = setTimeout(() => {
-        this.handoffResolvers.delete(sessionId);
+        if (this.handoffResolvers.get(sessionId) === resolver) {
+          this.handoffResolvers.delete(sessionId);
+        }
         this.interactiveModeSessions.delete(sessionId);
         resolve();
       }, timeoutMs);
 
-      this.handoffResolvers.set(sessionId, () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      this.handoffResolvers.set(sessionId, resolver);
     });
   }
 
