@@ -739,9 +739,10 @@ export class DaemonServer {
   private send(socket: net.Socket, msg: ServerMessage): void {
     this.writeToSocket(socket, msg);
     // Best-effort sessionId: prefer message field, fall back to socket binding.
+    const msgRecord = msg as unknown as Record<string, unknown>;
     const sessionId =
-      ('sessionId' in msg && typeof (msg as Record<string, unknown>).sessionId === 'string'
-        ? (msg as Record<string, unknown>).sessionId as string
+      ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
+        ? msgRecord.sessionId as string
         : undefined) ?? this.socketToSession.get(socket);
     this.publishAssistantEvent(msg, sessionId);
   }
