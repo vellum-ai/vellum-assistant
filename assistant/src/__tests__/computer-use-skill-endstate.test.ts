@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, test, expect, beforeAll } from 'bun:test';
 import {
   initializeTools,
@@ -7,6 +8,8 @@ import {
   __resetRegistryForTesting,
 } from '../tools/registry.js';
 import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
+import { getBundledSkillsDir } from '../config/skills.js';
+import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import {
   COMPUTER_USE_TOOL_NAMES,
   COMPUTER_USE_TOOL_COUNT,
@@ -68,22 +71,16 @@ describe('computer-use skill end-state', () => {
 
   // ── Bundled Skill Catalog ────────────────────────────────────────
 
-  test('computer-use skill has exactly ' + COMPUTER_USE_TOOL_COUNT + ' tools in TOOLS.json', async () => {
-    const { loadSkillCatalog } = await import('../config/skills.js');
-    const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s) => s.id === 'computer-use');
-    expect(cuSkill).toBeDefined();
-    expect(cuSkill!.toolManifest).toBeDefined();
-    expect(cuSkill!.toolManifest!.toolCount).toBe(COMPUTER_USE_TOOL_COUNT);
+  test('computer-use skill has exactly ' + COMPUTER_USE_TOOL_COUNT + ' tools in TOOLS.json', () => {
+    const manifestPath = join(getBundledSkillsDir(), 'computer-use', 'TOOLS.json');
+    const manifest = parseToolManifestFile(manifestPath);
+    expect(manifest.tools).toHaveLength(COMPUTER_USE_TOOL_COUNT);
   });
 
-  test('bundled skill tool names match expected computer_use_* names', async () => {
-    const { loadSkillCatalog } = await import('../config/skills.js');
-    const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s) => s.id === 'computer-use');
-    expect(cuSkill).toBeDefined();
-    expect(cuSkill!.toolManifest).toBeDefined();
-    const toolNames = new Set(cuSkill!.toolManifest!.toolNames);
+  test('bundled skill tool names match expected computer_use_* names', () => {
+    const manifestPath = join(getBundledSkillsDir(), 'computer-use', 'TOOLS.json');
+    const manifest = parseToolManifestFile(manifestPath);
+    const toolNames = new Set(manifest.tools.map((t) => t.name));
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       expect(toolNames.has(name)).toBe(true);
     }
