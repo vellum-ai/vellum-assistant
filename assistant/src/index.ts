@@ -61,7 +61,6 @@ import { registerHooksCommand } from './hooks/cli.js';
 import { registerEmailCommand } from './cli/email.js';
 import { registerContactsCommand } from './cli/contacts.js';
 import { registerAutonomyCommand } from './cli/autonomy.js';
-import { registerHatchCommand } from './cli/hatch.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -998,9 +997,6 @@ registerContactsCommand(program);
 // --- Autonomy commands ---
 registerAutonomyCommand(program);
 
-// --- Hatch commands ---
-registerHatchCommand(program);
-
 // --- Completions command ---
 program
   .command('completions')
@@ -1017,11 +1013,10 @@ program
       hooks: ['list', 'enable', 'disable', 'install', 'remove'],
       contacts: ['list', 'get', 'merge'],
       autonomy: ['get', 'set'],
-      hatch: ['logs', 'retire'],
     };
     const topLevel = [
       'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
-      'hooks', 'contacts', 'autonomy', 'hatch', 'audit', 'doctor', 'completions', 'help',
+      'hooks', 'contacts', 'autonomy', 'audit', 'doctor', 'completions', 'help',
     ];
 
     switch (shell) {
@@ -1093,7 +1088,6 @@ _vellum() {
         'hooks:Manage hooks'
         'contacts:Manage the contact graph'
         'autonomy:View and configure autonomy tiers'
-        'hatch:Create and manage assistant instances on GCP'
         'audit:Show recent tool invocations'
         'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
@@ -1139,7 +1133,6 @@ function generateFishCompletion(
     hooks: 'Manage hooks',
     contacts: 'Manage the contact graph',
     autonomy: 'View and configure autonomy tiers',
-    hatch: 'Create and manage assistant instances on GCP',
     audit: 'Show recent tool invocations',
     doctor: 'Run diagnostic checks',
     completions: 'Generate shell completion script',
