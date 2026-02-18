@@ -144,12 +144,15 @@ mock.module('../tools/registry.js', () => ({
     mockRegisteredTools.delete(skillId);
   },
   getTool: (name: string): Tool | undefined => {
+    // Iterate in reverse to return the newest registration, matching
+    // production registry behavior (Map#set replaces prior entries).
+    let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) return tool;
+        if (tool.name === name) found = tool;
       }
     }
-    return undefined;
+    return found;
   },
   getSkillToolNames: () => {
     const names: string[] = [];
