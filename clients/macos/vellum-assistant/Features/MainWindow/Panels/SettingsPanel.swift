@@ -26,6 +26,8 @@ struct SettingsPanel: View {
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
     @State private var newAllowlistDomain = ""
+    @State private var sessionToken: String = ""
+    @State private var tokenCopied: Bool = false
 
     var body: some View {
         VSidePanel(title: "Settings", onClose: onClose) {
@@ -418,6 +420,49 @@ struct SettingsPanel: View {
                     .vCard(background: VColor.surfaceSubtle)
                 }
 
+                // iOS DEVICE section
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("IOS DEVICE")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("Session Token")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
+                        Text("Paste this into the Vellum iOS app to connect it to this Mac.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        HStack(spacing: VSpacing.sm) {
+                            if sessionToken.isEmpty {
+                                Text("Token not found")
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textMuted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                Text(String(sessionToken.prefix(16)) + "...")
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            Button(tokenCopied ? "Copied!" : "Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(sessionToken, forType: .string)
+                                tokenCopied = true
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    tokenCopied = false
+                                }
+                            }
+                            .disabled(sessionToken.isEmpty)
+                        }
+                    }
+                    .padding(VSpacing.lg)
+                    .vCard(background: VColor.surfaceSubtle)
+                }
+
                 // PERMISSIONS section
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("PERMISSIONS")
@@ -557,6 +602,8 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
+            let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
+            sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil

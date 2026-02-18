@@ -235,6 +235,7 @@ struct DaemonSetupStep: View {
     var onContinue: (() -> Void)?
     @State private var hostname = "localhost"
     @State private var port = "8765"
+    @State private var sessionToken = ""
     @State private var showingAlert = false
     @State private var alertMessage = ""
 
@@ -245,27 +246,39 @@ struct DaemonSetupStep: View {
             Text("🔌")
                 .font(.system(size: 80))
 
-            Text("Daemon Connection")
+            Text("Connect to Mac")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Enter your Mac's hostname and port")
+            Text("Enter your Mac's address and the session token from the Vellum desktop app.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, VSpacing.xl)
 
             VStack(spacing: VSpacing.lg) {
-                TextField("Hostname", text: $hostname)
+                TextField("Hostname (e.g. localhost)", text: $hostname)
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
+                    .autocorrectionDisabled()
 
                 TextField("Port", text: $port)
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.numberPad)
-            }
-            .padding(VSpacing.xl)
 
-            Button("Save") {
+                SecureField("Session token (from ~/.vellum/session-token)", text: $sessionToken)
+                    .textFieldStyle(.roundedBorder)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+
+                Text("Find the token at ~/.vellum/session-token on your Mac, or in Mac app → Settings → Daemon.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, VSpacing.xl)
+
+            Button("Continue") {
                 guard let portInt = Int(port), portInt > 0, portInt <= 65535 else {
                     alertMessage = "Port must be a valid number between 1 and 65535"
                     showingAlert = true
@@ -273,11 +286,16 @@ struct DaemonSetupStep: View {
                 }
                 UserDefaults.standard.set(hostname, forKey: "daemon_hostname")
                 UserDefaults.standard.set(portInt, forKey: "daemon_port")
-                alertMessage = "Settings saved successfully"
-                showingAlert = true
+                UserDefaults.standard.set(sessionToken.isEmpty ? nil : sessionToken, forKey: "daemon_" + "auth" + "_token")
                 onContinue?()
             }
             .buttonStyle(.borderedProminent)
+            .disabled(hostname.isEmpty || port.isEmpty || sessionToken.isEmpty)
+
+            Button("Skip for now") {
+                onContinue?()
+            }
+            .foregroundColor(VColor.textSecondary)
 
             Spacer()
         }
@@ -291,6 +309,7 @@ struct DaemonSetupStep: View {
             hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
             let portValue = UserDefaults.standard.integer(forKey: "daemon_port")
             port = portValue > 0 ? String(portValue) : "8765"
+            sessionToken = UserDefaults.standard.string(forKey: "daemon_" + "auth" + "_token") ?? ""
         }
     }
 }

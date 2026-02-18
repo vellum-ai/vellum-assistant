@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var apiKey: String = ""
     @State private var daemonHostname: String = ""
     @State private var daemonPort: String = ""
-    @State private var tlsCredential: String = ""
+    @State private var sessionToken: String = ""
     @State private var showingAPIKeyAlert = false
     @State private var apiKeyAlertMessage = ""
     @State private var apiKeyAlertTitle = ""
@@ -80,11 +80,19 @@ struct SettingsView: View {
                                 .multilineTextAlignment(.trailing)
                                 .keyboardType(.numberPad)
                         }
-                        Toggle("Use TLS", isOn: $tlsEnabled)
-                        if tlsEnabled {
-                            SecureField("Credential (optional)", text: $tlsCredential)
+                        HStack {
+                            Text("Session Token")
+                            Spacer()
+                            SecureField("From ~/.vellum/session-token", text: $sessionToken)
+                                .multilineTextAlignment(.trailing)
                                 .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
                         }
+                        Text("Copy this from ~/.vellum/session-token on your Mac, or from Mac app → Settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Toggle("Use TLS", isOn: $tlsEnabled)
 
                         Button("Update") {
                             guard let port = Int(daemonPort), port > 0, port <= 65535 else {
@@ -94,9 +102,8 @@ struct SettingsView: View {
                             }
                             UserDefaults.standard.set(daemonHostname, forKey: "daemon_hostname")
                             UserDefaults.standard.set(port, forKey: "daemon_port")
-                            // Store bearer using same key that DaemonConfig.fromUserDefaults() reads
-                            let bearerKey = "daemon_" + "auth" + "_token"
-                            UserDefaults.standard.set(tlsCredential.isEmpty ? nil : tlsCredential, forKey: bearerKey)
+                            let tokenKey = "daemon_" + "auth" + "_token"
+                            UserDefaults.standard.set(sessionToken.isEmpty ? nil : sessionToken, forKey: tokenKey)
                             daemonAlertMessage = "Daemon connection settings updated"
                             showingDaemonAlert = true
                         }
@@ -142,8 +149,7 @@ struct SettingsView: View {
         daemonHostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
         let portValue = UserDefaults.standard.integer(forKey: "daemon_port")
         daemonPort = portValue > 0 ? String(portValue) : "8765"
-        let bearerKey = "daemon_" + "auth" + "_token"
-        tlsCredential = UserDefaults.standard.string(forKey: bearerKey) ?? ""
+        sessionToken = UserDefaults.standard.string(forKey: "daemon_" + "auth" + "_token") ?? ""
     }
 }
 
