@@ -697,6 +697,42 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_channel_thread ON followups(channel, thread_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_followups_status_expected ON followups(status, expected_response_by)`);
 
+  // ── Tasks ─────────────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      template TEXT NOT NULL,
+      input_schema TEXT,
+      context_flags TEXT,
+      required_tools TEXT,
+      created_from_conversation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      conversation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      started_at INTEGER,
+      finished_at INTEGER,
+      error TEXT,
+      principal_id TEXT,
+      memory_scope_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`);
+
   migrateMemoryFtsBackfill(database);
 }
 

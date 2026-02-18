@@ -385,6 +385,36 @@ export const followups = sqliteTable('followups', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// ── Tasks ────────────────────────────────────────────────────────────
+
+export const tasks = sqliteTable('tasks', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  template: text('template').notNull(),
+  inputSchema: text('input_schema'),
+  contextFlags: text('context_flags'),
+  requiredTools: text('required_tools'),
+  createdFromConversationId: text('created_from_conversation_id'),
+  status: text('status').notNull().default('active'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const taskRuns = sqliteTable('task_runs', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id')
+    .notNull()
+    .references(() => tasks.id),
+  conversationId: text('conversation_id'),
+  status: text('status').notNull().default('pending'),
+  startedAt: integer('started_at'),
+  finishedAt: integer('finished_at'),
+  error: text('error'),
+  principalId: text('principal_id'),
+  memoryScopeId: text('memory_scope_id'),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const homeBaseAppLinks = sqliteTable('home_base_app_links', {
   id: text('id').primaryKey(),
   appId: text('app_id').notNull(),
