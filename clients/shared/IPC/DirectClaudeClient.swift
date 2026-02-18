@@ -61,6 +61,8 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         for task in activeTasks.values { task.cancel() }
         activeTasks.removeAll()
         pendingMessages.removeAll()
+        for continuation in continuations.values { continuation.finish() }
+        continuations.removeAll()
     }
 
     // MARK: - Private Message Handlers
