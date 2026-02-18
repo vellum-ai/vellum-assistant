@@ -312,6 +312,14 @@ export function getWorkspaceGitService(workspaceDir: string): WorkspaceGitServic
 }
 
 /**
+ * Returns all currently registered WorkspaceGitService instances.
+ * Used by the heartbeat service to check all tracked workspaces for uncommitted changes.
+ */
+export function getAllWorkspaceGitServices(): ReadonlyMap<string, WorkspaceGitService> {
+  return serviceRegistry;
+}
+
+/**
  * @internal Test-only: clear the service registry
  */
 export function _resetGitServiceRegistry(): void {

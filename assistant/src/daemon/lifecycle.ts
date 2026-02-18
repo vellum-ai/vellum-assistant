@@ -42,6 +42,7 @@ import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
+import { HeartbeatService } from '../workspace/heartbeat-service.js';
 
 const log = getLogger('lifecycle');
 
@@ -397,6 +398,14 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
+  // Start workspace heartbeat service. This periodically checks all
+  // tracked workspaces for uncommitted changes and auto-commits when
+  // thresholds are exceeded (age > 5 min OR > 20 files changed).
+  // Acts as a safety net for long-running operations or background
+  // processes that modify workspace files between turn-boundary commits.
+  const heartbeat = new HeartbeatService();
+  heartbeat.start();
+
   // Graceful shutdown
   let shuttingDown = false;
   const shutdown = async () => {
@@ -405,6 +414,7 @@ export async function runDaemon(): Promise<void> {
     log.info('Shutting down daemon...');
 
     hookManager.stopWatching();
+    heartbeat.stop();
 
     // Force exit if graceful shutdown takes too long.
     // Set this BEFORE triggering daemon-stop hooks so it covers hook execution time.
@@ -419,6 +429,14 @@ export async function runDaemon(): Promise<void> {
       await hookManager.trigger('daemon-stop', { pid: process.pid });
     } catch {
       // Don't let hook failures block shutdown
+    }
+
+    // Commit any uncommitted workspace changes before stopping the server.
+    // This ensures no workspace state is lost during graceful shutdown.
+    try {
+      await heartbeat.commitAllPending();
+    } catch (err) {
+      log.warn({ err }, 'Shutdown workspace commit failed');
     }
 
     await server.stop();
