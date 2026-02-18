@@ -62,6 +62,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads.filter { $0.isArchived }
     }
 
+    var activeThread: ThreadModel? {
+        guard let id = activeThreadId else { return nil }
+        return threads.first { $0.id == id }
+    }
+
     var activeViewModel: ChatViewModel? {
         guard let activeThreadId else { return nil}
         return chatViewModels[activeThreadId]

@@ -129,6 +129,19 @@ struct MainWindowView: View {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
     }
 
+    private func toggleTemporaryChat() {
+        if threadManager.activeThread?.kind == .private {
+            // Switch back to the most recent visible standard thread, or create one
+            if let recent = threadManager.visibleThreads.first {
+                threadManager.selectThread(id: recent.id)
+            } else {
+                threadManager.createThread()
+            }
+        } else {
+            threadManager.createPrivateThread()
+        }
+    }
+
     private func requestHomeBaseDashboardIfNeeded() {
         guard !isBootstrapOnboardingActive else { return }
         guard homeBaseDashboardDefaultEnabled else { return }
@@ -258,6 +271,16 @@ struct MainWindowView: View {
                                 .padding(.trailing, VSpacing.lg)
                                 .frame(height: 36)
                                 .transition(.opacity)
+                            }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if !isGeneratedWorkspaceOpen {
+                                TemporaryChatToggle(
+                                    isActive: threadManager.activeThread?.kind == .private,
+                                    onToggle: { toggleTemporaryChat() }
+                                )
+                                .padding(.trailing, VSpacing.lg)
+                                .frame(height: 36)
                             }
                         }
                 }
@@ -1066,7 +1089,8 @@ struct MainWindowView: View {
                 daemonClient: daemonClient,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
-                onMicrophoneToggle: onMicrophoneToggle
+                onMicrophoneToggle: onMicrophoneToggle,
+                isTemporaryChat: threadManager.activeThread?.kind == .private
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -1363,6 +1387,7 @@ private struct ActiveChatViewWrapper: View {
     let ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
+    var isTemporaryChat: Bool = false
 
     var body: some View {
         ChatView(
@@ -1442,7 +1467,8 @@ private struct ActiveChatViewWrapper: View {
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
-            )
+            ),
+            isTemporaryChat: isTemporaryChat
         )
     }
 }

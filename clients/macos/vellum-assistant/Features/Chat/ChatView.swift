@@ -91,6 +91,7 @@ struct ChatView: View {
     let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
+    var isTemporaryChat: Bool = false
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -140,7 +141,11 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 apiKeyBanner
                 if isEmptyState {
-                    emptyStateView
+                    if isTemporaryChat {
+                        temporaryChatEmptyStateView
+                    } else {
+                        emptyStateView
+                    }
                 } else {
                     ZStack(alignment: .bottom) {
                         messageList
@@ -260,6 +265,73 @@ struct ChatView: View {
             .offset(y: -40)
             .opacity(emptyStateVisible ? 1 : 0)
         )
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) {
+                emptyStateVisible = true
+            }
+        }
+        .onDisappear {
+            emptyStateVisible = false
+        }
+    }
+
+    private var temporaryChatEmptyStateView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Spacer()
+
+            Image(systemName: "circle.dashed")
+                .font(.system(size: 40, weight: .light))
+                .foregroundColor(VColor.accent)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .scaleEffect(emptyStateVisible ? 1 : 0.8)
+                .padding(.bottom, VSpacing.lg)
+
+            Text("Temporary Chat")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .offset(y: emptyStateVisible ? 0 : 8)
+                .padding(.bottom, VSpacing.sm)
+
+            Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .offset(y: emptyStateVisible ? 0 : 8)
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.bottom, VSpacing.xl)
+
+            ComposerView(
+                inputText: $inputText,
+                hasAPIKey: hasAPIKey,
+                isSending: isSending,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                placeholderText: "Ask me anything...",
+                editorContentHeight: $editorContentHeight,
+                isComposerExpanded: $isComposerExpanded
+            )
+            .opacity(emptyStateVisible ? 1 : 0)
+            .offset(y: emptyStateVisible ? 0 : 10)
+
+            Spacer()
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VColor.chatBackground)
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) {
                 emptyStateVisible = true
