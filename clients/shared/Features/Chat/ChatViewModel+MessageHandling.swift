@@ -242,6 +242,12 @@ extension ChatViewModel {
                 refinementStreamingText = refinementTextBuffer
                 return
             }
+            // Haptic on first text chunk (thinking → streaming transition)
+            if isThinking {
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+            }
             isThinking = false
             currentAssistantHasText = true
             if let existingId = currentAssistantMessageId,
@@ -287,6 +293,9 @@ extension ChatViewModel {
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
                 isSending = false
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                #endif
             }
             // Surface the AI's text response when a refinement produced no update
             if wasRefinement {
@@ -574,6 +583,9 @@ extension ChatViewModel {
                       shouldAcceptConfirmation?() ?? false else { return }
             }
             isThinking = false
+            #if os(iOS)
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            #endif
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
