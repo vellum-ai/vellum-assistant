@@ -680,7 +680,7 @@ struct ChatView: View {
 
             Text(text)
                 .font(VFont.caption)
-                .lineLimit(2)
+                .lineLimit(4)
 
             Spacer()
 
