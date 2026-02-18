@@ -2,8 +2,10 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getLogger } from '../util/logger.js';
 
 const execFileAsync = promisify(execFile);
+const log = getLogger('workspace-git');
 
 /**
  * Simple mutex implementation for per-workspace git operation serialization.
@@ -120,9 +122,27 @@ export class WorkspaceGitService {
       const gitDir = join(this.workspaceDir, '.git');
 
       if (existsSync(gitDir)) {
-        // Already initialized by another process or previous run
-        this.initialized = true;
-        return;
+        // Validate existing repo is not corrupted before marking as ready.
+        // A corrupted .git directory (e.g. missing HEAD) would cause all
+        // subsequent git operations to fail with confusing errors.
+        try {
+          await this.execGit(['rev-parse', '--git-dir']);
+        } catch {
+          log.warn(
+            { workspaceDir: this.workspaceDir },
+            'Corrupted .git directory detected; reinitializing',
+          );
+          // Remove corrupted .git and fall through to full init below
+          const { rmSync } = await import('node:fs');
+          rmSync(gitDir, { recursive: true, force: true });
+        }
+
+        if (existsSync(gitDir)) {
+          // Repo is healthy
+          this.initialized = true;
+          return;
+        }
+        // Otherwise fall through to reinitialize
       }
 
       // Initialize new git repository
@@ -255,19 +275,24 @@ export class WorkspaceGitService {
 
   /**
    * Execute a git command in the workspace directory.
+   * Includes a 30-second timeout to prevent hung operations
+   * (e.g. stale git lock files).
    */
   private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
     try {
       const { stdout, stderr } = await execFileAsync('git', args, {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       return { stdout, stderr };
     } catch (err) {
       // Enhance error with git command details
-      const gitErr = err as Error & { stdout?: string; stderr?: string };
+      const gitErr = err as Error & { stdout?: string; stderr?: string; code?: string };
+      const isPermissionError = gitErr.code === 'EACCES' || gitErr.stderr?.includes('Permission denied');
+      const prefix = isPermissionError ? 'Git permission error' : 'Git command failed';
       throw new Error(
-        `Git command failed: git ${args.join(' ')}\n` +
+        `${prefix}: git ${args.join(' ')}\n` +
         `Error: ${gitErr.message}\n` +
         `Stderr: ${gitErr.stderr || ''}`,
       );
