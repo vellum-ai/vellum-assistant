@@ -99,6 +99,9 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
 
   beforeEach(() => {
     resetTables();
+    // Clear sandbox so stale files from prior tests don't mask regressions
+    rmSync(sandboxDir, { recursive: true, force: true });
+    mkdirSync(sandboxDir, { recursive: true });
 
     // -- Step 1: Credential with injection template (simulated) --
     // In a real flow, the user stores a fal.ai credential via credential_store.
@@ -359,7 +362,11 @@ describe('Proxied bash activation requires per-invocation approval', () => {
 // ---------------------------------------------------------------------------
 
 describe('Private-thread variant: cross-thread media blocking', () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetTables();
+    rmSync(sandboxDir, { recursive: true, force: true });
+    mkdirSync(sandboxDir, { recursive: true });
+  });
 
   test('selfie in private thread A is NOT discoverable via search from Thread B', async () => {
     // Upload selfie in a private thread
