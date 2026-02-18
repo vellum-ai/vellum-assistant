@@ -19,7 +19,7 @@ This is the most important step. Delivery sites block browsing and ordering with
 1. **Navigate directly to the sign-in page.**
    - **For DoorDash**, use this OAuth URL:
      `https://identity.doordash.com/auth?client_id=1666519390426295040&layout=consumer_web&redirect_uri=https%3A%2F%2Fwww.doordash.com%2Fpost-login%2F&response_type=code&scope=%2A&state=%2Fhome`
-   - **For other services** (Uber Eats, Grubhub, etc.), navigate to their homepage and find the "Sign In" button.
+   - **For other services** (Uber Eats, Grubhub, etc.), navigate to their homepage and click the "Sign In" button.
 2. Take a `browser_snapshot`. If you see a sign-in form (email input), continue to sub-step 5 below (fill the email).
 3. **If the direct URL fails** (404, "State cannot be null or empty", or any error): fall back to the homepage approach — navigate to the service's homepage, dismiss non-login modals, and click the "Sign In" button. **On DoorDash, clicking "Sign In" opens a sign-in MODAL — this modal IS the sign-in form, do NOT dismiss it.** Look for an email input inside the modal.
 4. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 2.
