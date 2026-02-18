@@ -290,7 +290,9 @@ public struct ToolConfirmationData: Equatable {
                 return "I would like to access secure storage."
             }
         default:
-            return "I would like to use \(toolCategory)."
+            let tc = toolCategory.lowercased()
+            if !r.isEmpty { return "I would like to use \(tc) \(r)." }
+            return "I would like to use \(tc)."
         }
     }
 

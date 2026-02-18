@@ -73,7 +73,7 @@ class HostShellTool implements Tool {
             description: 'Optional timeout in seconds. Uses configured default and max limits.',
           },
         },
-        required: ['command'],
+        required: ['command', 'reason'],
       },
     };
   }
