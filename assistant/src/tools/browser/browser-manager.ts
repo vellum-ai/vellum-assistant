@@ -100,7 +100,6 @@ class BrowserManager {
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
-  private previousFrontmostApp: string | null = null;
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
@@ -183,32 +182,29 @@ class BrowserManager {
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      // Save the currently-focused app so we can restore focus after Chrome
-      // steals it during launch and navigation.
-      this.saveFrontmostApp();
-
-      // If not already in CDP mode, try to detect or negotiate CDP
+      // CDP is opt-in. We only attempt it when explicitly configured,
+      // otherwise default to headless to avoid stealing desktop focus.
       let useCdp = this._browserMode === 'cdp';
-      const hasSender = !!(invokingSessionId && this.sessionSenders.get(invokingSessionId));
-      if (!useCdp) {
+      const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
+      if (useCdp) {
         const cdpAvailable = await this.detectCDP();
-        if (cdpAvailable) {
-          useCdp = true;
-        } else if (hasSender) {
-          // Try requesting Chrome restart from the client
-          const sender = this.sessionSenders.get(invokingSessionId!)!;
+        if (!cdpAvailable && invokingSessionId && sender) {
           log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
-          const accepted = await this.requestCDPFromClient(invokingSessionId!, sender);
+          const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
           if (accepted) {
             const nowAvailable = await this.detectCDP();
             if (nowAvailable) {
               useCdp = true;
             } else {
               log.warn('Client accepted CDP request but CDP not detected');
+              useCdp = false;
             }
           } else {
             log.info('Client declined CDP request');
+            useCdp = false;
           }
+        } else if (!cdpAvailable) {
+          useCdp = false;
         }
       }
 
@@ -225,33 +221,6 @@ class BrowserManager {
           return ctx as unknown as BrowserContext;
         } catch (err) {
           log.warn({ err }, 'CDP connectOverCDP failed');
-        }
-      }
-
-      // If a client is connected, launch headed Chromium (minimized) so the user
-      // can interact directly when handoff triggers (e.g. CAPTCHAs).
-      // The window stays offscreen until bringToFront() is called during handoff.
-      if (hasSender) {
-        try {
-          const pw2 = await import('playwright');
-          const headedBrowser = await pw2.chromium.launch({
-            channel: 'chrome',
-            headless: false,
-            args: [
-              '--window-position=-32000,-32000',
-              '--disable-blink-features=AutomationControlled',
-            ],
-          });
-          const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
-          this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
-          this.setBrowserMode('cdp');
-          await this.initBrowserCdpSession();
-          await this.moveWindowOffscreen();
-          this.restoreFocus();
-          log.info('Launched headed Chromium (hidden) for interactive handoff support');
-          return ctx as unknown as BrowserContext;
-        } catch (err2) {
-          log.warn({ err: err2 }, 'Headed Chromium launch failed, falling back to headless');
           this._browserMode = 'headless';
         }
       }
@@ -352,11 +321,9 @@ class BrowserManager {
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
 
-    // In headed mode, newPage() may bring Chrome to the foreground on macOS.
-    // Move it offscreen and restore focus unless we're in an active handoff.
+    // In CDP mode, keep the window minimized unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
       await this.moveWindowOffscreen();
-      this.restoreFocus();
     }
 
     log.debug({ sessionId }, 'Session page created');
@@ -511,37 +478,57 @@ class BrowserManager {
       if (typeof browser.newBrowserCDPSession !== 'function') return;
 
       this.browserCdpSession = await browser.newBrowserCDPSession();
-
-      const targets = await this.browserCdpSession.send('Target.getTargets') as {
-        targetInfos: Array<{ targetId: string; type: string }>;
-      };
-      const pageTarget = targets.targetInfos.find((t: { type: string }) => t.type === 'page');
-      if (pageTarget) {
-        const result = await this.browserCdpSession.send('Browser.getWindowForTarget', {
-          targetId: pageTarget.targetId,
-        }) as { windowId: number };
-        this.browserWindowId = result.windowId;
-        log.debug({ windowId: this.browserWindowId }, 'Got browser window ID via CDP');
-      }
+      this.browserWindowId = null;
+      await this.ensureBrowserWindowId();
     } catch (err) {
       log.warn({ err }, 'Failed to init browser CDP session');
     }
   }
 
+  private async ensureBrowserWindowId(): Promise<number | null> {
+    if (!this.browserCdpSession) return null;
+    if (this.browserWindowId != null) return this.browserWindowId;
+    try {
+      const targets = await this.browserCdpSession.send('Target.getTargets') as {
+        targetInfos: Array<{ targetId: string; type: string }>;
+      };
+      const pageTarget = targets.targetInfos.find((t: { type: string }) => t.type === 'page');
+      if (!pageTarget) return null;
+      const result = await this.browserCdpSession.send('Browser.getWindowForTarget', {
+        targetId: pageTarget.targetId,
+      }) as { windowId: number };
+      this.browserWindowId = result.windowId;
+      log.debug({ windowId: this.browserWindowId }, 'Got browser window ID via CDP');
+      return this.browserWindowId;
+    } catch (err) {
+      log.warn({ err }, 'Failed to resolve browser window ID');
+      return null;
+    }
+  }
+
   /**
-   * Move the browser window offscreen using CDP Browser.setWindowBounds.
-   * Only affects the specific Playwright-managed window (not the user's personal Chrome).
+   * Hide the browser window during non-handoff automation to avoid focus theft.
    */
   async moveWindowOffscreen(): Promise<void> {
-    if (!this.browserCdpSession || this.browserWindowId == null) return;
+    if (!this.browserCdpSession) return;
+    const windowId = await this.ensureBrowserWindowId();
+    if (windowId == null) return;
     try {
       await this.browserCdpSession.send('Browser.setWindowBounds', {
-        windowId: this.browserWindowId,
-        bounds: { left: -32000, top: -32000, windowState: 'normal' },
+        windowId,
+        bounds: { windowState: 'minimized' },
       });
-      log.debug('moveWindowOffscreen: moved window offscreen via CDP');
+      log.debug('moveWindowOffscreen: minimized browser window via CDP');
     } catch (err) {
-      log.warn({ err }, 'moveWindowOffscreen: CDP setWindowBounds failed');
+      log.warn({ err }, 'moveWindowOffscreen: minimize failed, attempting offscreen bounds');
+      try {
+        await this.browserCdpSession.send('Browser.setWindowBounds', {
+          windowId,
+          bounds: { left: -32000, top: -32000, windowState: 'normal' },
+        });
+      } catch (boundsErr) {
+        log.warn({ err: boundsErr }, 'moveWindowOffscreen: offscreen bounds failed');
+      }
     }
   }
 
@@ -549,52 +536,17 @@ class BrowserManager {
    * Move the browser window onscreen and resize it for user interaction.
    */
   async moveWindowOnscreen(): Promise<void> {
-    if (!this.browserCdpSession || this.browserWindowId == null) return;
+    if (!this.browserCdpSession) return;
+    const windowId = await this.ensureBrowserWindowId();
+    if (windowId == null) return;
     try {
       await this.browserCdpSession.send('Browser.setWindowBounds', {
-        windowId: this.browserWindowId,
+        windowId,
         bounds: { left: 100, top: 100, width: 1280, height: 960, windowState: 'normal' },
       });
       log.debug('moveWindowOnscreen: moved window onscreen via CDP');
     } catch (err) {
       log.warn({ err }, 'moveWindowOnscreen: CDP setWindowBounds failed');
-    }
-  }
-
-  /**
-   * Save the current frontmost macOS app so we can re-activate it after
-   * Chrome steals focus. Called once before browser launch.
-   */
-  private saveFrontmostApp(): void {
-    if (process.platform !== 'darwin') return;
-    try {
-      const { execSync } = require('node:child_process');
-      this.previousFrontmostApp = execSync(
-        "osascript -e 'tell application \"System Events\" to get name of first application process whose frontmost is true'",
-        { timeout: 2000, encoding: 'utf-8' },
-      ).trim();
-      log.debug({ app: this.previousFrontmostApp }, 'Saved frontmost app before Chrome launch');
-    } catch {
-      this.previousFrontmostApp = null;
-    }
-  }
-
-  /**
-   * Re-activate the app that was frontmost before Chrome stole focus.
-   * Unlike the old hideChrome() approach, this doesn't hide Chrome or
-   * affect any Chrome windows — it just gives focus back to the user's app.
-   */
-  restoreFocus(): void {
-    if (process.platform !== 'darwin' || !this.previousFrontmostApp) return;
-    try {
-      const { execSync } = require('node:child_process');
-      execSync(
-        `osascript -e 'tell application "${this.previousFrontmostApp}" to activate'`,
-        { stdio: 'ignore', timeout: 2000 },
-      );
-      log.debug({ app: this.previousFrontmostApp }, 'Restored focus to previous app');
-    } catch {
-      // Best effort — the app may have been closed
     }
   }
 
