@@ -170,6 +170,17 @@ public struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Media Embeds") {
+                Toggle("Auto media embeds", isOn: Binding(
+                    get: { store.mediaEmbedsEnabled },
+                    set: { store.setMediaEmbedsEnabled($0) }
+                ))
+
+                Text("Automatically embed images, videos, and other media shared in chat messages.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Permissions") {
                 HStack {
                     Image(systemName: accessibilityGranted ? "checkmark.circle.fill" : "xmark.circle.fill")
