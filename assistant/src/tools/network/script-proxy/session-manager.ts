@@ -205,15 +205,26 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
     }
   }
 
-  // Pre-load the full credential registry once at session startup so the
-  // policy callback doesn't hit disk on every proxied request.
-  // listCredentialMetadata() uses synchronous readFileSync + JSON.parse,
-  // which would block the event loop in the hot path.
-  const allKnown: CredentialInjectionTemplate[] = [];
-  for (const meta of listCredentialMetadata()) {
-    if (meta.injectionTemplates?.length) {
-      allKnown.push(...meta.injectionTemplates);
+  // Cache the full credential registry with a TTL so the policy callback
+  // doesn't hit disk on every proxied request (listCredentialMetadata uses
+  // synchronous readFileSync + JSON.parse) while still picking up changes
+  // to credential metadata within the session lifetime.
+  let allKnownCache: CredentialInjectionTemplate[] | null = null;
+  let allKnownCacheTime = 0;
+  const CACHE_TTL_MS = 30_000; // 30 seconds
+
+  function getAllKnown(): CredentialInjectionTemplate[] {
+    const now = Date.now();
+    if (!allKnownCache || now - allKnownCacheTime > CACHE_TTL_MS) {
+      allKnownCache = [];
+      for (const meta of listCredentialMetadata()) {
+        if (meta.injectionTemplates?.length) {
+          allKnownCache.push(...meta.injectionTemplates);
+        }
+      }
+      allKnownCacheTime = now;
     }
+    return allKnownCache;
   }
 
   // Build the policy callback for HTTP/CONNECT request gating
@@ -221,7 +232,7 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
 
     const decision = evaluateRequestWithApproval(
       hostname, port, reqPath,
-      managed.session.credentialIds, templates, allKnown, scheme,
+      managed.session.credentialIds, templates, getAllKnown(), scheme,
     );
 
     switch (decision.kind) {
