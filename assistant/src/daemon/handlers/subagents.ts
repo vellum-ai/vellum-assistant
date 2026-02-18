@@ -14,8 +14,13 @@ export function handleSubagentAbort(
   ctx: HandlerContext,
 ): void {
   const manager = getSubagentManager();
+  const callerSessionId = ctx.socketToSession.get(socket);
   const sendToClient = (m: unknown) => ctx.send(socket, m as Parameters<typeof ctx.send>[1]);
-  const aborted = manager.abort(msg.subagentId, sendToClient as Parameters<typeof manager.abort>[1]);
+  const aborted = manager.abort(
+    msg.subagentId,
+    sendToClient as Parameters<typeof manager.abort>[1],
+    callerSessionId,
+  );
 
   if (!aborted) {
     log.warn({ subagentId: msg.subagentId }, 'Client requested abort for unknown or terminal subagent');

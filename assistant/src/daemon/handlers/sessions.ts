@@ -21,6 +21,7 @@ import type {
   ServerMessage,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
+import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,
   wireEscalationHandler,
@@ -292,6 +293,9 @@ export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: Handle
     if (session) {
       ctx.touchSession(sessionId);
       session.abort();
+      // Also abort any child subagents spawned by this session.
+      const sendToClient = (m: ServerMessage) => ctx.send(socket, m);
+      getSubagentManager().abortAllForParent(sessionId, sendToClient);
     }
   }
 }

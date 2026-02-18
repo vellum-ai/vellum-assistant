@@ -112,8 +112,8 @@ describe('SubagentManager abort notification', () => {
 
     const statusMsg = clientMessages.find((m) => m.type === 'subagent_status_changed');
     expect(statusMsg).toBeDefined();
-    expect((statusMsg as Record<string, unknown>).subagentId).toBe(subagentId);
-    expect((statusMsg as Record<string, unknown>).status).toBe('aborted');
+    expect((statusMsg as unknown as Record<string, unknown>).subagentId).toBe(subagentId);
+    expect((statusMsg as unknown as Record<string, unknown>).status).toBe('aborted');
   });
 
   test('abort returns false for unknown subagent', () => {
@@ -145,6 +145,43 @@ describe('SubagentManager abort notification', () => {
     expect(result).toBe(true);
     expect(state.status).toBe('aborted');
     expect(notified).toBe(false);
+  });
+
+  test('abort rejects when callerSessionId does not match parent', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId); // parentSessionId = 'parent-sess-1'
+    injectFakeSubagent(manager, subagentId, state);
+
+    const result = manager.abort(subagentId, () => {}, 'different-session');
+
+    expect(result).toBe(false);
+    expect(state.status).toBe('running'); // unchanged
+  });
+
+  test('abort succeeds when callerSessionId matches parent', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const result = manager.abort(subagentId, () => {}, 'parent-sess-1');
+
+    expect(result).toBe(true);
+    expect(state.status).toBe('aborted');
+  });
+
+  test('abort succeeds without callerSessionId (no ownership check)', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    // No callerSessionId — internal calls (eviction, abortAllForParent) skip ownership check
+    const result = manager.abort(subagentId, () => {});
+
+    expect(result).toBe(true);
+    expect(state.status).toBe('aborted');
   });
 });
 

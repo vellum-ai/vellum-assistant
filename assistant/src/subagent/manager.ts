@@ -245,10 +245,17 @@ export class SubagentManager {
   abort(
     subagentId: string,
     parentSendToClient?: (msg: ServerMessage) => void,
+    callerSessionId?: string,
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) return false;
     if (TERMINAL_STATUSES.has(managed.state.status)) return false;
+    // If a caller session is specified, verify ownership.
+    if (callerSessionId && managed.state.config.parentSessionId !== callerSessionId) {
+      log.warn({ subagentId, callerSessionId, parentSessionId: managed.state.config.parentSessionId },
+        'Abort rejected: caller does not own this subagent');
+      return false;
+    }
 
     managed.session.abort();
     managed.state.completedAt = Date.now();
