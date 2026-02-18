@@ -66,7 +66,9 @@ function writeAssistants(entries: AssistantEntry[]): void {
 
 export function loadLatestAssistant(): AssistantEntry | null {
   const entries = readAssistants();
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return null;
+  }
   const sorted = [...entries].sort((a, b) => {
     const ta = a.hatchedAt ? new Date(a.hatchedAt).getTime() : 0;
     const tb = b.hatchedAt ? new Date(b.hatchedAt).getTime() : 0;
