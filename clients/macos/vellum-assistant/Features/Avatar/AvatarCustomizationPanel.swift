@@ -265,12 +265,12 @@ struct AvatarCustomizationPanel: View {
         resolveAndApply()
     }
 
-    /// Toggle lock on a field. Unlocking keeps the override as fallback but
-    /// re-resolves so auto-evolution can potentially change it.
+    /// Toggle lock on a field. Unlocking removes the override so the resolver
+    /// falls back to trait-based values and auto-evolution can control the field.
     private func toggleLock(field: AvatarEvolutionState.AppearanceField) {
         if evolutionState.lockedFields.contains(field) {
             evolutionState.lockedFields.remove(field)
-            // Keep userOverrides value as fallback — resolver still uses it
+            evolutionState.userOverrides.removeValue(forKey: field)
         } else {
             evolutionState.lockedFields.insert(field)
         }

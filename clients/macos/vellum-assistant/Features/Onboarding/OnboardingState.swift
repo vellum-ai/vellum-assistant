@@ -129,6 +129,8 @@ final class OnboardingState {
         if currentStep > maxStep {
             currentStep = maxStep
         }
+
+        avatarEvolutionState.load()
     }
 
     func advance(by steps: Int = 1) {
