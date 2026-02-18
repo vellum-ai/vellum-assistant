@@ -3366,4 +3366,41 @@ describe('Memory regressions', () => {
       : 'default';
     expect(resolvedScope).toBe('default');
   });
+
+  // PR-19: extractItemsJob forwards scopeId to extractAndUpsertMemoryItemsForMessage
+  test('extractAndUpsertMemoryItemsForMessage accepts optional scopeId without breaking', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(conversations).values({
+      id: 'conv-scope-pass',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      threadType: 'standard',
+      memoryScopeId: 'default',
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-pass',
+      conversationId: 'conv-scope-pass',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I prefer TypeScript over JavaScript for all new projects.' }]),
+      createdAt: now,
+    }).run();
+
+    // Call without scopeId — backward compat: should work exactly as before
+    const withoutScope = await extractAndUpsertMemoryItemsForMessage('msg-scope-pass');
+    expect(withoutScope).toBeGreaterThan(0);
+
+    // Call with explicit scopeId — should also succeed (scopeId is threaded but not yet used)
+    db.insert(messages).values({
+      id: 'msg-scope-pass-2',
+      conversationId: 'conv-scope-pass',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I dislike using var in JavaScript, prefer const and let.' }]),
+      createdAt: now + 1,
+    }).run();
+    const withScope = await extractAndUpsertMemoryItemsForMessage('msg-scope-pass-2', 'private:thread-42');
+    expect(withScope).toBeGreaterThan(0);
+  });
 });

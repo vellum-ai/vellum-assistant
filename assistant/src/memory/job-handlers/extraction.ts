@@ -25,7 +25,7 @@ export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
     ? job.payload.scopeId
     : 'default';
-  await extractAndUpsertMemoryItemsForMessage(messageId);
+  await extractAndUpsertMemoryItemsForMessage(messageId, scopeId);
   // Queue entity extraction for this message after items are extracted
   const config = getConfig();
   if (config.memory.entity.enabled) {
