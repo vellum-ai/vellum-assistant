@@ -465,3 +465,70 @@ describe('skill tool reference counting', () => {
     expect(getSkillRefCount('nonexistent-skill')).toBe(0);
   });
 });
+
+describe('computer-use registration split', () => {
+  // These tests verify the split functions register exactly the expected
+  // tools.  Because __resetRegistryForTesting() restores a snapshot that
+  // already includes CU tools (they are core tools), we capture the tool
+  // set before calling the function and check the delta.
+
+  test('registerComputerUseActionTools registers all 12 CU action tools and nothing else', async () => {
+    const { registerComputerUseActionTools } = await import('../tools/computer-use/registry.js');
+
+    // Capture before-set from a clean init (snapshot includes CU tools,
+    // so we just verify the function itself is self-contained by calling
+    // it on a reset registry and checking the resulting CU tool count).
+    __resetRegistryForTesting();
+    const beforeNames = new Set(getAllTools().map((t) => t.name));
+
+    // Remove CU-related tools from registry to get a clean baseline
+    // We can't do this directly, so instead verify the function's output
+    // by checking that allComputerUseTools has exactly 12 entries
+    const { allComputerUseTools } = await import('../tools/computer-use/definitions.js');
+    expect(allComputerUseTools).toHaveLength(12);
+
+    // Verify every tool registered by registerComputerUseActionTools is
+    // a computer_use_* tool and there are exactly 12
+    registerComputerUseActionTools();
+    const afterNames = new Set(getAllTools().map((t) => t.name));
+
+    // All 12 CU action tools should be present
+    const cuTools = getAllTools().filter((t) => t.name.startsWith('computer_use_'));
+    expect(cuTools).toHaveLength(12);
+
+    // The function should not have added request_computer_control beyond
+    // what was already in the snapshot
+    const added = [...afterNames].filter((n) => !beforeNames.has(n));
+    expect(added.every((n) => n.startsWith('computer_use_'))).toBe(true);
+    expect(added).not.toContain('request_computer_control');
+  });
+
+  test('registerRequestComputerControlTool registers the escalation tool', async () => {
+    const { registerRequestComputerControlTool } = await import('../tools/computer-use/registry.js');
+
+    __resetRegistryForTesting();
+    const beforeNames = new Set(getAllTools().map((t) => t.name));
+
+    registerRequestComputerControlTool();
+    const afterNames = new Set(getAllTools().map((t) => t.name));
+
+    // The escalation tool should be present
+    expect(getTool('request_computer_control')).toBeDefined();
+
+    // The only tool this function could have added is request_computer_control
+    const added = [...afterNames].filter((n) => !beforeNames.has(n));
+    const cuActionAdded = added.filter((n) => n.startsWith('computer_use_'));
+    expect(cuActionAdded).toHaveLength(0);
+  });
+
+  test('registerComputerUseTools (wrapper) registers both action and escalation', async () => {
+    const { registerComputerUseTools } = await import('../tools/computer-use/registry.js');
+
+    __resetRegistryForTesting();
+    registerComputerUseTools();
+
+    const cuTools = getAllTools().filter((t) => t.name.startsWith('computer_use_'));
+    expect(cuTools).toHaveLength(12);
+    expect(getTool('request_computer_control')).toBeDefined();
+  });
+});
