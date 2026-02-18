@@ -1294,6 +1294,7 @@ private struct SidebarBottomItem: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
             .background(isHovered ? VColor.hoverOverlay.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering in
