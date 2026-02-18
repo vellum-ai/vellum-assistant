@@ -15,7 +15,7 @@ describe('onboarding template contracts', () => {
     });
 
     test('uses "personality" for the personality step', () => {
-      expect(bootstrap).toContain('personality');
+      expect(bootstrap).toContain('What is my personality?');
       // Should not use "character" or "vibe" as a field/step label
       expect(bootstrap).not.toMatch(/what is my (character|vibe)/i);
     });
@@ -28,6 +28,8 @@ describe('onboarding template contracts', () => {
 
     test('contains the Home Base handoff format', () => {
       expect(bootstrap).toContain('Identity locked in');
+      expect(bootstrap).toMatch(/I thought of X ways to help you/i);
+      expect(bootstrap).toContain('check this out');
     });
   });
 
