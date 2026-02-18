@@ -3,6 +3,7 @@ import type { Provider, Message, ToolDefinition, ContentBlock } from '../provide
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { getHookManager } from '../hooks/manager.js';
 import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
+import type { ToolResultContent } from '../providers/types.js';
 
 const log = getLogger('agent-loop');
 
@@ -133,8 +134,14 @@ export class AgentLoop {
 
         const providerStart = Date.now();
 
+        // Strip image contentBlocks from older tool results to prevent
+        // screenshots from accumulating in the context window. The LLM
+        // already saw each image on the turn it was captured; keeping
+        // base64 blobs in history rapidly exhausts the context budget.
+        const providerHistory = stripOldImageBlocks(history);
+
         const response = await this.provider.sendMessage(
-          history,
+          providerHistory,
           currentTools.length > 0 ? currentTools : undefined,
           this.systemPrompt,
           {
@@ -436,4 +443,47 @@ function summarizeMessage(msg: Message): { role: string; blockTypes: string[] } 
     role: msg.role,
     blockTypes: msg.content.map((b) => b.type),
   };
+}
+
+/**
+ * Strip image contentBlocks from all tool_result blocks except those in the
+ * last user message. This prevents screenshots from accumulating in the
+ * context window — each image is seen once by the LLM on the turn it was
+ * captured, then replaced with a text placeholder on subsequent turns.
+ */
+function stripOldImageBlocks(history: Message[]): Message[] {
+  // Find the index of the last user message (current turn's tool results)
+  let lastUserIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+
+  return history.map((msg, idx) => {
+    // Keep the most recent user message intact (current turn)
+    if (idx === lastUserIdx || msg.role !== 'user') return msg;
+
+    // Check if any tool_result blocks have image contentBlocks
+    const hasImages = msg.content.some(
+      (b) => b.type === 'tool_result' && (b as ToolResultContent).contentBlocks?.some(cb => cb.type === 'image'),
+    );
+    if (!hasImages) return msg;
+
+    // Strip images from tool_result blocks, replacing with text marker
+    return {
+      ...msg,
+      content: msg.content.map((b) => {
+        if (b.type !== 'tool_result') return b;
+        const tr = b as ToolResultContent;
+        if (!tr.contentBlocks?.some(cb => cb.type === 'image')) return b;
+        return {
+          ...tr,
+          contentBlocks: undefined,
+          content: tr.content + '\n[Screenshot was captured and shown previously — image data removed to save context.]',
+        };
+      }),
+    };
+  });
 }
