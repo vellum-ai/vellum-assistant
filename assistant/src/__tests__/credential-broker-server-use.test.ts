@@ -527,4 +527,28 @@ describe('CredentialBroker.serverUseById', () => {
     expect(result.reason).toContain('No tools are currently allowed');
     expect(result.reason).toContain('credential_store');
   });
+
+  test('denies when metadata exists but no stored secret value', () => {
+    const meta = upsertCredentialMetadata('fal', 'api_key', {
+      allowedTools: ['media_proxy'],
+      injectionTemplates: [
+        {
+          hostPattern: '*.fal.ai',
+          injectionType: 'header',
+          headerName: 'Authorization',
+          valuePrefix: 'Key ',
+        },
+      ],
+    });
+    // No setSecureKey — metadata exists but value doesn't
+
+    const result = broker.serverUseById({
+      credentialId: meta.credentialId,
+      requestingTool: 'media_proxy',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected denial');
+    expect(result.reason).toContain('no stored value');
+  });
 });
