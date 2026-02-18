@@ -365,6 +365,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'integration_disconnect',
     integrationId: 'gmail',
   },
+  browser_cdp_response: {
+    type: 'browser_cdp_response',
+    sessionId: 'test-session',
+    success: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1054,6 +1059,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'integration_connect_result',
     integrationId: 'gmail',
     success: true,
+  },
+  browser_cdp_request: {
+    type: 'browser_cdp_request',
+    sessionId: 'test-session',
   },
 };
 

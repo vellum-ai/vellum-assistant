@@ -4,6 +4,7 @@ import { handleRideShotgunStart } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { log, pendingSignBundlePayload, pendingSigningIdentity, type HandlerContext } from './shared.js';
+import { browserManager } from '../../tools/browser/browser-manager.js';
 
 import {
   handleUserMessage,
@@ -235,6 +236,10 @@ const handlers: DispatchMap = {
   document_save: handleDocumentSave,
   document_load: handleDocumentLoad,
   document_list: handleDocumentList,
+
+  browser_cdp_response: (msg) => {
+    browserManager.resolveCDPResponse(msg.sessionId, msg.success, msg.declined);
+  },
 
   // Stub handlers: the integration registry was removed but the Swift client
   // still sends these messages. Return safe no-op responses so the client

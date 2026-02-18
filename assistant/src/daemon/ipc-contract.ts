@@ -667,6 +667,18 @@ export interface BrowserFrame {
   metadata?: { offsetTop: number; pageScaleFactor: number; scrollOffsetX: number; scrollOffsetY: number; timestamp: number };
 }
 
+export interface BrowserCDPRequest {
+  type: 'browser_cdp_request';
+  sessionId: string;
+}
+
+export interface BrowserCDPResponse {
+  type: 'browser_cdp_response';
+  sessionId: string;
+  success: boolean;
+  declined?: boolean;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -744,7 +756,8 @@ export type ClientMessage =
   | IntegrationDisconnectRequest
   | DocumentSaveRequest
   | DocumentLoadRequest
-  | DocumentListRequest;
+  | DocumentListRequest
+  | BrowserCDPResponse;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1766,7 +1779,8 @@ export type ServerMessage =
   | DocumentEditorUpdate
   | DocumentSaveResponse
   | DocumentLoadResponse
-  | DocumentListResponse;
+  | DocumentListResponse
+  | BrowserCDPRequest;
 
 // === Contract schema ===
 
