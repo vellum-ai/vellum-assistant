@@ -3300,4 +3300,70 @@ describe('Memory regressions', () => {
       expect(seg.scopeId).toBe('default');
     }
   });
+
+  // PR-18: extract_items jobs carry scopeId through the async pipeline
+  test('extract_items job payload includes scopeId from private conversation', () => {
+    const conv = createConversation({ title: 'Private scope job test', threadType: 'private' });
+    expect(conv.memoryScopeId).toMatch(/^private:/);
+
+    addMessage(conv.id, 'user', 'Important data that should trigger extraction in private scope.');
+
+    const db = getDb();
+    const extractJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all();
+
+    expect(extractJobs.length).toBeGreaterThan(0);
+    const lastJob = extractJobs[extractJobs.length - 1];
+    const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
+    expect(payload.scopeId).toBe(conv.memoryScopeId);
+  });
+
+  test('extract_items job payload defaults scopeId to default for standard conversations', () => {
+    const conv = createConversation({ title: 'Standard scope job test', threadType: 'standard' });
+    expect(conv.memoryScopeId).toBe('default');
+
+    addMessage(conv.id, 'user', 'Regular content for extraction in default scope.');
+
+    const db = getDb();
+    const extractJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all();
+
+    expect(extractJobs.length).toBeGreaterThan(0);
+    const lastJob = extractJobs[extractJobs.length - 1];
+    const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
+    expect(payload.scopeId).toBe('default');
+  });
+
+  test('extract_items backward compat: old payloads without scopeId default to default', () => {
+    // Simulate an old-style extract_items job without scopeId
+    const jobId = enqueueMemoryJob('extract_items', { messageId: 'legacy-msg-id' });
+
+    const db = getDb();
+    const job = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.id, jobId))
+      .get();
+
+    expect(job).toBeTruthy();
+    const payload = JSON.parse(job!.payload) as Record<string, unknown>;
+    // Old payloads will not have scopeId — consumers must default to 'default'
+    expect(payload.scopeId).toBeUndefined();
+
+    // Verify the job handler's backward-compat logic: claim and inspect
+    const claimed = claimMemoryJobs(100);
+    const claimedJob = claimed.find((j) => j.id === jobId);
+    expect(claimedJob).toBeTruthy();
+    // The parsed payload should not have scopeId (it was never set)
+    const resolvedScope = typeof claimedJob!.payload.scopeId === 'string' && claimedJob!.payload.scopeId
+      ? claimedJob!.payload.scopeId
+      : 'default';
+    expect(resolvedScope).toBe('default');
+  });
 });

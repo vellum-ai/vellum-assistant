@@ -21,11 +21,15 @@ const log = getLogger('memory-jobs-worker');
 export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
+  // Backward compat: old payloads may lack scopeId — default to 'default'
+  const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
+    ? job.payload.scopeId
+    : 'default';
   await extractAndUpsertMemoryItemsForMessage(messageId);
   // Queue entity extraction for this message after items are extracted
   const config = getConfig();
   if (config.memory.entity.enabled) {
-    enqueueMemoryJob('extract_entities', { messageId });
+    enqueueMemoryJob('extract_entities', { messageId, scopeId });
   }
 }
 

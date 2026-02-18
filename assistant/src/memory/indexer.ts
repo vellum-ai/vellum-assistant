@@ -96,7 +96,7 @@ export function indexMessageNow(
     }
 
     if (shouldExtract) {
-      enqueueMemoryJob('extract_items', { messageId: input.messageId }, Date.now(), tx);
+      enqueueMemoryJob('extract_items', { messageId: input.messageId, scopeId: input.scopeId ?? 'default' }, Date.now(), tx);
     }
     if (shouldResolveConflicts) {
       enqueueResolvePendingConflictsForMessageJob(input.messageId, input.scopeId ?? 'default', tx);
