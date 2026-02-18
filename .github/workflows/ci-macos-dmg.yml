@@ -1,0 +1,240 @@
+name: PR macOS DMG Build
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+    paths:
+      - 'clients/macos/**'
+      - 'clients/shared/**'
+      - '.github/workflows/ci-macos-dmg.yml'
+
+jobs:
+  build-dmg:
+    name: macOS DMG
+    if: contains(github.event.pull_request.labels.*.name, 'build-dmg')
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
+      APP_DISPLAY_NAME: Vellum ${{ github.event.pull_request.number }}
+      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          echo "Daemon binary built:"
+          ls -lh ../clients/macos/daemon-bin/vellum-daemon
+
+      - name: Build release .app
+        working-directory: clients/macos
+        run: |
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="Developer ID Application" \
+          ./build.sh release
+          ls -la "dist/$APP_DISPLAY_NAME.app"
+
+          codesign --verify --deep --strict "dist/$APP_DISPLAY_NAME.app"
+          echo "Code signature verified"
+
+      - name: Free disk space
+        working-directory: clients/macos
+        run: |
+          rm -rf .build daemon-bin
+          rm -rf ../../assistant/node_modules
+          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
+          df -h .
+
+      - name: Generate DMG background
+        working-directory: clients/macos
+        run: |
+          mkdir -p build
+          swift dmg/generate-background.swift build/dmg-background@2x.png
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
+        working-directory: clients/macos
+        env:
+          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+        run: |
+          APP_PATH="dist/$APP_DISPLAY_NAME.app"
+
+          DMG_STAGING="build/dmg-staging"
+          mkdir -p "$DMG_STAGING"
+          cp -R "$APP_PATH" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          create-dmg \
+            --volname "$APP_DISPLAY_NAME" \
+            --background "build/dmg-background@2x.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --text-size 10 \
+            --icon "$APP_DISPLAY_NAME.app" 175 190 \
+            --icon "Applications" 530 190 \
+            --hide-extension "$APP_DISPLAY_NAME.app" \
+            --no-internet-enable \
+            "$DMG_PATH" \
+            "$DMG_STAGING/" \
+          || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
+              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
+            else
+              echo "create-dmg failed with exit code $EXIT_CODE"
+              exit $EXIT_CODE
+            fi
+          }
+
+          echo "DMG created at $DMG_PATH"
+          ls -lh "$DMG_PATH"
+
+      - name: Sign DMG
+        working-directory: clients/macos
+        env:
+          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+        run: |
+          codesign --sign "Developer ID Application" \
+            --timestamp \
+            "$DMG_PATH"
+
+          codesign --verify --verbose "$DMG_PATH"
+          echo "DMG signature verified"
+
+      - name: Notarize DMG
+        working-directory: clients/macos
+        env:
+          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+        run: |
+          echo "Submitting DMG for notarization..."
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait \
+            --timeout 30m \
+            2>&1) || NOTARIZE_FAILED=true
+
+          echo "$NOTARIZE_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+
+          if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+            echo "::error::Notarization failed (status: Invalid or command error)"
+            if [ -n "$SUBMISSION_ID" ]; then
+              echo "Fetching notarization log for submission $SUBMISSION_ID..."
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "${{ secrets.APPLE_ID }}" \
+                --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+                --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+                || echo "::warning::Could not fetch notarization log"
+            fi
+            exit 1
+          fi
+
+          echo "Notarization succeeded (status: Accepted)"
+
+      - name: Staple notarization ticket
+        working-directory: clients/macos
+        env:
+          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+        run: |
+          MAX_ATTEMPTS=15
+          WAIT_SECS=60
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STAPLE_OUTPUT=$(xcrun stapler staple "$DMG_PATH" 2>&1)
+            STAPLE_EXIT=$?
+            if [ $STAPLE_EXIT -eq 0 ]; then
+              echo "Stapling succeeded on attempt $i"
+              echo "$STAPLE_OUTPUT"
+              break
+            fi
+            echo "::warning::Stapling attempt $i/$MAX_ATTEMPTS failed (exit code $STAPLE_EXIT):"
+            echo "$STAPLE_OUTPUT"
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Stapling failed after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Waiting ${WAIT_SECS}s for CDN propagation..."
+            sleep $WAIT_SECS
+            WAIT_SECS=$((WAIT_SECS + 15))
+          done
+
+          xcrun stapler validate "$DMG_PATH"
+          echo "Notarization ticket stapled and validated"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+          path: clients/macos/build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+
+      - name: Generate GitHub App token
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Comment artifact link on PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
+          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)"
