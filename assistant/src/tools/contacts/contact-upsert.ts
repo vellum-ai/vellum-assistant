@@ -1,6 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import { registerTool } from '../registry.js';
 import { upsertContact } from '../../contacts/contact-store.js';
 import { CHANNEL_TYPES } from '../../contacts/types.js';
 
@@ -133,4 +134,4 @@ class ContactUpsertTool implements Tool {
   }
 }
 
-export const contactUpsertTool = new ContactUpsertTool();
+registerTool(new ContactUpsertTool());
