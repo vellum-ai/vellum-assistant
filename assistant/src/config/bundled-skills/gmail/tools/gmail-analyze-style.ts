@@ -155,7 +155,7 @@ function upsertMemoryItem(opts: {
 
 // ── Main tool ──────────────────────────────────────────────────────────
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const maxEmails = Math.min(Math.max((input.max_emails as number) ?? 50, 1), 100);
   const recipientFilter = input.recipient_filter as string | undefined;
 
@@ -223,7 +223,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     }
 
     // Persist style items to memory
-    const scopeId = 'default';
+    const scopeId = context.memoryScopeId ?? 'default';
     let savedCount = 0;
 
     for (const pattern of result.style_patterns) {
@@ -244,11 +244,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     if (Array.isArray(result.contact_observations)) {
       for (const contact of result.contact_observations) {
         if (!contact.name || !contact.tone_note) continue;
+        const contactEmail = contact.email || 'unknown';
         const subject = `email relationship: ${contact.name}`;
         upsertMemoryItem({
           kind: 'relationship',
           subject,
-          statement: `${contact.name} (${contact.email}): ${contact.tone_note}`.slice(0, 500),
+          statement: `${contact.name} (${contactEmail}): ${contact.tone_note}`.slice(0, 500),
           importance: 0.6,
           scopeId,
         });
