@@ -425,7 +425,7 @@ class CredentialStoreTool implements Tool {
             { authUrl, tokenUrl, scopes, clientId, extraParams, userinfoUrl },
             {
               openUrl: (url) => {
-                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` } as any);
+                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
               },
             },
           );

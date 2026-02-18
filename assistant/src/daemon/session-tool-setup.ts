@@ -97,7 +97,7 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
-      sendToClient: (msg) => ctx.sendToClient(msg as any),
+      sendToClient: (msg) => ctx.sendToClient(msg as unknown as ServerMessage),
       isInteractive: !ctx.hasNoClient,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       requestSecret: async (params) => {

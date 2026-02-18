@@ -241,7 +241,7 @@ describe('host_bash — baseline: no sandbox isolation', () => {
 
 describe('host_bash — regression: no proxied-mode additions', () => {
   const definition = hostShellTool.getDefinition();
-  const schemaProps = (definition.input_schema as any).properties as Record<string, unknown>;
+  const schemaProps = (definition.input_schema as Record<string, unknown>).properties as Record<string, unknown>;
 
   test('schema does not include network_mode property', () => {
     expect(schemaProps).not.toHaveProperty('network_mode');
@@ -300,6 +300,6 @@ describe('host_bash — regression: no proxied-mode additions', () => {
   });
 
   test('required fields only contains command', () => {
-    expect((definition.input_schema as any).required).toEqual(['command']);
+    expect((definition.input_schema as Record<string, unknown>).required).toEqual(['command']);
   });
 });

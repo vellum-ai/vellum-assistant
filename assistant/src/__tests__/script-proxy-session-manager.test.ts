@@ -7,7 +7,6 @@ import {
   getActiveSession,
   getSessionsForConversation,
   stopAllSessions,
-  type ProxySession,
 } from '../tools/network/script-proxy/index.js';
 
 afterEach(async () => {

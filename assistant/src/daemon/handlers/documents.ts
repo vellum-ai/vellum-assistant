@@ -1,5 +1,7 @@
 import type { HandlerContext } from './shared.js';
+import type { ServerMessage } from '../ipc-protocol.js';
 import type * as net from 'node:net';
+import type { Database } from 'bun:sqlite';
 import { getDb } from '../../memory/db.js';
 
 import { writeFileSync } from 'node:fs';
@@ -35,7 +37,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 
   try {
     writeFileSync('/tmp/document-save-debug.log', logMsg, { flag: 'a' });
-  } catch (e) {
+  } catch {
     // Ignore logging errors
   }
 
@@ -51,7 +53,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Getting db...\n`, { flag: 'a' });
     const db = getDb();
     // Get the raw SQLite client from Drizzle
-    const sqlite = (db as any).$client;
+    const sqlite = (db as unknown as { $client: Database }).$client;
     const now = Date.now();
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Running sqlite.run()...\n`, { flag: 'a' });
@@ -72,7 +74,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: true,
-    } as any);
+    } as unknown as ServerMessage);
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Response sent successfully\n`, { flag: 'a' });
 
@@ -84,14 +86,14 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       surfaceId: msg.surfaceId,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    } as any);
+    } as unknown as ServerMessage);
   }
 }
 
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
-    const sqlite = (db as any).$client;
+    const sqlite = (db as unknown as { $client: Database }).$client;
 
     const result = sqlite.prepare(/*sql*/ `
       SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
@@ -118,7 +120,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         createdAt: result.created_at,
         updatedAt: result.updated_at,
         success: true,
-      } as any);
+      } as unknown as ServerMessage);
       console.log(`[documents] Loaded document: ${msg.surfaceId}`);
     } else {
       ctx.send(socket, {
@@ -132,7 +134,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         updatedAt: 0,
         success: false,
         error: 'Document not found',
-      } as any);
+      } as unknown as ServerMessage);
       console.log(`[documents] Document not found: ${msg.surfaceId}`);
     }
   } catch (error) {
@@ -148,14 +150,14 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
       updatedAt: 0,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    } as any);
+    } as unknown as ServerMessage);
   }
 }
 
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
-    const sqlite = (db as any).$client;
+    const sqlite = (db as unknown as { $client: Database }).$client;
 
     let query = /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
@@ -189,7 +191,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
-    } as any);
+    } as unknown as ServerMessage);
 
     console.log(`[documents] Listed ${results.length} documents`);
   } catch (error) {
@@ -197,6 +199,6 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
     ctx.send(socket, {
       type: 'document_list_response',
       documents: [],
-    } as any);
+    } as unknown as ServerMessage);
   }
 }

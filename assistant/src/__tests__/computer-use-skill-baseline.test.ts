@@ -9,8 +9,6 @@ import {
 import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
 import {
   COMPUTER_USE_TOOL_NAMES,
-  COMPUTER_USE_TOOL_COUNT,
-  assertComputerUseToolsPresent,
   assertComputerUseToolsAbsent,
 } from './test-support/computer-use-skill-harness.js';
 

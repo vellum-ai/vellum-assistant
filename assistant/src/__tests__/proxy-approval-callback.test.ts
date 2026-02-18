@@ -96,7 +96,7 @@ describe('createProxyApprovalCallback', () => {
   test('returns true when user allows an ask_missing_credential request', async () => {
     const ctx = makeContext();
 
-    let resolvePrompt: ((v: { decision: string; selectedPattern?: string; selectedScope?: string }) => void) | null = null;
+    const _resolvePrompt: ((v: { decision: string; selectedPattern?: string; selectedScope?: string }) => void) | null = null;
     const prompterSendToClient = mock(() => {});
     const prompter = new PermissionPrompter(prompterSendToClient);
 
@@ -106,7 +106,7 @@ describe('createProxyApprovalCallback', () => {
       const p = originalPrompt(...args);
       // Find the pending request and resolve it
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
@@ -128,7 +128,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'deny');
       return p;
@@ -204,7 +204,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
@@ -227,7 +227,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'always_allow', 'proxy:api.fal.ai', '/tmp/test-project');
       return p;
@@ -256,7 +256,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'always_deny', 'proxy:example.com', 'everywhere');
       return p;
@@ -283,7 +283,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; toolName: string; input: Record<string, unknown> };
       // Verify the confirmation request has the right tool name
       expect(msg.toolName).toBe('proxy:missing_credential');
@@ -306,7 +306,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; toolName: string; input: Record<string, unknown>; riskLevel: string };
       expect(msg.toolName).toBe('proxy:unauthenticated');
       expect(msg.input).toHaveProperty('hostname', 'example.com');
@@ -328,7 +328,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; riskLevel: string };
       // Missing credential prompts are high risk — the target wants auth
       expect(msg.riskLevel).toBe('high');
@@ -349,7 +349,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string }> };
       // First option should include the port
       expect(msg.allowlistOptions[0].label).toBe('proxy:api.fal.ai:443');
@@ -370,7 +370,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string }> };
       // Port is null — label should not include ":null"
       expect(msg.allowlistOptions[0].label).toBe('proxy:example.com');
@@ -396,7 +396,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'always_allow_high_risk', 'proxy:api.fal.ai', '/tmp/test-project');
       return p;
@@ -425,7 +425,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
@@ -448,7 +448,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       prompter.resolveConfirmation(msg.requestId, 'deny');
       return p;
@@ -470,7 +470,7 @@ describe('createProxyApprovalCallback', () => {
     prompter.prompt = async (...args) => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
-      const call = (prompterSendToClient.mock.calls as any[])[0];
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
       // Resolve with always_allow but NO pattern/scope
       prompter.resolveConfirmation(msg.requestId, 'always_allow');

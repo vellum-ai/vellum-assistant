@@ -68,19 +68,19 @@ describe('computer-use skill end-state', () => {
 
   // ── Bundled Skill Catalog ────────────────────────────────────────
 
-  test('computer-use skill has exactly ' + COMPUTER_USE_TOOL_COUNT + ' tools in TOOLS.json', () => {
-    const { loadSkillCatalog } = require('../config/skills.js');
+  test('computer-use skill has exactly ' + COMPUTER_USE_TOOL_COUNT + ' tools in TOOLS.json', async () => {
+    const { loadSkillCatalog } = await import('../config/skills.js');
     const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s: any) => s.id === 'computer-use');
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
     expect(cuSkill).toBeDefined();
     expect(cuSkill!.toolManifest).toBeDefined();
     expect(cuSkill!.toolManifest!.toolCount).toBe(COMPUTER_USE_TOOL_COUNT);
   });
 
-  test('bundled skill tool names match expected computer_use_* names', () => {
-    const { loadSkillCatalog } = require('../config/skills.js');
+  test('bundled skill tool names match expected computer_use_* names', async () => {
+    const { loadSkillCatalog } = await import('../config/skills.js');
     const catalog = loadSkillCatalog();
-    const cuSkill = catalog.find((s: any) => s.id === 'computer-use');
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
     expect(cuSkill).toBeDefined();
     expect(cuSkill!.toolManifest).toBeDefined();
     const toolNames = new Set(cuSkill!.toolManifest!.toolNames);
