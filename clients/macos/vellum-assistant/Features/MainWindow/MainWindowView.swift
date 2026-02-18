@@ -706,6 +706,8 @@ struct MainWindowView: View {
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
+                Text(app.icon ?? "📱")
+                    .font(.system(size: 14))
                 Text(app.name)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
