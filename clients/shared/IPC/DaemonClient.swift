@@ -558,8 +558,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// allowing the connection to be marked as ready.
     /// If no token is configured, marks the connection as authenticated immediately.
     private func authenticateIfNeeded() async throws {
-        // Re-read from Keychain on each call to pick up runtime changes (mirrors hostname/port pattern)
+        // Re-read from Keychain on each call to pick up runtime changes (mirrors hostname/port pattern).
+        // Falls back to legacy UserDefaults key with one-time migration (same logic as DaemonConfig).
         let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: "daemon-token")
+            ?? DaemonConfig.migrateAuthToken()
         guard let token = tokenFromKeychain ?? config.authToken else {
             // No token configured — treat as unauthenticated (plain TCP, no handshake).
             isAuthenticated = true

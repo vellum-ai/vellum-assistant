@@ -35,7 +35,8 @@ public struct DaemonConfig {
 
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain, falling back to safe defaults.
     /// Reads: `daemon_hostname`, `daemon_port`, `daemon_tls_enabled` from UserDefaults;
-    /// reads auth token from Keychain via `APIKeyManager` (provider: `"daemon-token"`).
+    /// reads auth token from Keychain via `APIKeyManager` (provider: `"daemon-token"`),
+    /// with a one-time migration from the legacy `daemon_auth_token` UserDefaults key.
     public static func fromUserDefaults() -> DaemonConfig {
         // Treat empty string as nil to ensure fallback to "localhost"
         let hostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? "localhost"
@@ -43,8 +44,19 @@ public struct DaemonConfig {
         // Validate port is in valid UInt16 range (1-65535) before converting to avoid crash
         let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
         let tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        let authToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token")
+        let authToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? migrateAuthToken()
         return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken)
+    }
+
+    /// One-time migration: reads the legacy `daemon_auth_token` UserDefaults key, persists it
+    /// to Keychain, removes the old key, and returns the value. Returns nil if no legacy token exists.
+    static func migrateAuthToken() -> String? {
+        guard let legacy = UserDefaults.standard.string(forKey: "daemon_auth_token"), !legacy.isEmpty else {
+            return nil
+        }
+        _ = APIKeyManager.shared.setAPIKey(legacy, provider: "daemon-token")
+        UserDefaults.standard.removeObject(forKey: "daemon_auth_token")
+        return legacy
     }
     #else
     #error("Unsupported platform")
