@@ -36,7 +36,7 @@ const DEFAULT_CLIS = [
 const AUTH_CHECK_COMMANDS: Record<string, string[]> = {
   gh: ['gh', 'auth', 'status'],
   aws: ['aws', 'sts', 'get-caller-identity'],
-  gcloud: ['gcloud', 'auth', 'print-access-token'],
+  gcloud: ['gcloud', 'auth', 'list', '--filter=status:ACTIVE', '--format=value(account)'],
   az: ['az', 'account', 'show'],
   vercel: ['vercel', 'whoami'],
   netlify: ['netlify', 'status'],
