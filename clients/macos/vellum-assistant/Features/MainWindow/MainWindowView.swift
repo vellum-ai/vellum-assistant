@@ -277,9 +277,6 @@ struct MainWindowView: View {
                         VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 sidebarOpen.toggle()
-                                if sidebarOpen {
-                                    windowState.layoutConfig.left.visible = true
-                                }
                             }
                         }
                         Spacer()
@@ -300,13 +297,13 @@ struct MainWindowView: View {
                         // Left: Full-height sidebar (always rendered, width collapses to 0)
                         sidebarView
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
+                            .frame(width: sidebarOpen ? threadDrawerWidth : 0, alignment: .leading)
                             .clipped()
-                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
+                            .allowsHitTesting(sidebarOpen)
                             .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
                             .animation(nil, value: threadDrawerWidth)
 
-                        if sidebarOpen && windowState.layoutConfig.left.visible {
+                        if sidebarOpen {
                             drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                         }
 
@@ -415,6 +412,13 @@ struct MainWindowView: View {
             if !isOpen && showControlCenterDrawer {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     showControlCenterDrawer = false
+                }
+            }
+        }
+        .onChange(of: windowState.layoutConfig.left.visible) { _, visible in
+            if visible && !sidebarOpen {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    sidebarOpen = true
                 }
             }
         }
