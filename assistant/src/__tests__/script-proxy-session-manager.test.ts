@@ -13,6 +13,10 @@ mock.module('../tools/credentials/resolve.js', () => ({
   resolveForDomain: () => [],
 }));
 
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  listCredentialMetadata: () => [],
+}));
+
 // Stub ensureLocalCA so tests never run openssl
 mock.module('../tools/network/script-proxy/certs.js', () => ({
   ensureLocalCA: async () => {},

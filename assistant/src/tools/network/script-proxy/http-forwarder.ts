@@ -26,6 +26,7 @@ const HOP_BY_HOP = new Set([
  */
 export type PolicyCallback = (
   hostname: string,
+  port: number | null,
   path: string,
 ) => Promise<Record<string, string> | null>;
 
@@ -128,7 +129,7 @@ export function forwardHttpRequest(
   };
 
   if (policyCallback) {
-    policyCallback(hostname, path)
+    policyCallback(hostname, parsed.port ? Number(parsed.port) : null, path)
       .then((extraHeaders) => {
         if (extraHeaders === null) {
           clientRes.writeHead(403, { 'Content-Type': 'text/plain' });
