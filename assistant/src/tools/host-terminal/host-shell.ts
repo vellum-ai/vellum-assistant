@@ -60,6 +60,10 @@ class HostShellTool implements Tool {
             type: 'string',
             description: 'The host shell command to execute',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief human-readable explanation of what this command does and why, shown to the user in the permission prompt (e.g. "to find available location services")',
+          },
           working_dir: {
             type: 'string',
             description: 'Optional absolute host working directory (defaults to user home)',
