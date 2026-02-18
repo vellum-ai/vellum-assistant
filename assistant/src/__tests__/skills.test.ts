@@ -571,10 +571,27 @@ describe('bundled computer-use skill', () => {
     expect(cuSkill!.disableModelInvocation).toBe(true);
   });
 
-  test('computer-use skill has no tool manifest yet (skeleton only)', () => {
+  test('computer-use skill has a valid tool manifest with 12 tools', () => {
     const catalog = loadSkillCatalog();
     const cuSkill = catalog.find((s) => s.id === 'computer-use');
     expect(cuSkill).toBeDefined();
-    expect(cuSkill!.toolManifest).toBeUndefined();
+    expect(cuSkill!.toolManifest).toBeDefined();
+    expect(cuSkill!.toolManifest!.present).toBe(true);
+    expect(cuSkill!.toolManifest!.valid).toBe(true);
+    expect(cuSkill!.toolManifest!.toolCount).toBe(12);
+    expect(cuSkill!.toolManifest!.toolNames).toEqual([
+      'computer_use_click',
+      'computer_use_double_click',
+      'computer_use_right_click',
+      'computer_use_type_text',
+      'computer_use_key',
+      'computer_use_scroll',
+      'computer_use_drag',
+      'computer_use_wait',
+      'computer_use_open_app',
+      'computer_use_run_applescript',
+      'computer_use_done',
+      'computer_use_respond',
+    ]);
   });
 });
