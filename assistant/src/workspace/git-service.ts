@@ -171,9 +171,28 @@ export class WorkspaceGitService {
             // HEAD resolves — repo is fully initialized
             this.initialized = true;
             return;
-          } catch {
-            // HEAD doesn't resolve — no commits yet.
-            // Fall through to create the initial commit.
+          } catch (err: unknown) {
+            // Distinguish transient failures from genuine "no commits".
+            // Transient errors (timeouts, permissions, missing git binary)
+            // should NOT fall through to re-initialization — they will
+            // resolve on retry via the initPromise clearing logic.
+            const errMsg = err instanceof Error ? err.message : String(err);
+            const errAny = err as any;
+            const isTimeout = errAny.killed === true
+              || errAny.signal === 'SIGTERM'
+              || errMsg.includes('SIGTERM')
+              || errMsg.includes('timed out');
+            const isPermission = errAny.code === 'EACCES'
+              || errMsg.includes('EACCES')
+              || errMsg.toLowerCase().includes('permission denied');
+            const isMissingBinary = errAny.code === 'ENOENT'
+              || errMsg.includes('ENOENT');
+
+            if (isTimeout || isPermission || isMissingBinary) {
+              throw err;
+            }
+            // Genuine "no commits" (unborn HEAD) — fall through to
+            // create the initial commit.
           }
         }
         // Otherwise fall through to reinitialize / create initial commit
