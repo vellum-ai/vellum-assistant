@@ -1842,6 +1842,111 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   line-height: 1;
 }
 
+/* ── Action Bar — sticky bulk-action bar for multi-select UIs ── */
+.v-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  gap: var(--v-spacing-md);
+  padding: var(--v-spacing-sm) var(--v-spacing-lg);
+  background: var(--v-surface);
+  border-bottom: 1px solid var(--v-surface-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.v-action-bar.visible {
+  display: flex;
+}
+.v-action-bar-count {
+  font-size: var(--v-font-size-sm);
+  font-weight: 600;
+  color: var(--v-accent);
+  white-space: nowrap;
+}
+.v-action-bar-buttons {
+  display: flex;
+  gap: var(--v-spacing-sm);
+  margin-left: auto;
+}
+
+/* ── Action Progress — inline progress bar during bulk ops ───── */
+.v-action-progress {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--v-radius-pill);
+  background: var(--v-surface-border);
+  overflow: hidden;
+}
+.v-action-progress::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: var(--v-accent);
+  border-radius: var(--v-radius-pill);
+  transition: width 0.3s ease-out;
+}
+
+/* ── Group Header — collapsible section with checkbox + chevron ─ */
+.v-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--v-spacing-sm);
+  padding: var(--v-spacing-sm) var(--v-spacing-md);
+  background: color-mix(in srgb, var(--v-surface) 60%, transparent);
+  border-radius: var(--v-radius-md);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background var(--v-duration-fast) ease-out;
+}
+.v-group-header:hover {
+  background: var(--v-surface);
+}
+.v-group-header .v-group-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: var(--v-font-size-base);
+  color: var(--v-text);
+}
+.v-group-header .v-group-count {
+  font-size: var(--v-font-size-sm);
+  color: var(--v-text-muted);
+}
+.v-group-header .v-group-chevron {
+  font-size: 12px;
+  color: var(--v-text-muted);
+  transition: transform var(--v-duration-fast) ease-out;
+}
+.v-group-header[aria-expanded="true"] .v-group-chevron {
+  transform: rotate(90deg);
+}
+
+/* ── Group Body — indented container for group items ─────────── */
+.v-group-body {
+  padding-left: var(--v-spacing-xl);
+  overflow: hidden;
+}
+
+/* ── Row Removing — fade-out + slide animation for processed items */
+.v-row-removing {
+  opacity: 0;
+  transform: translateX(20px);
+  max-height: 0;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  overflow: hidden;
+  transition: opacity 0.25s ease-out,
+              transform 0.25s ease-out,
+              max-height 0.3s 0.1s ease-out,
+              padding 0.3s 0.1s ease-out,
+              margin 0.3s 0.1s ease-out;
+}
+
 } /* end @layer vellum-design-system */
 
 /* ── Built on Vellum — auto-injected branding badge ────────────

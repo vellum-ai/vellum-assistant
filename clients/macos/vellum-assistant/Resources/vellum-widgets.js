@@ -658,5 +658,178 @@
     update();
   };
 
+  /**
+   * Wire grouped multi-select: per-group expand/collapse, per-group
+   * select-all checkbox, and auto-show/hide of an action bar.
+   * Unlike multiSelect, this does NOT auto-send on every checkbox change.
+   * Explicit action buttons should call sendAction with collected IDs.
+   * @param {string} containerId - ID of the container element
+   * @param {object} [options]
+   * @param {string} [options.actionBarId] - ID of the .v-action-bar element
+   * @param {string} [options.countId] - ID of the .v-action-bar-count element
+   */
+  widgets.groupedSelect = function (containerId, options) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+
+    var opts = Object.assign({}, options);
+    var actionBar = opts.actionBarId ? document.getElementById(opts.actionBarId) : null;
+    var countEl = opts.countId ? document.getElementById(opts.countId) : null;
+
+    function getSelectedIds() {
+      var ids = [];
+      var checkboxes = container.querySelectorAll('.v-group-body input[type="checkbox"]');
+      checkboxes.forEach(function (cb) {
+        if (cb.checked) {
+          var row = cb.closest('[data-id]');
+          if (row) ids.push(row.getAttribute('data-id'));
+        }
+      });
+      return ids;
+    }
+
+    function updateActionBar() {
+      var ids = getSelectedIds();
+      if (actionBar) {
+        if (ids.length > 0) {
+          actionBar.classList.add('visible');
+        } else {
+          actionBar.classList.remove('visible');
+        }
+      }
+      if (countEl) {
+        countEl.textContent = ids.length + ' selected';
+      }
+    }
+
+    function updateGroupCheckbox(header) {
+      var groupCb = header.querySelector('input[type="checkbox"]');
+      if (!groupCb) return;
+      var body = header.nextElementSibling;
+      if (!body || !body.classList.contains('v-group-body')) return;
+      var itemCbs = body.querySelectorAll('input[type="checkbox"]');
+      var total = itemCbs.length;
+      var checked = Array.prototype.filter.call(itemCbs, function (cb) { return cb.checked; }).length;
+      groupCb.checked = checked === total && total > 0;
+      groupCb.indeterminate = checked > 0 && checked < total;
+    }
+
+    // Wire group headers: expand/collapse and select-all
+    var headers = container.querySelectorAll('.v-group-header');
+    headers.forEach(function (header) {
+      var body = header.nextElementSibling;
+      if (!body || !body.classList.contains('v-group-body')) return;
+
+      // Expand/collapse on header click (but not on checkbox)
+      header.addEventListener('click', function (e) {
+        if (e.target.tagName === 'INPUT') return;
+        var expanded = header.getAttribute('aria-expanded') !== 'false';
+        header.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        body.style.display = expanded ? 'none' : '';
+      });
+
+      // Group select-all checkbox
+      var groupCb = header.querySelector('input[type="checkbox"]');
+      if (groupCb) {
+        groupCb.addEventListener('change', function (e) {
+          e.stopPropagation();
+          var itemCbs = body.querySelectorAll('input[type="checkbox"]');
+          itemCbs.forEach(function (cb) { cb.checked = groupCb.checked; });
+          updateActionBar();
+        });
+      }
+
+      // Individual item checkboxes
+      var itemCbs = body.querySelectorAll('input[type="checkbox"]');
+      itemCbs.forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          updateGroupCheckbox(header);
+          updateActionBar();
+        });
+      });
+
+      // Initialize expand state
+      if (header.getAttribute('aria-expanded') === null) {
+        header.setAttribute('aria-expanded', 'true');
+      }
+      if (header.getAttribute('aria-expanded') === 'false') {
+        body.style.display = 'none';
+      }
+    });
+
+    // Expose helper to get selected IDs from action button click handlers
+    container._getSelectedIds = getSelectedIds;
+  };
+
+  /**
+   * Animate removal of processed items and auto-clean empty groups.
+   * @param {string[]} ids - Array of data-id values to remove
+   * @param {string} containerId - ID of the container element
+   * @param {function} [onComplete] - Called after all items are removed from DOM
+   */
+  widgets.removeItems = function (ids, containerId, onComplete) {
+    var container = document.getElementById(containerId);
+    if (!container || !ids || !ids.length) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    var elements = [];
+    ids.forEach(function (id) {
+      var el = container.querySelector('[data-id="' + id + '"]');
+      if (el) elements.push(el);
+    });
+
+    if (!elements.length) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    // Capture current heights before animation for smooth collapse
+    elements.forEach(function (el) {
+      el.style.maxHeight = el.offsetHeight + 'px';
+    });
+
+    // Force reflow then add removing class
+    void container.offsetHeight;
+    elements.forEach(function (el) {
+      el.classList.add('v-row-removing');
+    });
+
+    // After animation completes, remove from DOM and clean empty groups
+    setTimeout(function () {
+      elements.forEach(function (el) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
+
+      // Auto-clean empty groups
+      var headers = container.querySelectorAll('.v-group-header');
+      headers.forEach(function (header) {
+        var body = header.nextElementSibling;
+        if (body && body.classList.contains('v-group-body')) {
+          var remaining = body.querySelectorAll('[data-id]');
+          if (remaining.length === 0) {
+            if (header.parentNode) header.parentNode.removeChild(header);
+            if (body.parentNode) body.parentNode.removeChild(body);
+          }
+        }
+      });
+
+      // Update action bar if groupedSelect was wired
+      if (container._getSelectedIds) {
+        var actionBar = container.closest('body') ?
+          document.querySelector('.v-action-bar') : null;
+        if (actionBar) {
+          var remaining = container._getSelectedIds();
+          if (remaining.length === 0) {
+            actionBar.classList.remove('visible');
+          }
+        }
+      }
+
+      if (onComplete) onComplete();
+    }, 400);
+  };
+
   window.vellum.widgets = widgets;
 })();

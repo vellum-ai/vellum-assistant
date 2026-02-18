@@ -110,6 +110,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
+  parts.push(buildActionableUiSection());
   parts.push(buildDocumentCreationSection());
   parts.push(buildStarterTaskPlaybookSection());
   parts.push(buildToolPermissionSection());
@@ -197,6 +198,7 @@ function buildDynamicUiSection(): string {
     'Layout: `.v-card`, `.v-card-grid`, `.v-metric-card`, `.v-metric-grid`, `.v-data-table`, `.v-stat-row`, `.v-tabs`, `.v-accordion`, `.v-timeline`, `.v-divider`, `.v-page`, `.v-hero`, `.v-section-header`, `.v-pullquote`, `.v-comparison`, `.v-feature-grid`, `.v-feature-card`, `.v-gradient-text`, `.v-animate-in`.',
     'Domain: `.v-flight-card`, `.v-weather-card`, `.v-stock-ticker`, `.v-billing-chart`, `.v-itinerary`, `.v-boarding-pass`, `.v-receipt`, `.v-invoice`.',
     'UI: `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-badge`, `.v-status-badge` (`.success`/`.error`/`.warning`), `.v-progress-bar`, `.v-search-bar`, `.v-empty-state`, `.v-action-list`.',
+    'Action UI: `.v-action-bar` (`.v-action-bar-count`, `.v-action-bar-buttons`), `.v-action-progress`, `.v-group-header`, `.v-group-body`, `.v-row-removing`.',
     '',
     '### Widget JS APIs',
     '```',
@@ -209,6 +211,8 @@ function buildDynamicUiSection(): string {
     'vellum.openExternal(url)           — open URL in default browser',
     'vellum.openLink(url, metadata?)    — open URL in user\'s browser (works everywhere incl. shared apps)',
     'vellum.sendAction(actionId, data)  — send interaction back to assistant',
+    'vellum.widgets.groupedSelect(containerId, {actionBarId?, countId?})  — wire grouped multi-select with action bar',
+    'vellum.widgets.removeItems(ids, containerId, onComplete?)  — animate-remove processed items, auto-clean empty groups',
     '```',
     '',
     '### Home Base interaction prompts',
@@ -258,6 +262,61 @@ function buildDynamicUiSection(): string {
     '- **Data review/selection**: Use a `table` surface with selectable rows',
     '',
     'Interactive surfaces provide a better user experience than asking your user to type their choice. Only fall back to plain text when the interaction is conversational or doesn\'t fit a structured format.',
+  ].join('\n');
+}
+
+function buildActionableUiSection(): string {
+  return [
+    '## Actionable UI',
+    '',
+    '### When to use',
+    'When the user wants to triage, manage, or bulk-act on a collection of items (emails, files, notifications, tasks, subscriptions, contacts), generate an interactive UI that lets them review, select, and act on items directly.',
+    '',
+    '### Pattern',
+    '1. **Fetch data** — use the relevant tools to gather the items (e.g. `gmail_search`, file listing, etc.)',
+    '2. **Generate interactive UI** — render a `dynamic_page` with selectable items and action buttons',
+    '3. **User selects + clicks action** — the UI sends a `surfaceAction` with an action ID and selected item IDs',
+    '4. **Execute tools** — parse the action, call the appropriate tools (e.g. `gmail_batch_archive`, `gmail_unsubscribe`)',
+    '5. **Update UI** — use `ui_update` to remove processed items and show feedback via `widgets.toast()`',
+    '',
+    '### HTML structure',
+    'Choose the best layout for the data. Pick whatever fits the context:',
+    '- Grouped cards with checkboxes (e.g. email senders with message counts)',
+    '- Data tables with selectable rows (e.g. file listings)',
+    '- Kanban-style columns (e.g. triage into categories)',
+    '- Stacked list items with inline action buttons (e.g. notification feed)',
+    '- Any creative layout that makes sense for the data',
+    '',
+    'The key constraint: items must be selectable and action buttons must call `sendAction` with the selected item IDs.',
+    '',
+    '### CSS building blocks',
+    '- `.v-action-bar` — sticky bar at top, auto-hidden when nothing selected. Contains `.v-action-bar-count` ("N selected" label) and `.v-action-bar-buttons` (action button container)',
+    '- `.v-action-progress` — inline progress bar that replaces the action bar during bulk operations',
+    '- `.v-group-header` — collapsible section header with checkbox, title, count badge, and chevron',
+    '- `.v-group-body` — indented container for group items',
+    '- `.v-row-removing` — fade-out + slide animation class for processed items',
+    '',
+    '### Action data conventions',
+    '- Use semantic action IDs: `archive`, `unsubscribe`, `delete`, `move`, `mark_read`, etc.',
+    '- Always include selected item IDs: `sendAction("archive", { ids: ["msg_1", "msg_2"] })`',
+    '- For actions needing extra context, include it: `sendAction("move", { ids: [...], destination: "folder" })`',
+    '',
+    '### Processing flow',
+    '1. Parse the `surfaceAction` to get the action ID and data',
+    '2. Use `vellum.confirm(title, message)` for destructive actions (delete, unsubscribe) before executing',
+    '3. Call the relevant tools with the item IDs',
+    '4. Use `ui_update` to update the surface HTML (remove processed items, update counts)',
+    '5. Show `widgets.toast()` for feedback: success count, partial failure info',
+    '',
+    '### Error handling',
+    '- Handle partial failures: if 8 of 10 items succeed, remove the 8 successful ones and toast "Archived 8 items. 2 failed — try again."',
+    '- Keep failed items visible and selectable so the user can retry',
+    '',
+    '### Surface lifecycle',
+    '- Use `ui_show` with `display: "panel"` to keep the surface open alongside chat',
+    '- The surface stays alive for multiple action rounds (select → act → select more → act again)',
+    '- Use `widgets.groupedSelect()` to wire up grouped multi-select with action bar auto-show/hide',
+    '- Use `widgets.removeItems()` to animate processed items out and auto-clean empty groups',
   ].join('\n');
 }
 
