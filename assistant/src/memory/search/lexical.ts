@@ -216,6 +216,11 @@ export function escapeSqlLike(s: string): string {
   return s.replace(/'/g, "''").replace(/%/g, '').replace(/_/g, '');
 }
 
+/** Escape only LIKE wildcards (% and _) for use with parameterized queries where the driver handles quoting. */
+export function escapeLikeWildcards(s: string): string {
+  return s.replace(/%/g, '').replace(/_/g, '');
+}
+
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;
