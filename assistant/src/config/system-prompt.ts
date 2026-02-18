@@ -729,6 +729,9 @@ function buildDynamicSkillWorkflowSection(): string {
     '- If evaluation fails after 3 attempts, summarize the failure and ask your user for guidance instead of continuing to retry.',
     '- After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
     '- To remove a managed skill, use `delete_managed_skill`.',
+    '',
+    '### Browser Skill Prerequisite',
+    'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
   ].join('\n');
 }
 

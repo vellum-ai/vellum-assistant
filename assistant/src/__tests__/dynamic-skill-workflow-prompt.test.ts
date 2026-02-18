@@ -121,4 +121,12 @@ describe('Dynamic Skill Authoring Workflow prompt section', () => {
     const result = buildSystemPrompt();
     expect(result).toContain('skill_load');
   });
+
+  test('system prompt includes browser skill prerequisite guidance', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    const result = buildSystemPrompt();
+    expect(result).toContain('Browser Skill Prerequisite');
+    expect(result).toContain('browser_*');
+    expect(result).toContain('skill_load');
+  });
 });
