@@ -109,7 +109,7 @@ export class ToolExecutor {
       if (
         context.forcePromptSideEffects
         && result.decision === 'allow'
-        && isSideEffectTool(name)
+        && isSideEffectTool(name, input)
       ) {
         result.decision = 'prompt';
         result.reason = 'Private thread: side-effect tools require explicit approval';
@@ -536,15 +536,33 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'browser_press_key',
   'browser_close',
   'browser_fill_credential',
+  'document_create',
+  'document_update',
 ]);
 
 /**
  * Returns `true` if the given tool name is classified as having side effects
  * (i.e. it can modify the filesystem, execute arbitrary commands, or trigger
  * external actions). Read-only and informational tools return `false`.
+ *
+ * For mixed-action tools (e.g. account_manage, reminder), the optional
+ * `input` parameter is inspected to distinguish mutating actions (create,
+ * update, cancel) from read-only ones (list, get).
  */
-export function isSideEffectTool(toolName: string): boolean {
-  return SIDE_EFFECT_TOOLS.has(toolName);
+export function isSideEffectTool(toolName: string, input?: Record<string, unknown>): boolean {
+  if (SIDE_EFFECT_TOOLS.has(toolName)) return true;
+
+  // Action-aware checks for mixed-action tools
+  if (toolName === 'account_manage') {
+    const action = input?.action;
+    return action === 'create' || action === 'update';
+  }
+  if (toolName === 'reminder') {
+    const action = input?.action;
+    return action === 'create' || action === 'cancel';
+  }
+
+  return false;
 }
 
 const TIMEOUT_SENTINEL = Symbol('tool-timeout');
