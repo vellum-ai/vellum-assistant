@@ -364,6 +364,31 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
 
+                // PRIVATE THREAD section
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("PRIVATE THREAD")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("New Private Thread")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("Private threads are excluded from memory and never appear in your thread history")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "New Thread", style: .primary) {
+                            threadManager.createPrivateThread()
+                            onClose()
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+
                 // ARCHIVED THREADS section
                 if !threadManager.archivedThreads.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
