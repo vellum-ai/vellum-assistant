@@ -56,7 +56,7 @@ final class ImageMIMEProbe {
             }
             result = contentType.hasPrefix("image/") ? .image : .notImage
         } catch {
-            result = .unknown
+            return .unknown  // Don't cache — allow retry on transient failures
         }
 
         cache.setObject(CacheEntry(result), forKey: key)
