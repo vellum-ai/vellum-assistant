@@ -56,6 +56,13 @@ final class DomainAllowlistMatcherTests: XCTestCase {
         XCTAssertFalse(DomainAllowlistMatcher.isAllowed(url, allowedDomains: ["youtube.com"]))
     }
 
+    // MARK: - Mixed-case scheme
+
+    func testMixedCaseSchemeIsAccepted() {
+        let url = URL(string: "HTTPS://www.youtube.com/watch?v=abc")!
+        XCTAssertTrue(DomainAllowlistMatcher.isAllowed(url, allowedDomains: ["youtube.com"]))
+    }
+
     // MARK: - URL with no host
 
     func testNoHostReturnsFalse() {
