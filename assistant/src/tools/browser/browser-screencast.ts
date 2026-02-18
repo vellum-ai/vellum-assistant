@@ -14,6 +14,7 @@ const sessionSenders = new Map<string, (msg: ServerMessage) => void>();
  */
 export function registerSessionSender(sessionId: string, sendToClient: (msg: ServerMessage) => void): void {
   sessionSenders.set(sessionId, sendToClient);
+  browserManager.registerSender(sessionId, sendToClient as (msg: { type: string; sessionId: string }) => void);
 }
 
 /**
@@ -21,6 +22,7 @@ export function registerSessionSender(sessionId: string, sendToClient: (msg: Ser
  */
 export function unregisterSessionSender(sessionId: string): void {
   sessionSenders.delete(sessionId);
+  browserManager.unregisterSender(sessionId);
 }
 
 function getSender(sessionId: string): ((msg: ServerMessage) => void) | undefined {

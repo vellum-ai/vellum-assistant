@@ -101,9 +101,18 @@ class BrowserManager {
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
+  private sessionSenders = new Map<string, (msg: { type: string; sessionId: string }) => void>();
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
+  }
+
+  registerSender(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): void {
+    this.sessionSenders.set(sessionId, sendToClient);
+  }
+
+  unregisterSender(sessionId: string): void {
+    this.sessionSenders.delete(sessionId);
   }
 
   setBrowserMode(mode: 'headless' | 'cdp', cdpUrl?: string): void {
@@ -171,6 +180,32 @@ class BrowserManager {
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
+      // If not already in CDP mode, try to detect or negotiate CDP
+      if (this._browserMode !== 'cdp') {
+        const cdpAvailable = await this.detectCDP();
+        if (cdpAvailable) {
+          this.setBrowserMode('cdp');
+        } else {
+          // Try requesting Chrome restart from the client
+          const [sessionId, sender] = this.sessionSenders.entries().next().value ?? [];
+          if (sessionId && sender) {
+            log.info({ sessionId }, 'Requesting CDP from client');
+            const accepted = await this.requestCDPFromClient(sessionId, sender);
+            if (accepted) {
+              // Verify CDP is now available after client confirmed restart
+              const nowAvailable = await this.detectCDP();
+              if (nowAvailable) {
+                this.setBrowserMode('cdp');
+              } else {
+                log.warn('Client accepted CDP request but CDP not detected, falling back to headless');
+              }
+            } else {
+              log.info('Client declined CDP request, falling back to headless');
+            }
+          }
+        }
+      }
+
       if (this._browserMode === 'cdp') {
         const pw = await import('playwright');
         const browser = await pw.chromium.connectOverCDP(this.cdpUrl);
