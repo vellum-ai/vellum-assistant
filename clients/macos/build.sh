@@ -218,9 +218,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>Vellum</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>CFBundleDisplayName</key>
-    <string>Vellum</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
