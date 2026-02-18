@@ -567,6 +567,7 @@ export async function searchMemoryItems(
   limit: number,
   config: AssistantConfig,
   scopeId?: string,
+  scopePolicyOverride?: ScopePolicyOverride,
 ): Promise<MemorySearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
@@ -592,6 +593,7 @@ export async function searchMemoryItems(
     provider,
     model,
     scopeId,
+    scopePolicyOverride,
   });
   const merged = result.merged;
 

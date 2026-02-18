@@ -7,6 +7,7 @@ import { getDb } from '../../memory/db.js';
 import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { searchMemoryItems, formatRelativeTime } from '../../memory/retriever.js';
+import type { ScopePolicyOverride } from '../../memory/search/types.js';
 import type { ToolExecutionResult } from '../types.js';
 
 const log = getLogger('memory-tools');
@@ -27,8 +28,14 @@ export async function handleMemorySearch(
     ? Math.min(args.limit, 20)
     : 5;
 
+  // Private threads should always fall back to default scope for search
+  const scopePolicyOverride: ScopePolicyOverride | undefined =
+    scopeId && scopeId.startsWith('private:')
+      ? { scopeId, fallbackToDefault: true }
+      : undefined;
+
   try {
-    const results = await searchMemoryItems(query, limit, config, scopeId);
+    const results = await searchMemoryItems(query, limit, config, scopeId, scopePolicyOverride);
 
     if (results.length === 0) {
       return { content: 'No matching memories found.', isError: false };
