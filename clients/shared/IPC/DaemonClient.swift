@@ -186,6 +186,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `apps_list_response` message.
     public var onAppsListResponse: ((AppsListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `app_preview_response` message.
+    public var onAppPreviewResponse: ((AppPreviewResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `home_base_get_response` message.
     public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
 
@@ -924,6 +927,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(AppsListRequestMessage())
     }
 
+    /// Request a single app's preview screenshot.
+    public func sendAppPreview(appId: String) throws {
+        try send(AppPreviewRequestMessage(type: "app_preview_request", appId: appId))
+    }
+
     /// Request Home Base metadata from the daemon.
     public func sendHomeBaseGet(ensureLinked: Bool = true) throws {
         try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
@@ -1294,6 +1302,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onHomeBaseGetResponse?(msg)
         case .appUpdatePreviewResponse:
             break // Fire-and-forget; no callback needed
+        case .appPreviewResponse(let msg):
+            onAppPreviewResponse?(msg)
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):

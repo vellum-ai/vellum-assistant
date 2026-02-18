@@ -195,8 +195,13 @@ export function createApp(params: {
   mkdirSync(appDir, { recursive: true });
   writeFileSync(join(appDir, 'index.html'), params.htmlDefinition, 'utf-8');
 
-  // Strip htmlDefinition and pages from the JSON file — only store metadata
-  const { htmlDefinition: _html, pages: _pages, ...jsonDef } = app;
+  // Write preview to companion file to keep the JSON small
+  if (params.preview) {
+    writeFileSync(join(dir, `${app.id}.preview`), params.preview, 'utf-8');
+  }
+
+  // Strip htmlDefinition, pages, and preview from the JSON file — only store metadata
+  const { htmlDefinition: _html, pages: _pages, preview: _preview, ...jsonDef } = app;
   writeFileSync(join(dir, `${app.id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Persist additional pages as separate files
@@ -210,16 +215,34 @@ export function createApp(params: {
 
 export function getApp(id: string): AppDefinition | null {
   validateId(id);
-  const filePath = join(getAppsDir(), `${id}.json`);
+  const dir = getAppsDir();
+  const filePath = join(dir, `${id}.json`);
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, 'utf-8');
   const app = JSON.parse(raw) as AppDefinition;
 
   // Read htmlDefinition from {appId}/index.html on disk
-  const indexPath = join(getAppsDir(), id, 'index.html');
+  const indexPath = join(dir, id, 'index.html');
   app.htmlDefinition = existsSync(indexPath)
     ? readFileSync(indexPath, 'utf-8')
     : (app.htmlDefinition ?? '');
+
+  // Migrate inline preview to companion file if present
+  if (app.preview) {
+    const previewPath = join(dir, `${id}.preview`);
+    if (!existsSync(previewPath)) {
+      writeFileSync(previewPath, app.preview, 'utf-8');
+    }
+    // Rewrite JSON without preview
+    const { preview: _p, ...clean } = JSON.parse(raw);
+    writeFileSync(filePath, JSON.stringify(clean, null, 2));
+  }
+
+  // Load preview from companion file
+  const previewPath = join(dir, `${id}.preview`);
+  if (existsSync(previewPath)) {
+    app.preview = readFileSync(previewPath, 'utf-8');
+  }
 
   // Load pages from disk
   const pages = loadPages(id);
@@ -228,6 +251,29 @@ export function getApp(id: string): AppDefinition | null {
   }
 
   return app;
+}
+
+/**
+ * Load just the preview data for an app without reading the full definition.
+ * Returns the base64 preview string or null if not available.
+ */
+export function getAppPreview(id: string): string | null {
+  validateId(id);
+  const dir = getAppsDir();
+  const previewPath = join(dir, `${id}.preview`);
+  if (existsSync(previewPath)) {
+    return readFileSync(previewPath, 'utf-8');
+  }
+  // Fallback: check if preview is still inline in JSON (pre-migration)
+  const jsonPath = join(dir, `${id}.json`);
+  if (!existsSync(jsonPath)) return null;
+  try {
+    const raw = readFileSync(jsonPath, 'utf-8');
+    const app = JSON.parse(raw);
+    return app.preview ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function listApps(): AppDefinition[] {
@@ -239,7 +285,22 @@ export function listApps(): AppDefinition[] {
     const filePath = join(dir, entry);
     try {
       const raw = readFileSync(filePath, 'utf-8');
-      apps.push(JSON.parse(raw) as AppDefinition);
+      const app = JSON.parse(raw) as AppDefinition;
+
+      // Lazy migration: extract inline preview to companion file
+      if (app.preview) {
+        const id = entry.replace('.json', '');
+        const previewPath = join(dir, `${id}.preview`);
+        if (!existsSync(previewPath)) {
+          writeFileSync(previewPath, app.preview, 'utf-8');
+        }
+        // Rewrite JSON without preview so future reads are fast
+        const { preview: _p, ...clean } = app;
+        writeFileSync(filePath, JSON.stringify(clean, null, 2));
+        delete app.preview;
+      }
+
+      apps.push(app);
     } catch {
       // skip malformed files
     }
@@ -263,8 +324,8 @@ export function updateApp(
     }
   }
 
-  // Extract pages and htmlDefinition before spreading into the JSON-persisted definition
-  const { pages, htmlDefinition: htmlUpdate, ...jsonUpdates } = updates;
+  // Extract pages, htmlDefinition, and preview before spreading into the JSON-persisted definition
+  const { pages, htmlDefinition: htmlUpdate, preview: previewUpdate, ...jsonUpdates } = updates;
 
   const updated: AppDefinition = {
     ...existing,
@@ -273,7 +334,8 @@ export function updateApp(
   };
 
   // Write htmlDefinition to {appId}/index.html if provided in updates
-  const appDir = join(getAppsDir(), id);
+  const dir = getAppsDir();
+  const appDir = join(dir, id);
   if (htmlUpdate !== undefined) {
     updated.htmlDefinition = htmlUpdate;
     mkdirSync(appDir, { recursive: true });
@@ -285,9 +347,15 @@ export function updateApp(
     writeFileSync(join(appDir, 'index.html'), updated.htmlDefinition, 'utf-8');
   }
 
-  // Don't persist htmlDefinition or pages in the JSON file — they live as separate files
-  const { pages: _existingPages, htmlDefinition: _html, ...jsonDef } = updated;
-  writeFileSync(join(getAppsDir(), `${id}.json`), JSON.stringify(jsonDef, null, 2));
+  // Write preview to companion file
+  if (previewUpdate !== undefined) {
+    updated.preview = previewUpdate;
+    writeFileSync(join(dir, `${id}.preview`), previewUpdate, 'utf-8');
+  }
+
+  // Don't persist htmlDefinition, pages, or preview in the JSON file — they live as separate files
+  const { pages: _existingPages, htmlDefinition: _html, preview: _preview, ...jsonDef } = updated;
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify(jsonDef, null, 2));
 
   // Clear existing pages directory before writing new pages to prevent stale files
   if (pages && Object.keys(pages).length > 0) {
@@ -313,6 +381,10 @@ export function deleteApp(id: string): void {
   const filePath = join(dir, `${id}.json`);
   if (existsSync(filePath)) {
     unlinkSync(filePath);
+  }
+  const previewPath = join(dir, `${id}.preview`);
+  if (existsSync(previewPath)) {
+    unlinkSync(previewPath);
   }
   const appDir = join(dir, id);
   rmSync(appDir, { recursive: true, force: true });

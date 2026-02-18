@@ -58,6 +58,17 @@ public struct IPCAppOpenRequest: Codable, Sendable {
     public let appId: String
 }
 
+public struct IPCAppPreviewRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+}
+
+public struct IPCAppPreviewResponse: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let preview: String?
+}
+
 public struct IPCAppsListRequest: Codable, Sendable {
     public let type: String
 }
