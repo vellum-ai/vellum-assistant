@@ -162,6 +162,20 @@ final class MessageURLExtractorPlainTests: XCTestCase {
         XCTAssertEqual(urls.first?.absoluteString, "https://en.wikipedia.org/wiki/Swift_(programming_language)")
     }
 
+    // MARK: - Trailing ? and : trimmed in prose
+
+    func testTrailingQuestionMarkTrimmedInProse() {
+        let urls = MessageURLExtractor.extractPlainURLs(from: "Have you seen https://example.com?")
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://example.com")
+    }
+
+    func testTrailingColonTrimmedInProse() {
+        let urls = MessageURLExtractor.extractPlainURLs(from: "Check out https://example.com: it's great")
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://example.com")
+    }
+
     // MARK: - Non-HTTP schemes are excluded
 
     func testFTPSchemeIsExcluded() {
