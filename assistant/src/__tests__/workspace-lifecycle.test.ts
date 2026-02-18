@@ -244,11 +244,15 @@ describe('Workspace git lifecycle (integration)', () => {
     // Even though session.ts doesn't await these, they should eventually complete
     await Promise.all([p1, p2]);
 
-    // Both commits should exist
+    // All files should be committed (no data loss).
+    // The first commit may absorb both files, so the second sees a clean
+    // workspace and correctly skips rather than creating an empty commit.
     const count = commitCount(testDir);
-    // At least 2 turn commits + 1 initial = 3
-    // (exact count may vary due to --allow-empty behavior)
-    expect(count).toBeGreaterThanOrEqual(3);
+    expect(count).toBeGreaterThanOrEqual(2); // initial + at least 1 turn commit
+
+    // Verify no file changes are lost
+    const status = await service.getStatus();
+    expect(status.clean).toBe(true);
   });
 
   test('getWorkspaceGitService returns same instance across turn commits and heartbeat', async () => {

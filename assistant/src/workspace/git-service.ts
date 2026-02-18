@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -6,6 +6,13 @@ import { getLogger } from '../util/logger.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('workspace-git');
+
+/** Properties added by Node's child_process errors. */
+interface ExecError extends Error {
+  killed?: boolean;
+  signal?: string;
+  code?: string | number;
+}
 
 /**
  * Simple mutex implementation for per-workspace git operation serialization.
@@ -133,15 +140,15 @@ export class WorkspaceGitService {
           // should NOT destroy .git — they will resolve on retry via
           // the initPromise clearing logic.
           const errMsg = err instanceof Error ? err.message : String(err);
-          const errAny = err as any;
-          const isTimeout = errAny.killed === true
-            || errAny.signal === 'SIGTERM'
+          const execErr = err as ExecError;
+          const isTimeout = execErr.killed === true
+            || execErr.signal === 'SIGTERM'
             || errMsg.includes('SIGTERM')
             || errMsg.includes('timed out');
-          const isPermission = errAny.code === 'EACCES'
+          const isPermission = execErr.code === 'EACCES'
             || errMsg.includes('EACCES')
             || errMsg.toLowerCase().includes('permission denied');
-          const isMissingBinary = errAny.code === 'ENOENT'
+          const isMissingBinary = execErr.code === 'ENOENT'
             || errMsg.includes('ENOENT');
 
           if (isTimeout || isPermission || isMissingBinary) {
@@ -177,15 +184,15 @@ export class WorkspaceGitService {
             // should NOT fall through to re-initialization — they will
             // resolve on retry via the initPromise clearing logic.
             const errMsg = err instanceof Error ? err.message : String(err);
-            const errAny = err as any;
-            const isTimeout = errAny.killed === true
-              || errAny.signal === 'SIGTERM'
+            const execErr = err as ExecError;
+            const isTimeout = execErr.killed === true
+              || execErr.signal === 'SIGTERM'
               || errMsg.includes('SIGTERM')
               || errMsg.includes('timed out');
-            const isPermission = errAny.code === 'EACCES'
+            const isPermission = execErr.code === 'EACCES'
               || errMsg.includes('EACCES')
               || errMsg.toLowerCase().includes('permission denied');
-            const isMissingBinary = errAny.code === 'ENOENT'
+            const isMissingBinary = execErr.code === 'ENOENT'
               || errMsg.includes('ENOENT');
 
             if (isTimeout || isPermission || isMissingBinary) {
@@ -201,9 +208,9 @@ export class WorkspaceGitService {
       // Initialize new git repository
       await this.execGit(['init', '-b', 'main']);
 
-      // Create .gitignore
-      const gitignore = [
-        '# Runtime state - excluded from git tracking',
+      // Ensure .gitignore contains runtime exclusions.
+      // Preserve any existing rules the workspace already had.
+      const runtimeIgnores = [
         'data/',
         'logs/',
         '*.log',
@@ -213,11 +220,20 @@ export class WorkspaceGitService {
         'vellum.pid',
         'session-token',
         'http-token',
-        '',
-      ].join('\n');
+      ];
 
       const gitignorePath = join(this.workspaceDir, '.gitignore');
-      writeFileSync(gitignorePath, gitignore, 'utf-8');
+      if (existsSync(gitignorePath)) {
+        const existing = readFileSync(gitignorePath, 'utf-8');
+        const missingRules = runtimeIgnores.filter(rule => !existing.includes(rule));
+        if (missingRules.length > 0) {
+          const section = '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+          writeFileSync(gitignorePath, existing + section, 'utf-8');
+        }
+      } else {
+        const gitignore = '# Runtime state - excluded from git tracking\n' + runtimeIgnores.join('\n') + '\n';
+        writeFileSync(gitignorePath, gitignore, 'utf-8');
+      }
 
       // Set git identity for automated commits
       await this.execGit(['config', 'user.name', 'Vellum Assistant']);
@@ -274,6 +290,58 @@ export class WorkspaceGitService {
 
       // Commit (will succeed even if no changes)
       await this.execGit(['commit', '-m', fullMessage, '--allow-empty']);
+    });
+  }
+
+  /**
+   * Atomically check for uncommitted changes and commit if the caller decides to.
+   *
+   * The status check, staging, and commit all happen within a single mutex lock,
+   * eliminating the TOCTOU race that exists when calling getStatus() and
+   * commitChanges() separately.
+   *
+   * @param decide - Called with the current status. Return an object with `message`
+   *   (and optional `metadata`) to commit, or `null` to skip.
+   * @returns Whether a commit was created and the status at check time.
+   */
+  async commitIfDirty(
+    decide: (status: GitStatus) => { message: string; metadata?: GitCommitMetadata } | null,
+  ): Promise<{ committed: boolean; status: GitStatus }> {
+    await this.ensureInitialized();
+
+    return this.mutex.withLock(async () => {
+      const status = await this.getStatusInternal();
+      if (status.clean) {
+        return { committed: false, status };
+      }
+
+      const decision = decide(status);
+      if (!decision) {
+        return { committed: false, status };
+      }
+
+      await this.execGit(['add', '-A']);
+
+      // Verify something was actually staged. Another service instance
+      // (or external process) could have committed between our status
+      // check and the add, leaving the index clean.
+      try {
+        await this.execGit(['diff', '--cached', '--quiet']);
+        // Exit code 0 means nothing staged — nothing to commit
+        return { committed: false, status };
+      } catch {
+        // Exit code 1 means there ARE staged changes — proceed
+      }
+
+      let fullMessage = decision.message;
+      if (decision.metadata && Object.keys(decision.metadata).length > 0) {
+        fullMessage += '\n\n' + Object.entries(decision.metadata)
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+          .join('\n');
+      }
+
+      await this.execGit(['commit', '-m', fullMessage]);
+      return { committed: true, status };
     });
   }
 
@@ -355,9 +423,9 @@ export class WorkspaceGitService {
       );
       // Preserve properties so callers can detect timeouts, permission
       // errors, and missing-binary failures without parsing the message.
-      (enhanced as any).killed = gitErr.killed;
-      (enhanced as any).signal = gitErr.signal;
-      (enhanced as any).code = gitErr.code;
+      (enhanced as ExecError).killed = gitErr.killed;
+      (enhanced as ExecError).signal = gitErr.signal;
+      (enhanced as ExecError).code = gitErr.code;
       throw enhanced;
     }
   }

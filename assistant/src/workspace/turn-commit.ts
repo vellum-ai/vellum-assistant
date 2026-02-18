@@ -86,40 +86,32 @@ export async function commitTurnChanges(
   try {
     const gitService = getWorkspaceGitService(workspaceDir);
 
-    // Check if there are any uncommitted changes
-    const status = await gitService.getStatus();
-    if (status.clean) {
+    // Atomic status check + commit within a single mutex lock to prevent
+    // TOCTOU races with heartbeat commits.
+    const { committed, status } = await gitService.commitIfDirty((st) => {
+      const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
+      const timestamp = new Date().toISOString();
+      const summary = buildChangeSummary(uniqueFiles);
+
+      const metadata: TurnCommitMetadata = {
+        sessionId,
+        turnNumber,
+        timestamp,
+        filesChanged: uniqueFiles.length,
+      };
+
+      return { message: buildCommitMessage(summary, metadata) };
+    });
+
+    if (committed) {
+      const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
+      log.info(
+        { sessionId, turnNumber, filesChanged: uniqueFiles.length },
+        'Turn-boundary commit created',
+      );
+    } else {
       log.debug({ sessionId, turnNumber }, 'No workspace changes to commit for turn');
-      return;
     }
-
-    // Gather all changed files for the summary and metadata
-    const allChangedFiles = [
-      ...status.staged,
-      ...status.modified,
-      ...status.untracked,
-    ];
-    // Deduplicate (a file could appear in both staged and modified)
-    const uniqueFiles = [...new Set(allChangedFiles)];
-
-    const timestamp = new Date().toISOString();
-    const summary = buildChangeSummary(uniqueFiles);
-
-    const metadata: TurnCommitMetadata = {
-      sessionId,
-      turnNumber,
-      timestamp,
-      filesChanged: uniqueFiles.length,
-    };
-
-    const message = buildCommitMessage(summary, metadata);
-
-    await gitService.commitChanges(message);
-
-    log.info(
-      { sessionId, turnNumber, filesChanged: uniqueFiles.length },
-      'Turn-boundary commit created',
-    );
   } catch (err) {
     // Never let commit failures propagate — they must not affect the turn
     log.warn(

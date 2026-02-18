@@ -188,23 +188,22 @@ export class HeartbeatService {
       result.checked++;
 
       try {
-        const status = await service.getStatus();
-        if (status.clean) {
+        const now = this.now();
+        const { committed } = await service.commitIfDirty((status) => {
+          const totalChanges = new Set([...status.staged, ...status.modified, ...status.untracked]).size;
+          log.info({ workspaceDir, totalChanges }, 'Committing pending changes on shutdown');
+          return {
+            message: `auto-commit: shutdown safety net (${totalChanges} files)`,
+            metadata: { trigger: 'shutdown', timestamp: now },
+          };
+        });
+
+        if (committed) {
+          firstSeenDirty.delete(workspaceDir);
+          result.committed++;
+        } else {
           result.skipped++;
-          continue;
         }
-
-        const totalChanges = status.staged.length + status.modified.length + status.untracked.length;
-        log.info({ workspaceDir, totalChanges }, 'Committing pending changes on shutdown');
-
-        await service.commitChanges(
-          `auto-commit: shutdown safety net (${totalChanges} files)`,
-          { trigger: 'shutdown', timestamp: this.now() },
-        );
-
-        // Clean up tracking state
-        firstSeenDirty.delete(workspaceDir);
-        result.committed++;
       } catch (err) {
         log.warn({ err, workspaceDir }, 'Shutdown commit failed for workspace');
         result.failed++;
@@ -228,53 +227,56 @@ export class HeartbeatService {
     service: WorkspaceGitService,
     trigger: string,
   ): Promise<boolean> {
-    const status = await service.getStatus();
-
-    if (status.clean) {
-      // Workspace is clean -- clear any dirty tracking
-      firstSeenDirty.delete(workspaceDir);
-      return false;
-    }
-
-    const totalChanges = status.staged.length + status.modified.length + status.untracked.length;
     const now = this.now();
 
-    // Track when we first saw this workspace as dirty
-    if (!firstSeenDirty.has(workspaceDir)) {
-      firstSeenDirty.set(workspaceDir, now);
-    }
+    // Atomic status check + conditional commit within a single mutex lock.
+    const { committed, status } = await service.commitIfDirty((st) => {
+      const totalChanges = new Set([...st.staged, ...st.modified, ...st.untracked]).size;
 
-    const dirtyAge = now - firstSeenDirty.get(workspaceDir)!;
+      // Track when we first saw this workspace as dirty
+      if (!firstSeenDirty.has(workspaceDir)) {
+        firstSeenDirty.set(workspaceDir, now);
+      }
 
-    // Check thresholds: commit if changes are old enough OR if too many files changed
-    const ageExceeded = dirtyAge >= this.ageThresholdMs;
-    const fileCountExceeded = totalChanges >= this.fileThreshold;
+      const dirtyAge = now - firstSeenDirty.get(workspaceDir)!;
 
-    if (!ageExceeded && !fileCountExceeded) {
-      log.debug(
-        { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge },
-        'Changes below threshold, skipping heartbeat commit',
+      // Check thresholds: commit if changes are old enough OR if too many files changed
+      const ageExceeded = dirtyAge >= this.ageThresholdMs;
+      const fileCountExceeded = totalChanges >= this.fileThreshold;
+
+      if (!ageExceeded && !fileCountExceeded) {
+        log.debug(
+          { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge },
+          'Changes below threshold, skipping heartbeat commit',
+        );
+        return null; // Don't commit yet
+      }
+
+      const reason = ageExceeded
+        ? `changes older than ${Math.round(dirtyAge / 1000)}s`
+        : `${totalChanges} files changed (threshold: ${this.fileThreshold})`;
+
+      log.info(
+        { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge, reason },
+        'Heartbeat auto-committing workspace changes',
       );
-      return false;
+
+      return {
+        message: `auto-commit: ${trigger} safety net (${totalChanges} files, ${reason})`,
+        metadata: { trigger, timestamp: now },
+      };
+    });
+
+    if (committed) {
+      firstSeenDirty.delete(workspaceDir);
+      return true;
     }
 
-    const reason = ageExceeded
-      ? `changes older than ${Math.round(dirtyAge / 1000)}s`
-      : `${totalChanges} files changed (threshold: ${this.fileThreshold})`;
+    if (status.clean) {
+      firstSeenDirty.delete(workspaceDir);
+    }
 
-    log.info(
-      { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge, reason },
-      'Heartbeat auto-committing workspace changes',
-    );
-
-    await service.commitChanges(
-      `auto-commit: ${trigger} safety net (${totalChanges} files, ${reason})`,
-      { trigger, timestamp: now },
-    );
-
-    // Reset dirty tracking after successful commit
-    firstSeenDirty.delete(workspaceDir);
-    return true;
+    return false;
   }
 }
 
