@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
+  "bin": {
+    "vellum-cli": "./src/index.ts"
+  },
   "scripts": {
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit"
