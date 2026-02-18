@@ -162,12 +162,8 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
         shouldIntercept: (hostname: string, port: number) =>
           routeConnection(hostname, port, managed.session.credentialIds, templates),
         rewriteCallback: async (req) => {
-          // Inject credential values into HTTPS requests that match a
-          // template host pattern. Secret values are read at injection time
-          // and MUST NEVER be logged or returned to callers.
-
-          // Collect all matching candidates first so we can detect ambiguity
-          // (same guard as the HTTP policyCallback path).
+          // Collect all matching candidates to detect ambiguity before
+          // injecting any secrets — mirrors the HTTP policyCallback guard.
           const candidates: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
           for (const [credId, tpls] of templates) {
             for (const tpl of tpls) {
@@ -177,27 +173,28 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
             }
           }
 
-          // Ambiguous — multiple templates match; don't inject the wrong secret.
-          if (candidates.length > 1) {
+          if (candidates.length === 0) return req.headers;
+          // Ambiguous — multiple templates match; block to avoid injecting
+          // the wrong secret (403 Forbidden via null return).
+          if (candidates.length > 1) return null;
+
+          const { credId, tpl } = candidates[0];
+
+          // Query param injection requires URL path rewriting, which the
+          // current RewriteCallback interface doesn't support. Pass through
+          // unchanged — query injection will be wired once the MITM handler
+          // gains path-rewrite capability.
+          if (tpl.injectionType === 'query') return req.headers;
+
+          if (tpl.injectionType === 'header' && tpl.headerName) {
+            const resolved = resolveById(credId);
+            if (!resolved) return req.headers;
+            const value = getSecureKey(resolved.storageKey);
+            if (!value) return req.headers;
+
+            req.headers[tpl.headerName.toLowerCase()] =
+              (tpl.valuePrefix ?? '') + value;
             return req.headers;
-          }
-
-          for (const { credId, tpl } of candidates) {
-            // Query param injection requires URL path rewriting, which the
-            // current RewriteCallback interface doesn't support. Skip so
-            // other matching templates can still apply.
-            if (tpl.injectionType === 'query') continue;
-
-            if (tpl.injectionType === 'header' && tpl.headerName) {
-              const resolved = resolveById(credId);
-              if (!resolved) continue;
-              const value = getSecureKey(resolved.storageKey);
-              if (!value) continue;
-
-              req.headers[tpl.headerName.toLowerCase()] =
-                (tpl.valuePrefix ?? '') + value;
-              return req.headers;
-            }
           }
 
           return req.headers;
