@@ -742,7 +742,7 @@ function buildConfigSection(): string {
     `- **Active model**: \`${config.model}\` (provider: ${config.provider})`,
     `${configPreamble} Key files you may read or edit include but are not limited to:`,
     '',
-    '- `IDENTITY.md` — Your name, nature, vibe, and emoji. Updated during the first-run ritual.',
+    '- `IDENTITY.md` — Your name, nature, personality, and emoji. Updated during the first-run ritual.',
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of your user. Update as you learn about them over time.',
     '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',

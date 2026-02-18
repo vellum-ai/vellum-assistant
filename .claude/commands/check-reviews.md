@@ -8,13 +8,13 @@ Check each PR to see if **both** chatgpt-codex-connector and devin-ai-integratio
 
 ## How to fetch PR data and determine review status
 
-For each PR, run:
+Extract all PR numbers from UNREVIEWED_PRS.md and check them in a single call:
 
 ```bash
-.claude/check-pr-reviews <number>
+.claude/check-pr-reviews <number1> <number2> <number3> ...
 ```
 
-This outputs JSON with `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column.
+With multiple PR numbers, this outputs a JSON array of results. Each element has `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column. All PRs are fetched in parallel for speed.
 
 ## Contextual review assessment
 

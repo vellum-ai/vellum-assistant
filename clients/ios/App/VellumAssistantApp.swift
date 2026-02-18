@@ -18,14 +18,16 @@ struct VellumAssistantApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if onboardingCompleted {
-                ContentView()
-                    .environmentObject(appDelegate.clientProvider)
-            } else {
-                OnboardingView(isCompleted: $onboardingCompleted)
+            Group {
+                if onboardingCompleted {
+                    ContentView()
+                        .environmentObject(appDelegate.clientProvider)
+                } else {
+                    OnboardingView(isCompleted: $onboardingCompleted)
+                }
             }
+            .preferredColorScheme(preferredScheme)
         }
-        .preferredColorScheme(preferredScheme)
     }
 }
 #else

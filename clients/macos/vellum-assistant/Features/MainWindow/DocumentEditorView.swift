@@ -180,6 +180,12 @@ struct DocumentEditorView: NSViewRepresentable {
             isInitialized = true
             log.info("Document editor loaded")
             print("✅ WebView finished loading - editor initialized!")
+            // Apply any content that accumulated while the WebView was loading
+            // (document_editor_update messages that arrived before isInitialized was set)
+            let tracked = documentManager.currentContent
+            if !tracked.isEmpty {
+                setInitialContent(title: documentManager.title, markdown: tracked)
+            }
         }
 
         private func escapeForJS(_ str: String) -> String {
@@ -210,47 +216,65 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
 
   <!-- Toast UI Editor CSS -->
   <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/theme/toastui-editor-dark.min.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/theme/toastui-editor-dark.min.css"
+        media="(prefers-color-scheme: dark)" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+        media="(prefers-color-scheme: dark)" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+        media="(prefers-color-scheme: light)" />
 
   <style>
+    :root {
+      --v-bg: #FFFFFF;
+      --v-surface: #F5F5F7;
+      --v-surface-border: #D2D2D7;
+      --v-text: #1D1D1F;
+      --v-text-secondary: #86868B;
+      --v-text-muted: #AEAEB2;
+      --v-accent: #8A5BE0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --v-bg: #070D19;
+        --v-surface: #1E293B;
+        --v-surface-border: #334155;
+        --v-text: #F8FAFC;
+        --v-text-secondary: #94A3B8;
+        --v-text-muted: #64748B;
+        --v-accent: #8A5BE0;
+      }
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      background: #0f172a;
-      color: #f8fafc;
+      background: var(--v-bg);
+      color: var(--v-text);
       height: 100vh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
 
-    .header {
-      padding: 16px 24px;
-      border-bottom: 1px solid #334155;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-    }
+    .header { display: none; }
 
     .title-input {
       font-size: 20px;
       font-weight: 600;
       background: transparent;
       border: none;
-      color: #f8fafc;
+      color: var(--v-text);
       outline: none;
       flex: 1;
       min-width: 0;
     }
 
-    .title-input::placeholder { color: #64748b; }
+    .title-input::placeholder { color: var(--v-text-muted); }
 
     .status {
       font-size: 12px;
-      color: #94a3b8;
+      color: var(--v-text-secondary);
       margin-left: 16px;
       white-space: nowrap;
     }
@@ -258,29 +282,31 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .editor-container {
       flex: 1;
       overflow: hidden;
-      padding: 24px;
     }
 
     #editor {
       height: 100%;
     }
 
-    /* Override Toast UI Editor dark theme colors to match Vellum */
+    /* Override Toast UI Editor theme colors to match Vellum */
     .toastui-editor-defaultUI { border: none !important; }
-    .toastui-editor-toolbar { background: #1e293b !important; border-bottom: 1px solid #334155 !important; }
-    .toastui-editor-toolbar-icons { color: #cbd5e1 !important; }
-    .toastui-editor-toolbar-icons:hover { background: #334155 !important; }
+    .toastui-editor-toolbar { background: var(--v-surface) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
+    .toastui-editor-toolbar-icons { color: var(--v-text-secondary) !important; }
+    .toastui-editor-toolbar-icons:hover { background: var(--v-surface-border) !important; }
     .toastui-editor-md-container,
-    .toastui-editor-ww-container { background: #0f172a !important; color: #f8fafc !important; }
-    .toastui-editor-contents { color: #f8fafc !important; }
+    .toastui-editor-ww-container { background: var(--v-bg) !important; color: var(--v-text) !important; }
+    .toastui-editor-contents { color: var(--v-text) !important; padding: 0 !important; }
+    .toastui-editor-ww-content { padding: 0 !important; }
+    .ProseMirror { padding: 0 !important; }
+    .toastui-editor-md-container .toastui-editor { padding: 0 !important; }
     .toastui-editor-contents h1,
     .toastui-editor-contents h2,
-    .toastui-editor-contents h3 { color: #f8fafc !important; border-bottom-color: #334155 !important; }
-    .toastui-editor-contents pre { background: #1e293b !important; }
-    .toastui-editor-contents code { background: #1e293b !important; color: #e2e8f0 !important; }
-    .toastui-editor-contents blockquote { border-left-color: #7c3aed !important; color: #cbd5e1 !important; }
+    .toastui-editor-contents h3 { color: var(--v-text) !important; border-bottom-color: var(--v-surface-border) !important; }
+    .toastui-editor-contents pre { background: var(--v-surface) !important; }
+    .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; }
+    .toastui-editor-contents blockquote { border-left-color: var(--v-accent) !important; color: var(--v-text-secondary) !important; }
     .toastui-editor-contents table td,
-    .toastui-editor-contents table th { border-color: #334155 !important; }
+    .toastui-editor-contents table th { border-color: var(--v-surface-border) !important; }
   </style>
 </head>
 <body>
@@ -298,12 +324,14 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
 
   <script>
     // Initialize Toast UI Editor
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
     window.editor = new toastui.Editor({
       el: document.querySelector('#editor'),
       height: '100%',
       initialEditType: 'wysiwyg',
       previewStyle: 'vertical',
-      theme: 'dark',
+      theme: prefersDark ? 'dark' : 'light',
       usageStatistics: false,
       initialValue: \(escapedContent),
       toolbarItems: [

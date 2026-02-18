@@ -114,6 +114,18 @@ public struct IPCAuthResult: Codable, Sendable {
     public let message: String?
 }
 
+public struct IPCBrowserCDPRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+}
+
+public struct IPCBrowserCDPResponse: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let success: Bool
+    public let declined: Bool?
+}
+
 public struct IPCBrowserFrame: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -128,6 +140,59 @@ public struct IPCBrowserFrameMetadata: Codable, Sendable {
     public let scrollOffsetX: Double
     public let scrollOffsetY: Double
     public let timestamp: Double
+}
+
+public struct IPCBrowserHandoffRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let reason: String
+    public let message: String
+    public let bringToFront: Bool?
+}
+
+public struct IPCBrowserInteractiveMode: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+}
+
+public struct IPCBrowserInteractiveModeChanged: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+    public let reason: String?
+    public let message: String?
+}
+
+public struct IPCBrowserUserClick: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let x: Double
+    public let y: Double
+    public let button: String?
+    public let doubleClick: Bool?
+}
+
+public struct IPCBrowserUserKeypress: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let key: String
+    public let modifiers: [String]?
+}
+
+public struct IPCBrowserUserScroll: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let deltaX: Double
+    public let deltaY: Double
+    public let x: Double
+    public let y: Double
 }
 
 public struct IPCBrowserViewSurfaceData: Codable, Sendable {
@@ -401,6 +466,12 @@ public struct IPCDocumentLoadResponse: Codable, Sendable {
     public let updatedAt: Int
     public let success: Bool
     public let error: String?
+}
+
+public struct IPCDocumentPreviewSurfaceData: Codable, Sendable {
+    public let title: String
+    public let surfaceId: String
+    public let subtitle: String?
 }
 
 public struct IPCDocumentSaveRequest: Codable, Sendable {
@@ -1526,6 +1597,19 @@ public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
     public let messageId: String?
 }
 
+public struct IPCUiSurfaceShowDocumentPreview: Codable, Sendable {
+    public let surfaceType: String
+    public let data: IPCDocumentPreviewSurfaceData
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let title: String?
+    public let actions: [IPCSurfaceAction]?
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
+}
+
 public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
     public let surfaceType: String
     public let data: IPCDynamicPageSurfaceData
@@ -1750,4 +1834,156 @@ public struct IPCWatchStarted: Codable, Sendable {
     public let watchId: String
     public let durationSeconds: Double
     public let intervalSeconds: Double
+}
+
+public struct IPCWorkItemCompleteRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemCreateRequest: Codable, Sendable {
+    public let type: String
+    public let taskId: String
+    public let title: String?
+    public let notes: String?
+    public let priorityTier: Double?
+    public let sortIndex: Int?
+}
+
+public struct IPCWorkItemCreateResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemCreateResponseItem
+}
+
+public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemGetRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemGetResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemGetResponseItem?
+}
+
+public struct IPCWorkItemGetResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let lastRunId: String
+    public let success: Bool
+    public let error: String?
+}
+
+public struct IPCWorkItemsListRequest: Codable, Sendable {
+    public let type: String
+    public let status: String?
+}
+
+public struct IPCWorkItemsListResponse: Codable, Sendable {
+    public let type: String
+    public let items: [IPCWorkItemsListResponseItem]
+}
+
+public struct IPCWorkItemsListResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+/// Server push — broadcast when a work item status changes (e.g. running -> awaiting_review).
+public struct IPCWorkItemStatusChanged: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemStatusChangedItem
+}
+
+public struct IPCWorkItemStatusChangedItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let status: String
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemUpdateRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let title: String?
+    public let notes: String?
+    public let status: String?
+    public let priorityTier: Double?
+    public let sortIndex: Int?
+}
+
+public struct IPCWorkItemUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemUpdateResponseItem?
+}
+
+public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
 }

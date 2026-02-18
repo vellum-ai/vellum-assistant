@@ -8,6 +8,10 @@
     "AppsListRequest",
     "AuthMessage",
     "BrowserCDPResponse",
+    "BrowserInteractiveMode",
+    "BrowserUserClick",
+    "BrowserUserKeypress",
+    "BrowserUserScroll",
     "BundleAppRequest",
     "CancelRequest",
     "ConfirmationResponse",
@@ -15,7 +19,6 @@
     "CuSessionAbort",
     "CuSessionCreate",
     "DiagnosticsExportRequest",
-    "DocumentCreateRequest",
     "DocumentListRequest",
     "DocumentLoadRequest",
     "DocumentSaveRequest",
@@ -78,7 +81,13 @@
     "UsageRequest",
     "UserMessage",
     "VercelApiConfigRequest",
-    "WatchObservation"
+    "WatchObservation",
+    "WorkItemCompleteRequest",
+    "WorkItemCreateRequest",
+    "WorkItemGetRequest",
+    "WorkItemRunTaskRequest",
+    "WorkItemUpdateRequest",
+    "WorkItemsListRequest"
   ],
   "serverMessageTypes": [
     "AcceptStarterBundleResponse",
@@ -91,6 +100,8 @@
     "AuthResult",
     "BrowserCDPRequest",
     "BrowserFrame",
+    "BrowserHandoffRequest",
+    "BrowserInteractiveModeChanged",
     "BundleAppResponse",
     "ConfirmationRequest",
     "ContextCompacted",
@@ -171,7 +182,13 @@
     "WatchCompleteRequest",
     "WatchStarted",
     "WatcherEscalation",
-    "WatcherNotification"
+    "WatcherNotification",
+    "WorkItemCreateResponse",
+    "WorkItemGetResponse",
+    "WorkItemRunTaskResponse",
+    "WorkItemStatusChanged",
+    "WorkItemUpdateResponse",
+    "WorkItemsListResponse"
   ],
   "clientWireTypes": [
     "accept_starter_bundle",
@@ -193,7 +210,6 @@
     "cu_session_abort",
     "cu_session_create",
     "diagnostics_export_request",
-    "document_create",
     "document_list",
     "document_load",
     "document_save",
@@ -256,7 +272,13 @@
     "usage_request",
     "user_message",
     "vercel_api_config",
-    "watch_observation"
+    "watch_observation",
+    "work_item_complete",
+    "work_item_create",
+    "work_item_get",
+    "work_item_run_task",
+    "work_item_update",
+    "work_items_list"
   ],
   "serverWireTypes": [
     "accept_starter_bundle_response",
@@ -269,6 +291,8 @@
     "auth_result",
     "browser_cdp_request",
     "browser_frame",
+    "browser_handoff_request",
+    "browser_interactive_mode_changed",
     "bundle_app_response",
     "confirmation_request",
     "context_compacted",
@@ -348,6 +372,12 @@
     "watch_complete_request",
     "watch_started",
     "watcher_escalation",
-    "watcher_notification"
+    "watcher_notification",
+    "work_item_create_response",
+    "work_item_get_response",
+    "work_item_run_task_response",
+    "work_item_status_changed",
+    "work_item_update_response",
+    "work_items_list_response"
   ]
 }

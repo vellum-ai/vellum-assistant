@@ -95,6 +95,15 @@ import {
   handleDocumentList,
 } from './documents.js';
 
+import {
+  handleWorkItemsList,
+  handleWorkItemGet,
+  handleWorkItemCreate,
+  handleWorkItemUpdate,
+  handleWorkItemComplete,
+  handleWorkItemRunTask,
+} from './work-items.js';
+
 // Re-export types and utilities for backwards compatibility
 export type {
   HandlerContext,
@@ -303,6 +312,13 @@ const handlers: DispatchMap = {
   },
 
   integration_disconnect: () => { /* no-op — integration registry removed */ },
+
+  work_items_list: handleWorkItemsList,
+  work_item_get: handleWorkItemGet,
+  work_item_create: handleWorkItemCreate,
+  work_item_update: handleWorkItemUpdate,
+  work_item_complete: handleWorkItemComplete,
+  work_item_run_task: handleWorkItemRunTask,
 };
 
 export function handleMessage(

@@ -133,7 +133,7 @@ struct ChatView: View {
     ]
 
     private var isEmptyState: Bool {
-        messages.isEmpty && !isThinking
+        messages.isEmpty && !isSending
     }
 
     private let composerMinHeight: CGFloat = 34
@@ -619,7 +619,7 @@ struct ChatView: View {
                         }
                     }
 
-                    if isThinking && !(messages.last?.isStreaming == true) {
+                    if isSending && !(messages.last?.isStreaming == true) {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
@@ -640,17 +640,20 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
-            .scrollDisabled(messages.isEmpty && !isThinking)
+            .scrollDisabled(messages.isEmpty && !isSending)
             .onAppear {
                 // Scroll to bottom on initial load
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
-            .onChange(of: isThinking) {
-                if isThinking {
+            .onChange(of: isSending) {
+                if isSending {
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
-                } else {
+                }
+            }
+            .onChange(of: isThinking) {
+                if !isThinking {
                     // Thinking finished — mark flag so next message shows "Thinking"
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true

@@ -179,6 +179,19 @@ final class MainWindow {
         documentManager.handleSaveResponse(success: msg.success, error: msg.error)
     }
 
+    func handleDocumentLoadResponse(_ msg: DocumentLoadResponseMessage) {
+        let title = msg.success && !msg.title.isEmpty ? msg.title : "Document"
+        let content = msg.success ? msg.content : ""
+        documentManager.createDocument(
+            surfaceId: msg.surfaceId,
+            sessionId: msg.conversationId,
+            title: title,
+            initialContent: content
+        )
+        show()
+        windowState.togglePanel(.documentEditor)
+    }
+
     func show() {
         // Switch to regular activation policy FIRST so macOS allows window
         // foregrounding — calling makeKeyAndOrderFront while still .accessory

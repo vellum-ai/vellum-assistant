@@ -195,14 +195,20 @@ describe('runtime runs — HTTP layer', () => {
     await stopServer();
   });
 
-  test('healthz is accessible without auth', async () => {
+  test('healthz is accessible without auth and includes disk space info', async () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { status: string };
+    const body = await res.json() as { status: string; disk: { path: string; totalBytes: number; usedBytes: number; freeBytes: number } | null };
     expect(body.status).toBe('healthy');
+    if (body.disk !== null) {
+      expect(typeof body.disk.path).toBe('string');
+      expect(body.disk.totalBytes).toBeGreaterThan(0);
+      expect(body.disk.usedBytes).toBeGreaterThanOrEqual(0);
+      expect(body.disk.freeBytes).toBeGreaterThanOrEqual(0);
+    }
 
     await stopServer();
   });

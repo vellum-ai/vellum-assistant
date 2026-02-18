@@ -425,6 +425,25 @@ export const taskCandidates = sqliteTable('task_candidates', {
   promotedTaskId: text('promoted_task_id'),             // set when candidate is promoted to a real task
 });
 
+// ── Work Items (Task Queue) ──────────────────────────────────────────
+
+export const workItems = sqliteTable('work_items', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id').notNull().references(() => tasks.id),
+  title: text('title').notNull(),
+  notes: text('notes'),
+  status: text('status').notNull().default('queued'),  // queued | running | awaiting_review | failed | done | archived
+  priorityTier: integer('priority_tier').notNull().default(1), // 0=urgent, 1=high, 2=normal, 3=low
+  sortIndex: integer('sort_index'),  // manual ordering within same priority tier; null = fall back to updated_at
+  lastRunId: text('last_run_id'),
+  lastRunConversationId: text('last_run_conversation_id'),
+  lastRunStatus: text('last_run_status'),  // 'completed' | 'failed' | null
+  sourceType: text('source_type'),  // reserved for future bridge (e.g. 'followup', 'triage')
+  sourceId: text('source_id'),      // reserved for future bridge
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const homeBaseAppLinks = sqliteTable('home_base_app_links', {
   id: text('id').primaryKey(),
   appId: text('app_id').notNull(),

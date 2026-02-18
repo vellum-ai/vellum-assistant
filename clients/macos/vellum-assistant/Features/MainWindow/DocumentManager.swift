@@ -17,13 +17,16 @@ final class DocumentManager: ObservableObject {
 
     /// Current document content and metadata
     private(set) var currentContent: String = ""
-    private var currentWordCount: Int = 0
+    @Published var wordCount: Int = 0
 
     /// Initial content from daemon — persisted for panel reopen after the coordinator consumes pendingInitialContent
     private(set) var initialContent: String = ""
 
     /// Pending initial content to be set when coordinator becomes ready
     private var pendingInitialContent: String?
+
+    /// Debounced auto-save task — cancelled and rescheduled on every content update
+    private var autoSaveTask: Task<Void, Never>?
 
     /// Reference to daemon client for saving documents
     weak var daemonClient: DaemonClient?
@@ -68,30 +71,53 @@ final class DocumentManager: ObservableObject {
     }
 
     func updateDocument(markdown: String, mode: String) {
+        // Always track content so it survives WebView recreation and load races
+        if mode == "replace" {
+            currentContent = markdown
+        } else {
+            let sep = currentContent.isEmpty ? "" : "\n\n"
+            currentContent += sep + markdown
+        }
+
         guard let coordinator = editorCoordinator else {
-            log.warning("⚠️ Cannot update document: editor coordinator not ready")
-            print("⚠️ Cannot update document: editor coordinator not ready")
+            log.warning("⚠️ Cannot update document: editor coordinator not ready, content tracked for later")
+            print("⚠️ Cannot update document: editor coordinator not ready, content tracked for later")
             return
         }
 
         print("📝 Sending update to coordinator: mode=\(mode), length=\(markdown.count)")
         coordinator.sendContentUpdate(markdown: markdown, mode: mode)
         log.info("Document updated: mode=\(mode), length=\(markdown.count)")
+
+        scheduleAutoSave()
+    }
+
+    /// Cancels any pending auto-save and schedules a new one 2 seconds from now.
+    /// Fires after streaming completes so the document survives app reload.
+    private func scheduleAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
     }
 
     func updateContent(title: String, content: String, wordCount: Int) {
         self.title = title
         self.currentContent = content
-        self.currentWordCount = wordCount
+        self.wordCount = wordCount
     }
 
     func closeDocument() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
         hasActiveDocument = false
         surfaceId = nil
         sessionId = nil
         title = "Untitled Document"
         currentContent = ""
-        currentWordCount = 0
+        wordCount = 0
         initialContent = ""
         pendingInitialContent = nil
         log.info("Document closed")
@@ -109,7 +135,7 @@ final class DocumentManager: ObservableObject {
             return
         }
 
-        print("💾 Starting save: title=\(title), contentLength=\(currentContent.count), wordCount=\(currentWordCount)")
+        print("💾 Starting save: title=\(title), contentLength=\(currentContent.count), wordCount=\(wordCount)")
         isSaving = true
         lastSaveError = nil
 
@@ -119,9 +145,9 @@ final class DocumentManager: ObservableObject {
                 conversationId: sessionId,
                 title: title,
                 content: currentContent,
-                wordCount: currentWordCount
+                wordCount: wordCount
             )
-            log.info("Document save requested: \(surfaceId) - \(self.currentWordCount) words")
+            log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
             print("💾 ✅ IPC message sent successfully")
         } catch {
             log.error("Failed to send document save: \(error.localizedDescription)")

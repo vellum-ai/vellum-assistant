@@ -392,6 +392,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
             self?.mainWindow?.handleDocumentSaveResponse(msg)
         }
+        daemonClient.onDocumentLoadResponse = { [weak self] msg in
+            self?.mainWindow?.handleDocumentLoadResponse(msg)
+        }
 
         // Handle diagnostics export response — show a toast in the main window
         daemonClient.onDiagnosticsExportResponse = { [weak self] response in

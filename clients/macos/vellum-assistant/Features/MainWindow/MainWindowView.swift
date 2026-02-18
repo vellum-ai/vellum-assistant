@@ -36,6 +36,7 @@ struct MainWindowView: View {
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
+    @AppStorage("homeBaseDashboardAutoEnabled") private var homeBaseDashboardAutoEnabled: Bool = false
     @State private var drawerDragStartWidth: Double?
     @State private var drawerDragStartAvailableWidth: CGFloat?
     @State private var isDrawerDragging: Bool = false
@@ -157,6 +158,13 @@ struct MainWindowView: View {
 
     private func requestHomeBaseDashboardIfNeeded() {
         guard !isBootstrapOnboardingActive else { return }
+        // Auto-enable the dashboard once after bootstrap completes.
+        // Uses a one-time sentinel so users can later disable it without
+        // having it force-re-enabled on every launch.
+        if !homeBaseDashboardAutoEnabled {
+            homeBaseDashboardAutoEnabled = true
+            homeBaseDashboardDefaultEnabled = true
+        }
         guard homeBaseDashboardDefaultEnabled else { return }
         guard daemonClient.isConnected else { return }
         guard !requestedHomeBaseAtLaunch else { return }
@@ -234,8 +242,10 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
-                // Close the left sidebar when the activity panel opens to avoid crowding
-                if case .panel(.activity) = newSelection, sidebarOpen {
+                // Close the left sidebar when the activity or document editor panel opens to avoid crowding
+                if case .panel(let panel) = newSelection,
+                   (panel == .activity || panel == .documentEditor),
+                   sidebarOpen {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         sidebarOpen = false
                     }
@@ -338,6 +348,10 @@ struct MainWindowView: View {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.agent)
                             },
+                            onTaskQueue: {
+                                showControlCenterDrawer = false
+                                windowState.togglePanel(.taskQueue)
+                            },
                             onSettings: {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.settings)
@@ -354,7 +368,7 @@ struct MainWindowView: View {
                         .frame(width: 200)
                         .offset(x: threadDrawerWidth + 8, y: -8)
                         .zIndex(10)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .transition(.opacity)
                     }
                 }
             }
@@ -456,14 +470,29 @@ struct MainWindowView: View {
                 if let surface = windowState.activeDynamicParsedSurface,
                    case .dynamicPage(let dpData) = surface.data,
                    let appId = dpData.appId {
-                    windowState.selection = .app(appId)
+                    // Auto-dock chat alongside the app so the user can
+                    // keep chatting while viewing the surface.
+                    let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                    if let threadId {
+                        threadManager.selectThread(id: threadId)
+                        windowState.setAppEditing(appId: appId, threadId: threadId)
+                    } else {
+                        windowState.selection = .app(appId)
+                    }
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { _ in
-            windowState.selection = .panel(.documentEditor)
+        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
+            guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
+            if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {
+                // Document already in memory — just show the panel
+                windowState.selection = .panel(.documentEditor)
+            } else {
+                // Load from daemon — handleDocumentLoadResponse will open the panel when ready
+                try? daemonClient.sendDocumentLoad(surfaceId: surfaceId)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
             if let updated = notification.userInfo?["surface"] as? Surface,
@@ -673,7 +702,7 @@ struct MainWindowView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.bottom, VSpacing.lg)
 
                     VColor.background.frame(height: 1)
                         .padding(.horizontal, VSpacing.sm)
@@ -712,9 +741,10 @@ struct MainWindowView: View {
                             }
                         }
                     }
-                    .padding(.top, VSpacing.md)
+                    .padding(.top, VSpacing.lg)
                 }
                 .padding(VSpacing.xs)
+                .padding(.top, VSpacing.sm)
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .padding(.horizontal, VSpacing.xs)
@@ -727,7 +757,6 @@ struct MainWindowView: View {
 
             // Control Center pill button
             ControlCenterMenuButton(
-                isOpen: showControlCenterDrawer,
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         showControlCenterDrawer.toggle()
@@ -1008,6 +1037,11 @@ struct MainWindowView: View {
             sidebarView
         case .identity:
             IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+        case .taskQueue:
+            TaskQueuePanel(
+                daemonClient: daemonClient,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
@@ -1369,46 +1403,19 @@ private struct NewConversationButton: View {
 }
 
 private struct ControlCenterMenuButton: View {
-    let isOpen: Bool
     let onToggle: () -> Void
-    @State private var isHovered = false
 
     var body: some View {
-        Button {
+        VButton(label: "Control Center", icon: "gearshape", style: .ghost, size: .large, isFullWidth: true) {
             onToggle()
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isOpen ? VColor.textPrimary : VColor.textSecondary)
-
-                Text("Control Center")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isOpen ? VColor.textPrimary : VColor.textSecondary)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(
-                Capsule()
-                    .fill(isHovered || isOpen ? VColor.hoverOverlay.opacity(0.08) : VColor.backgroundSubtle)
-                    .overlay(
-                        Capsule()
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-            )
-            .contentShape(Capsule())
-            .onHover { hovering in
-                isHovered = hovering
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
         }
-        .buttonStyle(.plain)
     }
 }
 
 private struct DrawerMenuView: View {
     let onIdentity: () -> Void
     let onSkills: () -> Void
+    let onTaskQueue: () -> Void
     let onSettings: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
@@ -1417,6 +1424,7 @@ private struct DrawerMenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
+            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Task Queue", action: onTaskQueue)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)

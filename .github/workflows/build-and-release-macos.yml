@@ -88,6 +88,16 @@ jobs:
           echo "Daemon binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
 
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+          echo "CLI binary built:"
+          ls -lh ../clients/macos/cli-bin/vellum-cli
+
       - name: Build release .app
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -107,8 +117,8 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin
-          rm -rf ../../assistant/node_modules
+          rm -rf .build daemon-bin cli-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules
           # Clear Xcode caches
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
@@ -364,6 +374,11 @@ jobs:
           (cd gateway && zip -r ../gateway.zip .)
           ls -lh gateway.zip
 
+      - name: Zip cli directory
+        run: |
+          (cd cli && zip -r ../cli.zip .)
+          ls -lh cli.zip
+
       - name: Download macOS build artifacts
         id: download-macos
         if: needs.build-macos.result == 'success'
@@ -406,8 +421,9 @@ jobs:
           # Build asset list from available files
           ASSETS=()
 
-          # Always include assistant and gateway zips
+          # Always include assistant, cli, and gateway zips
           [ -f "assistant.zip" ] && ASSETS+=("assistant.zip#assistant.zip")
+          [ -f "cli.zip" ] && ASSETS+=("cli.zip#cli.zip")
           [ -f "gateway.zip" ] && ASSETS+=("gateway.zip#gateway.zip")
 
           # Include macOS artifacts if the build succeeded
