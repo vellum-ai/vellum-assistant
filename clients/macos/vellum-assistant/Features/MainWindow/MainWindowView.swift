@@ -350,7 +350,7 @@ struct MainWindowView: View {
                             },
                             onTaskQueue: {
                                 showControlCenterDrawer = false
-                                windowState.togglePanel(.taskQueue)
+                                (NSApp.delegate as? AppDelegate)?.showTasksWindow()
                             },
                             onSettings: {
                                 showControlCenterDrawer = false
