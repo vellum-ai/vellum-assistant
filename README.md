@@ -204,6 +204,36 @@ When a parent skill is loaded via `skill_load`:
 
 The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
 
+## Browser Capabilities
+
+Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
+
+### Activating browser tools
+
+There are two ways to activate browser capabilities:
+
+1. **Slash command**: Use `/browser` to explicitly load the browser skill.
+2. **Automatic loading**: When the agent determines that browser capabilities are needed, it calls `skill_load` to load the skill automatically.
+
+Once loaded, the following tools become available for the remainder of the session:
+
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Navigate to a URL |
+| `browser_snapshot` | List interactive elements on the current page |
+| `browser_screenshot` | Take a visual screenshot |
+| `browser_close` | Close the browser page |
+| `browser_click` | Click an element |
+| `browser_type` | Type text into an input |
+| `browser_press_key` | Press a keyboard key |
+| `browser_wait_for` | Wait for a condition |
+| `browser_extract` | Extract page text content |
+| `browser_fill_credential` | Fill a stored credential into a form field |
+
+### Permissions
+
+Both `skill_load` and all `browser_*` tools are default-allowed — no permission prompts are required to use them.
+
 ## Permission Modes and Trust Rules
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
