@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, afterEach, mock } from 'bun:test';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import type { ResolvedCredential } from '../tools/credentials/resolve.js';
 
