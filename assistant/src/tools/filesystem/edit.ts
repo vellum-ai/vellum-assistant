@@ -35,8 +35,12 @@ class FileEditTool implements Tool {
             type: 'boolean',
             description: 'Replace all occurrences of old_string instead of requiring a unique match (default: false)',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief human-readable explanation of why this file is being edited, shown to the user in the permission prompt',
+          },
         },
-        required: ['path', 'old_string', 'new_string'],
+        required: ['path', 'old_string', 'new_string', 'reason'],
       },
     };
   }

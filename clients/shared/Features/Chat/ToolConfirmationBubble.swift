@@ -153,7 +153,9 @@ public struct ToolConfirmationBubble: View {
             // Action buttons at top
             buttonRow
 
-            // Technical details accordion (collapsed by default)
+            Divider()
+
+            // More Details accordion (collapsed by default)
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     withAnimation(VAnimation.fast) {
@@ -165,7 +167,7 @@ public struct ToolConfirmationBubble: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
-                        Text("Technical details")
+                        Text("More details")
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.textMuted)
                     }
@@ -308,12 +310,10 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var buttonRow: some View {
-        // "Allow" comes first — intentional design choice to make the
-        // positive action the default leftmost (primary) button.
         HStack(spacing: VSpacing.xs) {
-            confirmationButton("Allow", isPrimary: true, isDanger: false) { onAllow() }
-            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
+            confirmationButton("Allow Once", isPrimary: false, isDanger: false) { onAllow() }
+            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: false) { onDeny() }
             Spacer()
         }
     }
@@ -344,7 +344,7 @@ public struct ToolConfirmationBubble: View {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
-            confirmationButton("Always Allow", isPrimary: false, isDanger: false) {
+            confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
                 let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
                 let scope = confirmation.scopeOptions.first?.scope ?? ""
                 if !pattern.isEmpty && !scope.isEmpty {
@@ -360,7 +360,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowDropdown: some View {
-        confirmationButton("Always Allow", isPrimary: false, isDanger: false) {
+        confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
             withAnimation(VAnimation.fast) {
                 showAlwaysAllowMenu.toggle()
             }

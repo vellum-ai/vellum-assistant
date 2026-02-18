@@ -27,8 +27,12 @@ class FileWriteTool implements Tool {
             type: 'string',
             description: 'The content to write to the file',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief human-readable explanation of why this file is being written, shown to the user in the permission prompt',
+          },
         },
-        required: ['path', 'content'],
+        required: ['path', 'content', 'reason'],
       },
     };
   }

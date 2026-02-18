@@ -61,6 +61,10 @@ class ShellTool implements Tool {
             type: 'string',
             description: 'The shell command to execute',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief human-readable explanation of what this command does and why, shown to the user in the permission prompt (e.g. "to find available location services")',
+          },
           timeout_seconds: {
             type: 'number',
             description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
@@ -76,7 +80,7 @@ class ShellTool implements Tool {
             description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
           },
         },
-        required: ['command'],
+        required: ['command', 'reason'],
       },
     };
   }

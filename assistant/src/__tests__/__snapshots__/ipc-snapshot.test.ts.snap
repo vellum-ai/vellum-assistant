@@ -480,6 +480,13 @@ exports[`IPC message snapshots ClientMessage types app_update_preview serializes
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types app_preview_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_preview_request",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types share_app_cloud serializes to expected JSON 1`] = `
 {
   "appId": "app-001",
@@ -574,6 +581,127 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 {
   "integrationId": "gmail",
   "type": "integration_disconnect",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "success": true,
+  "type": "browser_cdp_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_click serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_click",
+  "x": 100,
+  "y": 200,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_scroll serializes to expected JSON 1`] = `
+{
+  "deltaX": 0,
+  "deltaY": -100,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_scroll",
+  "x": 100,
+  "y": 200,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_user_keypress serializes to expected JSON 1`] = `
+{
+  "key": "Enter",
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_user_keypress",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types browser_interactive_mode serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_interactive_mode",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_items_list serializes to expected JSON 1`] = `
+{
+  "status": "queued",
+  "type": "work_items_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_get serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_get",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_create serializes to expected JSON 1`] = `
+{
+  "notes": "High priority",
+  "priorityTier": 1,
+  "sortIndex": 0,
+  "taskId": "task-001",
+  "title": "Process report",
+  "type": "work_item_create",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_update serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "status": "running",
+  "title": "Updated title",
+  "type": "work_item_update",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_complete serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_complete",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_run_task serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_run_task",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
+{
+  "content": "# Hello",
+  "conversationId": "conv-001",
+  "surfaceId": "doc-001",
+  "title": "My Document",
+  "type": "document_save",
+  "wordCount": 1,
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_load serializes to expected JSON 1`] = `
+{
+  "surfaceId": "doc-001",
+  "type": "document_load",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types document_list serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-001",
+  "type": "document_list",
 }
 `;
 
@@ -1565,6 +1693,14 @@ exports[`IPC message snapshots ServerMessage types app_update_preview_response s
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types app_preview_response serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "preview": "base64-png-data",
+  "type": "app_preview_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types ui_surface_undo_result serializes to expected JSON 1`] = `
 {
   "remainingUndos": 3,
@@ -1658,5 +1794,204 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "integrationId": "gmail",
   "success": true,
   "type": "integration_connect_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
+{
+  "sessionId": "test-session",
+  "type": "browser_cdp_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_interactive_mode_changed serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_interactive_mode_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types browser_handoff_request serializes to expected JSON 1`] = `
+{
+  "message": "Login required",
+  "reason": "auth",
+  "sessionId": "test-session",
+  "surfaceId": "test-surface",
+  "type": "browser_handoff_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_editor_show serializes to expected JSON 1`] = `
+{
+  "initialContent": "# Hello World",
+  "sessionId": "sess-001",
+  "surfaceId": "doc-001",
+  "title": "My Document",
+  "type": "document_editor_show",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_editor_update serializes to expected JSON 1`] = `
+{
+  "markdown": "# Updated Content",
+  "mode": "replace",
+  "sessionId": "sess-001",
+  "surfaceId": "doc-001",
+  "type": "document_editor_update",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_save_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "surfaceId": "doc-001",
+  "type": "document_save_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_load_response serializes to expected JSON 1`] = `
+{
+  "content": "# Hello",
+  "conversationId": "conv-001",
+  "createdAt": 1700000000,
+  "success": true,
+  "surfaceId": "doc-001",
+  "title": "My Document",
+  "type": "document_load_response",
+  "updatedAt": 1700001000,
+  "wordCount": 1,
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types document_list_response serializes to expected JSON 1`] = `
+{
+  "documents": [
+    {
+      "conversationId": "conv-001",
+      "createdAt": 1700000000,
+      "surfaceId": "doc-001",
+      "title": "My Document",
+      "updatedAt": 1700001000,
+      "wordCount": 100,
+    },
+  ],
+  "type": "document_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_items_list_response serializes to expected JSON 1`] = `
+{
+  "items": [
+    {
+      "createdAt": 1700000000,
+      "id": "wi-001",
+      "lastRunConversationId": null,
+      "lastRunId": null,
+      "lastRunStatus": null,
+      "notes": null,
+      "priorityTier": 1,
+      "sortIndex": null,
+      "sourceId": null,
+      "sourceType": null,
+      "status": "queued",
+      "taskId": "task-001",
+      "title": "Process report",
+      "updatedAt": 1700000000,
+    },
+  ],
+  "type": "work_items_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_get_response serializes to expected JSON 1`] = `
+{
+  "item": {
+    "createdAt": 1700000000,
+    "id": "wi-001",
+    "lastRunConversationId": null,
+    "lastRunId": null,
+    "lastRunStatus": null,
+    "notes": null,
+    "priorityTier": 1,
+    "sortIndex": null,
+    "sourceId": null,
+    "sourceType": null,
+    "status": "queued",
+    "taskId": "task-001",
+    "title": "Process report",
+    "updatedAt": 1700000000,
+  },
+  "type": "work_item_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_create_response serializes to expected JSON 1`] = `
+{
+  "item": {
+    "createdAt": 1700000000,
+    "id": "wi-001",
+    "lastRunConversationId": null,
+    "lastRunId": null,
+    "lastRunStatus": null,
+    "notes": null,
+    "priorityTier": 1,
+    "sortIndex": null,
+    "sourceId": null,
+    "sourceType": null,
+    "status": "queued",
+    "taskId": "task-001",
+    "title": "Process report",
+    "updatedAt": 1700000000,
+  },
+  "type": "work_item_create_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_update_response serializes to expected JSON 1`] = `
+{
+  "item": {
+    "createdAt": 1700000000,
+    "id": "wi-001",
+    "lastRunConversationId": null,
+    "lastRunId": null,
+    "lastRunStatus": null,
+    "notes": null,
+    "priorityTier": 1,
+    "sortIndex": null,
+    "sourceId": null,
+    "sourceType": null,
+    "status": "running",
+    "taskId": "task-001",
+    "title": "Updated title",
+    "updatedAt": 1700001000,
+  },
+  "type": "work_item_update_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_run_task_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "lastRunId": "run-001",
+  "success": true,
+  "type": "work_item_run_task_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_status_changed serializes to expected JSON 1`] = `
+{
+  "item": {
+    "id": "wi-001",
+    "lastRunConversationId": "conv-001",
+    "lastRunId": "run-001",
+    "lastRunStatus": "completed",
+    "status": "awaiting_review",
+    "taskId": "task-001",
+    "title": "Process report",
+    "updatedAt": 1700001000,
+  },
+  "type": "work_item_status_changed",
 }
 `;

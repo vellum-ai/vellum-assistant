@@ -251,9 +251,9 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     expect(schemaProps).not.toHaveProperty('credential_ids');
   });
 
-  test('schema only contains the expected properties (command, working_dir, timeout_seconds)', () => {
+  test('schema only contains the expected properties (command, working_dir, timeout_seconds, reason)', () => {
     const propertyNames = Object.keys(schemaProps).sort();
-    expect(propertyNames).toEqual(['command', 'timeout_seconds', 'working_dir']);
+    expect(propertyNames).toEqual(['command', 'reason', 'timeout_seconds', 'working_dir']);
   });
 
   test('execute ignores network_mode even if supplied in input', async () => {
@@ -305,7 +305,7 @@ describe('host_bash — regression: no proxied-mode additions', () => {
     expect(definition.name).toBe('host_bash');
   });
 
-  test('required fields only contains command', () => {
-    expect((definition.input_schema as Record<string, unknown>).required).toEqual(['command']);
+  test('required fields contains command and reason', () => {
+    expect((definition.input_schema as Record<string, unknown>).required).toEqual(['command', 'reason']);
   });
 });
