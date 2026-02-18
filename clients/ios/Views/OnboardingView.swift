@@ -279,19 +279,13 @@ struct DaemonSetupStep: View {
             .padding(.horizontal, VSpacing.xl)
 
             Button("Continue") {
-                guard let portInt = Int(port), portInt > 0, portInt <= 65535 else {
-                    alertMessage = "Port must be a valid number between 1 and 65535"
+                switch DaemonSettingsManager.validatePort(port) {
+                case .invalid(let message):
+                    alertMessage = message
                     showingAlert = true
                     return
-                }
-                UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
-                UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
-                if sessionToken.isEmpty {
-                    _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                    // Also clear legacy UserDefaults key so migrateAuthToken() can't resurrect it
-                    UserDefaults.standard.removeObject(forKey: "daemon_auth_token")
-                } else {
-                    _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
+                case .valid(let portInt):
+                    DaemonSettingsManager.saveDaemonSettings(hostname: hostname, port: portInt, sessionToken: sessionToken)
                 }
                 onContinue?()
             }
@@ -312,10 +306,10 @@ struct DaemonSetupStep: View {
             Text(alertMessage)
         }
         .onAppear {
-            hostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
-            let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-            port = portValue > 0 ? String(portValue) : "8765"
-            sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
+            let settings = DaemonSettingsManager.loadDaemonSettings()
+            hostname = settings.hostname
+            port = settings.port
+            sessionToken = settings.sessionToken
         }
     }
 }
