@@ -10,6 +10,7 @@
 
 import type { AppDefinition } from '../../memory/app-store.js';
 import type { EditEngineResult } from '../../memory/app-store.js';
+import { openAppViaSurface } from './open-proxy.js';
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -101,29 +102,32 @@ export async function executeAppCreate(
 
   const app = store.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
 
-  // Auto-open the app via the proxy resolver if available
+  // Auto-open the app via the shared open-proxy helper
   if (autoOpen && proxyToolResolver) {
-    try {
-      const openResult = await proxyToolResolver('app_open', { app_id: app.id, preview });
+    const extraInput = preview ? { preview } : undefined;
+    const openResultText = await openAppViaSurface(app.id, proxyToolResolver, extraInput);
+
+    // Determine whether the open succeeded by checking for the fallback text
+    const opened = openResultText !== 'Failed to auto-open app. Use app_open to open it manually.';
+    if (opened) {
       return {
         content: JSON.stringify({
           ...app,
           auto_opened: true,
-          open_result: openResult.content,
-        }),
-        isError: false,
-      };
-    } catch {
-      // App was created successfully but auto-open failed; return creation result with a note
-      return {
-        content: JSON.stringify({
-          ...app,
-          auto_opened: false,
-          auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.',
+          open_result: openResultText,
         }),
         isError: false,
       };
     }
+
+    return {
+      content: JSON.stringify({
+        ...app,
+        auto_opened: false,
+        auto_open_error: openResultText,
+      }),
+      isError: false,
+    };
   }
 
   return { content: JSON.stringify(app), isError: false };
