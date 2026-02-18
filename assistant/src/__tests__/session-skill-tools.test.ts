@@ -4,6 +4,12 @@ import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import type { Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
+import {
+  BROWSER_TOOL_NAMES,
+  buildSkillLoadHistory,
+  assertBrowserToolsPresent,
+  assertBrowserToolsAbsent,
+} from './test-support/browser-skill-harness.js';
 
 // ---------------------------------------------------------------------------
 // Mock state — controlled by tests
@@ -2286,5 +2292,48 @@ describe('includes metadata does not auto-activate child skill tools', () => {
     expect(result.toolDefinitions[0].name).toBe('gp_action');
     expect(result.allowedToolNames.has('parent_action')).toBe(false);
     expect(result.allowedToolNames.has('child_action')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Browser skill migration harness — validates shared test helpers
+// ---------------------------------------------------------------------------
+
+describe('browser skill migration harness', () => {
+  test('buildSkillLoadHistory creates valid skill_load history', () => {
+    const history = buildSkillLoadHistory('browser', 'v1:abc123');
+    expect(history).toHaveLength(2);
+    expect(history[0].role).toBe('assistant');
+    expect(history[1].role).toBe('user');
+    // Verify tool_use block
+    const toolUse = history[0].content[0];
+    expect(toolUse.type).toBe('tool_use');
+    expect(toolUse.name).toBe('skill_load');
+    // Verify tool_result has marker
+    const toolResult = history[1].content[0];
+    expect(toolResult.type).toBe('tool_result');
+    expect(toolResult.content).toContain('<loaded_skill id="browser" version="v1:abc123" />');
+  });
+
+  test('BROWSER_TOOL_NAMES contains all 10 browser tools', () => {
+    expect(BROWSER_TOOL_NAMES).toHaveLength(10);
+    expect(BROWSER_TOOL_NAMES).toContain('browser_navigate');
+    expect(BROWSER_TOOL_NAMES).toContain('browser_fill_credential');
+  });
+
+  test('assertBrowserToolsPresent passes when all tools present', () => {
+    expect(() => assertBrowserToolsPresent([...BROWSER_TOOL_NAMES, 'extra_tool'])).not.toThrow();
+  });
+
+  test('assertBrowserToolsPresent fails when tool missing', () => {
+    expect(() => assertBrowserToolsPresent(['browser_navigate'])).toThrow();
+  });
+
+  test('assertBrowserToolsAbsent passes when no browser tools present', () => {
+    expect(() => assertBrowserToolsAbsent(['file_read', 'web_search'])).not.toThrow();
+  });
+
+  test('assertBrowserToolsAbsent fails when browser tool present', () => {
+    expect(() => assertBrowserToolsAbsent(['browser_navigate'])).toThrow();
   });
 });
