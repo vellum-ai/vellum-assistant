@@ -107,7 +107,7 @@ mock.module('../context/window-manager.js', () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-// Mock skill catalog — only "start-the-day" is available
+// Mock skill catalog — "start-the-day" and "browser" are available
 mock.module('../config/skills.js', () => ({
   loadSkillCatalog: () => [
     {
@@ -119,6 +119,16 @@ mock.module('../config/skills.js', () => ({
       userInvocable: true,
       disableModelInvocation: false,
       source: 'managed',
+    },
+    {
+      id: 'browser',
+      name: 'Browser',
+      description: 'Navigate and interact with web pages using a headless browser',
+      directoryPath: '/skills/browser',
+      skillFilePath: '/skills/browser/SKILL.md',
+      userInvocable: true,
+      disableModelInvocation: false,
+      source: 'bundled',
     },
   ],
   loadSkillBySelector: () => null,
@@ -236,6 +246,20 @@ describe('Session slash command — unknown', () => {
     // The assistant message content should contain the unknown-command text
     const assistantContent = addMessageCalls[1].content;
     expect(assistantContent).toContain('Unknown command');
+  });
+
+  test('unknown slash command output includes /browser in available commands', async () => {
+    const session = makeSession();
+    const events: ServerMessage[] = [];
+    const onEvent = (msg: ServerMessage) => events.push(msg);
+
+    await session.processMessage('/not-a-skill', [], onEvent);
+
+    const textDeltas = events.filter((e) => e.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBe(1);
+    const delta = textDeltas[0] as { text: string };
+    expect(delta.text).toContain('/browser');
+    expect(delta.text).toContain('/start-the-day');
   });
 
   test('normal messages still go through standard path', async () => {
