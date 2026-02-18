@@ -184,7 +184,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil)
+        showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil, isFirstLaunch: isFirstLaunch)
     }
 
     private func showAuthWindow() {
@@ -887,12 +887,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Window
 
-    func showMainWindow(initialMessage: String? = nil) {
+    func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         if let existing = mainWindow {
             existing.show()
             return
         }
-        let main = MainWindow(services: services)
+        let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }

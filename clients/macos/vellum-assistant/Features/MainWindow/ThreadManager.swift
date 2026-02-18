@@ -72,16 +72,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return chatViewModels[activeThreadId]
     }
 
-    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil) {
+    init(daemonClient: DaemonClient, activityNotificationService: ActivityNotificationService? = nil, isFirstLaunch: Bool = false) {
         self.daemonClient = daemonClient
         self.activityNotificationService = activityNotificationService
         self.sessionRestorer = ThreadSessionRestorer(daemonClient: daemonClient)
-        // Suppress lastActiveThreadIdString writes during initialization
-        self.isRestoringThreads = true
+        // On first launch (post-onboarding), skip session restoration — there are
+        // no meaningful prior sessions. Allow activeThreadId writes immediately so
+        // the wake-up thread's UUID is persisted.
+        // On normal launches, suppress writes during restoration so the saved
+        // value isn't overwritten before restoreLastActiveThread() reads it.
+        self.isRestoringThreads = !isFirstLaunch
         // Create one default thread so the window is never empty
         createThread()
         sessionRestorer.delegate = self
-        sessionRestorer.startObserving()
+        sessionRestorer.startObserving(skipInitialFetch: isFirstLaunch)
     }
 
     func createThread() {
