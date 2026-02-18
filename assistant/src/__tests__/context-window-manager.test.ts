@@ -7,6 +7,7 @@ import {
 } from '../context/window-manager.js';
 import type { ContextWindowConfig } from '../config/types.js';
 import type { Message, Provider, ProviderResponse } from '../providers/types.js';
+import { estimateTextTokens } from '../context/token-estimator.js';
 
 function makeConfig(overrides: Partial<ContextWindowConfig> = {}): ContextWindowConfig {
   return {
@@ -335,5 +336,41 @@ describe('ContextWindowManager', () => {
     });
     expect(result.compacted).toBe(true);
     expect(result.reason).toBeUndefined();
+  });
+
+  test('image-heavy payload is no longer underestimated as below-threshold', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- compacted image-heavy history' }],
+      model: 'mock-model',
+      usage: { inputTokens: 75, outputTokens: 20 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 7000, targetInputTokens: 5000, compactThreshold: 0.8, preserveRecentUserTurns: 1 }),
+    );
+
+    const images = Array.from({ length: 5 }, (_, i) => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: 'image/png',
+        data: `${String(i)}${'A'.repeat(40_000)}`,
+      },
+    }));
+
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Please analyze these screenshots.' }, ...images] },
+      message('assistant', 'Sure, uploading now.'),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.reason).not.toBe('below compaction threshold');
+
+    // Sanity check for this repro: counting raw base64 as text would exceed threshold.
+    const rawBase64Chars = images.reduce((sum, img) => sum + img.source.data.length, 0);
+    const rawBase64TokenEquivalent = estimateTextTokens('A'.repeat(rawBase64Chars));
+    expect(rawBase64TokenEquivalent).toBeGreaterThan(result.thresholdTokens);
   });
 });
