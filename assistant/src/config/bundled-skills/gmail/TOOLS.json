@@ -206,9 +206,9 @@
     },
     {
       "name": "gmail_send",
-      "description": "Send an email. This is a medium-risk action that defaults to requiring user approval (overridable via trust rules). Include a confidence score (0-1).",
+      "description": "Send an email. This is a high-risk action that always requires user approval. Include a confidence score (0-1).",
       "category": "gmail",
-      "risk": "medium",
+      "risk": "high",
       "input_schema": {
         "type": "object",
         "properties": {

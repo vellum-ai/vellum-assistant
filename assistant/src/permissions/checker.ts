@@ -380,6 +380,17 @@ export async function check(
     }
   }
 
+  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
+  // These are first-party tools with a vetted risk declaration — applying the
+  // same policy as the per-tool default allow rules for browser tools, but
+  // generically so every new bundled skill benefits automatically.
+  if (!matchedRule && risk === RiskLevel.Low) {
+    const tool = getTool(toolName);
+    if (tool?.origin === 'skill' && tool.ownerSkillBundled) {
+      return { decision: 'allow', reason: 'Bundled skill tool: low risk, auto-allowed' };
+    }
+  }
+
   // In strict mode, every tool without an explicit matching rule must be
   // prompted — there is no implicit auto-allow for any risk level.
   // This explicitly covers skill_load: activating a skill can grant the
