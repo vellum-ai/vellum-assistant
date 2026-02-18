@@ -171,6 +171,16 @@ export const lazyTools: LazyToolDescriptor[] = [
             type: 'number',
             description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
           },
+          network_mode: {
+            type: 'string',
+            enum: ['off', 'proxied'],
+            description: 'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
+          },
+          credential_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
+          },
         },
         required: ['command'],
       },

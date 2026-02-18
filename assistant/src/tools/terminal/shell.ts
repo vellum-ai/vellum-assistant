@@ -33,6 +33,16 @@ class ShellTool implements Tool {
             type: 'number',
             description: 'Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.',
           },
+          network_mode: {
+            type: 'string',
+            enum: ['off', 'proxied'],
+            description: 'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
+          },
+          credential_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
+          },
         },
         required: ['command'],
       },
@@ -51,13 +61,26 @@ class ShellTool implements Tool {
       return { content: 'Error: command contains null bytes', isError: true };
     }
 
+    // Parse optional network/credential fields (schema-only — no execution branching yet)
+    const networkMode: 'off' | 'proxied' =
+      input.network_mode === 'proxied' ? 'proxied' : 'off';
+
+    const credentialIds: string[] = [];
+    if (Array.isArray(input.credential_ids)) {
+      for (const id of input.credential_ids) {
+        if (typeof id === 'string' && id.length > 0) {
+          credentialIds.push(id);
+        }
+      }
+    }
+
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
     const requestedSec = typeof input.timeout_seconds === 'number' ? input.timeout_seconds : shellDefaultTimeoutSec;
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
-    log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec }, 'Executing shell command');
+    log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec, networkMode, credentialIds }, 'Executing shell command');
 
     return new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
