@@ -3,24 +3,9 @@ import Combine
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - IOSThread
-
-/// Represents a single local chat thread on iOS.
-struct IOSThread: Identifiable {
-    let id: UUID
-    var title: String
-    let createdAt: Date
-
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date()) {
-        self.id = id
-        self.title = title
-        self.createdAt = createdAt
-    }
-}
-
 // MARK: - PersistedThread
 
-/// Codable representation of IOSThread for UserDefaults persistence.
+/// Codable representation of ThreadModel for UserDefaults persistence.
 private struct PersistedThread: Codable {
     var id: UUID
     var title: String
@@ -34,7 +19,7 @@ private struct PersistedThread: Codable {
 /// do not share message history or sending state.
 @MainActor
 class IOSThreadStore: ObservableObject {
-    @Published var threads: [IOSThread] = []
+    @Published var threads: [ThreadModel] = []
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
@@ -47,7 +32,7 @@ class IOSThreadStore: ObservableObject {
         let loaded = Self.load()
         if loaded.isEmpty {
             // First launch: create a default thread without persisting yet
-            let thread = IOSThread()
+            let thread = ThreadModel(title: "New Chat")
             threads = [thread]
             save()
         } else {
@@ -101,14 +86,14 @@ class IOSThreadStore: ObservableObject {
     }
 
     @discardableResult
-    func newThread() -> IOSThread {
-        let thread = IOSThread()
+    func newThread() -> ThreadModel {
+        let thread = ThreadModel(title: "New Chat")
         threads.append(thread)
         save()
         return thread
     }
 
-    func deleteThread(_ thread: IOSThread) {
+    func deleteThread(_ thread: ThreadModel) {
         viewModels.removeValue(forKey: thread.id)
         threads.removeAll { $0.id == thread.id }
         // Always keep at least one thread.
@@ -134,12 +119,12 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    private static func load() -> [IOSThread] {
+    private static func load() -> [ThreadModel] {
         guard let data = UserDefaults.standard.data(forKey: persistenceKey),
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
+        return persisted.map { ThreadModel(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
     }
 }
 
