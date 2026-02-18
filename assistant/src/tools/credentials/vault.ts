@@ -94,6 +94,18 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
       if (value) return value;
     }
   }
+
+  // Fallback: check credential metadata on the access_token record, where
+  // oauth2_connect persists the client config after a successful flow.
+  const metadataKey = fieldNames.some((f) => f.includes('client_id'))
+    ? 'oauth2ClientId' as const
+    : 'oauth2ClientSecret' as const;
+  for (const svc of servicesToCheck) {
+    const meta = getCredentialMetadata(svc, 'access_token');
+    const value = meta?.[metadataKey];
+    if (value) return value;
+  }
+
   return undefined;
 }
 
