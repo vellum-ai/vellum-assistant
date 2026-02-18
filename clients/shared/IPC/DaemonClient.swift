@@ -331,6 +331,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Reconnect task handle.
     private var reconnectTask: Task<Void, Never>?
 
+    /// Network path monitor — triggers immediate reconnect when network becomes available.
+    private var pathMonitor: NWPathMonitor?
+    private let pathMonitorQueue = DispatchQueue(label: "com.vellum.vellum-assistant.network-monitor", qos: .background)
+
     /// Ping timer task handle.
     private var pingTask: Task<Void, Never>?
 
@@ -376,6 +380,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         pingTask?.cancel()
         pongTimeoutTask?.cancel()
         blobProbeTask?.cancel()
+        pathMonitor?.cancel()
         connection?.cancel()
     }
 
@@ -403,6 +408,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         disconnectInternal(triggerReconnect: false)
 
         shouldReconnect = true
+        startNetworkMonitor()
 
         #if os(macOS)
         log.info("Connecting to daemon socket at \(self.config.socketPath)")
@@ -1133,6 +1139,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         shouldReconnect = triggerReconnect
         reconnectTask?.cancel()
         reconnectTask = nil
+        if !triggerReconnect {
+            stopNetworkMonitor()
+        }
         stopPingTimer()
         #if os(macOS) || os(iOS)
         if let pending = authContinuation {
@@ -1521,6 +1530,42 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 if self.shouldReconnect && self.reconnectTask == nil {
                     self.scheduleReconnect()
                 }
+            }
+        }
+    }
+
+    // MARK: - Network Reachability
+
+    private func startNetworkMonitor() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleNetworkPathChange(path)
+            }
+        }
+        monitor.start(queue: pathMonitorQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopNetworkMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handleNetworkPathChange(_ path: NWPath) {
+        guard path.status == .satisfied, !isConnected, shouldReconnect else { return }
+        log.info("Network available — resetting backoff and reconnecting immediately")
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectDelay = 1.0
+        Task { @MainActor [weak self] in
+            guard let self, self.shouldReconnect else { return }
+            do {
+                try await self.connect()
+            } catch {
+                log.error("Immediate reconnect on network change failed: \(error.localizedDescription)")
+                self.scheduleReconnect()
             }
         }
     }

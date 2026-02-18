@@ -230,13 +230,18 @@ final class MainWindow {
     }
 
     func handleDocumentLoadResponse(_ msg: DocumentLoadResponseMessage) {
-        let title = msg.success && !msg.title.isEmpty ? msg.title : "Document"
-        let content = msg.success ? msg.content : ""
+        guard msg.success else {
+            windowState.showToast(
+                message: "Failed to load document\(msg.error.map { ": \($0)" } ?? "")",
+                style: .error
+            )
+            return
+        }
         documentManager.createDocument(
             surfaceId: msg.surfaceId,
             sessionId: msg.conversationId,
-            title: title,
-            initialContent: content
+            title: msg.title,
+            initialContent: msg.content
         )
         show()
         windowState.selection = .panel(.documentEditor)
