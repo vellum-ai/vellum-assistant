@@ -22,7 +22,7 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
 
     private var continuations: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:] // sessionId → stream task
-    private var pendingMessages: [[String: Any]] = [] // conversation history
+    private var pendingMessages: [String: [[String: Any]]] = [:] // sessionId → conversation history
 
     public init() {}
 
@@ -90,12 +90,12 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         }
         let sessionId = msg.sessionId
 
-        // Add user message to conversation history
+        // Add user message to this session's conversation history
         let userContent = msg.content ?? ""
-        pendingMessages.append(["role": "user", "content": userContent])
+        pendingMessages[sessionId, default: []].append(["role": "user", "content": userContent])
 
         let task = Task { @MainActor in
-            await self.streamCompletion(sessionId: sessionId, apiKey: key, messages: self.pendingMessages)
+            await self.streamCompletion(sessionId: sessionId, apiKey: key, messages: self.pendingMessages[sessionId] ?? [])
         }
         activeTasks[sessionId] = task
     }
@@ -165,9 +165,9 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
             }
         }
 
-        // Append the full assistant reply to conversation history for multi-turn support
+        // Append the full assistant reply to this session's history for multi-turn support
         if !assistantText.isEmpty {
-            pendingMessages.append(["role": "assistant", "content": assistantText])
+            pendingMessages[sessionId, default: []].append(["role": "assistant", "content": assistantText])
         }
 
         broadcast(.messageComplete(MessageCompleteMessage(sessionId: sessionId)))
