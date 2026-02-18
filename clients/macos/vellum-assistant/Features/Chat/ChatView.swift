@@ -888,6 +888,13 @@ private struct ChatBubble: View {
             .filter { if case .image = $0 { return true } else { return false } }
     }
 
+    /// Video embed intents resolved for the message when the feature is enabled.
+    private var videoEmbedIntents: [MediaEmbedIntent] {
+        guard let settings = mediaEmbedSettings else { return [] }
+        return MediaEmbedResolver.resolve(message: message, settings: settings)
+            .filter { if case .video = $0 { return true } else { return false } }
+    }
+
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             if isUser { Spacer(minLength: 0) }
@@ -908,10 +915,15 @@ private struct ChatBubble: View {
                     }
                 }
 
-                // Image embeds rendered below the text
+                // Media embeds rendered below the text
                 ForEach(imageEmbedIntents.indices, id: \.self) { idx in
                     if case .image(let url) = imageEmbedIntents[idx] {
                         InlineImageEmbedView(url: url)
+                    }
+                }
+                ForEach(videoEmbedIntents.indices, id: \.self) { idx in
+                    if case .video(let provider, let videoID, let embedURL) = videoEmbedIntents[idx] {
+                        InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
                     }
                 }
 
