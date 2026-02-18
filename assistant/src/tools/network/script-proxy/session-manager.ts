@@ -400,13 +400,18 @@ export async function getOrStartSession(
 
   // Serialize: if another caller is already creating a session for this
   // conversation, wait for it rather than creating a second one.
-  const inflight = acquireLocks.get(conversationId);
-  if (inflight) {
+  // Loop so that after a credential-mismatch teardown we re-check for a new
+  // inflight lock — otherwise 3+ concurrent callers with different credentials
+  // can all fall through and create duplicate sessions.
+  for (;;) {
+    const inflight = acquireLocks.get(conversationId);
+    if (!inflight) break;
     const session = await inflight;
     if (credentialIdsMatch(session.credentialIds, credentialIds)) {
       return { session, created: false };
     }
-    // Credential mismatch — tear down and fall through to create a new session.
+    // Credential mismatch — tear down and loop back to re-check whether
+    // another waiter has already started a replacement session.
     await stopSession(session.id);
   }
 
