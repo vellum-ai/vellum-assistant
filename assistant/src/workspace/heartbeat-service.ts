@@ -1,0 +1,263 @@
+import { getLogger } from '../util/logger.js';
+import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
+
+const log = getLogger('heartbeat');
+
+/** Threshold: commit if changes are older than this (ms). Default: 5 minutes. */
+const DEFAULT_AGE_THRESHOLD_MS = 5 * 60 * 1000;
+
+/** Threshold: commit if more than this many files have changed. Default: 20. */
+const DEFAULT_FILE_THRESHOLD = 20;
+
+/** How often the heartbeat runs (ms). Default: 5 minutes. */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+
+export interface HeartbeatServiceOptions {
+  /** Maximum age of uncommitted changes before auto-commit (ms). */
+  ageThresholdMs?: number;
+  /** Maximum number of changed files before auto-commit. */
+  fileThreshold?: number;
+  /** Interval between heartbeat checks (ms). */
+  intervalMs?: number;
+  /** Override for getting workspace git services (for testing). */
+  getServices?: () => ReadonlyMap<string, WorkspaceGitService>;
+  /** Override for getting the current timestamp (for testing). */
+  now?: () => number;
+}
+
+/**
+ * Result of a single heartbeat check cycle.
+ */
+export interface HeartbeatCheckResult {
+  /** Number of workspaces checked. */
+  checked: number;
+  /** Number of workspaces that had commits created. */
+  committed: number;
+  /** Number of workspaces skipped (clean or below thresholds). */
+  skipped: number;
+  /** Number of workspaces that failed during check. */
+  failed: number;
+}
+
+/**
+ * Tracks when changes were first detected in each workspace, so the heartbeat
+ * can determine whether changes are "old enough" to warrant an auto-commit.
+ */
+const firstSeenDirty = new Map<string, number>();
+
+/**
+ * Heartbeat service that periodically checks all tracked workspaces for
+ * uncommitted changes and auto-commits them when thresholds are met.
+ *
+ * This is a SAFETY NET -- turn-boundary commits (M2) handle the primary case.
+ * The heartbeat catches:
+ * - Long-running bash scripts that modify files without returning to the agent loop
+ * - Background processes that write to the workspace
+ * - Forgotten state from crashed or interrupted sessions
+ */
+export class HeartbeatService {
+  private readonly ageThresholdMs: number;
+  private readonly fileThreshold: number;
+  private readonly intervalMs: number;
+  private readonly getServices: () => ReadonlyMap<string, WorkspaceGitService>;
+  private readonly now: () => number;
+  private timer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(options?: HeartbeatServiceOptions) {
+    this.ageThresholdMs = options?.ageThresholdMs ?? DEFAULT_AGE_THRESHOLD_MS;
+    this.fileThreshold = options?.fileThreshold ?? DEFAULT_FILE_THRESHOLD;
+    this.intervalMs = options?.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+    this.getServices = options?.getServices ?? getAllWorkspaceGitServices;
+    this.now = options?.now ?? Date.now;
+  }
+
+  /**
+   * Start the periodic heartbeat timer.
+   * Idempotent -- calling start() when already running is a no-op.
+   */
+  start(): void {
+    if (this.timer) return;
+    log.info(
+      { intervalMs: this.intervalMs, ageThresholdMs: this.ageThresholdMs, fileThreshold: this.fileThreshold },
+      'Heartbeat service started',
+    );
+    this.timer = setInterval(() => {
+      this.check().catch((err) => {
+        log.error({ err }, 'Heartbeat check failed');
+      });
+    }, this.intervalMs);
+  }
+
+  /**
+   * Stop the periodic heartbeat timer.
+   */
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+      log.info('Heartbeat service stopped');
+    }
+  }
+
+  /**
+   * Run a single heartbeat check across all tracked workspaces.
+   * For each workspace with uncommitted changes that exceed the age or file
+   * threshold, an auto-commit is created.
+   */
+  async check(): Promise<HeartbeatCheckResult> {
+    const result: HeartbeatCheckResult = {
+      checked: 0,
+      committed: 0,
+      skipped: 0,
+      failed: 0,
+    };
+
+    const services = this.getServices();
+
+    for (const [workspaceDir, service] of services) {
+      // Only check workspaces that have been initialized (have a .git dir).
+      // Skip workspaces that haven't been used yet to avoid spurious init.
+      if (!service.isInitialized()) {
+        continue;
+      }
+
+      result.checked++;
+
+      try {
+        const committed = await this.checkWorkspace(workspaceDir, service, 'heartbeat');
+        if (committed) {
+          result.committed++;
+        } else {
+          result.skipped++;
+        }
+      } catch (err) {
+        log.warn({ err, workspaceDir }, 'Heartbeat check failed for workspace');
+        result.failed++;
+      }
+    }
+
+    if (result.committed > 0) {
+      log.info(result, 'Heartbeat check completed with commits');
+    }
+
+    return result;
+  }
+
+  /**
+   * Commit any pending changes in all tracked workspaces as a shutdown safety net.
+   * Called during graceful daemon shutdown to ensure no workspace state is lost.
+   */
+  async commitAllPending(): Promise<HeartbeatCheckResult> {
+    const result: HeartbeatCheckResult = {
+      checked: 0,
+      committed: 0,
+      skipped: 0,
+      failed: 0,
+    };
+
+    const services = this.getServices();
+
+    for (const [workspaceDir, service] of services) {
+      if (!service.isInitialized()) {
+        continue;
+      }
+
+      result.checked++;
+
+      try {
+        const status = await service.getStatus();
+        if (status.clean) {
+          result.skipped++;
+          continue;
+        }
+
+        const totalChanges = status.staged.length + status.modified.length + status.untracked.length;
+        log.info({ workspaceDir, totalChanges }, 'Committing pending changes on shutdown');
+
+        await service.commitChanges(
+          `auto-commit: shutdown safety net (${totalChanges} files)`,
+          { trigger: 'shutdown', timestamp: this.now() },
+        );
+
+        // Clean up tracking state
+        firstSeenDirty.delete(workspaceDir);
+        result.committed++;
+      } catch (err) {
+        log.warn({ err, workspaceDir }, 'Shutdown commit failed for workspace');
+        result.failed++;
+      }
+    }
+
+    if (result.committed > 0) {
+      log.info(result, 'Shutdown commits completed');
+    }
+
+    return result;
+  }
+
+  /**
+   * Check a single workspace and commit if thresholds are exceeded.
+   *
+   * @returns true if a commit was created
+   */
+  private async checkWorkspace(
+    workspaceDir: string,
+    service: WorkspaceGitService,
+    trigger: string,
+  ): Promise<boolean> {
+    const status = await service.getStatus();
+
+    if (status.clean) {
+      // Workspace is clean -- clear any dirty tracking
+      firstSeenDirty.delete(workspaceDir);
+      return false;
+    }
+
+    const totalChanges = status.staged.length + status.modified.length + status.untracked.length;
+    const now = this.now();
+
+    // Track when we first saw this workspace as dirty
+    if (!firstSeenDirty.has(workspaceDir)) {
+      firstSeenDirty.set(workspaceDir, now);
+    }
+
+    const dirtyAge = now - firstSeenDirty.get(workspaceDir)!;
+
+    // Check thresholds: commit if changes are old enough OR if too many files changed
+    const ageExceeded = dirtyAge >= this.ageThresholdMs;
+    const fileCountExceeded = totalChanges >= this.fileThreshold;
+
+    if (!ageExceeded && !fileCountExceeded) {
+      log.debug(
+        { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge },
+        'Changes below threshold, skipping heartbeat commit',
+      );
+      return false;
+    }
+
+    const reason = ageExceeded
+      ? `changes older than ${Math.round(dirtyAge / 1000)}s`
+      : `${totalChanges} files changed (threshold: ${this.fileThreshold})`;
+
+    log.info(
+      { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge, reason },
+      'Heartbeat auto-committing workspace changes',
+    );
+
+    await service.commitChanges(
+      `auto-commit: ${trigger} safety net (${totalChanges} files, ${reason})`,
+      { trigger, timestamp: now },
+    );
+
+    // Reset dirty tracking after successful commit
+    firstSeenDirty.delete(workspaceDir);
+    return true;
+  }
+}
+
+/**
+ * @internal Test-only: clear the dirty tracking state
+ */
+export function _resetHeartbeatState(): void {
+  firstSeenDirty.clear();
+}
