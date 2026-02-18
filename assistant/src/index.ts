@@ -59,6 +59,7 @@ import {
 } from './memory/admin.js';
 import { registerHooksCommand } from './hooks/cli.js';
 import { registerEmailCommand } from './cli/email.js';
+import { registerContactsCommand } from './cli/contacts.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -989,6 +990,9 @@ registerHooksCommand(program);
 // --- Email commands ---
 registerEmailCommand(program);
 
+// --- Contacts commands ---
+registerContactsCommand(program);
+
 // --- Completions command ---
 program
   .command('completions')
@@ -1003,10 +1007,11 @@ program
       trust: ['list', 'remove', 'clear'],
       memory: ['status', 'backfill', 'query', 'rebuild-index'],
       hooks: ['list', 'enable', 'disable', 'install', 'remove'],
+      contacts: ['list', 'get', 'merge'],
     };
     const topLevel = [
       'daemon', 'dev', 'sessions', 'config', 'keys', 'trust', 'memory',
-      'hooks', 'audit', 'doctor', 'completions', 'help',
+      'hooks', 'contacts', 'audit', 'doctor', 'completions', 'help',
     ];
 
     switch (shell) {
@@ -1076,6 +1081,7 @@ _vellum() {
         'trust:Manage trust rules'
         'memory:Manage long-term memory'
         'hooks:Manage hooks'
+        'contacts:Manage the contact graph'
         'audit:Show recent tool invocations'
         'doctor:Run diagnostic checks'
         'completions:Generate shell completion script'
@@ -1119,6 +1125,7 @@ function generateFishCompletion(
     trust: 'Manage trust rules',
     memory: 'Manage long-term memory',
     hooks: 'Manage hooks',
+    contacts: 'Manage the contact graph',
     audit: 'Show recent tool invocations',
     doctor: 'Run diagnostic checks',
     completions: 'Generate shell completion script',

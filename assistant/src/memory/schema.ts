@@ -329,6 +329,32 @@ export const sharedAppLinks = sqliteTable('shared_app_links', {
   expiresAt: integer('expires_at'),
 });
 
+// ── Contacts ─────────────────────────────────────────────────────────
+
+export const contacts = sqliteTable('contacts', {
+  id: text('id').primaryKey(),
+  displayName: text('display_name').notNull(),
+  relationship: text('relationship'),                  // e.g. 'colleague', 'friend', 'manager', 'client'
+  importance: real('importance').notNull().default(0.5), // 0-1 scale, learned from interaction patterns
+  responseExpectation: text('response_expectation'),    // e.g. 'immediate', 'within_hours', 'casual'
+  preferredTone: text('preferred_tone'),                // e.g. 'formal', 'casual', 'friendly'
+  lastInteraction: integer('last_interaction'),         // epoch ms
+  interactionCount: integer('interaction_count').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const contactChannels = sqliteTable('contact_channels', {
+  id: text('id').primaryKey(),
+  contactId: text('contact_id')
+    .notNull()
+    .references(() => contacts.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),                        // 'email', 'slack', 'whatsapp', 'phone', etc.
+  address: text('address').notNull(),                  // the actual identifier on that channel
+  isPrimary: integer('is_primary', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const homeBaseAppLinks = sqliteTable('home_base_app_links', {
   id: text('id').primaryKey(),
   appId: text('app_id').notNull(),

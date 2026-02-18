@@ -617,6 +617,40 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_memory_item ON memory_item_entities(memory_item_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_item_entities_entity ON memory_item_entities(entity_id)`);
 
+  // ── Contacts ────────────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS contacts (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      relationship TEXT,
+      importance REAL NOT NULL DEFAULT 0.5,
+      response_expectation TEXT,
+      preferred_tone TEXT,
+      last_interaction INTEGER,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS contact_channels (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      address TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_importance ON contacts(importance DESC)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_contacts_last_interaction ON contacts(last_interaction DESC)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_contact_channels_contact_id ON contact_channels(contact_id)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_channels_type_address ON contact_channels(type, address)`);
+
   migrateMemoryFtsBackfill(database);
 }
 
