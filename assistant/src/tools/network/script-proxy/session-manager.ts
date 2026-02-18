@@ -11,6 +11,8 @@ import type {
   ProxyEnvVars,
   ProxyApprovalCallback,
 } from './types.js';
+import type { PolicyCallback } from './http-forwarder.js';
+import { evaluateRequestWithApproval } from './policy.js';
 import { getCAPath, ensureLocalCA } from './certs.js';
 import { resolveById } from '../../credentials/resolve.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
@@ -111,18 +113,18 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
   const config: ProxyServerConfig = {};
 
+  // Build a templates map from credential metadata so the router and policy
+  // engine can match request targets against injection host patterns.
+  const templates = new Map<string, CredentialInjectionTemplate[]>();
+  for (const credId of managed.session.credentialIds) {
+    const resolved = resolveById(credId);
+    if (resolved?.injectionTemplates?.length) {
+      templates.set(credId, resolved.injectionTemplates);
+    }
+  }
+
   if (managed.dataDir && managed.session.credentialIds.length > 0) {
     const caDir = join(managed.dataDir, 'proxy-ca');
-
-    // Build a templates map from credential metadata so the router can
-    // match CONNECT targets against injection host patterns.
-    const templates = new Map<string, CredentialInjectionTemplate[]>();
-    for (const credId of managed.session.credentialIds) {
-      const resolved = resolveById(credId);
-      if (resolved?.injectionTemplates?.length) {
-        templates.set(credId, resolved.injectionTemplates);
-      }
-    }
 
     if (templates.size > 0) {
       // Ensure the CA directory and cert/key exist before starting MITM
@@ -139,6 +141,44 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
       };
     }
   }
+
+  // Build the policy callback for HTTP/CONNECT request gating
+  const policyCallback: PolicyCallback = async (hostname: string, reqPath: string) => {
+    const allKnown: CredentialInjectionTemplate[] = [];
+    for (const tpls of templates.values()) {
+      allKnown.push(...tpls);
+    }
+
+    const decision = evaluateRequestWithApproval(
+      hostname, null, reqPath,
+      managed.session.credentialIds, templates, allKnown,
+    );
+
+    switch (decision.kind) {
+      case 'matched':
+        return {}; // credential injection headers added in a later PR
+      case 'ambiguous':
+        return null; // block — can't auto-resolve
+      case 'ask_missing_credential':
+      case 'ask_unauthenticated':
+        if (managed.approvalCallback) {
+          const approved = await managed.approvalCallback({
+            decision,
+            sessionId: managed.session.id,
+          });
+          return approved ? {} : null;
+        }
+        return decision.kind === 'ask_unauthenticated' ? {} : null;
+      case 'missing':
+        return null;
+      case 'unauthenticated':
+        return {};
+      default:
+        return null;
+    }
+  };
+
+  config.policyCallback = policyCallback;
 
   const server = createProxyServer(config);
 
