@@ -470,6 +470,10 @@ public struct ToolConfirmationBubble: View {
         let full = fullHeight ?? self.fullTextHeight
         let truncated = truncatedHeight ?? self.truncatedTextHeight
         guard full > 0, truncated > 0 else { return }
+        // Skip recalculating when expanded — the truncated height equals
+        // full height with no line limit, which would reset isTruncated to false
+        // and hide the "Show less" button.
+        guard !isPreviewExpanded else { return }
         isTruncated = full > truncated + 1
     }
 }
