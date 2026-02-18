@@ -112,20 +112,20 @@ describe('executeBrowserClick', () => {
     const result = await executeBrowserClick({ element_id: 'e1' }, ctx);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Clicked element');
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]');
+    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', { timeout: 10000 });
   });
 
   test('clicks by raw selector', async () => {
     const result = await executeBrowserClick({ selector: '#submit-btn' }, ctx);
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith('#submit-btn');
+    expect(mockPage.click).toHaveBeenCalledWith('#submit-btn', { timeout: 10000 });
   });
 
   test('prefers element_id over selector', async () => {
     snapshotMaps.set('test-session', new Map([['e1', '[data-vellum-eid="e1"]']]));
     const result = await executeBrowserClick({ element_id: 'e1', selector: '#other' }, ctx);
     expect(result.isError).toBe(false);
-    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]');
+    expect(mockPage.click).toHaveBeenCalledWith('[data-vellum-eid="e1"]', { timeout: 10000 });
   });
 
   test('errors when neither element_id nor selector provided', async () => {
@@ -170,13 +170,13 @@ describe('executeBrowserType', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Typed into element');
     expect(result.content).toContain('cleared existing content');
-    expect(mockPage.fill).toHaveBeenCalledWith('[data-vellum-eid="e3"]', 'hello');
+    expect(mockPage.fill).toHaveBeenCalledWith('[data-vellum-eid="e3"]', 'hello', { timeout: 10000 });
   });
 
   test('types with raw selector', async () => {
     const result = await executeBrowserType({ selector: 'input[name="email"]', text: 'test' }, ctx);
     expect(result.isError).toBe(false);
-    expect(mockPage.fill).toHaveBeenCalledWith('input[name="email"]', 'test');
+    expect(mockPage.fill).toHaveBeenCalledWith('input[name="email"]', 'test', { timeout: 10000 });
   });
 
   test('appends text when clear_first=false', async () => {
@@ -187,7 +187,7 @@ describe('executeBrowserType', () => {
     );
     expect(result.isError).toBe(false);
     expect(mockPage.evaluate).toHaveBeenCalled();
-    expect(mockPage.fill).toHaveBeenCalledWith('#input', 'existing more');
+    expect(mockPage.fill).toHaveBeenCalledWith('#input', 'existing more', { timeout: 10000 });
     expect(result.content).not.toContain('cleared');
   });
 
@@ -198,7 +198,7 @@ describe('executeBrowserType', () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain('pressed Enter');
-    expect(mockPage.fill).toHaveBeenCalledWith('#search', 'query');
+    expect(mockPage.fill).toHaveBeenCalledWith('#search', 'query', { timeout: 10000 });
     expect(mockPage.press).toHaveBeenCalledWith('#search', 'Enter');
   });
 
