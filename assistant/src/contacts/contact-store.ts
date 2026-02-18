@@ -260,6 +260,7 @@ export function searchContacts(params: {
   const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
+    if (!sanitized && !params.relationship) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
