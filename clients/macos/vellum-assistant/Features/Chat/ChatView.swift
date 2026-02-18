@@ -911,14 +911,7 @@ private struct ChatBubble: View {
                     }
 
                     // Document widget for document_create tool calls
-                    if !message.toolCalls.isEmpty {
-                        print("🔍 Message has \(message.toolCalls.count) tool calls:")
-                        for tc in message.toolCalls {
-                            print("  - \(tc.toolName), complete: \(tc.isComplete)")
-                        }
-                    }
                     if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
-                        print("✅ Showing document widget for: \(documentToolCall.toolName)")
                         documentWidget(for: documentToolCall)
                     }
                 }
