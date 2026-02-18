@@ -134,9 +134,9 @@ struct ActivityStepView: View {
             // Expanded details
             if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Full command / input
-                    if !toolCall.inputSummary.isEmpty {
-                        Text(toolCall.inputSummary)
+                    // Full command / input (untruncated)
+                    if !toolCall.inputFull.isEmpty {
+                        Text(toolCall.inputFull)
                             .font(VFont.monoSmall)
                             .foregroundColor(VColor.textSecondary)
                             .textSelection(.enabled)

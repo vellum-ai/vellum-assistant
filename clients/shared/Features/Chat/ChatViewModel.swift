@@ -1003,6 +1003,7 @@ public final class ChatViewModel: ObservableObject {
                     ToolCallData(
                         toolName: toolDisplayName(tc.name),
                         inputSummary: summarizeToolInput(tc.input),
+                        inputFull: extractToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
                         isComplete: true,

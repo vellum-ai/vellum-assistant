@@ -32,8 +32,8 @@ extension ChatViewModel {
         "command", "file_path", "path", "query", "url", "pattern", "glob"
     ]
 
-    /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
-    func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
+    /// Extract the most relevant tool input value as a full string (no truncation).
+    func extractToolInput(_ input: [String: AnyCodable]) -> String {
         // Pick the first matching priority key, falling back to the first sorted key.
         let value: AnyCodable
         if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
@@ -44,15 +44,19 @@ extension ChatViewModel {
         } else {
             return ""
         }
-        let str: String
         if let s = value.value as? String {
-            str = s
+            return s
         } else if let encoder = try? JSONEncoder().encode(value),
                   let json = String(data: encoder, encoding: .utf8) {
-            str = json
+            return json
         } else {
-            str = String(describing: value.value ?? "")
+            return String(describing: value.value ?? "")
         }
+    }
+
+    /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
+    func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
+        let str = extractToolInput(input)
         return str.count > 80 ? String(str.prefix(77)) + "..." : str
     }
 
@@ -641,6 +645,7 @@ extension ChatViewModel {
             var toolCall = ToolCallData(
                 toolName: toolDisplayName(msg.toolName),
                 inputSummary: summarizeToolInput(msg.input),
+                inputFull: extractToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
                 startedAt: Date()
             )
