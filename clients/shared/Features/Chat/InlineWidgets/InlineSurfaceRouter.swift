@@ -28,13 +28,18 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var isDocumentPreview: Bool {
+        if case .documentPreview = surface.data { return true }
+        return false
+    }
+
     public var body: some View {
         if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
-            if !isTemplateCard, !isDynamicPreview, let title = surface.title {
+            if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, let title = surface.title {
                 Text(title)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
@@ -47,7 +52,7 @@ public struct InlineSurfaceRouter: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inlineWidgetCard(interactive: isDynamicPreview)
+        .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview {
                 Button {
@@ -70,10 +75,31 @@ public struct InlineSurfaceRouter: View {
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
+            } else if isDocumentPreview {
+                if case .documentPreview(let data) = surface.data {
+                    Button {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MainWindow.openDocumentEditor"),
+                            object: nil,
+                            userInfo: ["documentSurfaceId": data.surfaceId]
+                        )
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(VColor.textSecondary)
+                            .padding(VSpacing.xs)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(VColor.surfaceBorder.opacity(0.3))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(VSpacing.sm)
+                }
             }
         }
-        // Consistent width for all widget cards; dynamic page previews are more compact.
-        .frame(maxWidth: isDynamicPreview ? 350 : 540, alignment: .leading)
+        // Consistent width for all widget cards; dynamic page previews and document previews are more compact.
+        .frame(maxWidth: isDynamicPreview || isDocumentPreview ? 350 : 540, alignment: .leading)
         }
     }
 
@@ -82,6 +108,14 @@ public struct InlineSurfaceRouter: View {
         switch surface.data {
         case .card(let data):
             InlineCardWidget(data: data)
+        case .documentPreview(let data):
+            InlineDocumentPreview(data: data) {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MainWindow.openDocumentEditor"),
+                    object: nil,
+                    userInfo: ["documentSurfaceId": data.surfaceId]
+                )
+            }
         case .dynamicPage(let data):
             if let preview = data.preview {
                 InlineDynamicPagePreview(preview: preview) {

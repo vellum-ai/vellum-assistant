@@ -471,7 +471,7 @@ export interface IpcBlobProbe {
 
 // === Surface types ===
 
-export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload' | 'browser_view';
+export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload' | 'browser_view' | 'document_preview';
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = ['form', 'confirmation', 'dynamic_page', 'file_upload'];
 
@@ -594,7 +594,13 @@ export interface BrowserViewSurfaceData {
   pages?: Array<{ id: string; title: string; url: string; active: boolean }>;
 }
 
-export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData | BrowserViewSurfaceData;
+export interface DocumentPreviewSurfaceData {
+  title: string;
+  surfaceId: string;   // the doc's real surfaceId, for focusing the panel
+  subtitle?: string;
+}
+
+export type SurfaceData = CardSurfaceData | FormSurfaceData | ListSurfaceData | TableSurfaceData | ConfirmationSurfaceData | DynamicPageSurfaceData | FileUploadSurfaceData | BrowserViewSurfaceData | DocumentPreviewSurfaceData;
 
 export interface UiSurfaceAction {
   type: 'ui_surface_action';
@@ -1555,6 +1561,11 @@ export interface UiSurfaceShowBrowserView extends UiSurfaceShowBase {
   data: BrowserViewSurfaceData;
 }
 
+export interface UiSurfaceShowDocumentPreview extends UiSurfaceShowBase {
+  surfaceType: 'document_preview';
+  data: DocumentPreviewSurfaceData;
+}
+
 export type UiSurfaceShow =
   | UiSurfaceShowCard
   | UiSurfaceShowForm
@@ -1563,7 +1574,8 @@ export type UiSurfaceShow =
   | UiSurfaceShowConfirmation
   | UiSurfaceShowDynamicPage
   | UiSurfaceShowFileUpload
-  | UiSurfaceShowBrowserView;
+  | UiSurfaceShowBrowserView
+  | UiSurfaceShowDocumentPreview;
 
 export interface UiSurfaceUpdate {
   type: 'ui_surface_update';

@@ -465,6 +465,9 @@ struct MainWindowView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { _ in
+            windowState.selection = .panel(.documentEditor)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
             if let updated = notification.userInfo?["surface"] as? Surface,
                updated.id == windowState.activeDynamicSurface?.surfaceId {

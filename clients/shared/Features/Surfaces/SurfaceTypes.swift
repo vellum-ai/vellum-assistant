@@ -11,6 +11,7 @@ public enum SurfaceType: String, Codable, Sendable {
     case dynamicPage = "dynamic_page"
     case fileUpload = "file_upload"
     case browserView = "browser_view"
+    case documentPreview = "document_preview"
 }
 
 public enum SurfaceActionStyle: String, Codable, Sendable {
@@ -301,6 +302,18 @@ public struct BrowserPage: Sendable, Identifiable {
     }
 }
 
+public struct DocumentPreviewSurfaceData: Sendable {
+    public let title: String
+    public let surfaceId: String
+    public let subtitle: String?
+
+    public init(title: String, surfaceId: String, subtitle: String? = nil) {
+        self.title = title
+        self.surfaceId = surfaceId
+        self.subtitle = subtitle
+    }
+}
+
 public struct BrowserViewSurfaceData: Sendable {
     public let sessionId: String
     public let currentUrl: String
@@ -370,6 +383,7 @@ public enum SurfaceData: Sendable {
     case dynamicPage(DynamicPageSurfaceData)
     case fileUpload(FileUploadSurfaceData)
     case browserView(BrowserViewSurfaceData)
+    case documentPreview(DocumentPreviewSurfaceData)
 }
 
 public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
@@ -506,6 +520,8 @@ public extension Surface {
             return parseFileUploadData(dict).map { .fileUpload($0) }
         case .browserView:
             return parseBrowserViewData(dict).map { .browserView($0) }
+        case .documentPreview:
+            return parseDocumentPreviewData(dict).map { .documentPreview($0) }
         }
     }
 
@@ -532,6 +548,8 @@ public extension Surface {
             return .fileUpload(mergeFileUploadData(existing: fu, update: update))
         case .browserView(let bv):
             return .browserView(mergeBrowserViewData(existing: bv, update: update))
+        case .documentPreview(let dp):
+            return .documentPreview(dp)
         }
     }
 
@@ -995,6 +1013,12 @@ public extension Surface {
             highlights: highlights,
             pages: pages
         )
+    }
+
+    private static func parseDocumentPreviewData(_ dict: [String: Any?]) -> DocumentPreviewSurfaceData? {
+        guard let title = dict["title"] as? String,
+              let surfaceId = dict["surfaceId"] as? String else { return nil }
+        return DocumentPreviewSurfaceData(title: title, surfaceId: surfaceId, subtitle: dict["subtitle"] as? String)
     }
 
     private static func mergeBrowserViewData(existing: BrowserViewSurfaceData, update: [String: Any?]) -> BrowserViewSurfaceData {
