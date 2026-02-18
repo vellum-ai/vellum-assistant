@@ -813,6 +813,9 @@ export class Session {
       // Map tool_use_id → toolName so tool_result processing can identify the originating tool.
       const toolUseIdToName = new Map<string, string>();
 
+      // Track tool names used in the current agent turn for checkpoint decisions.
+      let currentTurnToolNames: string[] = [];
+
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         // Emit llm_call_started once per provider call. Called on first streaming
         // token (text or thinking) or, for tool-only turns, right before the
@@ -847,6 +850,7 @@ export class Session {
             break;
           case 'tool_use':
             toolUseIdToName.set(event.id, event.name);
+            currentTurnToolNames.push(event.name);
             onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: this.conversationId });
             break;
           case 'tool_output_chunk':
@@ -1007,9 +1011,20 @@ export class Session {
       };
 
       const onCheckpoint = (): CheckpointDecision => {
+        // Capture and reset tool names for this turn
+        const turnTools = currentTurnToolNames;
+        currentTurnToolNames = [];
+
         if (this.canHandoffAtCheckpoint()) {
-          yieldedForHandoff = true;
-          return 'yield';
+          // Don't interrupt active browser interaction flows — the agent
+          // needs multiple consecutive turns (snapshot → click → snapshot)
+          // and yielding mid-flow leaves the task incomplete.
+          const inBrowserFlow = turnTools.length > 0
+            && turnTools.every(n => n.startsWith('browser_'));
+          if (!inBrowserFlow) {
+            yieldedForHandoff = true;
+            return 'yield';
+          }
         }
         return 'continue';
       };

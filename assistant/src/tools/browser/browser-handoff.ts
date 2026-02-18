@@ -27,9 +27,24 @@ export async function startHandoff(
 
   log.info({ sessionId, reason: options.reason }, 'Starting handoff to user');
 
+  // Bring Chrome to the front so the user can interact directly.
+  if (options.bringToFront) {
+    try {
+      const page = await browserManager.getOrCreateSessionPage(sessionId);
+      await page.bringToFront();
+    } catch (err) {
+      log.warn({ err, sessionId }, 'Failed to bring browser to front');
+    }
+    await browserManager.moveWindowOnscreen();
+  }
+
   const surfaceId = getScreencastSurfaceId(sessionId);
   if (!surfaceId) {
     log.warn({ sessionId }, 'No active screencast surface for handoff');
+    // Move window back offscreen if we brought it to front
+    if (options.bringToFront) {
+      await browserManager.moveWindowOffscreen();
+    }
     return;
   }
 
@@ -47,6 +62,11 @@ export async function startHandoff(
 
   // Wait for user to hand back control (5 min timeout)
   await browserManager.waitForHandoffComplete(sessionId);
+
+  // Move Chrome back offscreen after handoff.
+  if (options.bringToFront) {
+    await browserManager.moveWindowOffscreen();
+  }
 
   sendToClient({
     type: 'browser_interactive_mode_changed',

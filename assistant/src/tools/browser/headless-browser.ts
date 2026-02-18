@@ -56,7 +56,7 @@ registerTool(new BrowserNavigateTool());
 
 class BrowserSnapshotTool implements Tool {
   name = 'browser_snapshot';
-  description = 'List interactive elements on the current page. Returns elements with unique IDs that can be used with browser_click and browser_type.';
+  description = 'List interactive elements on the current page. Returns elements with unique IDs (e.g. "e1", "e5") that MUST be used with browser_click, browser_type, and browser_press_key. Always run this before interacting with elements — never guess or fabricate selectors.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -144,7 +144,7 @@ registerTool(new BrowserCloseTool());
 
 class BrowserClickTool implements Tool {
   name = 'browser_click';
-  description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector.';
+  description = 'Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer browser_press_key with ArrowDown/ArrowUp + Enter instead of clicking dropdown items.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -162,6 +162,10 @@ class BrowserClickTool implements Tool {
           selector: {
             type: 'string',
             description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+          timeout: {
+            type: 'number',
+            description: 'Max time in ms to wait for the element to be clickable (default: 10000).',
           },
         },
       },
@@ -227,7 +231,7 @@ registerTool(new BrowserTypeTool());
 
 class BrowserPressKeyTool implements Tool {
   name = 'browser_press_key';
-  description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc.';
+  description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc. Preferred method for navigating autocomplete dropdowns and search suggestion lists: use ArrowDown/ArrowUp to move through options, then Enter to select.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 

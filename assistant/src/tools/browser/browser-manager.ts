@@ -35,13 +35,14 @@ export type Page = {
   title(): Promise<string>;
   url(): string;
   evaluate(expression: string): Promise<unknown>;
-  click(selector: string): Promise<void>;
-  fill(selector: string, value: string): Promise<void>;
-  press(selector: string, key: string): Promise<void>;
+  click(selector: string, options?: { timeout?: number }): Promise<void>;
+  fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
+  press(selector: string, key: string, options?: { timeout?: number }): Promise<void>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
   route(pattern: string, handler: RouteHandler): Promise<void>;
   unroute(pattern: string, handler?: RouteHandler): Promise<void>;
+  bringToFront(): Promise<void>;
   screenshot(options?: { type?: string; quality?: number; fullPage?: boolean }): Promise<Buffer>;
   keyboard: { press(key: string): Promise<void> };
   mouse: {
@@ -99,6 +100,8 @@ class BrowserManager {
   private _browserMode: 'headless' | 'cdp' = 'headless';
   private cdpUrl: string = 'http://localhost:9222';
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
+  private browserCdpSession: CDPSession | null = null;
+  private browserWindowId: number | null = null;
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
@@ -159,7 +162,7 @@ class BrowserManager {
           this.cdpRequestResolvers.delete(sessionId);
         }
         resolve(false);
-      }, 60_000);
+      }, 15_000);
 
       this.cdpRequestResolvers.set(sessionId, resolver);
       sendToClient({ type: 'browser_cdp_request', sessionId });
@@ -181,45 +184,45 @@ class BrowserManager {
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      // If not already in CDP mode, try to detect or negotiate CDP
+      // CDP is opt-in. We only attempt it when explicitly configured,
+      // otherwise default to headless to avoid stealing desktop focus.
       let useCdp = this._browserMode === 'cdp';
-      if (!useCdp) {
+      const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
+      if (useCdp) {
         const cdpAvailable = await this.detectCDP();
-        if (cdpAvailable) {
-          useCdp = true;
-        } else {
-          // Try requesting Chrome restart from the client using the invoking session's sender
-          const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
-          if (invokingSessionId && sender) {
-            log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
-            const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
-            if (accepted) {
-              // Verify CDP is now available after client confirmed restart
-              const nowAvailable = await this.detectCDP();
-              if (nowAvailable) {
-                useCdp = true;
-              } else {
-                log.warn('Client accepted CDP request but CDP not detected, falling back to headless');
-              }
+        if (!cdpAvailable && invokingSessionId && sender) {
+          log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
+          const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
+          if (accepted) {
+            const nowAvailable = await this.detectCDP();
+            if (nowAvailable) {
+              useCdp = true;
             } else {
-              log.info('Client declined CDP request, falling back to headless');
+              log.warn('Client accepted CDP request but CDP not detected');
+              useCdp = false;
             }
+          } else {
+            log.info('Client declined CDP request');
+            useCdp = false;
           }
+        } else if (!cdpAvailable) {
+          useCdp = false;
         }
       }
 
       if (useCdp) {
         try {
           const pw = await import('playwright');
-          const browser = await pw.chromium.connectOverCDP(this.cdpUrl);
+          const browser = await pw.chromium.connectOverCDP(this.cdpUrl, { timeout: 10_000 });
           this.cdpBrowser = browser;
           const contexts = browser.contexts();
           const ctx = contexts[0] || await browser.newContext();
           this.setBrowserMode('cdp');
+          await this.initBrowserCdpSession();
           log.info({ cdpUrl: this.cdpUrl }, 'Connected to Chrome via CDP');
           return ctx as unknown as BrowserContext;
         } catch (err) {
-          log.warn({ err }, 'CDP connection failed, falling back to headless');
+          log.warn({ err }, 'CDP connectOverCDP failed');
           this._browserMode = 'headless';
         }
       }
@@ -280,6 +283,8 @@ class BrowserManager {
           log.warn('Browser context closed unexpectedly, resetting state');
           this.context = null;
           this.contextCloseHandler = null;
+          this.browserCdpSession = null;
+          this.browserWindowId = null;
           this.cdpBrowser = null;
           // Resolve any pending handoffs before clearing state
           for (const resolver of this.handoffResolvers.values()) {
@@ -317,6 +322,12 @@ class BrowserManager {
     const page = await context.newPage();
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
+
+    // In CDP mode, keep the window minimized unless we're in an active handoff.
+    if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
+      await this.moveWindowOffscreen();
+    }
+
     log.debug({ sessionId }, 'Session page created');
     return page;
   }
@@ -380,6 +391,15 @@ class BrowserManager {
       }
       this.context = null;
       log.info('Browser context closed');
+    }
+
+    // Detach browser-level CDP session used for window management
+    if (this.browserCdpSession) {
+      try {
+        await this.browserCdpSession.detach();
+      } catch {}
+      this.browserCdpSession = null;
+      this.browserWindowId = null;
     }
 
     // Disconnect CDP browser connection if present
@@ -447,6 +467,89 @@ class BrowserManager {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;
     return map.get(elementId) ?? null;
+  }
+
+  /**
+   * Create a browser-level CDP session and discover the window ID.
+   * Called once after browser launch/connect so moveWindowOffscreen/Onscreen can work.
+   */
+  private async initBrowserCdpSession(): Promise<void> {
+    if (!this.cdpBrowser) return;
+    try {
+      const browser = this.cdpBrowser as { newBrowserCDPSession?: () => Promise<CDPSession> };
+      if (typeof browser.newBrowserCDPSession !== 'function') return;
+
+      this.browserCdpSession = await browser.newBrowserCDPSession();
+      this.browserWindowId = null;
+      await this.ensureBrowserWindowId();
+    } catch (err) {
+      log.warn({ err }, 'Failed to init browser CDP session');
+    }
+  }
+
+  private async ensureBrowserWindowId(): Promise<number | null> {
+    if (!this.browserCdpSession) return null;
+    if (this.browserWindowId != null) return this.browserWindowId;
+    try {
+      const targets = await this.browserCdpSession.send('Target.getTargets') as {
+        targetInfos: Array<{ targetId: string; type: string }>;
+      };
+      const pageTarget = targets.targetInfos.find((t: { type: string }) => t.type === 'page');
+      if (!pageTarget) return null;
+      const result = await this.browserCdpSession.send('Browser.getWindowForTarget', {
+        targetId: pageTarget.targetId,
+      }) as { windowId: number };
+      this.browserWindowId = result.windowId;
+      log.debug({ windowId: this.browserWindowId }, 'Got browser window ID via CDP');
+      return this.browserWindowId;
+    } catch (err) {
+      log.warn({ err }, 'Failed to resolve browser window ID');
+      return null;
+    }
+  }
+
+  /**
+   * Hide the browser window during non-handoff automation to avoid focus theft.
+   */
+  async moveWindowOffscreen(): Promise<void> {
+    if (!this.browserCdpSession) return;
+    const windowId = await this.ensureBrowserWindowId();
+    if (windowId == null) return;
+    try {
+      await this.browserCdpSession.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: { windowState: 'minimized' },
+      });
+      log.debug('moveWindowOffscreen: minimized browser window via CDP');
+    } catch (err) {
+      log.warn({ err }, 'moveWindowOffscreen: minimize failed, attempting offscreen bounds');
+      try {
+        await this.browserCdpSession.send('Browser.setWindowBounds', {
+          windowId,
+          bounds: { left: -32000, top: -32000, windowState: 'normal' },
+        });
+      } catch (boundsErr) {
+        log.warn({ err: boundsErr }, 'moveWindowOffscreen: offscreen bounds failed');
+      }
+    }
+  }
+
+  /**
+   * Move the browser window onscreen and resize it for user interaction.
+   */
+  async moveWindowOnscreen(): Promise<void> {
+    if (!this.browserCdpSession) return;
+    const windowId = await this.ensureBrowserWindowId();
+    if (windowId == null) return;
+    try {
+      await this.browserCdpSession.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: { left: 100, top: 100, width: 1280, height: 960, windowState: 'normal' },
+      });
+      log.debug('moveWindowOnscreen: moved window onscreen via CDP');
+    } catch (err) {
+      log.warn({ err }, 'moveWindowOnscreen: CDP setWindowBounds failed');
+    }
   }
 
   isInteractive(sessionId: string): boolean {
