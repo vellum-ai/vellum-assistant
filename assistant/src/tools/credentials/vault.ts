@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import {
   setSecureKey,
+  getSecureKey,
   deleteSecureKey,
   getBackendType,
   listSecureKeys,
@@ -247,10 +248,12 @@ class CredentialStoreTool implements Tool {
         // all key names once (instead of per-entry getSecureKey calls that each
         // re-read/re-derive the store). On keychain we trust metadata since the
         // OS keychain has no batch list API.
-        // In downgraded mode (keychain failed, switched to encrypted), skip
-        // strict filtering — credentials may still be readable from keychain
-        // via getSecureKey's fallback path, so we trust metadata instead.
-        const verifySecrets = getBackendType() === 'encrypted' && !isDowngradedFromKeychain();
+        // In downgraded mode (keychain failed, switched to encrypted), we verify
+        // readability per-entry via getSecureKey which tries both the encrypted
+        // store and the keychain fallback. This ensures credentials that are
+        // truly unreadable from both backends are filtered out.
+        const downgraded = isDowngradedFromKeychain();
+        const verifySecrets = getBackendType() === 'encrypted' && !downgraded;
         let secureKeySet: Set<string> | undefined;
         if (verifySecrets) {
           try {
@@ -261,7 +264,14 @@ class CredentialStoreTool implements Tool {
           }
         }
         const entries = allMetadata
-          .filter((m) => !secureKeySet || secureKeySet.has(`credential:${m.service}:${m.field}`))
+          .filter((m) => {
+            const key = `credential:${m.service}:${m.field}`;
+            if (secureKeySet) return secureKeySet.has(key);
+            // In downgraded mode, verify each entry is actually readable
+            // (getSecureKey checks encrypted store then falls back to keychain)
+            if (downgraded) return getSecureKey(key) !== undefined;
+            return true;
+          })
           .map((m) => {
             const entry: Record<string, unknown> = {
               credential_id: m.credentialId,
