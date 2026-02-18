@@ -105,16 +105,16 @@ enum AvatarEvolutionResolver {
 
     /// Map formality + playfulness to hat choice
     private static func hatFromTraits(_ traits: AvatarEvolutionState.TraitScores) -> String {
-        if traits.formality > 0.7 { return "tophat" }
-        if traits.playfulness > 0.7 { return "party_hat" }
-        if traits.energy > 0.7 { return "headband" }
+        if traits.formality > 0.7 { return "top_hat" }
+        if traits.playfulness > 0.7 { return "cap" }
+        if traits.energy > 0.7 { return "beanie" }
         return "none"
     }
 
     /// Map formality to shirt choice
     private static func shirtFromTraits(_ traits: AvatarEvolutionState.TraitScores) -> String {
         if traits.formality > 0.7 { return "suit" }
-        if traits.formality > 0.5 { return "vest" }
+        if traits.formality > 0.5 { return "sweater" }
         if traits.playfulness > 0.6 { return "tshirt" }
         return "hoodie"
     }
@@ -130,8 +130,8 @@ enum AvatarEvolutionResolver {
     /// Map energy + playfulness to held item
     private static func heldItemFromTraits(_ traits: AvatarEvolutionState.TraitScores) -> String {
         if traits.energy > 0.7 && traits.playfulness > 0.5 { return "balloon" }
-        if traits.formality > 0.7 { return "briefcase" }
-        if traits.playfulness > 0.7 { return "wand" }
+        if traits.formality > 0.7 { return "staff" }
+        if traits.playfulness > 0.7 { return "balloon" }
         return "none"
     }
 }
