@@ -218,6 +218,85 @@ describe('profile-compiler', () => {
     expect(limited.selectedCount).toBeLessThan(full.selectedCount);
   });
 
+  test('without includeDefaultFallback, queries only the specified scope', () => {
+    profileEnabled = true;
+
+    // Item in 'default' scope
+    insertItem({
+      id: 'fb-default-only',
+      kind: 'profile',
+      subject: 'timezone',
+      statement: 'Timezone is America/New_York.',
+      verificationState: 'user_confirmed',
+      scopeId: 'default',
+    });
+    // Item in 'project-x' scope
+    insertItem({
+      id: 'fb-project-only',
+      kind: 'preference',
+      subject: 'language',
+      statement: 'Prefers TypeScript.',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-x',
+    });
+
+    // Query project-x WITHOUT fallback — should only see the project-x item
+    const compiled = compileDynamicProfile({ scopeId: 'project-x' });
+    expect(compiled.selectedCount).toBe(1);
+    expect(compiled.text).toContain('language: Prefers TypeScript');
+    expect(compiled.text).not.toContain('timezone');
+  });
+
+  test('includeDefaultFallback: true with non-default scope queries both scopes', () => {
+    profileEnabled = true;
+
+    insertItem({
+      id: 'fb-default-tz',
+      kind: 'profile',
+      subject: 'timezone',
+      statement: 'Timezone is America/New_York.',
+      verificationState: 'user_confirmed',
+      scopeId: 'default',
+    });
+    insertItem({
+      id: 'fb-proj-lang',
+      kind: 'preference',
+      subject: 'language',
+      statement: 'Prefers TypeScript.',
+      verificationState: 'user_confirmed',
+      scopeId: 'project-x',
+    });
+
+    const compiled = compileDynamicProfile({
+      scopeId: 'project-x',
+      includeDefaultFallback: true,
+    });
+    expect(compiled.selectedCount).toBe(2);
+    expect(compiled.text).toContain('timezone: Timezone is America/New_York');
+    expect(compiled.text).toContain('language: Prefers TypeScript');
+  });
+
+  test('includeDefaultFallback: true with default scope does not duplicate', () => {
+    profileEnabled = true;
+
+    insertItem({
+      id: 'fb-default-nodup',
+      kind: 'profile',
+      subject: 'timezone',
+      statement: 'Timezone is America/Chicago.',
+      verificationState: 'user_confirmed',
+      scopeId: 'default',
+    });
+
+    // When scopeId is already 'default', fallback should be a no-op — still just queries 'default'
+    const compiled = compileDynamicProfile({
+      scopeId: 'default',
+      includeDefaultFallback: true,
+    });
+    expect(compiled.selectedCount).toBe(1);
+    expect(compiled.text).toContain('timezone: Timezone is America/Chicago');
+  });
+
   test('uses lower-ranked fallback for same subject when top candidate exceeds budget', () => {
     profileEnabled = true;
 

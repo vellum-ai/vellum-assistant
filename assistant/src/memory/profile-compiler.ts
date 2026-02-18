@@ -15,6 +15,8 @@ const TRUST_RANK: Record<string, number> = {
 export interface CompileProfileOptions {
   scopeId?: string;
   maxInjectTokensOverride?: number;
+  /** When true and scopeId is not 'default', query both the given scope and 'default'. */
+  includeDefaultFallback?: boolean;
 }
 
 export interface CompiledProfile {
@@ -46,6 +48,10 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
   }
 
   const db = getDb();
+  const shouldFallback = options?.includeDefaultFallback === true && scopeId !== 'default';
+  const scopeFilter = shouldFallback
+    ? inArray(memoryItems.scopeId, [scopeId, 'default'])
+    : eq(memoryItems.scopeId, scopeId);
   const rows = db
     .select({
       kind: memoryItems.kind,
@@ -59,7 +65,7 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
     })
     .from(memoryItems)
     .where(and(
-      eq(memoryItems.scopeId, scopeId),
+      scopeFilter,
       eq(memoryItems.status, 'active'),
       isNull(memoryItems.invalidAt),
       inArray(memoryItems.kind, [...PROFILE_KIND_ALLOWLIST]),
