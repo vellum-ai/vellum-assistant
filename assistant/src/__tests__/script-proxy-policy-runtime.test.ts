@@ -2,16 +2,22 @@ import { describe, test, expect, afterEach, mock } from 'bun:test';
 import { createServer, type Server, request as httpRequest } from 'node:http';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import type { ResolvedCredential } from '../tools/credentials/resolve.js';
+import type { CredentialMetadata } from '../tools/credentials/metadata-store.js';
 import type { ProxyApprovalCallback } from '../tools/network/script-proxy/types.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
+let credentialMetadataList: CredentialMetadata[] = [];
 
 mock.module('../tools/credentials/resolve.js', () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
+}));
+
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  listCredentialMetadata: () => credentialMetadataList,
 }));
 
 mock.module('../tools/network/script-proxy/certs.js', () => ({
@@ -32,6 +38,7 @@ let upstreamServer: Server | null = null;
 afterEach(async () => {
   await stopAllSessions();
   resolveByIdResults = new Map();
+  credentialMetadataList = [];
   if (upstreamServer) {
     await new Promise<void>((resolve) => {
       upstreamServer!.close(() => resolve());
@@ -122,7 +129,9 @@ describe('policy runtime enforcement', () => {
     const upstream = await startUpstream('ok');
     upstreamServer = upstream.server;
 
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('127.0.0.1')]));
+    const resolved = makeResolved('cred-a', [makeTemplate('127.0.0.1')]);
+    resolveByIdResults.set('cred-a', resolved);
+    credentialMetadataList.push(resolved.metadata);
 
     const session = createSession(CONV_ID, ['cred-a']);
     const started = await startSession(session.id);
@@ -134,26 +143,24 @@ describe('policy runtime enforcement', () => {
     await stopSession(session.id);
   });
 
-  test('missing credential blocks request (returns 403)', async () => {
-    const upstream = await startUpstream('should-not-reach');
+  test('missing credential (no allKnown match) allows pass-through as ask_unauthenticated', async () => {
+    const upstream = await startUpstream('pass-through');
     upstreamServer = upstream.server;
 
-    // Credential has templates for *.fal.ai, but request goes to 127.0.0.1
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('*.fal.ai')]));
+    // Session credential has template for *.fal.ai, but request goes to 127.0.0.1.
+    // The full registry also only has *.fal.ai, so no allKnown match for 127.0.0.1.
+    // evaluateRequest => 'missing', allKnown check => no match => ask_unauthenticated.
+    // Without approval callback, ask_unauthenticated => allow.
+    const resolved = makeResolved('cred-a', [makeTemplate('*.fal.ai')]);
+    resolveByIdResults.set('cred-a', resolved);
+    credentialMetadataList.push(resolved.metadata);
 
     const session = createSession(CONV_ID, ['cred-a']);
     const started = await startSession(session.id);
 
-    const _response = await proxyGet(started.port!, `http://127.0.0.1:${upstream.port}/test`);
-    // evaluateRequestWithApproval returns ask_missing_credential or ask_unauthenticated
-    // depending on registry; with no approval callback and known pattern not matching,
-    // the result is ask_unauthenticated (no pattern match in allKnown for 127.0.0.1),
-    // which allows pass-through without callback.
-    // Actually: credentialIds=['cred-a'], template *.fal.ai does NOT match 127.0.0.1.
-    // evaluateRequest returns 'missing'. evaluateRequestWithApproval checks allKnown
-    // (*.fal.ai) against 127.0.0.1 — no match, so returns ask_unauthenticated.
-    // Without approval callback, ask_unauthenticated => allow ({}).
-    // Let's use a scenario that truly blocks: ambiguous.
+    const response = await proxyGet(started.port!, `http://127.0.0.1:${upstream.port}/test`);
+    expect(response.status).toBe(200);
+    expect(response.body).toBe('pass-through');
     await stopSession(session.id);
   });
 
@@ -162,8 +169,11 @@ describe('policy runtime enforcement', () => {
     upstreamServer = upstream.server;
 
     // Two credentials both match 127.0.0.1 — ambiguous decision
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('127.0.0.1')]));
-    resolveByIdResults.set('cred-b', makeResolved('cred-b', [makeTemplate('127.0.0.1')]));
+    const resolvedA = makeResolved('cred-a', [makeTemplate('127.0.0.1')]);
+    const resolvedB = makeResolved('cred-b', [makeTemplate('127.0.0.1')]);
+    resolveByIdResults.set('cred-a', resolvedA);
+    resolveByIdResults.set('cred-b', resolvedB);
+    credentialMetadataList.push(resolvedA.metadata, resolvedB.metadata);
 
     const session = createSession(CONV_ID, ['cred-a', 'cred-b']);
     const started = await startSession(session.id);
@@ -193,38 +203,25 @@ describe('policy runtime enforcement', () => {
     const upstream = await startUpstream('approved');
     upstreamServer = upstream.server;
 
-    // Credential templates for *.example.com but request goes to 127.0.0.1.
-    // allKnown includes *.example.com, which doesn't match 127.0.0.1.
-    // So evaluateRequestWithApproval => ask_unauthenticated (no allKnown match).
-    // To get ask_missing_credential, allKnown must match but session cred must not.
-    // Use pattern that matches 127.0.0.1: set up credential with 127.0.0.1 pattern
-    // but make it so evaluateRequest returns 'missing' by not having the cred in session.
-    // Actually: credentialIds are always the session's creds. If we set cred-a with
-    // template *.fal.ai and request goes to fal.ai-like host, we get 'matched'.
-    // For ask_missing_credential, we need: base 'missing' + allKnown pattern matches.
-    // base 'missing' means credentialIds have creds but none of their templates match.
-    // Then allKnown (which is from the same templates) also won't match... unless we
-    // have two creds: one bound (no matching template) and allKnown has a matching one.
-    // But allKnown is built from templates.values(), which are the session's creds' templates.
-    // So if no session cred template matches, allKnown won't match either.
-    // This means ask_missing_credential can only arise when there's a mismatch between
-    // what the session creds provide vs. what allKnown provides. But here allKnown IS
-    // the session creds' templates. So ask_missing_credential can't happen in the
-    // current wiring without an external registry. We should test ask_unauthenticated instead.
+    // Session has cred-a with template for *.fal.ai, but request goes to 127.0.0.1.
+    // The global registry has cred-b with template for 127.0.0.1 (not in session).
+    // evaluateRequest => 'missing' (session cred doesn't match 127.0.0.1).
+    // allKnown includes 127.0.0.1 from cred-b => ask_missing_credential.
+    // Approval callback returns true => allow.
+    const resolvedA = makeResolved('cred-a', [makeTemplate('*.fal.ai')]);
+    resolveByIdResults.set('cred-a', resolvedA);
+    credentialMetadataList.push(resolvedA.metadata);
 
-    // Test ask_unauthenticated with approval callback: approved
+    // Add a credential to the global registry that matches 127.0.0.1 but is NOT in session
+    const resolvedB = makeResolved('cred-b', [makeTemplate('127.0.0.1')]);
+    credentialMetadataList.push(resolvedB.metadata);
+
     const approvalCallback: ProxyApprovalCallback = async () => true;
     const session = createSession(CONV_ID, ['cred-a'], undefined, undefined, approvalCallback);
-
-    // cred-a has template for *.fal.ai but request goes to 127.0.0.1
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('*.fal.ai')]));
 
     const started = await startSession(session.id);
 
     const response = await proxyGet(started.port!, `http://127.0.0.1:${upstream.port}/test`);
-    // evaluateRequest('127.0.0.1', ..., ['cred-a'], {cred-a: [*.fal.ai]}) => 'missing'
-    // evaluateRequestWithApproval checks allKnown (*.fal.ai) against 127.0.0.1 => no match
-    // => ask_unauthenticated. With approval callback returning true => allow.
     expect(response.status).toBe(200);
     expect(response.body).toBe('approved');
 
@@ -235,10 +232,15 @@ describe('policy runtime enforcement', () => {
     const upstream = await startUpstream('should-not-reach');
     upstreamServer = upstream.server;
 
+    // Session has cred-a for *.fal.ai, request goes to 127.0.0.1.
+    // Global registry has no template matching 127.0.0.1 => ask_unauthenticated.
+    // Approval callback returns false => block.
+    const resolvedA = makeResolved('cred-a', [makeTemplate('*.fal.ai')]);
+    resolveByIdResults.set('cred-a', resolvedA);
+    credentialMetadataList.push(resolvedA.metadata);
+
     const approvalCallback: ProxyApprovalCallback = async () => false;
     const session = createSession(CONV_ID, ['cred-a'], undefined, undefined, approvalCallback);
-
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('*.fal.ai')]));
 
     const started = await startSession(session.id);
 
@@ -269,7 +271,9 @@ describe('policy runtime enforcement', () => {
 
     // Has credential IDs but no matching templates for the request host.
     // No approval callback — ask_unauthenticated defaults to allow.
-    resolveByIdResults.set('cred-a', makeResolved('cred-a', [makeTemplate('*.fal.ai')]));
+    const resolved = makeResolved('cred-a', [makeTemplate('*.fal.ai')]);
+    resolveByIdResults.set('cred-a', resolved);
+    credentialMetadataList.push(resolved.metadata);
 
     const session = createSession(CONV_ID, ['cred-a']);
     const started = await startSession(session.id);

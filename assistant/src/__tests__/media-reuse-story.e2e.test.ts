@@ -69,6 +69,10 @@ mock.module('../tools/credentials/resolve.js', () => ({
   resolveForDomain: () => [],
 }));
 
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  listCredentialMetadata: () => [],
+}));
+
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
   setSecureKey: () => true,

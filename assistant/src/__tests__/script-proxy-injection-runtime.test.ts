@@ -2,16 +2,22 @@ import { describe, test, expect, afterEach, mock } from 'bun:test';
 import * as http from 'node:http';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import type { ResolvedCredential } from '../tools/credentials/resolve.js';
+import type { CredentialMetadata } from '../tools/credentials/metadata-store.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 // Track resolveById return values per credential ID
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
+let credentialMetadataList: CredentialMetadata[] = [];
 
 mock.module('../tools/credentials/resolve.js', () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
   resolveByServiceField: () => undefined,
   resolveForDomain: () => [],
+}));
+
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  listCredentialMetadata: () => credentialMetadataList,
 }));
 
 // Track getSecureKey return values per storage key
@@ -48,6 +54,7 @@ afterEach(async () => {
   await stopAllSessions();
   resolveByIdResults = new Map();
   secureKeyValues = new Map();
+  credentialMetadataList = [];
 });
 
 function makeTemplate(
@@ -138,6 +145,7 @@ describe('policyCallback credential injection', () => {
       const tpl = makeTemplate('127.0.0.1', 'Authorization', 'Key ');
       const resolved = makeResolved('cred-local', [tpl]);
       resolveByIdResults.set('cred-local', resolved);
+      credentialMetadataList.push(resolved.metadata);
       secureKeyValues.set('credential:test-service:api-key', 'fal_secretvalue123');
 
       const session = createSession(CONV_ID, ['cred-local'], undefined, DATA_DIR);
@@ -170,6 +178,7 @@ describe('policyCallback credential injection', () => {
       const tpl = makeTemplate('127.0.0.1', 'Authorization', 'Bearer ');
       const resolved = makeResolved('cred-bearer', [tpl]);
       resolveByIdResults.set('cred-bearer', resolved);
+      credentialMetadataList.push(resolved.metadata);
       secureKeyValues.set('credential:test-service:api-key', 'tok_abc123');
 
       const session = createSession(CONV_ID, ['cred-bearer'], undefined, DATA_DIR);
@@ -201,6 +210,7 @@ describe('policyCallback credential injection', () => {
       const tpl = makeTemplate('127.0.0.1');
       const resolved = makeResolved('cred-missing', [tpl]);
       resolveByIdResults.set('cred-missing', resolved);
+      credentialMetadataList.push(resolved.metadata);
       // Do NOT set secureKeyValues — simulates missing secret
 
       const session = createSession(CONV_ID, ['cred-missing'], undefined, DATA_DIR);
@@ -236,6 +246,7 @@ describe('policyCallback credential injection', () => {
       const resolved = makeResolved('cred-vanish', [tpl]);
       // Register the credential so the session builds templates during startSession
       resolveByIdResults.set('cred-vanish', resolved);
+      credentialMetadataList.push(resolved.metadata);
 
       const session = createSession(CONV_ID, ['cred-vanish'], undefined, DATA_DIR);
 
