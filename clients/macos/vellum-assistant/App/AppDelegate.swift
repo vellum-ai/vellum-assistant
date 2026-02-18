@@ -776,6 +776,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
             onboarding.close()
             self?.onboardingWindow = nil
+
+            // Clear any stale panel state so the user lands on chat, not settings
+            UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
             self?.showMainWindow()
         }
         onboarding.show()
@@ -799,6 +803,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
             onboarding.close()
             self?.onboardingWindow = nil
+
+            // Clear any stale panel state so the user lands on chat, not settings
+            UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
             // By this point the user has either entered an API key (steps 0→1→2)
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
