@@ -139,9 +139,23 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
     const caDir = join(managed.dataDir, 'proxy-ca');
 
     if (templates.size > 0) {
-      // Ensure the CA directory and cert/key exist before starting MITM
-      await ensureLocalCA(managed.dataDir);
+      // Ensure the CA directory and cert/key exist before starting MITM.
+      // If this fails (e.g. missing openssl, unwritable dir), clean up the
+      // session so it doesn't linger as 'starting' and count toward the
+      // per-conversation limit.
+      try {
+        await ensureLocalCA(managed.dataDir);
+      } catch (err) {
+        sessions.delete(sessionId);
+        throw err;
+      }
 
+      // MITM interception relies on NODE_EXTRA_CA_CERTS to make the
+      // generated CA trusted by child processes. This only works for
+      // Node/Bun runtimes — non-Node clients (curl, Python, Go) will
+      // reject the proxy's TLS certificates. For now, MITM is only
+      // enabled when credential injection templates require it, and the
+      // primary use case is Node/Bun subprocesses launched by the agent.
       config.mitmHandler = {
         caDir,
         shouldIntercept: (hostname: string, port: number) =>
@@ -235,21 +249,29 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
   const server = createProxyServer(config);
 
-  return new Promise<ProxySession>((resolve, reject) => {
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        reject(new Error('Failed to get server address'));
-        return;
-      }
-      managed.server = server;
-      managed.session.port = addr.port;
-      managed.session.status = 'active';
-      resetIdleTimer(managed);
-      resolve(cloneSession(managed.session));
+  try {
+    return await new Promise<ProxySession>((resolve, reject) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        if (!addr || typeof addr === 'string') {
+          reject(new Error('Failed to get server address'));
+          return;
+        }
+        managed.server = server;
+        managed.session.port = addr.port;
+        managed.session.status = 'active';
+        resetIdleTimer(managed);
+        resolve(cloneSession(managed.session));
+      });
+      server.on('error', reject);
     });
-    server.on('error', reject);
-  });
+  } catch (err) {
+    // Clean up: close the server if it started, and remove the session so it
+    // doesn't linger as 'starting' and block future session creation.
+    server.close(() => {});
+    sessions.delete(sessionId);
+    throw err;
+  }
 }
 
 /**
