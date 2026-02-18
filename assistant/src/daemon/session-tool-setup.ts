@@ -8,7 +8,7 @@
 
 import type { ToolDefinition } from '../providers/types.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
+import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
@@ -97,7 +97,23 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
-      sendToClient: (msg) => ctx.sendToClient(msg as unknown as ServerMessage),
+      sendToClient: (msg) => {
+        const serverMsg = msg as unknown as ServerMessage;
+        ctx.sendToClient(serverMsg);
+        // Auto-track ui_surface_show for history persistence, mirroring what
+        // session-surfaces.ts does when sending surfaces through its own path.
+        if (serverMsg.type === 'ui_surface_show') {
+          const s = serverMsg as unknown as UiSurfaceShow;
+          ctx.currentTurnSurfaces.push({
+            surfaceId: s.surfaceId,
+            surfaceType: s.surfaceType,
+            title: s.title,
+            data: s.data,
+            actions: s.actions,
+            display: s.display,
+          });
+        }
+      },
       isInteractive: !ctx.hasNoClient,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),

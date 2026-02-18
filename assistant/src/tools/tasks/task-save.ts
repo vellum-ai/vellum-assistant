@@ -6,20 +6,20 @@ import { compileTaskFromConversation, saveCompiledTask } from '../../tasks/task-
 const definition: ToolDefinition = {
   name: 'task_save',
   description:
-    'Save the current conversation as a reusable task. Extracts the conversation pattern into a template with placeholders that can be re-run later with different inputs.',
+    'Save the current conversation as a task template. Extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs to create Tasks (work items).',
   input_schema: {
     type: 'object',
     properties: {
       conversation_id: {
         type: 'string',
-        description: 'The conversation to capture as a reusable task',
+        description: 'The conversation to capture as a task template. If omitted, uses the current conversation.',
       },
       title: {
         type: 'string',
         description: 'Optional override for the auto-generated task title',
       },
     },
-    required: ['conversation_id'],
+    required: [],
   },
 };
 
@@ -33,8 +33,8 @@ class TaskSaveTool implements Tool {
     return definition;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const conversationId = input.conversation_id as string | undefined;
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    const conversationId = (input.conversation_id as string | undefined) || context.conversationId;
     if (!conversationId || typeof conversationId !== 'string' || conversationId.trim().length === 0) {
       return { content: 'Error: conversation_id is required and must be a non-empty string', isError: true };
     }

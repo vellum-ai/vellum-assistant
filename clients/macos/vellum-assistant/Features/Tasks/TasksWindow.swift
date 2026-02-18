@@ -1,0 +1,53 @@
+import AppKit
+import VellumAssistantShared
+import SwiftUI
+
+/// Standalone window that displays the task queue independently of the main window.
+/// Follows the same pattern as ComponentGalleryWindow and OnboardingWindow.
+@MainActor
+final class TasksWindow {
+    private var window: NSWindow?
+    private let daemonClient: DaemonClient
+
+    init(daemonClient: DaemonClient) {
+        self.daemonClient = daemonClient
+    }
+
+    func show() {
+        if let existing = window {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hostingController = NSHostingController(
+            rootView: TasksWindowView(daemonClient: daemonClient)
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 550),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.contentViewController = hostingController
+        window.title = "Tasks"
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 320, height: 400)
+
+        window.setContentSize(NSSize(width: 420, height: 550))
+        window.center()
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        self.window = window
+    }
+
+    func close() {
+        window?.close()
+        window = nil
+    }
+}

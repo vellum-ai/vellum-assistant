@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct CloudCredentialsStepView: View {
     @Bindable var state: OnboardingState
 
+    @State private var cliLauncher = CLILauncher()
     @State private var showTitle = false
     @State private var showContent = false
 
@@ -180,6 +181,8 @@ struct CloudCredentialsStepView: View {
 
     private var gcpFields: some View {
         VStack(spacing: VSpacing.sm) {
+            gcpSetupBlurb
+
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Project ID")
                     .font(.system(size: 13, weight: .medium))
@@ -211,12 +214,40 @@ struct CloudCredentialsStepView: View {
                     }
                 )
             }
-
-            Text("Create a service account with Compute Admin permissions and upload its JSON key file.")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var gcpSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, set up the following in the Google Cloud Console:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                gcpSetupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
+                gcpSetupStep("2. Create a Service Account with the Compute Admin role.")
+                gcpSetupStep("3. Generate a JSON key for the service account and download it.")
+            }
+            Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
+                Text("Open Google Cloud Console")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Violet._400))
+            }
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+        )
+    }
+
+    private func gcpSetupStep(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundColor(VColor.textMuted)
     }
 
     // MARK: - File Picker UI
@@ -253,7 +284,7 @@ struct CloudCredentialsStepView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)), dark: Violet._600))
+                    .foregroundColor(adaptiveColor(light: Slate._900, dark: Violet._600))
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -274,7 +305,7 @@ struct CloudCredentialsStepView: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)), dark: Violet._600.opacity(0.3)), lineWidth: 1)
+                    .stroke(adaptiveColor(light: Slate._900.opacity(0.3), dark: Violet._600.opacity(0.3)), lineWidth: 1)
             )
         }
     }
@@ -334,11 +365,11 @@ struct CloudCredentialsStepView: View {
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .fill(continueDisabled
                             ? adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)),
+                                light: Slate._900.opacity(0.3),
                                 dark: Violet._600.opacity(0.3)
                             )
                             : adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                light: Slate._900,
                                 dark: Violet._600
                             )
                         )
@@ -408,6 +439,11 @@ struct CloudCredentialsStepView: View {
     private func saveAndContinue() {
         guard !continueDisabled else { return }
         saveCredentialsToConfig()
+        if state.cloudProvider == "gcp" {
+            Task {
+                try? await cliLauncher.runHatch()
+            }
+        }
         state.advance()
     }
 

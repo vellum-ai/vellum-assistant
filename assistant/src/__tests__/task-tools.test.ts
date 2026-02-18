@@ -35,10 +35,14 @@ mock.module('./indexer.js', () => ({
 
 import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb } from '../memory/db.js';
-import { createTask } from '../tasks/task-store.js';
+import { createTask, createTaskRun } from '../tasks/task-store.js';
+import { createWorkItem } from '../work-items/work-item-store.js';
 import { taskSaveTool } from '../tools/tasks/task-save.js';
 import { taskRunTool } from '../tools/tasks/task-run.js';
 import { taskListTool } from '../tools/tasks/task-list.js';
+import { workItemListTool } from '../tools/tasks/work-item-list.js';
+import { workItemEnqueueTool } from '../tools/tasks/work-item-enqueue.js';
+import { taskDeleteTool } from '../tools/tasks/task-delete.js';
 import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
@@ -125,11 +129,16 @@ describe('task_save tool', () => {
     expect(result.content).toContain('My Custom Title');
   });
 
-  test('returns error for missing conversation_id', async () => {
+  test('uses context conversation_id when missing', async () => {
+    const convId = createTestConversation(stubContext.conversationId);
+    addTestMessage(convId, 'user', 'Summarize the report');
+    addTestMessage(convId, 'assistant', 'Done.');
+
     const result = await taskSaveTool.execute({}, stubContext);
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('conversation_id is required');
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Task saved successfully');
+    expect(result.content).toContain('Summarize the report');
   });
 
   test('returns error for nonexistent conversation', async () => {
@@ -201,7 +210,7 @@ describe('task_run tool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No task matching "nonexistent" found');
+    expect(result.content).toContain('No task template matching "nonexistent" found');
     expect(result.content).toContain('Existing Task');
   });
 
@@ -273,7 +282,7 @@ describe('task_run tool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No saved tasks found');
+    expect(result.content).toContain('No task templates found');
   });
 
   test('includes required tools in output', async () => {
@@ -323,19 +332,21 @@ describe('task_list tool', () => {
     const result = await taskListTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Found 2 saved task(s)');
+    expect(result.content).toContain('Found 2 task template(s)');
     expect(result.content).toContain('Task Alpha');
     expect(result.content).toContain('Task Beta');
     expect(result.content).toContain('file_read');
     expect(result.content).toContain('file_write');
     expect(result.content).toContain('file_path');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
   });
 
   test('returns empty message when no tasks exist', async () => {
     const result = await taskListTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No saved tasks found');
+    expect(result.content).toContain('No task templates found');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
   });
 
   test('shows task status and creation date', async () => {
@@ -349,5 +360,201 @@ describe('task_list tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Status: active');
     expect(result.content).toContain('Created:');
+  });
+});
+
+// ── work_item_list ───────────────────────────────────────────────────
+
+describe('work_item_list tool', () => {
+  beforeEach(() => {
+    const raw = getRawDb();
+    raw.run('DELETE FROM work_items');
+    raw.run('DELETE FROM task_runs');
+    raw.run('DELETE FROM tasks');
+  });
+
+  test('lists work items when they exist', async () => {
+    const task = createTask({ title: 'My Task', template: 'Do it' });
+    createWorkItem({ taskId: task.id, title: 'Work Item Alpha', priorityTier: 1 });
+    createWorkItem({ taskId: task.id, title: 'Work Item Beta', notes: 'some notes', priorityTier: 2 });
+
+    const result = await workItemListTool.execute({}, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Found 2 work item(s)');
+    expect(result.content).toContain('Work Item Alpha');
+    expect(result.content).toContain('Work Item Beta');
+    expect(result.content).toContain('Status: queued');
+    expect(result.content).toContain('Notes: some notes');
+  });
+
+  test('returns empty message when no work items', async () => {
+    const result = await workItemListTool.execute({}, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No Tasks found');
+  });
+
+  test('filters by status when status param is provided', async () => {
+    const task = createTask({ title: 'Filter Task', template: 'Do it' });
+    createWorkItem({ taskId: task.id, title: 'Queued Item', priorityTier: 2 });
+    const raw = getRawDb();
+    // Create a second work item and manually set its status to 'done'
+    const doneItem = createWorkItem({ taskId: task.id, title: 'Done Item', priorityTier: 2 });
+    raw.query('UPDATE work_items SET status = ? WHERE id = ?').run('done', doneItem.id);
+
+    const resultQueued = await workItemListTool.execute({ status: 'queued' }, stubContext);
+    expect(resultQueued.isError).toBe(false);
+    expect(resultQueued.content).toContain('Found 1 work item(s)');
+    expect(resultQueued.content).toContain('Queued Item');
+    expect(resultQueued.content).not.toContain('Done Item');
+
+    const resultDone = await workItemListTool.execute({ status: 'done' }, stubContext);
+    expect(resultDone.isError).toBe(false);
+    expect(resultDone.content).toContain('Found 1 work item(s)');
+    expect(resultDone.content).toContain('Done Item');
+    expect(resultDone.content).not.toContain('Queued Item');
+  });
+});
+
+// ── work_item_enqueue ────────────────────────────────────────────────
+
+describe('work_item_enqueue tool', () => {
+  beforeEach(() => {
+    const raw = getRawDb();
+    raw.run('DELETE FROM work_items');
+    raw.run('DELETE FROM task_runs');
+    raw.run('DELETE FROM tasks');
+  });
+
+  test('successfully enqueues by task_id', async () => {
+    const task = createTask({ title: 'Deploy Service', template: 'deploy it' });
+
+    const result = await workItemEnqueueTool.execute({ task_id: task.id }, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Enqueued work item');
+    expect(result.content).toContain('Deploy Service');
+    expect(result.content).toContain('Status: queued');
+  });
+
+  test('successfully enqueues by task_name (case-insensitive match)', async () => {
+    createTask({ title: 'Run Database Migration', template: 'migrate' });
+
+    const result = await workItemEnqueueTool.execute({ task_name: 'database migration' }, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Enqueued work item');
+    expect(result.content).toContain('Run Database Migration');
+  });
+
+  test('returns disambiguation when multiple name matches', async () => {
+    createTask({ title: 'Deploy Frontend', template: 'deploy fe' });
+    createTask({ title: 'Deploy Backend', template: 'deploy be' });
+
+    const result = await workItemEnqueueTool.execute({ task_name: 'deploy' }, stubContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Multiple task definitions match');
+    expect(result.content).toContain('Deploy Frontend');
+    expect(result.content).toContain('Deploy Backend');
+  });
+
+  test('returns error when no matching task found', async () => {
+    createTask({ title: 'Existing Task', template: 'do something' });
+
+    const result = await workItemEnqueueTool.execute({ task_name: 'nonexistent' }, stubContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No task definition found matching "nonexistent"');
+  });
+
+  test('returns error when neither task_id nor task_name provided', async () => {
+    const result = await workItemEnqueueTool.execute({}, stubContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('You must provide either task_id or task_name');
+  });
+
+  test('applies optional overrides (title, notes, priority_tier)', async () => {
+    const task = createTask({ title: 'Generic Task', template: 'do it' });
+
+    const result = await workItemEnqueueTool.execute(
+      {
+        task_id: task.id,
+        title: 'Custom Title Override',
+        notes: 'Important context here',
+        priority_tier: 0,
+      },
+      stubContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Custom Title Override');
+    expect(result.content).toContain('Notes: Important context here');
+    expect(result.content).toContain('Priority: urgent');
+  });
+});
+
+// ── task_delete ──────────────────────────────────────────────────────
+
+describe('task_delete tool', () => {
+  beforeEach(() => {
+    const raw = getRawDb();
+    raw.run('DELETE FROM work_items');
+    raw.run('DELETE FROM task_runs');
+    raw.run('DELETE FROM tasks');
+  });
+
+  test('successfully deletes a single task', async () => {
+    const task = createTask({ title: 'Doomed Task', template: 'bye' });
+
+    const result = await taskDeleteTool.execute({ task_ids: [task.id] }, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Deleted task: Doomed Task');
+  });
+
+  test('successfully deletes multiple tasks', async () => {
+    const t1 = createTask({ title: 'Task One', template: 'one' });
+    const t2 = createTask({ title: 'Task Two', template: 'two' });
+
+    const result = await taskDeleteTool.execute({ task_ids: [t1.id, t2.id] }, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Deleted 2 task(s)');
+    expect(result.content).toContain('Task One');
+    expect(result.content).toContain('Task Two');
+  });
+
+  test('returns error for non-existent task ID', async () => {
+    const result = await taskDeleteTool.execute({ task_ids: ['nonexistent-id'] }, stubContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No task found with ID nonexistent-id');
+  });
+
+  test('cascades deletion to associated task runs and work items', async () => {
+    const task = createTask({ title: 'Parent Task', template: 'parent' });
+    createTaskRun(task.id);
+    createWorkItem({ taskId: task.id, title: 'Child Work Item' });
+
+    const raw = getRawDb();
+    // Verify the associated records exist before deletion
+    const runsBefore = raw.query('SELECT COUNT(*) as count FROM task_runs WHERE task_id = ?').get(task.id) as { count: number };
+    const itemsBefore = raw.query('SELECT COUNT(*) as count FROM work_items WHERE task_id = ?').get(task.id) as { count: number };
+    expect(runsBefore.count).toBe(1);
+    expect(itemsBefore.count).toBe(1);
+
+    const result = await taskDeleteTool.execute({ task_ids: [task.id] }, stubContext);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Deleted task: Parent Task');
+
+    // Verify cascade: associated records should be gone
+    const runsAfter = raw.query('SELECT COUNT(*) as count FROM task_runs WHERE task_id = ?').get(task.id) as { count: number };
+    const itemsAfter = raw.query('SELECT COUNT(*) as count FROM work_items WHERE task_id = ?').get(task.id) as { count: number };
+    expect(runsAfter.count).toBe(0);
+    expect(itemsAfter.count).toBe(0);
   });
 });

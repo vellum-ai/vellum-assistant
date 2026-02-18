@@ -242,6 +242,12 @@ extension ChatViewModel {
                 refinementStreamingText = refinementTextBuffer
                 return
             }
+            // Haptic on first text chunk (thinking → streaming transition)
+            if isThinking {
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+            }
             isThinking = false
             currentAssistantHasText = true
             if let existingId = currentAssistantMessageId,
@@ -287,6 +293,9 @@ extension ChatViewModel {
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
                 isSending = false
+                #if os(iOS)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                #endif
             }
             // Surface the AI's text response when a refinement produced no update
             if wasRefinement {
@@ -489,8 +498,13 @@ extension ChatViewModel {
             refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
+            pendingVoiceMessage = false
             let wasCancelling = isCancelling
             isCancelling = false
+            // Snapshot turn-specific state before reset so the secret_blocked
+            // handler below can reference the actual blocked text/attachments
+            // rather than falling back to a potentially-wrong transcript lookup.
+            let savedTurnUserText = currentTurnUserText
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -508,10 +522,10 @@ extension ChatViewModel {
                 // stash the full send context so "Send Anyway" can reconstruct
                 // the original UserMessageMessage with attachments and surface metadata.
                 if err.category == "secret_blocked" {
-                    // Prefer currentTurnUserText (the text that was actually sent)
+                    // Prefer the snapshotted turn text (the text that was actually sent)
                     // over the transcript lookup, which can miss workspace refinements
                     // that don't append a user chat message.
-                    if let sendText = currentTurnUserText {
+                    if let sendText = savedTurnUserText {
                         secretBlockedMessageText = sendText
                     } else if let lastUserMsg = messages.last(where: { $0.role == .user }) {
                         secretBlockedMessageText = lastUserMsg.text
@@ -569,6 +583,9 @@ extension ChatViewModel {
                       shouldAcceptConfirmation?() ?? false else { return }
             }
             isThinking = false
+            #if os(iOS)
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            #endif
             let confirmation = ToolConfirmationData(
                 requestId: msg.requestId,
                 toolName: msg.toolName,
@@ -823,6 +840,7 @@ extension ChatViewModel {
             refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
+            pendingVoiceMessage = false
             let wasCancelling = isCancelling
             isCancelling = false
             if let existingId = currentAssistantMessageId,

@@ -32,6 +32,8 @@ interface ManagedSession {
   config: ProxySessionConfig;
   dataDir: string | null;
   approvalCallback: ProxyApprovalCallback | null;
+  /** The host address the server is bound to (e.g. '127.0.0.1'). */
+  listenHost: string;
   /** In-flight stop promise so concurrent callers can await the same shutdown. */
   stopPromise: Promise<void> | null;
 }
@@ -105,6 +107,7 @@ export function createSession(
     config: merged,
     dataDir: dataDir ?? null,
     approvalCallback: approvalCallback ?? null,
+    listenHost: '127.0.0.1',
     stopPromise: null,
   });
 
@@ -162,11 +165,16 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         shouldIntercept: (hostname: string, port: number) =>
           routeConnection(hostname, port, managed.session.credentialIds, templates),
         rewriteCallback: async (req) => {
-          // Collect all matching candidates to detect ambiguity before
-          // injecting any secrets — mirrors the HTTP policyCallback guard.
+          // Collect matching header-injection candidates to detect ambiguity
+          // before injecting any secrets — mirrors the HTTP policyCallback
+          // guard. Query templates are excluded because the MITM
+          // RewriteCallback can't rewrite URL paths; counting them would
+          // cause false ambiguity when a host has both query and header
+          // templates.
           const candidates: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
           for (const [credId, tpls] of templates) {
             for (const tpl of tpls) {
+              if (tpl.injectionType === 'query') continue;
               if (minimatch(req.hostname, tpl.hostPattern, { nocase: true })) {
                 candidates.push({ credId, tpl });
               }
@@ -179,12 +187,6 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
           if (candidates.length > 1) return null;
 
           const { credId, tpl } = candidates[0];
-
-          // Query param injection requires URL path rewriting, which the
-          // current RewriteCallback interface doesn't support. Pass through
-          // unchanged — query injection will be wired once the MITM handler
-          // gains path-rewrite capability.
-          if (tpl.injectionType === 'query') return req.headers;
 
           if (tpl.injectionType === 'header' && tpl.headerName) {
             const resolved = resolveById(credId);
@@ -203,16 +205,19 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
     }
   }
 
+  // Pre-load the full credential registry once at session startup so the
+  // policy callback doesn't hit disk on every proxied request.
+  // listCredentialMetadata() uses synchronous readFileSync + JSON.parse,
+  // which would block the event loop in the hot path.
+  const allKnown: CredentialInjectionTemplate[] = [];
+  for (const meta of listCredentialMetadata()) {
+    if (meta.injectionTemplates?.length) {
+      allKnown.push(...meta.injectionTemplates);
+    }
+  }
+
   // Build the policy callback for HTTP/CONNECT request gating
   const policyCallback: PolicyCallback = async (hostname: string, port: number | null, reqPath: string, scheme: 'http' | 'https') => {
-    // Build allKnown from the full credential registry so the policy engine
-    // can distinguish "known host, missing credential" from "unknown host".
-    const allKnown: CredentialInjectionTemplate[] = [];
-    for (const meta of listCredentialMetadata()) {
-      if (meta.injectionTemplates?.length) {
-        allKnown.push(...meta.injectionTemplates);
-      }
-    }
 
     const decision = evaluateRequestWithApproval(
       hostname, port, reqPath,
@@ -262,9 +267,11 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
 
   const server = createProxyServer(config);
 
+  const listenHost = options?.listenHost ?? '127.0.0.1';
+
   try {
     return await new Promise<ProxySession>((resolve, reject) => {
-      server.listen(0, options?.listenHost ?? '127.0.0.1', () => {
+      server.listen(0, listenHost, () => {
         const addr = server.address();
         if (!addr || typeof addr === 'string') {
           reject(new Error('Failed to get server address'));
@@ -273,6 +280,7 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         managed.server = server;
         managed.session.port = addr.port;
         managed.session.status = 'active';
+        managed.listenHost = listenHost;
         resetIdleTimer(managed);
         resolve(cloneSession(managed.session));
       });
@@ -387,26 +395,37 @@ export async function getOrStartSession(
   approvalCallback?: ProxyApprovalCallback,
   options?: { listenHost?: string },
 ): Promise<{ session: ProxySession; created: boolean }> {
-  // Fast path — session already active, no lock needed.
+  const requestedHost = options?.listenHost ?? '127.0.0.1';
+
+  // Fast path — session already active with matching credentials and listen host, no lock needed.
   const existing = getActiveSession(conversationId);
-  if (existing) {
-    if (credentialIdsMatch(existing.credentialIds, credentialIds)) {
+  if (existing && credentialIdsMatch(existing.credentialIds, credentialIds)) {
+    const managed = sessions.get(existing.id);
+    if (managed && managed.listenHost === requestedHost) {
       return { session: existing, created: false };
     }
-    // Credential mismatch — tear down the stale session so we can create
-    // one with the correct bindings.
-    await stopSession(existing.id);
   }
+  // If credentials don't match (or no session exists), fall through to the
+  // lock-protected section. Stopping a mismatched session outside the lock
+  // would let another caller slip in and create a different-credential session.
 
   // Serialize: if another caller is already creating a session for this
   // conversation, wait for it rather than creating a second one.
-  const inflight = acquireLocks.get(conversationId);
-  if (inflight) {
+  // Loop so that after a credential-mismatch teardown we re-check for a new
+  // inflight lock — otherwise 3+ concurrent callers with different credentials
+  // can all fall through and create duplicate sessions.
+  for (;;) {
+    const inflight = acquireLocks.get(conversationId);
+    if (!inflight) break;
     const session = await inflight;
     if (credentialIdsMatch(session.credentialIds, credentialIds)) {
-      return { session, created: false };
+      const m = sessions.get(session.id);
+      if (m && m.listenHost === requestedHost) {
+        return { session, created: false };
+      }
     }
-    // Credential mismatch — tear down and fall through to create a new session.
+    // Credential or listenHost mismatch — tear down and loop back to re-check
+    // whether another waiter has already started a replacement session.
     await stopSession(session.id);
   }
 
@@ -415,7 +434,8 @@ export async function getOrStartSession(
     // between our initial check and acquiring the lock.
     const recheck = getActiveSession(conversationId);
     if (recheck) {
-      if (credentialIdsMatch(recheck.credentialIds, credentialIds)) {
+      const m = sessions.get(recheck.id);
+      if (credentialIdsMatch(recheck.credentialIds, credentialIds) && m && m.listenHost === requestedHost) {
         return { session: recheck, created: false };
       }
       await stopSession(recheck.id);

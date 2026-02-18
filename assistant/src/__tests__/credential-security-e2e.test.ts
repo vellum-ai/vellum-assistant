@@ -45,12 +45,12 @@ mock.module('../security/secure-keys.js', () => ({
 const metadataStore = new Map<string, { credentialId: string; service: string; field: string }>();
 
 mock.module('../tools/credentials/metadata-store.js', () => ({
-  upsertCredentialMetadata: (meta: { credentialId?: string; service: string; field: string }) => {
-    const key = `${meta.service}:${meta.field}`;
+  upsertCredentialMetadata: (service: string, field: string, _policy?: Record<string, unknown>) => {
+    const key = `${service}:${field}`;
     metadataStore.set(key, {
-      credentialId: meta.credentialId ?? `cred-${meta.service}-${meta.field}`,
-      service: meta.service,
-      field: meta.field,
+      credentialId: `cred-${service}-${field}`,
+      service,
+      field,
     });
   },
   deleteCredentialMetadata: (service: string, field: string) => {

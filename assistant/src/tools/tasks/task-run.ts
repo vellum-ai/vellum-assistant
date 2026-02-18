@@ -7,17 +7,17 @@ import { renderTemplate } from '../../tasks/task-runner.js';
 const definition: ToolDefinition = {
   name: 'task_run',
   description:
-    'Run a previously saved task. Resolves the task by name (fuzzy match) or ID, renders its template with the provided inputs, and returns the rendered template for execution.',
+    'Run a task template. Resolves the template by name (fuzzy match) or ID, renders it with the provided inputs, and returns the rendered prompt for execution as a Task (work item).',
   input_schema: {
     type: 'object',
     properties: {
       task_name: {
         type: 'string',
-        description: 'Fuzzy match a task by name (case-insensitive substring match)',
+        description: 'Fuzzy match a task template by name (case-insensitive substring match)',
       },
       task_id: {
         type: 'string',
-        description: 'Exact match a task by ID',
+        description: 'Exact match a task template by ID',
       },
       inputs: {
         type: 'object',
@@ -68,18 +68,18 @@ class TaskRunTool implements Tool {
 
         if (!task) {
           if (allTasks.length === 0) {
-            return { content: 'Error: No saved tasks found. Use task_save to create one first.', isError: true };
+            return { content: 'Error: No task templates found. Use task_save to create one first.', isError: true };
           }
           const available = allTasks.map((t) => `  - "${t.title}" (${t.id})`).join('\n');
           return {
-            content: `Error: No task matching "${taskName}" found. Available tasks:\n${available}`,
+            content: `Error: No task template matching "${taskName}" found. Available templates:\n${available}`,
             isError: true,
           };
         }
       }
 
       if (!task) {
-        return { content: 'Error: Could not resolve task', isError: true };
+        return { content: 'Error: Could not resolve task template', isError: true };
       }
 
       // Check if required inputs are provided
@@ -103,9 +103,9 @@ class TaskRunTool implements Tool {
       const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
 
       const lines = [
-        `Task "${task.title}" resolved and template rendered.`,
+        `Template "${task.title}" resolved and rendered.`,
         ``,
-        `Task template rendered. I'll now execute the following task:`,
+        `I'll now execute the following:`,
         ``,
         rendered,
       ];

@@ -4,21 +4,47 @@ on:
   pull_request:
     paths:
       - 'clients/macos/**'
+      - 'clients/shared/**'
+      - 'cli/**'
       - '.github/workflows/ci-macos.yml'
 
 jobs:
   build-check:
     name: macOS Build
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
+      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -36,92 +62,28 @@ jobs:
           echo "Daemon binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
 
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+          echo "CLI binary built:"
+          ls -lh ../clients/macos/cli-bin/vellum-cli
+
       - name: Build release .app
         working-directory: clients/macos
         run: |
+          SIGN_IDENTITY="Developer ID Application" \
           ./build.sh release
-          ls -la dist/Vellum.app
+          ls -la "dist/Vellum.app"
 
-      - name: Free disk space
-        working-directory: clients/macos
+          codesign --verify --deep --strict "dist/Vellum.app"
+          echo "Code signature verified"
+
+      - name: Cleanup keychain
+        if: always()
         run: |
-          rm -rf .build daemon-bin
-          rm -rf ../../assistant/node_modules
-          rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
-          rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
-          df -h .
-
-      - name: Generate DMG background
-        working-directory: clients/macos
-        run: |
-          mkdir -p build
-          swift dmg/generate-background.swift build/dmg-background@2x.png
-
-      - name: Install create-dmg
-        run: brew install create-dmg
-
-      - name: Create DMG
-        working-directory: clients/macos
-        env:
-          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-        run: |
-          APP_PATH="dist/Vellum.app"
-
-          DMG_STAGING="build/dmg-staging"
-          mkdir -p "$DMG_STAGING"
-          cp -R "$APP_PATH" "$DMG_STAGING/"
-          ln -s /Applications "$DMG_STAGING/Applications"
-
-          create-dmg \
-            --volname "Vellum" \
-            --background "build/dmg-background@2x.png" \
-            --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 128 \
-            --text-size 10 \
-            --icon "Vellum.app" 175 190 \
-            --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
-            --no-internet-enable \
-            "$DMG_PATH" \
-            "$DMG_STAGING/" \
-          || {
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
-              echo "create-dmg exited with warning (code 2), but DMG was created successfully"
-            else
-              echo "create-dmg failed with exit code $EXIT_CODE"
-              exit $EXIT_CODE
-            fi
-          }
-
-          echo "DMG created at $DMG_PATH"
-          ls -lh "$DMG_PATH"
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          path: clients/macos/build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Generate GitHub App token
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
-          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
-
-      - name: Comment artifact link on PR
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
-          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
-          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)"
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true

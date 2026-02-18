@@ -108,7 +108,8 @@ final class ChromeAccessibilityHelper {
     static func restartChromeForCDP(app: NSRunningApplication) async -> Bool {
         let success = await restartChromeWithFlags(app: app, flags: [
             "--remote-debugging-port=9222",
-            "--force-renderer-accessibility"
+            "--force-renderer-accessibility",
+            "--restore-last-session"
         ])
         guard success else { return false }
 

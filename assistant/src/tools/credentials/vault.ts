@@ -7,7 +7,6 @@ import {
   deleteSecureKey,
   getBackendType,
   listSecureKeys,
-  isDowngradedFromKeychain,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
@@ -334,16 +333,14 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend we can verify secrets still exist by reading
-        // all key names once (instead of per-entry getSecureKey calls that each
-        // re-read/re-derive the store). On keychain we trust metadata since the
-        // OS keychain has no batch list API.
-        // In downgraded mode (keychain failed, switched to encrypted), we verify
-        // readability per-entry via getSecureKey which tries both the encrypted
-        // store and the keychain fallback. This ensures credentials that are
-        // truly unreadable from both backends are filtered out.
-        const downgraded = isDowngradedFromKeychain();
-        const verifySecrets = getBackendType() === 'encrypted' && !downgraded;
+        // On the encrypted backend (including downgraded mode where keychain
+        // failed at runtime), verify secrets still exist by reading all key
+        // names once via listSecureKeys(). This avoids per-entry getSecureKey
+        // calls that would fall back to keychain probes (execFileSync with 5s
+        // timeout each), which hangs the list operation in downgraded mode.
+        // On keychain we trust metadata since the OS keychain has no batch
+        // list API.
+        const verifySecrets = getBackendType() === 'encrypted';
         let secureKeySet: Set<string> | undefined;
         if (verifySecrets) {
           try {
@@ -355,11 +352,7 @@ class CredentialStoreTool implements Tool {
         }
         const entries = allMetadata
           .filter((m) => {
-            const key = `credential:${m.service}:${m.field}`;
-            if (secureKeySet) return secureKeySet.has(key);
-            // In downgraded mode, verify each entry is actually readable
-            // (getSecureKey checks encrypted store then falls back to keychain)
-            if (downgraded) return getSecureKey(key) !== undefined;
+            if (secureKeySet) return secureKeySet.has(`credential:${m.service}:${m.field}`);
             return true;
           })
           .map((m) => {

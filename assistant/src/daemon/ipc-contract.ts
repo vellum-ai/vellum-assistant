@@ -389,6 +389,17 @@ export interface AppUpdatePreviewResponse {
   appId: string;
 }
 
+export interface AppPreviewRequest {
+  type: 'app_preview_request';
+  appId: string;
+}
+
+export interface AppPreviewResponse {
+  type: 'app_preview_response';
+  appId: string;
+  preview?: string;
+}
+
 export interface OpenBundleRequest {
   type: 'open_bundle';
   filePath: string;
@@ -731,6 +742,47 @@ export interface BrowserHandoffRequest {
   bringToFront?: boolean;
 }
 
+// ── Work Items (Tasks) ───────────────────────────────────────────────
+
+export interface WorkItemsListRequest {
+  type: 'work_items_list';
+  status?: string;  // optional filter
+}
+
+export interface WorkItemGetRequest {
+  type: 'work_item_get';
+  id: string;
+}
+
+export interface WorkItemCreateRequest {
+  type: 'work_item_create';
+  taskId: string;
+  title?: string;   // defaults to task title
+  notes?: string;
+  priorityTier?: number;
+  sortIndex?: number;
+}
+
+export interface WorkItemUpdateRequest {
+  type: 'work_item_update';
+  id: string;
+  title?: string;
+  notes?: string;
+  status?: string;
+  priorityTier?: number;
+  sortIndex?: number;
+}
+
+export interface WorkItemCompleteRequest {
+  type: 'work_item_complete';
+  id: string;
+}
+
+export interface WorkItemRunTaskRequest {
+  type: 'work_item_run_task';
+  id: string;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -799,6 +851,7 @@ export type ClientMessage =
   | GalleryListRequest
   | GalleryInstallRequest
   | AppUpdatePreviewRequest
+  | AppPreviewRequest
   | PublishPageRequest
   | UnpublishPageRequest
   | DiagnosticsExportRequest
@@ -813,7 +866,13 @@ export type ClientMessage =
   | BrowserUserClick
   | BrowserUserScroll
   | BrowserUserKeypress
-  | BrowserInteractiveMode;
+  | BrowserInteractiveMode
+  | WorkItemsListRequest
+  | WorkItemGetRequest
+  | WorkItemCreateRequest
+  | WorkItemUpdateRequest
+  | WorkItemCompleteRequest
+  | WorkItemRunTaskRequest;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1745,6 +1804,111 @@ export interface DocumentListResponse {
   }>;
 }
 
+// ── Work Items (Tasks) — Server Responses ───────────────────────────
+
+export interface WorkItemsListResponse {
+  type: 'work_items_list_response';
+  items: Array<{
+    id: string;
+    taskId: string;
+    title: string;
+    notes: string | null;
+    status: string;
+    priorityTier: number;
+    sortIndex: number | null;
+    lastRunId: string | null;
+    lastRunConversationId: string | null;
+    lastRunStatus: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+}
+
+export interface WorkItemGetResponse {
+  type: 'work_item_get_response';
+  item: {
+    id: string;
+    taskId: string;
+    title: string;
+    notes: string | null;
+    status: string;
+    priorityTier: number;
+    sortIndex: number | null;
+    lastRunId: string | null;
+    lastRunConversationId: string | null;
+    lastRunStatus: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    createdAt: number;
+    updatedAt: number;
+  } | null;
+}
+
+export interface WorkItemCreateResponse {
+  type: 'work_item_create_response';
+  item: {
+    id: string;
+    taskId: string;
+    title: string;
+    notes: string | null;
+    status: string;
+    priorityTier: number;
+    sortIndex: number | null;
+    lastRunId: string | null;
+    lastRunConversationId: string | null;
+    lastRunStatus: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    createdAt: number;
+    updatedAt: number;
+  };
+}
+
+export interface WorkItemUpdateResponse {
+  type: 'work_item_update_response';
+  item: {
+    id: string;
+    taskId: string;
+    title: string;
+    notes: string | null;
+    status: string;
+    priorityTier: number;
+    sortIndex: number | null;
+    lastRunId: string | null;
+    lastRunConversationId: string | null;
+    lastRunStatus: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    createdAt: number;
+    updatedAt: number;
+  } | null;
+}
+
+export interface WorkItemRunTaskResponse {
+  type: 'work_item_run_task_response';
+  id: string;
+  lastRunId: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Server push — broadcast when a work item status changes (e.g. running -> awaiting_review). */
+export interface WorkItemStatusChanged {
+  type: 'work_item_status_changed';
+  item: {
+    id: string;
+    taskId: string;
+    title: string;
+    status: string;
+    lastRunId: string | null;
+    lastRunConversationId: string | null;
+    lastRunStatus: string | null;
+    updatedAt: number;
+  };
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -1823,6 +1987,7 @@ export type ServerMessage =
   | VercelApiConfigResponse
   | OpenUrl
   | AppUpdatePreviewResponse
+  | AppPreviewResponse
   | PublishPageResponse
   | UnpublishPageResponse
   | DiagnosticsExportResponse
@@ -1838,7 +2003,13 @@ export type ServerMessage =
   | DocumentListResponse
   | BrowserCDPRequest
   | BrowserInteractiveModeChanged
-  | BrowserHandoffRequest;
+  | BrowserHandoffRequest
+  | WorkItemsListResponse
+  | WorkItemGetResponse
+  | WorkItemCreateResponse
+  | WorkItemUpdateResponse
+  | WorkItemRunTaskResponse
+  | WorkItemStatusChanged;
 
 // === Contract schema ===
 

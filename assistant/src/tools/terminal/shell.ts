@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
+import { platform } from 'node:os';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
@@ -16,6 +17,28 @@ import {
 import { getDataDir } from '../../util/platform.js';
 
 const log = getLogger('shell-tool');
+
+/**
+ * Returns the host address to bind the proxy to when Docker sandbox is active.
+ * On macOS, Docker Desktop routes host.docker.internal through the VM to
+ * 127.0.0.1, so no bind change is needed. On Linux, we need to bind to the
+ * Docker bridge gateway IP so containers can reach the proxy.
+ */
+function getDockerProxyHost(): string {
+  if (platform() !== 'linux') return '127.0.0.1';
+
+  try {
+    // Docker bridge gateway is the default route from inside docker0 network.
+    // `ip -4 addr show docker0` outputs the gateway IP assigned to the bridge.
+    const output = execSync('ip -4 addr show docker0 2>/dev/null', { encoding: 'utf-8' });
+    const match = output.match(/inet\s+(\d+\.\d+\.\d+\.\d+)/);
+    if (match) return match[1];
+  } catch {
+    // docker0 interface may not exist (e.g. rootless Docker, custom networks)
+  }
+  // Fallback: the conventional Docker bridge gateway IP
+  return '172.17.0.1';
+}
 
 class ShellTool implements Tool {
   name = 'bash';
@@ -111,7 +134,7 @@ class ShellTool implements Tool {
           undefined,
           getDataDir(),
           context.proxyApprovalCallback,
-          isDockerSandbox ? { listenHost: '0.0.0.0' } : undefined,
+          isDockerSandbox ? { listenHost: getDockerProxyHost() } : undefined,
         );
         proxyEnv = getSessionEnv(session.id, { dockerMode: isDockerSandbox });
       } catch (err) {

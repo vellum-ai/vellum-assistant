@@ -50,13 +50,13 @@ struct ModelSelectionStepView: View {
             Button(action: { saveModelAndContinue() }) {
                 Text("Select model")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: .white, dark: .white))
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, VSpacing.lg)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .fill(adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                light: Slate._900,
                                 dark: Violet._600
                             ))
                     )

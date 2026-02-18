@@ -51,7 +51,10 @@ struct ChatContentView: View {
                                 onSurfaceAction: { surfaceId, actionId, data in
                                     viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
                                 },
-                                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil
+                                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
+                                onAddTrustRule: { toolName, pattern, scope, decision in
+                                    viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision)
+                                }
                             )
                             .id(message.id)
                         }
@@ -231,6 +234,7 @@ struct ChatContentView: View {
         case .queueFull: return "tray.full.fill"
         case .sessionAborted: return "stop.circle.fill"
         case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"
+        case .contextTooLarge: return "doc.text.fill.viewfinder"
         case .unknown: return "exclamationmark.triangle.fill"
         }
     }

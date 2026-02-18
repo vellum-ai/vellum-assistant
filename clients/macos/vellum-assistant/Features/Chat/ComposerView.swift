@@ -250,7 +250,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var composerActionButtons: some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.inline) {
             if isSending {
                 Button(action: onStop) {
                     ZStack {
@@ -551,6 +551,14 @@ private struct ComposerTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        if let textView = coordinator.textView {
+            textView.undoManager?.removeAllActions(withTarget: textView)
+            textView.undoManager?.removeAllActions()
+        }
+        coordinator.textView = nil
     }
 
     func makeNSView(context: Context) -> NSScrollView {

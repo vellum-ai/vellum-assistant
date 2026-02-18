@@ -1,4 +1,68 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
+
+// MARK: - CodeBlockView
+
+/// Fenced code block with a copy-to-clipboard button.
+private struct CodeBlockView: View {
+    let lang: String
+    let code: String
+
+    @State private var showCopied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.sm) {
+                if !lang.isEmpty {
+                    Text(lang)
+                        .font(VFont.monoSmall)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                Button(action: copyCode) {
+                    HStack(spacing: VSpacing.xxs) {
+                        Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11))
+                        if showCopied {
+                            Text("Copied")
+                                .font(VFont.monoSmall)
+                        }
+                    }
+                    .foregroundColor(showCopied ? VColor.success : VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.top, VSpacing.xs)
+
+            Text(code)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+    }
+
+    private func copyCode() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = code
+        #endif
+        showCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            showCopied = false
+        }
+    }
+}
 
 // MARK: - MarkdownBlock
 
@@ -163,23 +227,7 @@ public struct MarkdownRenderer: View {
                 .textSelection(.enabled)
 
         case .codeBlock(let lang, let code):
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                if !lang.isEmpty {
-                    Text(lang)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.top, VSpacing.xs)
-                }
-                Text(code)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            CodeBlockView(lang: lang, code: code)
 
         case .list(let ordered, let items):
             VStack(alignment: .leading, spacing: VSpacing.xs) {

@@ -114,6 +114,9 @@ graph TB
             DB_KEYS["conversation_keys"]
             DB_REMINDERS["reminders"]
             DB_HOME["home_base_app_links"]
+            DB_TASKS["tasks"]
+            DB_TASK_RUNS["task_runs"]
+            DB_WORK_ITEMS["work_items"]
         end
 
         subgraph "Tracing"
@@ -470,6 +473,9 @@ graph LR
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
+        TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
+        TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
+        WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
     end
 
     subgraph "~/.vellum/workspace/data/ipc-blobs/"
@@ -1119,6 +1125,7 @@ graph LR
         C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
+        C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1145,6 +1152,7 @@ graph LR
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
         S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
+        S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
     end
 
     C0 --> SOCKET
@@ -1158,6 +1166,7 @@ graph LR
     C8 --> SOCKET
     C9 --> SOCKET
     C10 --> SOCKET
+    C11 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1179,6 +1188,7 @@ graph LR
     SOCKET --> S17
     SOCKET --> S18
     SOCKET --> S19
+    SOCKET --> S20
 ```
 
 ---
@@ -2619,10 +2629,10 @@ All proxy logging passes through sanitization helpers (`logging.ts`) that redact
 
 ### Runtime Wiring Summary
 
-The proxy subsystem is wired for routing, policy evaluation, and approval prompts. Credential injection (header rewriting) is **not yet implemented** — the `rewriteCallback` and `policyCallback` currently pass through without injecting credentials (see TODO comments in `session-manager.ts`). The session manager's `startSession()` calls `createProxyServer()` with:
+The proxy subsystem is fully wired, including credential injection. The session manager's `startSession()` calls `createProxyServer()` with:
 
-- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that currently passes through unmodified headers (credential header injection is planned for a later PR)
-- **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback` for access control on non-MITM requests; CONNECT requests routed to the MITM handler skip the `policyCallback` path. Credential injection is not yet implemented for either HTTP or HTTPS
+- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that injects credential headers for matched hosts — it collects matching `CredentialInjectionTemplate` candidates by hostname, blocks on ambiguity (multiple matches), and for `header`-type templates resolves the secret from secure storage and sets the outbound header
+- **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback`; for `'matched'` decisions it injects credential headers (reading the secret value at injection time), while `'ambiguous'` decisions are blocked and `'ask_*'` decisions route through the approval callback
 - **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
 - **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge` with `--add-host=host.docker.internal:host-gateway`; proxy env vars use `host.docker.internal` so containers can reach the host-side proxy
 - **networkMode plumbing**: `shell.ts` passes `{ networkMode }` to `wrapCommand()`, which forwards it to the Docker backend
@@ -2874,6 +2884,76 @@ graph TD
 
 **Data tables:** `watchers` (config, watermark, status, error tracking) and `watcher_events` (detected events, dedup on `(watcher_id, external_id)`, disposition tracking).
 
+## Task Queue — Queued Task Execution and Review
+
+The Task Queue builds on top of the existing Tasks system to provide an ordered execution pipeline with human-in-the-loop review.
+
+### Terminology
+
+- **Task** — A reusable prompt template stored in the `tasks` table. Each Task has a title, a Handlebars template body, an optional JSON input schema, and can be executed many times (each execution creates a `task_runs` row). Tasks are the definition of something the assistant can do repeatedly — think of them as "Actions."
+- **Task Queue** — An ordered list of Tasks queued up for execution and review. Each entry is a `work_items` row pointing to a Task template via `task_id`. The queue tracks run state through a defined lifecycle. "Awaiting review" means the Task ran and its output is ready for the user to inspect before being marked done.
+- **WorkItem** — The backend name for a Task Queue entry. Maps 1:1 to a row in the `work_items` table.
+
+### Data Model
+
+The `work_items` table links to the existing `tasks` table and tracks execution state:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | text (PK) | Unique work item identifier |
+| `task_id` | text (FK → `tasks`) | The Task template to execute |
+| `title` | text | Display title (may differ from the Task's title) |
+| `notes` | text | Optional user-provided notes or context |
+| `status` | text | Lifecycle state (see below) |
+| `priority_tier` | integer (0–3) | Priority bucket; lower = higher priority |
+| `sort_index` | integer | Manual ordering within a priority tier |
+| `last_run_id` | text | Most recent `task_runs.id` for this item |
+| `last_run_conversation_id` | text | Conversation used by the last run |
+| `last_run_status` | text | Status of the last run (`completed`, `failed`, etc.) |
+| `source_type` | text | Reserved — origin type (e.g., `watcher`, `manual`) |
+| `source_id` | text | Reserved — origin identifier |
+| `created_at` | integer | Epoch ms |
+| `updated_at` | integer | Epoch ms |
+
+**Ordering:** `priority_tier ASC, sort_index ASC, updated_at DESC`. Items with a lower priority tier appear first; within a tier, manual `sort_index` controls order; ties broken by most-recently-updated.
+
+### Status Lifecycle
+
+```
+queued → running → awaiting_review → done → archived
+                 ↘ failed ↗
+```
+
+| Status | Meaning |
+|--------|---------|
+| `queued` | Waiting to be executed |
+| `running` | Task is currently executing |
+| `awaiting_review` | Task ran successfully; output is ready for user review |
+| `failed` | Task execution failed (can be retried → `running`) |
+| `done` | User reviewed and accepted the output |
+| `archived` | Completed item moved out of active view |
+
+### IPC Messages (Planned)
+
+These messages will be added to the Unix socket IPC protocol:
+
+**Client → Server:**
+
+| Message | Purpose |
+|---------|---------|
+| `work_items_list` | List work items, filterable by status |
+| `work_item_get` | Fetch a single work item with full details |
+| `work_item_create` | Create a new work item pointing to a Task |
+| `work_item_update` | Update title, notes, priority, or sort order |
+| `work_item_complete` | Mark an item as `done` after review |
+| `work_item_run_task` | Trigger execution of a queued work item |
+
+**Server → Client (push):**
+
+| Message | Purpose |
+|---------|---------|
+| `work_item_status_changed` | Notify the client when a work item transitions state |
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -2899,6 +2979,8 @@ graph TD
 | Media embed settings | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON | `WorkspaceConfigIO` (atomic merge) | Permanent |
 | Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
+| Tasks & task runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent |
+| Work items (Task Queue) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; archived items retained |
 | Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
 | Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |

@@ -23,11 +23,18 @@ describe('WebSearchTool', () => {
   // by importing the module and testing the registered tool's execute method.
 
   describe('API key resolution', () => {
-    test('returns error when no API key is configured', async () => {
+    test('returns error when no API key is configured (brave)', async () => {
       delete process.env.BRAVE_API_KEY;
-      const result = await executeWebSearch({ query: 'test' }, undefined);
+      const result = await executeWebSearch({ query: 'test' }, undefined, 'brave');
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('API key not configured');
+      expect(result.content).toContain('No web search API key configured');
+    });
+
+    test('returns error when no API key is configured (perplexity)', async () => {
+      delete process.env.PERPLEXITY_API_KEY;
+      const result = await executeWebSearch({ query: 'test' }, undefined, 'perplexity');
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('No web search API key configured');
     });
   });
 
@@ -45,20 +52,20 @@ describe('WebSearchTool', () => {
       // We need to test the tool's execute method directly
       // Since bun:test module mocking is limited for re-imports,
       // we'll create a minimal test using the tool's logic
-      const result = await executeWebSearch({}, 'test-key');
+      const result = await executeWebSearch({}, 'test-key', 'brave');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('query is required');
       expect(fetchCalled).toBe(false);
     });
 
     test('rejects non-string query', async () => {
-      const result = await executeWebSearch({ query: 123 }, 'test-key');
+      const result = await executeWebSearch({ query: 123 }, 'test-key', 'brave');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('query is required');
     });
   });
 
-  describe('parameter handling', () => {
+  describe('Brave parameter handling', () => {
     test('clamps count to valid range', async () => {
       let capturedUrl = '';
       globalThis.fetch = (async (url: string) => {
@@ -69,10 +76,10 @@ describe('WebSearchTool', () => {
         });
       }) as any;
 
-      await executeWebSearch({ query: 'test', count: 50 }, 'test-key');
+      await executeWebSearch({ query: 'test', count: 50 }, 'test-key', 'brave');
       expect(capturedUrl).toContain('count=20');
 
-      await executeWebSearch({ query: 'test', count: -5 }, 'test-key');
+      await executeWebSearch({ query: 'test', count: -5 }, 'test-key', 'brave');
       expect(capturedUrl).toContain('count=1');
     });
 
@@ -86,7 +93,7 @@ describe('WebSearchTool', () => {
         });
       }) as any;
 
-      await executeWebSearch({ query: 'test', offset: 20 }, 'test-key');
+      await executeWebSearch({ query: 'test', offset: 20 }, 'test-key', 'brave');
       expect(capturedUrl).toContain('offset=9');
     });
 
@@ -100,7 +107,7 @@ describe('WebSearchTool', () => {
         });
       }) as any;
 
-      await executeWebSearch({ query: 'test', freshness: 'pw' }, 'test-key');
+      await executeWebSearch({ query: 'test', freshness: 'pw' }, 'test-key', 'brave');
       expect(capturedUrl).toContain('freshness=pw');
     });
 
@@ -114,12 +121,12 @@ describe('WebSearchTool', () => {
         });
       }) as any;
 
-      await executeWebSearch({ query: 'test', freshness: 'invalid' }, 'test-key');
+      await executeWebSearch({ query: 'test', freshness: 'invalid' }, 'test-key', 'brave');
       expect(capturedUrl).not.toContain('freshness');
     });
   });
 
-  describe('API responses', () => {
+  describe('Brave API responses', () => {
     test('formats results correctly', async () => {
       const mockResults = {
         web: {
@@ -137,7 +144,7 @@ describe('WebSearchTool', () => {
         })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(result.content).toContain('Test Result');
       expect(result.content).toContain('https://example.com');
@@ -154,7 +161,7 @@ describe('WebSearchTool', () => {
         })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'noresults' }, 'test-key');
+      const result = await executeWebSearch({ query: 'noresults' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(result.content).toContain('No results found');
     });
@@ -167,7 +174,7 @@ describe('WebSearchTool', () => {
         })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'empty' }, 'test-key');
+      const result = await executeWebSearch({ query: 'empty' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(result.content).toContain('No results found');
     });
@@ -177,7 +184,7 @@ describe('WebSearchTool', () => {
         new Response('Unauthorized', { status: 401 })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'bad-key');
+      const result = await executeWebSearch({ query: 'test' }, 'bad-key', 'brave');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Invalid or expired');
     });
@@ -195,7 +202,7 @@ describe('WebSearchTool', () => {
         );
       }) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(result.content).toContain('Result');
       expect(callCount).toBe(3);
@@ -206,7 +213,7 @@ describe('WebSearchTool', () => {
         new Response('Too Many Requests', { status: 429 })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('rate limit');
       expect(result.content).toContain('after retries');
@@ -230,7 +237,7 @@ describe('WebSearchTool', () => {
         );
       }) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(callCount).toBe(2);
     });
@@ -240,7 +247,7 @@ describe('WebSearchTool', () => {
         throw new Error('Network unreachable');
       }) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(true);
       expect(result.content).toContain('Network unreachable');
     });
@@ -257,7 +264,7 @@ describe('WebSearchTool', () => {
         });
       }) as any;
 
-      await executeWebSearch({ query: 'test' }, 'my-api-key');
+      await executeWebSearch({ query: 'test' }, 'my-api-key', 'brave');
       expect(capturedHeaders['X-Subscription-Token']).toBe('my-api-key');
       expect(capturedHeaders['Accept']).toBe('application/json');
     });
@@ -283,10 +290,109 @@ describe('WebSearchTool', () => {
         })
       ) as any;
 
-      const result = await executeWebSearch({ query: 'test' }, 'test-key');
+      const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
       expect(result.content).toContain('Extra snippet 1');
       expect(result.content).toContain('Extra snippet 2');
+    });
+  });
+
+  describe('Perplexity API responses', () => {
+    test('formats results with citations', async () => {
+      const mockResponse = {
+        choices: [{ message: { content: 'Perplexity found this information about the topic.' } }],
+        citations: ['https://example.com/source1', 'https://example.com/source2'],
+      };
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Perplexity found this information');
+      expect(result.content).toContain('https://example.com/source1');
+      expect(result.content).toContain('https://example.com/source2');
+    });
+
+    test('handles empty response', async () => {
+      const mockResponse = {
+        choices: [{ message: { content: '' } }],
+      };
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(mockResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      ) as any;
+
+      const result = await executeWebSearch({ query: 'noresults' }, 'pplx-key', 'perplexity');
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('No results found');
+    });
+
+    test('handles 401 unauthorized', async () => {
+      globalThis.fetch = (async () =>
+        new Response('Unauthorized', { status: 401 })
+      ) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'bad-key', 'perplexity');
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Invalid or expired');
+    });
+
+    test('sends correct headers', async () => {
+      let capturedHeaders: Record<string, string> = {};
+      let capturedBody: any;
+      globalThis.fetch = (async (_url: string, init: any) => {
+        capturedHeaders = Object.fromEntries(
+          Object.entries(init.headers as Record<string, string>),
+        );
+        capturedBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'result' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as any;
+
+      await executeWebSearch({ query: 'test query' }, 'pplx-my-key', 'perplexity');
+      expect(capturedHeaders['Authorization']).toBe('Bearer pplx-my-key');
+      expect(capturedHeaders['Content-Type']).toBe('application/json');
+      expect(capturedBody.model).toBe('sonar');
+      expect(capturedBody.messages[0].content).toBe('test query');
+    });
+
+    test('retries on 429 and succeeds', async () => {
+      let callCount = 0;
+      globalThis.fetch = (async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response('Too Many Requests', { status: 429 });
+        }
+        return new Response(
+          JSON.stringify({ choices: [{ message: { content: 'Found it' } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Found it');
+      expect(callCount).toBe(3);
+    });
+
+    test('handles network errors', async () => {
+      globalThis.fetch = (async () => {
+        throw new Error('Network unreachable');
+      }) as any;
+
+      const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Network unreachable');
     });
   });
 });
@@ -299,6 +405,7 @@ describe('WebSearchTool', () => {
 async function executeWebSearch(
   input: Record<string, unknown>,
   apiKey?: string,
+  provider: 'brave' | 'perplexity' = 'brave',
 ): Promise<{ content: string; isError: boolean }> {
   const query = input.query;
   if (!query || typeof query !== 'string') {
@@ -307,16 +414,28 @@ async function executeWebSearch(
 
   if (!apiKey) {
     return {
-      content: 'Error: Brave Search API key not configured. Set BRAVE_API_KEY environment variable or run: vellum config set apiKeys.brave <your-key>',
+      content: 'Error: No web search API key configured. Set PERPLEXITY_API_KEY or BRAVE_API_KEY environment variable, or configure a key in settings.',
       isError: true,
     };
   }
 
+  if (provider === 'perplexity') {
+    return executePerplexitySearchHelper(query as string, apiKey);
+  }
+
+  return executeBraveSearchHelper(input, query as string, apiKey);
+}
+
+async function executeBraveSearchHelper(
+  input: Record<string, unknown>,
+  query: string,
+  apiKey: string,
+): Promise<{ content: string; isError: boolean }> {
   const count = typeof input.count === 'number' ? Math.min(20, Math.max(1, Math.round(input.count))) : 10;
   const offset = typeof input.offset === 'number' ? Math.min(9, Math.max(0, Math.round(input.offset))) : 0;
 
   const params = new URLSearchParams({
-    q: query as string,
+    q: query,
     count: String(count),
     offset: String(offset),
   });
@@ -389,6 +508,75 @@ async function executeWebSearch(
     }
 
     return { content: 'Error: Brave Search rate limit exceeded after retries. Try again shortly.', isError: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: `Error: Web search failed: ${msg}`, isError: true };
+  }
+}
+
+async function executePerplexitySearchHelper(
+  query: string,
+  apiKey: string,
+): Promise<{ content: string; isError: boolean }> {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1;
+
+  try {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [{ role: 'user', content: query }],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) {
+          return { content: `No results found for "${query}".`, isError: false };
+        }
+
+        const lines: string[] = [`Web search results for "${query}":\n`];
+        lines.push(content);
+
+        if (data.citations && data.citations.length > 0) {
+          lines.push('\nSources:');
+          for (let i = 0; i < data.citations.length; i++) {
+            lines.push(`  [${i + 1}] ${data.citations[i]}`);
+          }
+        }
+
+        return { content: lines.join('\n'), isError: false };
+      }
+
+      await response.text();
+
+      if (response.status === 401 || response.status === 403) {
+        return { content: 'Error: Invalid or expired Perplexity API key', isError: true };
+      }
+
+      if (response.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = response.headers.get('retry-after');
+        const delayMs = retryAfter && !isNaN(Number(retryAfter))
+          ? Number(retryAfter) * 1000
+          : BASE_DELAY_MS * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      if (response.status === 429) {
+        return { content: 'Error: Perplexity rate limit exceeded after retries. Try again shortly.', isError: true };
+      }
+      return { content: `Error: Perplexity API returned status ${response.status}`, isError: true };
+    }
+
+    return { content: 'Error: Perplexity rate limit exceeded after retries. Try again shortly.', isError: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: Web search failed: ${msg}`, isError: true };

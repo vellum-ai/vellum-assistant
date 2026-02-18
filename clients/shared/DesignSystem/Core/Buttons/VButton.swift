@@ -5,20 +5,23 @@ import AppKit
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, ghost, danger }
+    public enum Size: Hashable { case small, medium, large }
 
     public let label: String
     public var icon: String? = nil
     public var style: Style = .primary
+    public var size: Size = .small
     public var isFullWidth: Bool = false
     public var isDisabled: Bool = false
     public let action: () -> Void
 
     @State private var isHovered = false
 
-    public init(label: String, icon: String? = nil, style: Style = .primary, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
         self.label = label
         self.icon = icon
         self.style = style
+        self.size = size
         self.isFullWidth = isFullWidth
         self.isDisabled = isDisabled
         self.action = action
@@ -29,13 +32,13 @@ public struct VButton: View {
             HStack(spacing: VSpacing.sm) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: iconSize, weight: .semibold))
                 }
                 Text(label)
-                    .font(VFont.monoMedium)
+                    .font(labelFont)
             }
         }
-        .buttonStyle(VButtonStyle(style: style, isHovered: isHovered, isFullWidth: isFullWidth))
+        .buttonStyle(VButtonStyle(style: style, size: size, isHovered: isHovered, isFullWidth: isFullWidth))
         #if os(macOS)
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
@@ -51,19 +54,36 @@ public struct VButton: View {
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
     }
+
+    private var iconSize: CGFloat {
+        switch size {
+        case .small: return 10
+        case .medium: return 12
+        case .large: return 14
+        }
+    }
+
+    private var labelFont: Font {
+        switch size {
+        case .small: return VFont.monoSmall
+        case .medium: return VFont.monoSmall
+        case .large: return VFont.monoMedium
+        }
+    }
 }
 
 private struct VButtonStyle: ButtonStyle {
     let style: VButton.Style
+    let size: VButton.Size
     let isHovered: Bool
     let isFullWidth: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundColor(foregroundColor)
-            .padding(.horizontal, VSpacing.md)
+            .padding(.horizontal, horizontalPadding)
             .padding(.vertical, VSpacing.buttonV)
-            .frame(height: 28)
+            .frame(height: height)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -78,6 +98,22 @@ private struct VButtonStyle: ButtonStyle {
             .animation(VAnimation.fast, value: isHovered)
     }
 
+    private var height: CGFloat {
+        switch size {
+        case .small: return 24
+        case .medium: return 28
+        case .large: return 32
+        }
+    }
+
+    private var horizontalPadding: CGFloat {
+        switch size {
+        case .small: return VSpacing.md
+        case .medium: return VSpacing.md
+        case .large: return VSpacing.lg
+        }
+    }
+
     private var shadowColor: Color {
         switch style {
         case .primary:
@@ -85,7 +121,7 @@ private struct VButtonStyle: ButtonStyle {
         case .danger:
             return isHovered ? Rose._700 : Rose._800
         case .ghost:
-            return isHovered ? VColor.ghostPressed : VColor.ghostHover
+            return .clear
         }
     }
 
@@ -129,13 +165,14 @@ private struct VButtonStyle: ButtonStyle {
     ZStack {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
-            VButton(label: "Primary", style: .primary) {}
-            VButton(label: "Ghost", style: .ghost) {}
-            VButton(label: "Danger", style: .danger) {}
-            VButton(label: "Disabled", style: .primary, isDisabled: true) {}
+            VButton(label: "Small", style: .primary, size: .small) {}
+            VButton(label: "Medium", style: .primary, size: .medium) {}
+            VButton(label: "Large", style: .primary, size: .large) {}
+            VButton(label: "Ghost Small", style: .ghost, size: .small) {}
+            VButton(label: "Ghost Large", style: .ghost, size: .large) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
         }
         .padding()
     }
-    .frame(width: 300, height: 300)
+    .frame(width: 300, height: 400)
 }

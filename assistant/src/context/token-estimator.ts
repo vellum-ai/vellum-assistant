@@ -5,6 +5,7 @@ const MESSAGE_OVERHEAD_TOKENS = 4;
 const TEXT_BLOCK_OVERHEAD_TOKENS = 2;
 const TOOL_BLOCK_OVERHEAD_TOKENS = 16;
 const IMAGE_BLOCK_TOKENS = 1024;
+const IMAGE_BLOCK_OVERHEAD_TOKENS = 16;
 const FILE_BLOCK_OVERHEAD_TOKENS = 48;
 const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
@@ -24,6 +25,14 @@ function shouldCountFileSourceData(block: Extract<ContentBlock, { type: 'file' }
     return false;
   }
   return GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type);
+}
+
+function estimateImageSourceDataTokens(
+  block: Extract<ContentBlock, { type: 'image' }>,
+): number {
+  // Image payloads are carried inline as base64 for all currently supported
+  // providers, so estimator must scale with payload size (not fixed per image).
+  return estimateTextTokens(block.source.data);
 }
 
 export function estimateContentBlockTokens(block: ContentBlock, options?: TokenEstimatorOptions): number {
@@ -46,7 +55,12 @@ export function estimateContentBlockTokens(block: ContentBlock, options?: TokenE
       return tokens;
     }
     case 'image':
-      return IMAGE_BLOCK_TOKENS;
+      return Math.max(
+        IMAGE_BLOCK_TOKENS,
+        IMAGE_BLOCK_OVERHEAD_TOKENS
+          + estimateTextTokens(block.source.media_type)
+          + estimateImageSourceDataTokens(block),
+      );
     case 'file':
       return FILE_BLOCK_OVERHEAD_TOKENS
         + estimateTextTokens(block.source.filename)

@@ -106,6 +106,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
+    private var tasksWindow: TasksWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -140,8 +141,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         if !skipOnboarding && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            showOnboarding()
-            return
+            // If the user already has an API key and model configured,
+            // skip onboarding entirely — they're a returning user whose
+            // hasCompletedOnboarding flag was cleared (e.g. by /scrub).
+            // Provider is not checked because the daemon defaults to 'anthropic'.
+            let config = WorkspaceConfigIO.read()
+            if APIKeyManager.hasAnyKey(), config["model"] != nil {
+                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            } else {
+                showOnboarding()
+                return
+            }
         }
 
         startAuthenticatedFlow()
@@ -150,7 +160,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
-            if authManager.isAuthenticated {
+            if authManager.isAuthenticated || APIKeyManager.hasAnyKey() {
                 proceedToApp()
             } else {
                 showAuthWindow()
@@ -391,6 +401,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         daemonClient.onDocumentSaveResponse = { [weak self] msg in
             self?.mainWindow?.handleDocumentSaveResponse(msg)
+        }
+        daemonClient.onDocumentLoadResponse = { [weak self] msg in
+            self?.mainWindow?.handleDocumentLoadResponse(msg)
         }
 
         // Handle diagnostics export response — show a toast in the main window
@@ -698,8 +711,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
                 viewModel.inputText = text
-                viewModel.pendingVoiceMessage = true
-                viewModel.sendMessage()
                 return
             }
 
@@ -1006,6 +1017,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Tasks Window
+
+    @objc func showTasksWindow() {
+        NSApp.setActivationPolicy(.regular)
+        if tasksWindow == nil {
+            tasksWindow = TasksWindow(daemonClient: daemonClient)
+        }
+        tasksWindow?.show()
     }
 
     // MARK: - Application Lifecycle

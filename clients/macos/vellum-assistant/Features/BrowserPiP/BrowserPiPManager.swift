@@ -16,7 +16,7 @@ final class BrowserPiPManager: ObservableObject {
     @Published var highlights: [BrowserHighlight] = []
     @Published var isInteractive: Bool = false
     var handoffMessage: String?
-    var frameSize: CGSize = CGSize(width: 800, height: 600)
+    var frameSize: CGSize = CGSize(width: 1280, height: 960)
 
     var activePage: BrowserPage? {
         pages.first(where: { $0.active })
@@ -263,7 +263,7 @@ final class BrowserPiPManager: ObservableObject {
                 height: max(defaults.double(forKey: Self.sizeHKey), 150)
             )
         }
-        return NSRect(x: 0, y: 0, width: 400, height: 300)
+        return NSRect(x: 0, y: 0, width: 800, height: 600)
     }
 
     private func hasSavedPosition() -> Bool {

@@ -40,6 +40,7 @@ import {
   handleAppDataRequest,
   handleAppOpenRequest,
   handleAppUpdatePreview,
+  handleAppPreview,
   handleAppsList,
   handleSharedAppsList,
   handleSharedAppDelete,
@@ -94,6 +95,15 @@ import {
   handleDocumentLoad,
   handleDocumentList,
 } from './documents.js';
+
+import {
+  handleWorkItemsList,
+  handleWorkItemGet,
+  handleWorkItemCreate,
+  handleWorkItemUpdate,
+  handleWorkItemComplete,
+  handleWorkItemRunTask,
+} from './work-items.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -174,6 +184,7 @@ const handlers: DispatchMap = {
   app_open_request: (msg, socket, ctx) => handleAppOpenRequest(msg, socket, ctx),
   app_update_preview: handleAppUpdatePreview,
   apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  app_preview_request: handleAppPreview,
   home_base_get: handleHomeBaseGet,
   shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
   shared_app_delete: handleSharedAppDelete,
@@ -260,7 +271,7 @@ const handlers: DispatchMap = {
     try {
       const page = await browserManager.getOrCreateSessionPage(msg.sessionId);
       const viewport = await page.evaluate('(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()') as { vw: number; vh: number };
-      const scale = Math.min(800 / viewport.vw, 600 / viewport.vh);
+      const scale = Math.min(1280 / viewport.vw, 960 / viewport.vh);
       const pageX = msg.x / scale;
       const pageY = msg.y / scale;
       const options: Record<string, unknown> = {};
@@ -303,6 +314,13 @@ const handlers: DispatchMap = {
   },
 
   integration_disconnect: () => { /* no-op — integration registry removed */ },
+
+  work_items_list: handleWorkItemsList,
+  work_item_get: handleWorkItemGet,
+  work_item_create: handleWorkItemCreate,
+  work_item_update: handleWorkItemUpdate,
+  work_item_complete: handleWorkItemComplete,
+  work_item_run_task: handleWorkItemRunTask,
 };
 
 export function handleMessage(

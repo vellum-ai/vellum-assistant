@@ -1,6 +1,6 @@
 import type { Page } from './browser-manager.js';
 
-export type AuthChallengeType = 'login' | '2fa' | 'oauth_consent';
+export type AuthChallengeType = 'login' | '2fa' | 'oauth_consent' | 'captcha';
 
 export interface AuthField {
   type: 'email' | 'password' | 'code' | 'approval';
@@ -202,6 +202,67 @@ const DOM_DETECT_EXPRESSION = `(() => {
   return null;
 })()`;
 
+// ── CAPTCHA / Cloudflare detection ───────────────────────────────────
+
+const CAPTCHA_DETECT_EXPRESSION = `(() => {
+  // Cloudflare Turnstile / interstitial
+  const title = document.title || '';
+  if (/just a moment/i.test(title)) return true;
+
+  const bodyText = (document.body && document.body.innerText) || '';
+  if (/verify you are human|performing security verification/i.test(bodyText)) return true;
+
+  // Cloudflare-specific DOM elements
+  const cfSelectors = [
+    '#challenge-running',
+    '#challenge-stage',
+    '.cf-turnstile',
+    'iframe[src*="challenges.cloudflare.com"]',
+  ];
+  for (const sel of cfSelectors) {
+    if (document.querySelector(sel)) return true;
+  }
+
+  // reCAPTCHA — only flag visible challenges, not invisible v3 scoring widgets.
+  // The challenge iframe (api2/bframe) or a visible .g-recaptcha container indicates
+  // an interactive CAPTCHA the user must solve.
+  if (document.querySelector('iframe[src*="recaptcha/api2/bframe"]')) return true;
+  const recaptchaContainer = document.querySelector('.g-recaptcha');
+  if (recaptchaContainer) {
+    const rect = recaptchaContainer.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
+
+  // hCaptcha — only flag when a visible challenge container is present
+  const hcaptchaContainer = document.querySelector('#hcaptcha-container, .h-captcha');
+  if (hcaptchaContainer) {
+    const rect = hcaptchaContainer.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
+
+  return false;
+})()`;
+
+/**
+ * Detect whether the current page presents a CAPTCHA or Cloudflare
+ * challenge that requires human interaction.
+ */
+export async function detectCaptchaChallenge(page: Page): Promise<AuthChallenge | null> {
+  try {
+    const isCaptcha = await page.evaluate(CAPTCHA_DETECT_EXPRESSION) as boolean;
+    if (isCaptcha) {
+      return {
+        type: 'captcha',
+        fields: [],
+        url: page.url(),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Detect whether the current page presents an authentication challenge
  * (login form, 2FA prompt, or OAuth consent screen).
@@ -260,7 +321,9 @@ export function formatAuthChallenge(challenge: AuthChallenge): string {
       ? 'login page'
       : challenge.type === '2fa'
         ? '2FA verification'
-        : 'OAuth consent screen';
+        : challenge.type === 'captcha'
+          ? 'CAPTCHA verification'
+          : 'OAuth consent screen';
 
   const lines: string[] = [
     `\u26a0\ufe0f Auth challenge detected: ${serviceName}${typeLabel}`,

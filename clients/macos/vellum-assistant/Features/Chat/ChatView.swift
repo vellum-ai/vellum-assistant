@@ -133,7 +133,7 @@ struct ChatView: View {
     ]
 
     private var isEmptyState: Bool {
-        messages.isEmpty && !isThinking
+        messages.isEmpty && !isSending
     }
 
     private let composerMinHeight: CGFloat = 34
@@ -619,10 +619,14 @@ struct ChatView: View {
                         }
                     }
 
-                    if isThinking {
-                        ThinkingIndicator(label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking")
-                            .id("thinking-indicator")
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    if isSending && !(messages.last?.isStreaming == true) {
+                        RunningIndicator(
+                            label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
+                            showIcon: false
+                        )
+                        .frame(maxWidth: 520, alignment: .leading)
+                        .id("thinking-indicator")
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
                     // Invisible anchor at the very bottom of all content
@@ -636,17 +640,20 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
-            .scrollDisabled(messages.isEmpty && !isThinking)
+            .scrollDisabled(messages.isEmpty && !isSending)
             .onAppear {
                 // Scroll to bottom on initial load
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
-            .onChange(of: isThinking) {
-                if isThinking {
+            .onChange(of: isSending) {
+                if isSending {
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
-                } else {
+                }
+            }
+            .onChange(of: isThinking) {
+                if !isThinking {
                     // Thinking finished — mark flag so next message shows "Thinking"
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true
@@ -906,6 +913,9 @@ private struct ChatBubble: View {
 
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
+    @State private var isCopyHovered = false
+    @State private var showCopyConfirmation = false
+    @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
 
     private var isUser: Bool { message.role == .user }
@@ -1030,6 +1040,10 @@ private struct ChatBubble: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
+
+                if isUser {
+                    copyButton
+                }
             }
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
@@ -1069,7 +1083,7 @@ private struct ChatBubble: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering in
-            if canReportMessage {
+            if canReportMessage || isUser {
                 isHovered = hovering
             } else if isHovered {
                 isHovered = false
@@ -1091,6 +1105,59 @@ private struct ChatBubble: View {
     /// Whether all tool calls are complete and the message is done streaming.
     private var allToolCallsComplete: Bool {
         !message.toolCalls.isEmpty && message.toolCalls.allSatisfy { $0.isComplete } && !message.isStreaming
+    }
+
+    private var copyButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.text, forType: .string)
+            copyConfirmationTimer?.cancel()
+            showCopyConfirmation = true
+            let timer = DispatchWorkItem { showCopyConfirmation = false }
+            copyConfirmationTimer = timer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+        } label: {
+            Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Copy message")
+        .onHover { hovering in
+            isCopyHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+        .overlay(alignment: .top) {
+            if isCopyHovered && !showCopyConfirmation {
+                Text("Copy")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(VColor.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .vShadow(VShadow.sm)
+                    .fixedSize()
+                    .offset(y: -28)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+        .opacity(isHovered ? 1 : 0)
+        .allowsHitTesting(isHovered)
+        .animation(VAnimation.fast, value: isHovered)
     }
 
     private var regenerateButton: some View {
@@ -2350,12 +2417,14 @@ private struct MarkdownTableView: View {
     }
 }
 
-// MARK: - Thinking Indicator
+// MARK: - Running Indicator
 
-/// Minimal in-progress indicator for tool execution, matching ThinkingIndicator style.
+/// Minimal in-progress indicator for thinking and tool execution.
 /// Supports progressive labels that cycle on a timer for long-running tools.
 private struct RunningIndicator: View {
     var label: String = "Running"
+    /// Whether to show the terminal icon (appropriate for tool execution states).
+    var showIcon: Bool = true
     /// Optional sequence of labels to cycle through over time.
     var progressiveLabels: [String] = []
     /// Seconds between each label transition.
@@ -2390,9 +2459,11 @@ private struct RunningIndicator: View {
 
     private var indicatorContent: some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "terminal")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textSecondary)
+            if showIcon {
+                Image(systemName: "terminal")
+                    .font(.system(size: 10))
+                    .foregroundColor(VColor.textSecondary)
+            }
 
             Text(displayLabel)
                 .font(VFont.caption)
@@ -2479,57 +2550,6 @@ private struct CodePreviewView: View {
             return lines.suffix(30).joined(separator: "\n")
         }
         return code
-    }
-}
-
-private struct ThinkingIndicator: View {
-    var label: String = "Thinking"
-    @State private var phase: Int = 0
-    @State private var timer: Timer?
-
-    var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            HStack(spacing: 5) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.textSecondary)
-                        .frame(width: 6, height: 6)
-                        .scaleEffect(dotScale(for: index))
-                        .opacity(dotOpacity(for: index))
-                }
-            }
-
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
-
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.backgroundSubtle.opacity(0.5))
-        )
-        .frame(maxWidth: 160, alignment: .leading)
-        .onAppear { startAnimation() }
-        .onDisappear { timer?.invalidate() }
-    }
-
-    private func dotOpacity(for index: Int) -> Double {
-        phase == index ? 1.0 : 0.35
-    }
-
-    private func dotScale(for index: Int) -> CGFloat {
-        phase == index ? 1.15 : 0.85
-    }
-
-    private func startAnimation() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.4)) {
-                phase = (phase + 1) % 3
-            }
-        }
     }
 }
 

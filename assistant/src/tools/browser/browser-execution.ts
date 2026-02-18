@@ -9,8 +9,8 @@ import {
   sanitizeUrlForOutput,
 } from '../network/url-safety.js';
 import { browserManager } from './browser-manager.js';
-import type { RouteHandler } from './browser-manager.js';
-import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
+import type { RouteHandler, PageResponse } from './browser-manager.js';
+import { detectAuthChallenge, detectCaptchaChallenge, formatAuthChallenge } from './auth-detector.js';
 import { credentialBroker } from '../credentials/broker.js';
 import {
   ensureScreencast,
@@ -27,9 +27,11 @@ const log = getLogger('headless-browser');
 
 // ── Constants ────────────────────────────────────────────────────────
 
-export const NAVIGATE_TIMEOUT_MS = 30_000;
+export const NAVIGATE_TIMEOUT_MS = 15_000;
 
-export const MAX_SNAPSHOT_ELEMENTS = 500;
+export const ACTION_TIMEOUT_MS = 10_000;
+
+export const MAX_SNAPSHOT_ELEMENTS = 150;
 
 export const INTERACTIVE_SELECTOR = [
   'a[href]',
@@ -143,6 +145,13 @@ export async function executeBrowserNavigate(
     // since Playwright follows redirects internally and performs its own DNS resolution.
     // CDP mode skips route interception since page.route() may not work with connectOverCDP.
     if (!allowPrivateNetwork && browserManager.browserMode !== 'cdp') {
+      // Cache DNS results per-hostname to avoid redundant lookups on subrequests
+      // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
+      // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
+      // resolves to a public IP then later to a private one. Blocked results are
+      // never cached so they are always re-resolved.
+      const DNS_CACHE_TTL_MS = 5_000;
+      const dnsCache = new Map<string, { addresses: string[]; blockedAddress?: string; cachedAt: number }>();
       routeHandler = async (route, request) => {
         try {
           const reqUrl = request.url();
@@ -162,12 +171,27 @@ export async function executeBrowserNavigate(
             return;
           }
 
-          // Resolve DNS and check resolved addresses
-          const resolution = await resolveRequestAddress(
-            reqParsed.hostname,
-            resolveHostAddresses,
-            false,
-          );
+          // Resolve DNS and check resolved addresses (cached per hostname with TTL).
+          // Blocked results are never cached to ensure re-resolution catches
+          // DNS rebinding where a hostname flips from public to private IP.
+          let cached = dnsCache.get(reqParsed.hostname);
+          const now = Date.now();
+          if (cached && (now - cached.cachedAt > DNS_CACHE_TTL_MS)) {
+            dnsCache.delete(reqParsed.hostname);
+            cached = undefined;
+          }
+          const resolution = cached ?? await (async () => {
+            const res = await resolveRequestAddress(
+              reqParsed.hostname,
+              resolveHostAddresses,
+              false,
+            );
+            // Only cache allowed results; blocked results must be re-resolved
+            if (!res.blockedAddress) {
+              dnsCache.set(reqParsed.hostname, { ...res, cachedAt: now });
+            }
+            return res;
+          })();
           if (resolution.blockedAddress) {
             blockedUrl = sanitizeUrlForOutput(reqParsed);
             log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
@@ -184,15 +208,41 @@ export async function executeBrowserNavigate(
       await page.route('**/*', routeHandler);
     }
 
-    const response = await page.goto(parsedUrl.href, {
-      waitUntil: 'domcontentloaded',
-      timeout: NAVIGATE_TIMEOUT_MS,
-    });
+    // Use domcontentloaded but with a shorter timeout — if it times out,
+    // the page is likely still usable (heavy SPAs like DoorDash keep loading
+    // scripts after DOMContentLoaded). Fall back gracefully instead of failing.
+    let response: PageResponse | null = null;
+    let navigationTimedOut = false;
+    const urlBeforeNav = page.url();
+    try {
+      response = await page.goto(parsedUrl.href, {
+        waitUntil: 'domcontentloaded',
+        timeout: NAVIGATE_TIMEOUT_MS,
+      });
+    } catch (navErr) {
+      const navMsg = navErr instanceof Error ? navErr.message : String(navErr);
+      if (navMsg.includes('Timeout') || navMsg.includes('timeout')) {
+        // If the page URL never changed from before navigation, the page
+        // never actually loaded — re-throw instead of reporting success.
+        if (page.url() === urlBeforeNav) {
+          throw navErr;
+        }
+        navigationTimedOut = true;
+        log.info({ url: safeRequestedUrl }, 'Navigation timed out waiting for domcontentloaded, continuing with partial load');
+      } else {
+        throw navErr;
+      }
+    }
 
     // Remove the route handler now that navigation is complete
     if (routeHandler) {
       await page.unroute('**/*', routeHandler);
       routeHandler = null;
+    }
+
+    // In CDP mode, keep the browser minimized unless a handoff is active.
+    if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
+      await browserManager.moveWindowOffscreen();
     }
 
     if (blockedUrl) {
@@ -223,42 +273,72 @@ export async function executeBrowserNavigate(
       `Title: ${title || '(none)'}`,
     ];
 
+    if (navigationTimedOut) {
+      lines.push(`Note: Page is still loading (domcontentloaded timed out). The page should still be interactive — use browser_snapshot to check.`);
+    }
+
     if (finalUrl !== parsedUrl.href) {
       lines.push(`Note: Page redirected from the requested URL.`);
     }
 
-    // Detect auth challenges (login pages, 2FA, OAuth consent)
+    // Detect auth challenges (login pages, 2FA, OAuth consent) and CAPTCHA challenges
     try {
       const authChallenge = await detectAuthChallenge(page);
-      if (authChallenge) {
-        if (browserManager.browserMode === 'cdp') {
-          // In CDP mode, hand off to user for direct interaction
-          if (sender) {
+      const captchaChallenge = await detectCaptchaChallenge(page);
+      // CAPTCHA takes priority — it blocks all interaction including login
+      let challenge = captchaChallenge ?? authChallenge;
+
+      // Many CAPTCHA interstitials (e.g. Cloudflare "Just a moment") auto-resolve
+      // within a few seconds. Wait and re-check before handing off to the user.
+      if (challenge?.type === 'captcha') {
+        log.info('CAPTCHA detected, waiting up to 5s for auto-resolve');
+        for (let i = 0; i < 5; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const still = await detectCaptchaChallenge(page);
+          if (!still) {
+            log.info('CAPTCHA auto-resolved');
+            // Re-check for auth challenge now that CAPTCHA is gone —
+            // the page may have loaded a login form behind it.
+            challenge = await detectAuthChallenge(page);
+            break;
+          }
+        }
+      }
+
+      if (challenge) {
+        if (challenge.type === 'captcha') {
+          // CAPTCHA persisted after auto-resolve wait — hand off to user
+          if (browserManager.browserMode === 'cdp' && sender) {
             const { startHandoff } = await import('./browser-handoff.js');
             await startHandoff(context.sessionId, sender, {
-              reason: 'auth',
-              message: formatAuthChallenge(authChallenge),
+              reason: 'captcha',
+              message: 'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
               bringToFront: true,
             });
+            const newUrl = page.url();
+            const newTitle = await page.title();
+            lines.push('');
+            lines.push(`CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`);
+          } else {
+            lines.push('');
+            lines.push('⚠️ CAPTCHA/Cloudflare verification detected on this page.');
+            lines.push('The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.');
           }
-          // After handoff completes, return updated page state
-          const newUrl = page.url();
-          const newTitle = await page.title();
-          lines.push('');
-          lines.push(`Auth handled by user. Current page: ${newTitle} (${newUrl})`);
         } else {
+          // Login / 2FA / OAuth — the agent should handle these itself
+          // using browser tools + credential_store. Don't hand off.
           lines.push('');
-          lines.push(formatAuthChallenge(authChallenge));
+          lines.push(formatAuthChallenge(challenge));
           lines.push('');
-          lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
-          const { buildAuthForm } = await import('./jit-auth.js');
-          const formData = buildAuthForm(authChallenge);
-          lines.push(JSON.stringify(formData, null, 2));
-          lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
+          lines.push('Handle this by using browser tools to interact with the login form:');
+          lines.push('1. Use browser_snapshot to find the sign-in form elements');
+          lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
+          lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
+          lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
         }
       }
     } catch {
-      // Auth detection is best-effort; don't fail navigation
+      // Auth/CAPTCHA detection is best-effort; don't fail navigation
     }
 
     if (sender) {
@@ -453,9 +533,11 @@ export async function executeBrowserClick(
     }
   }
 
+  const timeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
+
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    await page.click(selector!);
+    await page.click(selector!, { timeout });
     if (sender) {
       updateHighlights(context.sessionId, sender, []);
       updateBrowserStatus(context.sessionId, sender, 'idle');
@@ -502,8 +584,10 @@ export async function executeBrowserType(
   try {
     const page = await browserManager.getOrCreateSessionPage(context.sessionId);
 
+    const fillTimeout = typeof input.timeout === 'number' ? input.timeout : ACTION_TIMEOUT_MS;
+
     if (clearFirst) {
-      await page.fill(selector!, text);
+      await page.fill(selector!, text, { timeout: fillTimeout });
     } else {
       // Read existing content before appending. Use .value for form inputs,
       // with fallback to .innerText for contenteditable elements (preserves
@@ -511,7 +595,7 @@ export async function executeBrowserType(
       const currentValue = (await page.evaluate(
         `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
       )) as string;
-      await page.fill(selector!, currentValue + text);
+      await page.fill(selector!, currentValue + text, { timeout: fillTimeout });
     }
 
     if (pressEnter) {
@@ -639,7 +723,7 @@ export async function executeBrowserScroll(
       if (bounds) {
         // Convert screencast coords back to page coords for mouse.move
         const result = await page.evaluate(`(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`) as { vw: number; vh: number };
-        const scale = Math.min(800 / result.vw, 600 / result.vh);
+        const scale = Math.min(1280 / result.vw, 960 / result.vh);
         const pageX = (bounds.x + bounds.w / 2) / scale;
         const pageY = (bounds.y + bounds.h / 2) / scale;
         await page.mouse.move(pageX, pageY);

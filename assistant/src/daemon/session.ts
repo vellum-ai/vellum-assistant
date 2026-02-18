@@ -37,6 +37,7 @@ import { ToolProfiler, registerToolProfilingListener } from '../events/tool-prof
 import {
   ContextWindowManager,
   createContextSummaryMessage,
+  getSummaryFromContextMessage,
 } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import {
@@ -109,6 +110,8 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> = Object.freez
 });
 
 const log = getLogger('session');
+const RETRY_KEEP_LATEST_MEDIA_BLOCKS = 3;
+const MAX_MEDIA_STUB_TEXT = 2_000;
 
 export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 export { findLastUndoableUserMessageIndex } from './session-history.js';
@@ -813,6 +816,9 @@ export class Session {
       // Map tool_use_id → toolName so tool_result processing can identify the originating tool.
       const toolUseIdToName = new Map<string, string>();
 
+      // Track tool names used in the current agent turn for checkpoint decisions.
+      let currentTurnToolNames: string[] = [];
+
       const buildEventHandler = () => (event: import('../agent/loop.js').AgentEvent) => {
         // Emit llm_call_started once per provider call. Called on first streaming
         // token (text or thinking) or, for tool-only turns, right before the
@@ -847,6 +853,7 @@ export class Session {
             break;
           case 'tool_use':
             toolUseIdToName.set(event.id, event.name);
+            currentTurnToolNames.push(event.name);
             onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: this.conversationId });
             break;
           case 'tool_output_chunk':
@@ -1007,9 +1014,20 @@ export class Session {
       };
 
       const onCheckpoint = (): CheckpointDecision => {
+        // Capture and reset tool names for this turn
+        const turnTools = currentTurnToolNames;
+        currentTurnToolNames = [];
+
         if (this.canHandoffAtCheckpoint()) {
-          yieldedForHandoff = true;
-          return 'yield';
+          // Don't interrupt active browser interaction flows — the agent
+          // needs multiple consecutive turns (snapshot → click → snapshot)
+          // and yielding mid-flow leaves the task incomplete.
+          const inBrowserFlow = turnTools.length > 0
+            && turnTools.every(n => n.startsWith('browser_'));
+          if (!inBrowserFlow) {
+            yieldedForHandoff = true;
+            return 'yield';
+          }
         }
         return 'continue';
       };
@@ -1107,6 +1125,37 @@ export class Session {
             reqId,
             onCheckpoint,
           );
+        }
+
+        if (contextTooLargeDetected) {
+          const mediaTrimmed = stripMediaPayloadsForRetry(this.messages);
+          if (mediaTrimmed.modified) {
+            rlog.warn(
+              {
+                phase: 'retry',
+                replacedBlocks: mediaTrimmed.replacedBlocks,
+                latestUserIndex: mediaTrimmed.latestUserIndex,
+              },
+              'Context still too large — retrying with older media payloads trimmed',
+            );
+            this.messages = mediaTrimmed.messages;
+            runMessages = applyRuntimeInjections(this.messages, {
+              softConflictInstruction,
+              activeSurface,
+              workspaceTopLevelContext: this.workspaceTopLevelContext,
+            });
+            preRepairMessages = runMessages;
+            preRunHistoryLength = runMessages.length;
+            contextTooLargeDetected = false;
+
+            updatedHistory = await this.agentLoop.run(
+              runMessages,
+              buildEventHandler(),
+              abortController.signal,
+              reqId,
+              onCheckpoint,
+            );
+          }
         }
 
         // Surface the error if compaction didn't help or wasn't possible
@@ -1412,4 +1461,113 @@ export class Session {
     }
   }
 
+}
+
+function stripMediaPayloadsForRetry(messages: Message[]): { messages: Message[]; modified: boolean; replacedBlocks: number; latestUserIndex: number | null } {
+  let latestUserIndex: number | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    if (getSummaryFromContextMessage(msg) !== null) continue;
+    if (isToolResultOnlyMessage(msg)) continue;
+    latestUserIndex = i;
+    break;
+  }
+
+  let modified = false;
+  let replacedBlocks = 0;
+  let keptLatestMediaBlocks = 0;
+
+  const nextMessages = messages.map((msg, msgIndex) => {
+    const nextContent: ContentBlock[] = [];
+    for (const block of msg.content) {
+      if (block.type === 'image') {
+        const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        if (keep) {
+          keptLatestMediaBlocks += 1;
+          nextContent.push(block);
+        } else {
+          replacedBlocks += 1;
+          modified = true;
+          nextContent.push(imageBlockToStub(block));
+        }
+        continue;
+      }
+
+      if (block.type === 'file') {
+        const keep = latestUserIndex === msgIndex && keptLatestMediaBlocks < RETRY_KEEP_LATEST_MEDIA_BLOCKS;
+        if (keep) {
+          keptLatestMediaBlocks += 1;
+          nextContent.push(block);
+        } else {
+          replacedBlocks += 1;
+          modified = true;
+          nextContent.push(fileBlockToStub(block));
+        }
+        continue;
+      }
+
+      if (block.type === 'tool_result' && block.contentBlocks && block.contentBlocks.length > 0) {
+        let toolResultChanged = false;
+        const nextToolContentBlocks: ContentBlock[] = block.contentBlocks.map((cb) => {
+          if (cb.type === 'image') {
+            replacedBlocks += 1;
+            modified = true;
+            toolResultChanged = true;
+            return imageBlockToStub(cb);
+          }
+          if (cb.type === 'file') {
+            replacedBlocks += 1;
+            modified = true;
+            toolResultChanged = true;
+            return fileBlockToStub(cb);
+          }
+          return cb;
+        });
+        if (toolResultChanged) {
+          nextContent.push({ ...block, contentBlocks: nextToolContentBlocks });
+        } else {
+          nextContent.push(block);
+        }
+        continue;
+      }
+
+      nextContent.push(block);
+    }
+    return { ...msg, content: nextContent };
+  });
+
+  return {
+    messages: modified ? nextMessages : messages,
+    modified,
+    replacedBlocks,
+    latestUserIndex,
+  };
+}
+
+function imageBlockToStub(block: Extract<ContentBlock, { type: 'image' }>): Extract<ContentBlock, { type: 'text' }> {
+  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  return {
+    type: 'text',
+    text: `[Image omitted from retry context: ${block.source.media_type}, ${sizeBytes} bytes]`,
+  };
+}
+
+function fileBlockToStub(block: Extract<ContentBlock, { type: 'file' }>): Extract<ContentBlock, { type: 'text' }> {
+  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  const extracted = (block.extracted_text ?? '').trim();
+  const preview = extracted.length > MAX_MEDIA_STUB_TEXT
+    ? `${extracted.slice(0, MAX_MEDIA_STUB_TEXT)}...`
+    : extracted;
+  return {
+    type: 'text',
+    text: preview.length > 0
+      ? `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]\n${preview}`
+      : `[File omitted from retry context: ${block.source.filename} (${block.source.media_type}, ${sizeBytes} bytes)]`,
+  };
+}
+
+function isToolResultOnlyMessage(message: Message): boolean {
+  return message.content.length > 0
+    && message.content.every((block) => block.type === 'tool_result');
 }

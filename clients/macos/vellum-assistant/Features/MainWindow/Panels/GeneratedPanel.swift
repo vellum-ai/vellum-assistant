@@ -44,6 +44,12 @@ struct GeneratedPanel: View {
     // Track how many list responses we're waiting for
     @State private var pendingResponses = 0
 
+    /// Cache of lazily-loaded preview screenshots keyed by local app ID.
+    /// Empty string is used as a sentinel for "fetched but no preview available".
+    @State private var previewCache: [String: String] = [:]
+    /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
+    @State private var previewTasks: [String: Task<Void, Never>] = [:]
+
     // Slack sharing state
     @State private var slackSharingAppId: String?
     @State private var slackShareResult: (appId: String, success: Bool)?
@@ -145,7 +151,7 @@ struct GeneratedPanel: View {
                         )
                         .frame(height: 100)
                     } else {
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
                             // Documents section
                             if !documentItems.isEmpty {
                                 VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -160,9 +166,10 @@ struct GeneratedPanel: View {
                                     }
                                     .padding(.horizontal, VSpacing.xs)
 
-                                    VStack(spacing: VSpacing.md) {
+                                    LazyVStack(spacing: VSpacing.md) {
                                         ForEach(documentItems) { item in
                                             appRow(item)
+                                                .onAppear { fetchPreviewIfNeeded(item) }
                                         }
                                     }
                                 }
@@ -184,9 +191,10 @@ struct GeneratedPanel: View {
                                         .padding(.horizontal, VSpacing.xs)
                                     }
 
-                                    VStack(spacing: VSpacing.md) {
+                                    LazyVStack(spacing: VSpacing.md) {
                                         ForEach(otherItems) { item in
                                             appRow(item)
+                                                .onAppear { fetchPreviewIfNeeded(item) }
                                         }
                                     }
                                 }
@@ -200,6 +208,10 @@ struct GeneratedPanel: View {
         .background(VColor.backgroundSubtle)
         .onAppear {
             fetchApps()
+        }
+        .onDisappear {
+            for task in previewTasks.values { task.cancel() }
+            previewTasks.removeAll()
         }
     }
 
@@ -229,10 +241,13 @@ struct GeneratedPanel: View {
     private func appRow(_ item: DisplayAppItem) -> some View {
         let isHovered = hoveredAppId == item.id
         let isBundlingThis = sharingAppId == item.id && isBundling
+        let rawPreview = item.isShared ? item.preview : previewCache[item.localAppId ?? ""]
+        // Empty string is a sentinel for "no preview available" — treat as nil
+        let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
         return HStack(spacing: VSpacing.md) {
             // Icon / Preview thumbnail
-            if let preview = item.preview,
+            if let preview,
                let data = Data(base64Encoded: preview),
                let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
@@ -572,17 +587,59 @@ struct GeneratedPanel: View {
         }
     }
 
+    /// Fetch preview for a local app when its row appears on screen.
+    private func fetchPreviewIfNeeded(_ item: DisplayAppItem) {
+        guard let appId = item.localAppId, !item.isShared else { return }
+        // Skip if already cached (including empty-string sentinel) or in-flight
+        guard previewCache[appId] == nil, previewTasks[appId] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: appId)
+        } catch { return }
+
+        let task = Task { @MainActor in
+            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
+            defer {
+                timeout.cancel()
+                self.previewTasks.removeValue(forKey: appId)
+            }
+
+            for await message in stream {
+                if Task.isCancelled { break }
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    self.previewCache[appId] = response.preview ?? ""
+                    return
+                }
+            }
+
+            // Stream ended or cancelled — cache empty sentinel to avoid retries
+            if self.previewCache[appId] == nil {
+                self.previewCache[appId] = ""
+            }
+        }
+
+        // Cancel after timeout
+        Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !task.isCancelled { task.cancel() }
+        }
+
+        previewTasks[appId] = task
+    }
+
     private func buildDisplayItems() {
         var items: [DisplayAppItem] = []
 
-        // Local apps
+        // Local apps — preview is loaded lazily via fetchPreviewIfNeeded
         for app in localApps {
             items.append(DisplayAppItem(
                 id: "local-\(app.id)",
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
-                preview: app.preview,
+                preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 trustTier: nil,

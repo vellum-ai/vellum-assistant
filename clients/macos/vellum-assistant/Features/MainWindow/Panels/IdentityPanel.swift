@@ -98,8 +98,8 @@ struct IdentityPanel: View {
                 idRow(label: "Role", value: identity.role)
             }
 
-            if !identity.vibe.isEmpty {
-                idRow(label: "Vibe", value: identity.vibe)
+            if !identity.personality.isEmpty {
+                idRow(label: "Personality", value: identity.personality)
             }
 
             idRow(label: "Version", value: metadata?.version ?? "v1.0")

@@ -118,4 +118,18 @@ describe('token estimator', () => {
 
     expect(largeFileTokens).toBe(smallFileTokens);
   });
+
+  test('scales image token estimate with base64 payload size', () => {
+    const smallImageTokens = estimateContentBlockTokens({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'a'.repeat(64) },
+    });
+    const largeImageTokens = estimateContentBlockTokens({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'a'.repeat(60_000) },
+    });
+
+    expect(largeImageTokens).toBeGreaterThan(smallImageTokens);
+    expect(largeImageTokens - smallImageTokens).toBeGreaterThan(1000);
+  });
 });

@@ -10,9 +10,11 @@ public final class SettingsStore: ObservableObject {
 
     @Published var hasKey: Bool
     @Published var hasBraveKey: Bool
+    @Published var hasPerplexityKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
+    @Published var maskedPerplexityKey: String = ""
 
     // MARK: - Model Selection
 
@@ -76,6 +78,9 @@ public final class SettingsStore: ObservableObject {
         let braveKey = APIKeyManager.getKey(for: "brave")
         self.hasBraveKey = braveKey != nil
         self.maskedBraveKey = Self.maskKey(braveKey)
+        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
+        self.hasPerplexityKey = perplexityKey != nil
+        self.maskedPerplexityKey = Self.maskKey(perplexityKey)
 
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
@@ -162,6 +167,20 @@ public final class SettingsStore: ObservableObject {
         maskedBraveKey = ""
     }
 
+    func savePerplexityKey(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed, for: "perplexity")
+        hasPerplexityKey = true
+        maskedPerplexityKey = Self.maskKey(trimmed)
+    }
+
+    func clearPerplexityKey() {
+        APIKeyManager.deleteKey(for: "perplexity")
+        hasPerplexityKey = false
+        maskedPerplexityKey = ""
+    }
+
     func refreshAPIKeyState() {
         let anthropicKey = APIKeyManager.getKey()
         hasKey = anthropicKey != nil
@@ -170,6 +189,10 @@ public final class SettingsStore: ObservableObject {
         let braveKey = APIKeyManager.getKey(for: "brave")
         hasBraveKey = braveKey != nil
         maskedBraveKey = Self.maskKey(braveKey)
+
+        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
+        hasPerplexityKey = perplexityKey != nil
+        maskedPerplexityKey = Self.maskKey(perplexityKey)
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".

@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# .claude/check-pr-reviews — Fetch and classify reviewer status for a PR
+# .claude/check-pr-reviews — Fetch and classify reviewer status for one or more PRs
 # Outputs structured JSON with reviewer verdicts and raw review data.
 
 usage() {
   cat <<'EOF'
-Usage: .claude/check-pr-reviews <pr-number>
+Usage: .claude/check-pr-reviews <pr-number> [pr-number ...]
 
-Fetches review data for a PR and classifies each reviewer's status.
+Fetches review data for one or more PRs and classifies each reviewer's status.
 
-Output is JSON with this structure:
+With a single PR number, outputs a single JSON object.
+With multiple PR numbers, outputs a JSON array.
+
+Output per PR:
 {
   "pr_number": 123,
   "created_at": "2024-01-15T10:00:00Z",
@@ -43,7 +46,9 @@ Reviewer classification:
 
 Examples:
   .claude/check-pr-reviews 123
+  .claude/check-pr-reviews 123 456 789
   .claude/check-pr-reviews 123 | jq '.codex.status'
+  .claude/check-pr-reviews 123 456 | jq '.[].codex.status'
 EOF
 }
 
@@ -52,126 +57,166 @@ if [ $# -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   exit 0
 fi
 
-PR_NUMBER="$1"
+PR_NUMBERS=("$@")
 NOW=$(date -u +%s)
 
-# Fetch all data in parallel using temp files
 TMPDIR_WORK=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_WORK"' EXIT
 
-# 1. PR reviews + comments + creation time
-gh pr view "$PR_NUMBER" --json comments,reviews,createdAt > "$TMPDIR_WORK/pr.json" &
-PID1=$!
+# Process a single PR and write its JSON result to a file
+check_pr() {
+  local pr_number="$1"
+  local pr_dir="$TMPDIR_WORK/$pr_number"
+  mkdir -p "$pr_dir"
 
-# 2. PR description reactions (uses issues API)
-gh api "repos/vellum-ai/vellum-assistant/issues/$PR_NUMBER/reactions" \
-  --jq '[.[] | {user: .user.login, content: .content}]' > "$TMPDIR_WORK/reactions.json" &
-PID2=$!
+  # Fetch all data in parallel
+  gh pr view "$pr_number" --json comments,reviews,createdAt > "$pr_dir/pr.json" &
+  local pid1=$!
 
-# 3. Inline review comments
-gh api "repos/vellum-ai/vellum-assistant/pulls/$PR_NUMBER/comments" \
-  --jq '[.[] | {user: .user.login, body: .body, path: .path, line: .line}]' > "$TMPDIR_WORK/inline.json" &
-PID3=$!
+  gh api "repos/vellum-ai/vellum-assistant/issues/$pr_number/reactions" \
+    --jq '[.[] | {user: .user.login, content: .content}]' > "$pr_dir/reactions.json" &
+  local pid2=$!
 
-wait $PID1 $PID2 $PID3
+  gh api "repos/vellum-ai/vellum-assistant/pulls/$pr_number/comments" \
+    --jq '[.[] | {user: .user.login, body: .body, path: .path, line: .line}]' > "$pr_dir/inline.json" &
+  local pid3=$!
 
-# Parse creation time and compute age
-CREATED_AT=$(jq -r '.createdAt' "$TMPDIR_WORK/pr.json")
-# macOS date: convert ISO 8601 to epoch
-if date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s >/dev/null 2>&1; then
-  CREATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s)
-else
-  CREATED_EPOCH=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo "$NOW")
+  wait $pid1 $pid2 $pid3
+
+  # Parse creation time and compute age
+  local created_at
+  created_at=$(jq -r '.createdAt' "$pr_dir/pr.json")
+  local created_epoch
+  if date -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_at" +%s >/dev/null 2>&1; then
+    created_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_at" +%s)
+  else
+    created_epoch=$(date -d "$created_at" +%s 2>/dev/null || echo "$NOW")
+  fi
+  local age_seconds=$((NOW - created_epoch))
+
+  # --- Classify Codex ---
+
+  local codex_plus_one
+  codex_plus_one=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | length > 0' "$pr_dir/reactions.json")
+
+  local codex_reviews
+  codex_reviews=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector") | {body: .body, state: .state}]' "$pr_dir/pr.json")
+
+  local codex_inline
+  codex_inline=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]")]' "$pr_dir/inline.json")
+
+  local codex_rate_limited
+  codex_rate_limited=$(jq '
+    [.comments[] | select(.author.login == "chatgpt-codex-connector")]
+    | sort_by(.createdAt)
+    | last
+    | if . == null then false
+      elif (.body | test("rate.?limit|too many requests"; "i")) then true
+      else false
+      end
+  ' "$pr_dir/pr.json")
+
+  local codex_review_count codex_inline_count
+  codex_review_count=$(echo "$codex_reviews" | jq 'length')
+  codex_inline_count=$(echo "$codex_inline" | jq 'length')
+
+  local codex_status
+  if [ "$codex_plus_one" = "true" ]; then
+    codex_status="approved"
+  elif [ "$codex_rate_limited" = "true" ]; then
+    codex_status="rate_limited"
+  elif [ "$codex_review_count" -gt 0 ] || [ "$codex_inline_count" -gt 0 ]; then
+    codex_status="changes_requested"
+  else
+    codex_status="pending"
+  fi
+
+  # --- Classify Devin ---
+
+  local devin_reviews
+  devin_reviews=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration") | {body: .body, state: .state}]' "$pr_dir/pr.json")
+
+  local devin_inline
+  devin_inline=$(jq '[.[] | select(.user == "devin-ai-integration[bot]")]' "$pr_dir/inline.json")
+
+  local devin_review_count devin_inline_count
+  devin_review_count=$(echo "$devin_reviews" | jq 'length')
+  devin_inline_count=$(echo "$devin_inline" | jq 'length')
+
+  local devin_approved
+  devin_approved=$(echo "$devin_reviews" | jq '[.[] | select(.body | test("No Issues Found"))] | length > 0')
+
+  local devin_status
+  if [ "$devin_approved" = "true" ]; then
+    devin_status="approved"
+  elif [ "$devin_review_count" -gt 0 ] || [ "$devin_inline_count" -gt 0 ]; then
+    devin_status="changes_requested"
+  elif [ "$age_seconds" -ge 1800 ]; then
+    devin_status="skipped"
+  else
+    devin_status="pending"
+  fi
+
+  # --- Write result JSON to file ---
+
+  jq -n \
+    --argjson pr_number "$pr_number" \
+    --arg created_at "$created_at" \
+    --argjson age_seconds "$age_seconds" \
+    --arg codex_status "$codex_status" \
+    --argjson codex_reviews "$codex_reviews" \
+    --argjson codex_inline "$codex_inline" \
+    --argjson codex_plus_one "$codex_plus_one" \
+    --arg devin_status "$devin_status" \
+    --argjson devin_reviews "$devin_reviews" \
+    --argjson devin_inline "$devin_inline" \
+    '{
+      pr_number: $pr_number,
+      created_at: $created_at,
+      age_seconds: $age_seconds,
+      codex: {
+        status: $codex_status,
+        reviews: $codex_reviews,
+        inline_comments: $codex_inline,
+        has_plus_one_reaction: $codex_plus_one
+      },
+      devin: {
+        status: $devin_status,
+        reviews: $devin_reviews,
+        inline_comments: $devin_inline
+      }
+    }' > "$pr_dir/result.json"
+}
+
+# Process all PRs in parallel, tracking PIDs to surface failures
+WORKER_PIDS=()
+for pr in "${PR_NUMBERS[@]}"; do
+  check_pr "$pr" &
+  WORKER_PIDS+=($!)
+done
+
+# Wait on each worker individually so non-zero exits fail the command
+FAILED=0
+for pid in "${WORKER_PIDS[@]}"; do
+  if ! wait "$pid"; then
+    FAILED=1
+  fi
+done
+if [ "$FAILED" -ne 0 ]; then
+  echo "error: one or more PR checks failed" >&2
+  exit 1
 fi
-AGE_SECONDS=$((NOW - CREATED_EPOCH))
 
-# --- Classify Codex ---
+# Collect results in argument order
+RESULTS=()
+for pr in "${PR_NUMBERS[@]}"; do
+  RESULTS+=("$(cat "$TMPDIR_WORK/$pr/result.json")")
+done
 
-# Check for +1 reaction
-CODEX_PLUS_ONE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]" and .content == "+1")] | length > 0' "$TMPDIR_WORK/reactions.json")
-
-# Get codex reviews
-CODEX_REVIEWS=$(jq '[.reviews[] | select(.author.login == "chatgpt-codex-connector") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
-
-# Get codex inline comments
-CODEX_INLINE=$(jq '[.[] | select(.user == "chatgpt-codex-connector[bot]")]' "$TMPDIR_WORK/inline.json")
-
-# Check for rate limiting in most recent comment
-CODEX_RATE_LIMITED=$(jq '
-  [.comments[] | select(.author.login == "chatgpt-codex-connector")]
-  | sort_by(.createdAt)
-  | last
-  | if . == null then false
-    elif (.body | test("rate.?limit|too many requests"; "i")) then true
-    else false
-    end
-' "$TMPDIR_WORK/pr.json")
-
-# Classify codex status
-CODEX_REVIEW_COUNT=$(echo "$CODEX_REVIEWS" | jq 'length')
-CODEX_INLINE_COUNT=$(echo "$CODEX_INLINE" | jq 'length')
-
-if [ "$CODEX_PLUS_ONE" = "true" ]; then
-  CODEX_STATUS="approved"
-elif [ "$CODEX_RATE_LIMITED" = "true" ]; then
-  CODEX_STATUS="rate_limited"
-elif [ "$CODEX_REVIEW_COUNT" -gt 0 ] || [ "$CODEX_INLINE_COUNT" -gt 0 ]; then
-  CODEX_STATUS="changes_requested"
+# Single PR: output a single JSON object (backward compatible)
+# Multiple PRs: output a JSON array
+if [ ${#RESULTS[@]} -eq 1 ]; then
+  echo "${RESULTS[0]}"
 else
-  CODEX_STATUS="pending"
+  printf '%s\n' "${RESULTS[@]}" | jq -s '.'
 fi
-
-# --- Classify Devin ---
-
-# Get devin reviews
-DEVIN_REVIEWS=$(jq '[.reviews[] | select(.author.login == "devin-ai-integration") | {body: .body, state: .state}]' "$TMPDIR_WORK/pr.json")
-
-# Get devin inline comments
-DEVIN_INLINE=$(jq '[.[] | select(.user == "devin-ai-integration[bot]")]' "$TMPDIR_WORK/inline.json")
-
-DEVIN_REVIEW_COUNT=$(echo "$DEVIN_REVIEWS" | jq 'length')
-DEVIN_INLINE_COUNT=$(echo "$DEVIN_INLINE" | jq 'length')
-
-# Check if any devin review says "No Issues Found"
-DEVIN_APPROVED=$(echo "$DEVIN_REVIEWS" | jq '[.[] | select(.body | test("No Issues Found"))] | length > 0')
-
-if [ "$DEVIN_APPROVED" = "true" ]; then
-  DEVIN_STATUS="approved"
-elif [ "$DEVIN_REVIEW_COUNT" -gt 0 ] || [ "$DEVIN_INLINE_COUNT" -gt 0 ]; then
-  DEVIN_STATUS="changes_requested"
-elif [ "$AGE_SECONDS" -ge 1800 ]; then
-  # Devin sometimes errors out silently — treat as skipped after 30 minutes
-  DEVIN_STATUS="skipped"
-else
-  DEVIN_STATUS="pending"
-fi
-
-# --- Output JSON ---
-
-jq -n \
-  --argjson pr_number "$PR_NUMBER" \
-  --arg created_at "$CREATED_AT" \
-  --argjson age_seconds "$AGE_SECONDS" \
-  --arg codex_status "$CODEX_STATUS" \
-  --argjson codex_reviews "$CODEX_REVIEWS" \
-  --argjson codex_inline "$CODEX_INLINE" \
-  --argjson codex_plus_one "$CODEX_PLUS_ONE" \
-  --arg devin_status "$DEVIN_STATUS" \
-  --argjson devin_reviews "$DEVIN_REVIEWS" \
-  --argjson devin_inline "$DEVIN_INLINE" \
-  '{
-    pr_number: $pr_number,
-    created_at: $created_at,
-    age_seconds: $age_seconds,
-    codex: {
-      status: $codex_status,
-      reviews: $codex_reviews,
-      inline_comments: $codex_inline,
-      has_plus_one_reaction: $codex_plus_one
-    },
-    devin: {
-      status: $devin_status,
-      reviews: $devin_reviews,
-      inline_comments: $devin_inline
-    }
-  }'

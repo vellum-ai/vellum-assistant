@@ -33,6 +33,7 @@ function createMockPage(closed = false) {
     screenshot: async () => Buffer.from(''),
     keyboard: { press: async () => {} },
     mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
+    bringToFront: async () => {},
   };
 }
 

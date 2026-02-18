@@ -20,6 +20,12 @@ struct AppDirectoryView: View {
     @State private var sharedApps: [SharedAppItem] = []
     @State private var pendingResponses = 0
 
+    /// Cache of lazily-loaded preview screenshots keyed by local app ID.
+    /// Empty string is used as a sentinel for "fetched but no preview available".
+    @State private var previewCache: [String: String] = [:]
+    /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
+    @State private var previewTasks: [String: Task<Void, Never>] = [:]
+
     private let columns = [
         GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
         GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
@@ -90,18 +96,26 @@ struct AppDirectoryView: View {
                 LazyVGrid(columns: columns, spacing: VSpacing.lg) {
                     ForEach(filteredItems) { item in
                         appCard(item)
+                            .onAppear { fetchPreviewIfNeeded(item) }
                     }
                 }
                 .padding(.bottom, VSpacing.md)
             }
         }
         .onAppear { fetchApps() }
+        .onDisappear {
+            for task in previewTasks.values { task.cancel() }
+            previewTasks.removeAll()
+        }
     }
 
     // MARK: - App Card
 
     private func appCard(_ item: DirectoryAppItem) -> some View {
         let isHovered = hoveredAppId == item.id
+        let rawPreview = item.isShared ? item.preview : previewCache[item.localAppId ?? ""]
+        // Empty string is a sentinel for "no preview available" — treat as nil
+        let preview = rawPreview?.isEmpty == true ? nil : rawPreview
 
         return Button {
             openApp(item)
@@ -109,7 +123,7 @@ struct AppDirectoryView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Preview thumbnail or placeholder
                 Group {
-                    if let preview = item.preview,
+                    if let preview,
                        let data = Data(base64Encoded: preview),
                        let nsImage = NSImage(data: data) {
                         Image(nsImage: nsImage)
@@ -290,6 +304,49 @@ struct AppDirectoryView: View {
         }
     }
 
+    /// Fetch preview for a local app when its card appears on screen.
+    private func fetchPreviewIfNeeded(_ item: DirectoryAppItem) {
+        guard let appId = item.localAppId, !item.isShared else { return }
+        // Skip if already cached (including empty-string sentinel) or in-flight
+        guard previewCache[appId] == nil, previewTasks[appId] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: appId)
+        } catch { return }
+
+        let task = Task { @MainActor in
+            // 10-second timeout to avoid zombie subscribers
+            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
+            defer {
+                timeout.cancel()
+                self.previewTasks.removeValue(forKey: appId)
+            }
+
+            for await message in stream {
+                if Task.isCancelled { break }
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    self.previewCache[appId] = response.preview ?? ""
+                    return
+                }
+            }
+
+            // Stream ended or cancelled — cache empty sentinel to avoid retries
+            if self.previewCache[appId] == nil {
+                self.previewCache[appId] = ""
+            }
+        }
+
+        // Cancel after timeout
+        Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !task.isCancelled { task.cancel() }
+        }
+
+        previewTasks[appId] = task
+    }
+
     private func buildDisplayItems() {
         var items: [DirectoryAppItem] = []
 
@@ -299,7 +356,7 @@ struct AppDirectoryView: View {
                 name: app.name,
                 description: app.description,
                 icon: app.icon,
-                preview: app.preview,
+                preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
                 appType: app.appType,

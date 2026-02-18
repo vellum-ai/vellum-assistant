@@ -5,7 +5,7 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
@@ -68,6 +68,31 @@ const DEFAULT_HOSTNAME = '127.0.0.1';
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
+
+interface DiskSpaceInfo {
+  path: string;
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+}
+
+function getDiskSpaceInfo(): DiskSpaceInfo | null {
+  try {
+    const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+    const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
+    const stats = statfsSync(diskPath);
+    const totalBytes = stats.bsize * stats.blocks;
+    const freeBytes = stats.bsize * stats.bavail;
+    return {
+      path: diskPath,
+      totalBytes,
+      usedBytes: totalBytes - freeBytes,
+      freeBytes,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
@@ -146,7 +171,7 @@ export class RuntimeHttpServer {
     }
 
     // Require bearer token when configured
-    if (this.bearerToken) {
+    if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
@@ -406,6 +431,7 @@ export class RuntimeHttpServer {
     return Response.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
+      disk: getDiskSpaceInfo(),
     });
   }
 

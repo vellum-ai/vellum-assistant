@@ -3,6 +3,7 @@ import type { Provider, Message, ToolDefinition, ContentBlock } from '../provide
 import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import { getHookManager } from '../hooks/manager.js';
 import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
+import type { ToolResultContent } from '../providers/types.js';
 
 const log = getLogger('agent-loop');
 
@@ -133,8 +134,14 @@ export class AgentLoop {
 
         const providerStart = Date.now();
 
+        // Strip image contentBlocks from older tool results to prevent
+        // screenshots from accumulating in the context window. The LLM
+        // already saw each image on the turn it was captured; keeping
+        // base64 blobs in history rapidly exhausts the context budget.
+        const providerHistory = stripOldImageBlocks(history);
+
         const response = await this.provider.sendMessage(
-          history,
+          providerHistory,
           currentTools.length > 0 ? currentTools : undefined,
           this.systemPrompt,
           {
@@ -203,11 +210,14 @@ export class AgentLoop {
             block.type === 'tool_use',
         );
 
+        // Check if the assistant turn contained any visible text (used for
+        // both the empty-response nudge and the anti-repetition notice).
+        const hasTextBlock = response.content.some(
+          (block) => block.type === 'text' && block.text.trim().length > 0,
+        );
+
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           // Check if the LLM returned no text after tool results — nudge it to respond
-          const hasTextBlock = response.content.some(
-            (block) => block.type === 'text' && block.text.trim().length > 0,
-          );
           const lastUserMsg = history.length >= 2 ? history[history.length - 2] : undefined;
           const lastWasToolResult =
             lastUserMsg?.role === 'user' &&
@@ -368,6 +378,14 @@ export class AgentLoop {
           });
         }
 
+        // Remind the LLM not to repeat text it already streamed
+        if (hasTextBlock) {
+          resultBlocks.push({
+            type: 'text',
+            text: '<system_notice>Your previous text was already displayed to the user in real-time as you generated it. Continue naturally from where you left off — do not repeat or rephrase what you already said above.</system_notice>',
+          });
+        }
+
         // Add tool results as a user message and continue the loop
         history.push({ role: 'user', content: resultBlocks });
 
@@ -425,4 +443,56 @@ function summarizeMessage(msg: Message): { role: string; blockTypes: string[] } 
     role: msg.role,
     blockTypes: msg.content.map((b) => b.type),
   };
+}
+
+/**
+ * Strip image contentBlocks from all tool_result blocks except those in the
+ * most recent user message that contains tool_result blocks. This prevents
+ * screenshots from accumulating in the context window — each image is seen
+ * once by the LLM on the turn it was captured, then replaced with a text
+ * placeholder on subsequent turns.
+ *
+ * We look for the last user message with tool_results (not just the last user
+ * message) because the empty-response nudge path appends a text-only user
+ * message after the tool results. Preserving images in that case ensures
+ * the model still sees the screenshot on the retry.
+ */
+function stripOldImageBlocks(history: Message[]): Message[] {
+  // Find the last user message that contains tool_result blocks.
+  let lastToolResultUserIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (
+      history[i].role === 'user' &&
+      history[i].content.some((b) => b.type === 'tool_result')
+    ) {
+      lastToolResultUserIdx = i;
+      break;
+    }
+  }
+
+  return history.map((msg, idx) => {
+    // Keep the most recent tool-result user message intact (current turn)
+    if (idx === lastToolResultUserIdx || msg.role !== 'user') return msg;
+
+    // Check if any tool_result blocks have image contentBlocks
+    const hasImages = msg.content.some(
+      (b) => b.type === 'tool_result' && (b as ToolResultContent).contentBlocks?.some(cb => cb.type === 'image'),
+    );
+    if (!hasImages) return msg;
+
+    // Strip images from tool_result blocks, replacing with text marker
+    return {
+      ...msg,
+      content: msg.content.map((b) => {
+        if (b.type !== 'tool_result') return b;
+        const tr = b as ToolResultContent;
+        if (!tr.contentBlocks?.some(cb => cb.type === 'image')) return b;
+        return {
+          ...tr,
+          contentBlocks: undefined,
+          content: (tr.content || '') + '\n[Screenshot was captured and shown previously — image data removed to save context.]',
+        };
+      }),
+    };
+  });
 }

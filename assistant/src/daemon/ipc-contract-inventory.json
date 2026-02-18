@@ -5,6 +5,7 @@
     "AppDataRequest",
     "AppOpenRequest",
     "AppUpdatePreviewRequest",
+    "AppPreviewRequest",
     "AppsListRequest",
     "AuthMessage",
     "BrowserCDPResponse",
@@ -81,13 +82,20 @@
     "UsageRequest",
     "UserMessage",
     "VercelApiConfigRequest",
-    "WatchObservation"
+    "WatchObservation",
+    "WorkItemCompleteRequest",
+    "WorkItemCreateRequest",
+    "WorkItemGetRequest",
+    "WorkItemRunTaskRequest",
+    "WorkItemUpdateRequest",
+    "WorkItemsListRequest"
   ],
   "serverMessageTypes": [
     "AcceptStarterBundleResponse",
     "AppDataResponse",
     "AppFilesChanged",
     "AppUpdatePreviewResponse",
+    "AppPreviewResponse",
     "AppsListResponse",
     "AssistantTextDelta",
     "AssistantThinkingDelta",
@@ -176,7 +184,13 @@
     "WatchCompleteRequest",
     "WatchStarted",
     "WatcherEscalation",
-    "WatcherNotification"
+    "WatcherNotification",
+    "WorkItemCreateResponse",
+    "WorkItemGetResponse",
+    "WorkItemRunTaskResponse",
+    "WorkItemStatusChanged",
+    "WorkItemUpdateResponse",
+    "WorkItemsListResponse"
   ],
   "clientWireTypes": [
     "accept_starter_bundle",
@@ -184,6 +198,7 @@
     "app_data_request",
     "app_open_request",
     "app_update_preview",
+    "app_preview_request",
     "apps_list",
     "auth",
     "browser_cdp_response",
@@ -260,13 +275,20 @@
     "usage_request",
     "user_message",
     "vercel_api_config",
-    "watch_observation"
+    "watch_observation",
+    "work_item_complete",
+    "work_item_create",
+    "work_item_get",
+    "work_item_run_task",
+    "work_item_update",
+    "work_items_list"
   ],
   "serverWireTypes": [
     "accept_starter_bundle_response",
     "app_data_response",
     "app_files_changed",
     "app_update_preview_response",
+    "app_preview_response",
     "apps_list_response",
     "assistant_text_delta",
     "assistant_thinking_delta",
@@ -354,6 +376,12 @@
     "watch_complete_request",
     "watch_started",
     "watcher_escalation",
-    "watcher_notification"
+    "watcher_notification",
+    "work_item_create_response",
+    "work_item_get_response",
+    "work_item_run_task_response",
+    "work_item_status_changed",
+    "work_item_update_response",
+    "work_items_list_response"
   ]
 }
