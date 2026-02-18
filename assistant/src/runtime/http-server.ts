@@ -76,18 +76,22 @@ interface DiskSpaceInfo {
   freeBytes: number;
 }
 
-function getDiskSpaceInfo(): DiskSpaceInfo {
-  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
-  const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
-  const stats = statfsSync(diskPath);
-  const totalBytes = stats.bsize * stats.blocks;
-  const freeBytes = stats.bsize * stats.bavail;
-  return {
-    path: diskPath,
-    totalBytes,
-    usedBytes: totalBytes - freeBytes,
-    freeBytes,
-  };
+function getDiskSpaceInfo(): DiskSpaceInfo | null {
+  try {
+    const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+    const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
+    const stats = statfsSync(diskPath);
+    const totalBytes = stats.bsize * stats.blocks;
+    const freeBytes = stats.bsize * stats.bavail;
+    return {
+      path: diskPath,
+      totalBytes,
+      usedBytes: totalBytes - freeBytes,
+      freeBytes,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class RuntimeHttpServer {
