@@ -26,6 +26,8 @@ export interface CredentialMetadata {
   oauth2TokenUrl?: string;
   /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
   oauth2ClientId?: string;
+  /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
+  oauth2ClientSecret?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */

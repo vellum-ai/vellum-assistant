@@ -34,6 +34,10 @@ import { initWatcherEngine } from '../watcher/engine.js';
 import { registerWatcherProvider } from '../watcher/provider-registry.js';
 import { gmailProvider } from '../watcher/providers/gmail.js';
 import { googleCalendarProvider } from '../watcher/providers/google-calendar.js';
+import { slackProvider as slackWatcherProvider } from '../watcher/providers/slack.js';
+import { registerMessagingProvider } from '../messaging/registry.js';
+import { slackProvider as slackMessagingProvider } from '../messaging/providers/slack/adapter.js';
+import { gmailMessagingProvider } from '../messaging/providers/gmail/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
@@ -289,7 +293,12 @@ export async function runDaemon(): Promise<void> {
   // Initialize watcher engine and register providers
   registerWatcherProvider(gmailProvider);
   registerWatcherProvider(googleCalendarProvider);
+  registerWatcherProvider(slackWatcherProvider);
   initWatcherEngine();
+
+  // Register messaging providers
+  registerMessagingProvider(slackMessagingProvider);
+  registerMessagingProvider(gmailMessagingProvider);
 
   const scheduler = startScheduler(
     async (conversationId, message) => {

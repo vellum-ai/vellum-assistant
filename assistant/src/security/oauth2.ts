@@ -16,6 +16,8 @@ export interface OAuth2Config {
   tokenUrl: string;
   scopes: string[];
   clientId: string;
+  /** Client secret for providers that require it (e.g. Slack). If omitted, PKCE is used. */
+  clientSecret?: string;
   extraParams?: Record<string, string>;
   /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
   userinfoUrl?: string;
@@ -127,6 +129,7 @@ export async function startOAuth2Flow(
   const redirectUri = `http://127.0.0.1:${server.port}/callback`;
 
   try {
+    const usePKCE = !config.clientSecret;
     const authParams = new URLSearchParams({
       ...config.extraParams,
       client_id: config.clientId,
@@ -134,8 +137,7 @@ export async function startOAuth2Flow(
       response_type: 'code',
       scope: config.scopes.join(' '),
       state,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
+      ...(usePKCE ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
     });
 
     const authUrl = `${config.authUrl}?${authParams}`;
@@ -147,16 +149,23 @@ export async function startOAuth2Flow(
       throw new Error('OAuth2 state mismatch — possible CSRF attack');
     }
 
+    const tokenBody: Record<string, string> = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: config.clientId,
+    };
+    if (usePKCE) {
+      tokenBody.code_verifier = codeVerifier;
+    }
+    if (config.clientSecret) {
+      tokenBody.client_secret = config.clientSecret;
+    }
+
     const tokenResp = await fetch(config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: redirectUri,
-        client_id: config.clientId,
-        code_verifier: codeVerifier,
-      }),
+      body: new URLSearchParams(tokenBody),
     });
 
     if (!tokenResp.ok) {
@@ -166,16 +175,20 @@ export async function startOAuth2Flow(
 
     const tokenData = await tokenResp.json() as Record<string, unknown>;
 
+    // Slack V2 OAuth returns user tokens nested under `authed_user`
+    const authedUser = tokenData.authed_user as Record<string, unknown> | undefined;
+    const tokenSource = authedUser?.access_token ? authedUser : tokenData;
+
     const tokens: OAuth2TokenResult = {
-      accessToken: tokenData.access_token as string,
-      refreshToken: tokenData.refresh_token as string | undefined,
-      expiresIn: tokenData.expires_in as number | undefined,
-      scope: tokenData.scope as string | undefined,
-      tokenType: tokenData.token_type as string | undefined,
+      accessToken: (tokenSource.access_token as string) ?? (tokenData.access_token as string),
+      refreshToken: (tokenSource.refresh_token as string | undefined) ?? (tokenData.refresh_token as string | undefined),
+      expiresIn: (tokenSource.expires_in as number | undefined) ?? (tokenData.expires_in as number | undefined),
+      scope: (tokenSource.scope as string | undefined) ?? (tokenData.scope as string | undefined),
+      tokenType: (tokenSource.token_type as string | undefined) ?? (tokenData.token_type as string | undefined),
     };
 
     const grantedScopes = typeof tokens.scope === 'string'
-      ? tokens.scope.split(' ').filter(Boolean)
+      ? tokens.scope.split(/[ ,]/).filter(Boolean)
       : [...config.scopes];
 
     return { tokens, grantedScopes };
@@ -186,21 +199,28 @@ export async function startOAuth2Flow(
 }
 
 /**
- * Refresh an OAuth2 access token using a refresh token (PKCE, no secret required).
+ * Refresh an OAuth2 access token using a refresh token.
+ * Supports both PKCE (no secret) and client_secret flows.
  */
 export async function refreshOAuth2Token(
   tokenUrl: string,
   clientId: string,
   refreshToken: string,
+  clientSecret?: string,
 ): Promise<OAuth2TokenResult> {
+  const body: Record<string, string> = {
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: clientId,
+  };
+  if (clientSecret) {
+    body.client_secret = clientSecret;
+  }
+
   const resp = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: clientId,
-    }),
+    body: new URLSearchParams(body),
   });
 
   if (!resp.ok) {
