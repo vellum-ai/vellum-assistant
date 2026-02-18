@@ -107,14 +107,10 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         let sessionId = msg.sessionId ?? ""
         activeTasks[sessionId]?.cancel()
         activeTasks.removeValue(forKey: sessionId)
-        // Roll back any trailing user message that has no assistant reply yet,
-        // in case the task was cancelled before streamCompletion could do it.
-        if var history = pendingMessages[sessionId],
-           !history.isEmpty,
-           history.last?["role"] as? String == "user" {
-            history.removeLast()
-            pendingMessages[sessionId] = history.isEmpty ? nil : history
-        }
+        // History rollback is intentionally deferred to streamCompletion, which has access
+        // to assistantText. Rolling back here would race with a mid-stream cancel: the user
+        // message would be removed while assistantText is non-empty, then streamCompletion
+        // would append the partial assistant reply producing an orphaned assistant turn.
         broadcast(.generationCancelled(GenerationCancelledMessage(sessionId: sessionId)))
     }
 
