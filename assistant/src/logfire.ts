@@ -6,10 +6,14 @@ const log = getLogger('logfire');
 
 type LogfireModule = typeof import('@pydantic/logfire-node');
 
-export const LOGFIRE_ENABLED: boolean =
-  APP_VERSION === '0.0.0-dev' &&
-  !!process.env.LOGFIRE_TOKEN &&
-  process.env.VELLUM_ENABLE_MONITORING === '1';
+/** Check at call time (after dotenv has loaded) whether logfire should be active. */
+export function isLogfireEnabled(): boolean {
+  return (
+    APP_VERSION === '0.0.0-dev' &&
+    !!process.env.LOGFIRE_TOKEN &&
+    process.env.VELLUM_ENABLE_MONITORING === '1'
+  );
+}
 
 let logfireInstance: LogfireModule | null = null;
 
@@ -19,7 +23,7 @@ let logfireInstance: LogfireModule | null = null;
  * Non-fatal on failure (logs warning and continues).
  */
 export async function initLogfire(): Promise<void> {
-  if (!LOGFIRE_ENABLED) return;
+  if (!isLogfireEnabled()) return;
 
   try {
     const logfire = await import('@pydantic/logfire-node');
@@ -37,10 +41,10 @@ export async function initLogfire(): Promise<void> {
 
 /**
  * Wraps a provider with Logfire tracing spans.
- * When LOGFIRE_ENABLED is false, returns the provider as-is (no wrapper allocated).
+ * When logfire is not initialized, returns the provider as-is (no wrapper allocated).
  */
 export function wrapWithLogfire(provider: Provider): Provider {
-  if (!LOGFIRE_ENABLED) return provider;
+  if (!logfireInstance) return provider;
   return new LogfireProvider(provider);
 }
 
