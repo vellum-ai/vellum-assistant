@@ -722,36 +722,22 @@ struct MainWindowView: View {
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
             if isHoveredApp == app.id {
-                HStack(spacing: VSpacing.xs) {
-                    Button {
-                        if app.isPinned {
-                            appListManager.unpinApp(id: app.id)
-                        } else {
-                            appListManager.pinApp(id: app.id)
-                        }
-                    } label: {
-                        Image(systemName: app.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(app.isPinned ? VColor.textMuted : VColor.textSecondary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
+                Button {
+                    if app.isPinned {
+                        appListManager.unpinApp(id: app.id)
+                    } else {
+                        appListManager.pinApp(id: app.id)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(app.isPinned ? "Unpin \(app.name)" : "Pin \(app.name)")
-
-                    Button {
-                        appListManager.removeApp(id: app.id)
-                    } label: {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(app.name)")
+                } label: {
+                    Image(systemName: app.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(app.isPinned ? VColor.textMuted : VColor.textSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(app.isPinned ? "Unpin \(app.name)" : "Pin \(app.name)")
                 .padding(.trailing, VSpacing.xs)
             } else if app.isPinned {
                 Image(systemName: "pin.fill")
