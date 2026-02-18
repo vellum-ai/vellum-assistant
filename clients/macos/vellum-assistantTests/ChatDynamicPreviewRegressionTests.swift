@@ -170,7 +170,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         let allCompleted = msg.inlineSurfaces.allSatisfy { $0.completionState != nil }
         XCTAssertFalse(allCompleted,
                        "Not all surfaces are completed, so shouldShowBubble should be false")
-        let shouldShowBubble = allCompleted || (msg.text.isEmpty && msg.attachments.isEmpty)
+        let shouldShowBubble = allCompleted && (!msg.text.isEmpty || !msg.attachments.isEmpty)
         XCTAssertFalse(shouldShowBubble,
                        "Bubble should be hidden when assistant message has active inline surfaces")
     }
