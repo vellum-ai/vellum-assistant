@@ -20,6 +20,8 @@ import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
+import { projectSkillTools } from './session-skill-tools.js';
+import type { SkillToolProjection } from './session-skill-tools.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -56,6 +58,8 @@ export class ComputerUseSession {
   private sendToClient: (msg: ServerMessage) => void;
   private readonly interactionType: 'computer_use' | 'text_qa';
   private readonly onTerminal?: (sessionId: string) => void;
+  private readonly preactivatedSkillIds: string[];
+  private readonly skillProjectionState = new Map<string, string>();
 
   private state: SessionState = 'idle';
   private stepCount = 0;
@@ -88,6 +92,7 @@ export class ComputerUseSession {
     sendToClient: (msg: ServerMessage) => void,
     interactionType?: 'computer_use' | 'text_qa',
     onTerminal?: (sessionId: string) => void,
+    preactivatedSkillIds?: string[],
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -97,6 +102,7 @@ export class ComputerUseSession {
     this.sendToClient = sendToClient;
     this.interactionType = interactionType ?? 'computer_use';
     this.onTerminal = onTerminal;
+    this.preactivatedSkillIds = preactivatedSkillIds ?? [];
   }
 
   // ---------------------------------------------------------------------------
@@ -197,6 +203,28 @@ export class ComputerUseSession {
     return this.state;
   }
 
+  /**
+   * Compute CU tool definitions from the bundled computer-use skill via
+   * skill projection. Returns null if no preactivated skills are configured
+   * (i.e. the legacy path should be used).
+   */
+  private getProjectedCuToolDefinitions(): ToolDefinition[] | null {
+    if (this.preactivatedSkillIds.length === 0) {
+      return null;
+    }
+
+    const projection = projectSkillTools([], {
+      preactivatedSkillIds: this.preactivatedSkillIds,
+      previouslyActiveSkillIds: this.skillProjectionState,
+    });
+
+    if (projection.toolDefinitions.length === 0) {
+      return null;
+    }
+
+    return projection.toolDefinitions;
+  }
+
   handleSurfaceAction(surfaceId: string, actionId: string, data?: Record<string, unknown>): void {
     const pending = this.pendingSurfaceActions.get(surfaceId);
     if (!pending) {
@@ -221,8 +249,13 @@ export class ComputerUseSession {
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
     const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
+
+    // Try skill projection first; fall back to legacy direct definitions
+    const projectedCuTools = this.getProjectedCuToolDefinitions();
+    const cuToolDefs = projectedCuTools ?? allComputerUseTools.map((t) => t.getDefinition());
+
     const toolDefs: ToolDefinition[] = [
-      ...allComputerUseTools.map((t) => t.getDefinition()),
+      ...cuToolDefs,
       ...allUiSurfaceTools
         .filter((t) => t.name !== 'request_file')
         .map((t) => t.getDefinition()),

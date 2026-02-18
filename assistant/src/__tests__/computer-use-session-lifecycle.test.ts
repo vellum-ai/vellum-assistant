@@ -229,4 +229,68 @@ describe('ComputerUseSession lifecycle', () => {
     expect(completes[0].summary).toBe('The meeting is at 3pm');
     expect(completes[0].isResponse).toBe(true);
   });
+
+  test('default construction (no preactivated skills) uses legacy CU tool definitions', async () => {
+    let capturedTools: string[] = [];
+    const provider: Provider = {
+      name: 'mock',
+      async sendMessage(_msgs, tools) {
+        capturedTools = (tools ?? []).map((t) => t.name);
+        return {
+          content: [{
+            type: 'tool_use',
+            id: 'tu-default',
+            name: 'computer_use_done',
+            input: { summary: 'Done' },
+          }],
+          model: 'mock-model',
+          usage: { inputTokens: 10, outputTokens: 5 },
+          stopReason: 'tool_use',
+        };
+      },
+    };
+
+    // No preactivatedSkillIds passed — legacy path
+    const session = new ComputerUseSession(
+      'cu-legacy-path',
+      'test legacy',
+      1440, 900,
+      provider,
+      () => {},
+      'computer_use',
+      undefined,
+    );
+
+    await session.handleObservation({
+      type: 'cu_observation',
+      sessionId: 'cu-legacy-path',
+      axTree: 'Window "Test" [1]',
+    });
+
+    const cuTools = capturedTools.filter((n) => n.startsWith('computer_use_'));
+    expect(cuTools).toHaveLength(12);
+  });
+
+  test('constructor accepts preactivatedSkillIds parameter', () => {
+    const { provider } = createProvider([{
+      content: [{ type: 'text', text: 'unused' }],
+      model: 'mock-model',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: 'end_turn',
+    }]);
+
+    // Should not throw
+    const session = new ComputerUseSession(
+      'cu-preactivated',
+      'test preactivated',
+      1440, 900,
+      provider,
+      () => {},
+      'computer_use',
+      undefined,
+      ['computer-use'],
+    );
+
+    expect(session).toBeDefined();
+  });
 });
