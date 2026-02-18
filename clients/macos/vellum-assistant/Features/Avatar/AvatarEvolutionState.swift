@@ -90,6 +90,7 @@ final class AvatarEvolutionState {
             userOverrides: userOverrides.reduce(into: [:]) { $0[$1.key.rawValue] = $1.value },
             lockedFields: Array(lockedFields.map(\.rawValue)),
             lastCheckpointTurn: lastCheckpointTurn,
+            lastCheckpointDate: lastCheckpointDate,
             appliedMilestones: Array(appliedMilestones)
         )
         if let encoded = try? JSONEncoder().encode(data) {
@@ -111,6 +112,7 @@ final class AvatarEvolutionState {
         }
         lockedFields = Set(state.lockedFields.compactMap { AppearanceField(rawValue: $0) })
         lastCheckpointTurn = state.lastCheckpointTurn
+        lastCheckpointDate = state.lastCheckpointDate
         appliedMilestones = Set(state.appliedMilestones)
     }
 
@@ -125,6 +127,7 @@ final class AvatarEvolutionState {
         let userOverrides: [String: String]
         let lockedFields: [String]
         let lastCheckpointTurn: Int
+        let lastCheckpointDate: Date?
         let appliedMilestones: [String]
     }
 }
