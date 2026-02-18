@@ -145,7 +145,7 @@ struct ModelSelectionStepView: View {
 
     private func goBack() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            if userHostedEnabled && state.cloudProvider == "local" {
+            if userHostedEnabled && (state.cloudProvider == "local" || state.cloudProvider == "customHardware") {
                 state.currentStep = 1
             } else {
                 state.currentStep -= 1
