@@ -168,7 +168,7 @@ final class MainWindow {
             initialContent: msg.initialContent
         )
         show()
-        windowState.selection = .panel(.documentEditor)
+        windowState.togglePanel(.documentEditor)
     }
 
     func handleDocumentEditorUpdate(_ msg: DocumentEditorUpdateMessage) {
