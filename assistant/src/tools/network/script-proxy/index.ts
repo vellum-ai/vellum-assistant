@@ -15,3 +15,9 @@ export {
   getSessionsForConversation,
   stopAllSessions,
 } from './session-manager.js';
+
+export {
+  ensureLocalCA,
+  issueLeafCert,
+  getCAPath,
+} from './certs.js';

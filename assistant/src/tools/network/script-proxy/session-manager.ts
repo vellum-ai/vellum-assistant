@@ -6,6 +6,7 @@ import type {
   ProxySessionConfig,
   ProxyEnvVars,
 } from './types.js';
+import { getCAPath } from './certs.js';
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
   idleTimeoutMs: 5 * 60 * 1000, // 5 minutes
@@ -17,6 +18,7 @@ interface ManagedSession {
   server: Server | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   config: ProxySessionConfig;
+  dataDir: string | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -40,6 +42,7 @@ export function createSession(
   conversationId: string,
   credentialIds: string[],
   config?: Partial<ProxySessionConfig>,
+  dataDir?: string,
 ): ProxySession {
   const merged: ProxySessionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -68,6 +71,7 @@ export function createSession(
     server: null,
     idleTimer: null,
     config: merged,
+    dataDir: dataDir ?? null,
   });
 
   return { ...session };
@@ -148,11 +152,17 @@ export function getSessionEnv(sessionId: ProxySessionId): ProxyEnvVars {
   resetIdleTimer(managed);
 
   const proxyUrl = `http://127.0.0.1:${managed.session.port}`;
-  return {
+  const env: ProxyEnvVars = {
     HTTP_PROXY: proxyUrl,
     HTTPS_PROXY: proxyUrl,
     NO_PROXY: 'localhost,127.0.0.1,::1',
   };
+
+  if (managed.dataDir) {
+    env.SSL_CERT_FILE = getCAPath(managed.dataDir);
+  }
+
+  return env;
 }
 
 /**
