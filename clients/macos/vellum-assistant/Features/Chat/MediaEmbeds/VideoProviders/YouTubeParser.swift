@@ -40,9 +40,9 @@ enum YouTubeParser {
 
         guard let id = videoID, !id.isEmpty else { return nil }
 
-        // YouTube video IDs only contain alphanumerics, dashes, and underscores.
-        // Reject anything else to prevent path traversal or fragment injection.
-        let validIDCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        // YouTube video IDs are ASCII base64url: [A-Za-z0-9_-].
+        // Use an explicit set instead of .alphanumerics which includes Unicode.
+        let validIDCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         guard id.unicodeScalars.allSatisfy({ validIDCharacters.contains($0) }) else { return nil }
 
         guard let embedURL = URL(string: "https://www.youtube.com/embed/\(id)") else {
