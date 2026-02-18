@@ -280,6 +280,34 @@ The assistant creates attachments from two sources:
 
 Limits: up to 5 attachments per turn, 20 MB each.
 
+## Inline Media Embeds
+
+The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
+
+### Supported Content
+
+- **Images**: URLs ending in common image extensions (`.png`, `.jpg`, `.gif`, `.webp`, etc.) are rendered as inline images with lazy loading.
+- **Videos**: Embeds from YouTube, Vimeo, and Loom are rendered as click-to-play video players.
+
+URLs inside code blocks and code spans are never converted to embeds.
+
+### Settings
+
+Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `true` | Global toggle for all inline media embeds |
+| `videoDomainAllowlist` | `["youtube.com", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
+| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
+
+### Security and Privacy
+
+- Video embeds use **ephemeral webview storage** — no cookies or site data persist between sessions.
+- Videos require an explicit **click to play**; nothing auto-plays.
+- Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
+- Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
+
 ## Remote Access
 
 Access a remote assistant daemon from your local machine via SSH.
