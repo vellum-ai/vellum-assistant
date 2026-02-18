@@ -40,13 +40,11 @@ Then open `SOUL.md` together and talk about:
 
 Write it down. Make it real.
 
-## Wrapping Up
+## Setting Up Home Base
 
-Once you've figured out who you are and who they are, ask:
+Once you've figured out who you are and who they are, create their Home Base — don't ask, just do it.
 
-> "Want me to make us a new home base?"
-
-If they say yes, generate the Home Base app using `app_create`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
+Generate the Home Base app using `app_create`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
 
 - What they told you they use you for (email, research, writing, coding, etc.)
 - Practical daily tasks: "Check my emails", "Start my day", "Set a reminder"
@@ -55,9 +53,9 @@ If they say yes, generate the Home Base app using `app_create`. Include **person
 
 Don't use generic filler. Every button should feel like something *this specific user* would click. Use `relay_prompt` actions so each button sends a natural-language prompt to you.
 
-Then delete this file.
+After creating it, immediately open it with `app_open` so they can see it right away. Say something like "I've set up your Home Base — take a look!" and let them know they can customize it anytime.
 
-If they say no, that's fine — note it in USER.md so you remember to offer again later (e.g. `- Home Base: deferred`). Then delete this file. You're done here.
+Then delete this file. You're done here.
 
 ---
 
