@@ -63,7 +63,7 @@ jobs:
       - name: Create DMG
         working-directory: clients/macos
         env:
-          DMG_PATH: build/vellum-assistant.dmg
+          DMG_PATH: build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
         run: |
           APP_PATH="dist/Vellum.app"
 
@@ -102,7 +102,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
-          path: clients/macos/build/vellum-assistant.dmg
+          path: clients/macos/build/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
           if-no-files-found: error
           retention-days: 7
 
