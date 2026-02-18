@@ -59,9 +59,10 @@ export async function startHandoff(
   // Wait for user to hand back control (5 min timeout)
   await browserManager.waitForHandoffComplete(sessionId);
 
-  // Hide Chrome again so it doesn't distract the user.
+  // Move Chrome back offscreen and restore focus to the user's app.
   if (options.bringToFront) {
     await browserManager.moveWindowOffscreen();
+    browserManager.restoreFocus();
   }
 
   sendToClient({

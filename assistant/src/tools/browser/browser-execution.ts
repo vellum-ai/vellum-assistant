@@ -220,9 +220,10 @@ export async function executeBrowserNavigate(
     }
 
     // In headed mode, page.goto() may bring Chrome to the foreground on macOS.
-    // Move it offscreen unless a handoff is active.
+    // Move it offscreen and restore focus unless a handoff is active.
     if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
       await browserManager.moveWindowOffscreen();
+      browserManager.restoreFocus();
     }
 
     if (blockedUrl) {

@@ -100,6 +100,7 @@ class BrowserManager {
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
+  private previousFrontmostApp: string | null = null;
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
@@ -182,6 +183,10 @@ class BrowserManager {
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
+      // Save the currently-focused app so we can restore focus after Chrome
+      // steals it during launch and navigation.
+      this.saveFrontmostApp();
+
       // If not already in CDP mode, try to detect or negotiate CDP
       let useCdp = this._browserMode === 'cdp';
       const hasSender = !!(invokingSessionId && this.sessionSenders.get(invokingSessionId));
@@ -242,6 +247,7 @@ class BrowserManager {
           this.setBrowserMode('cdp');
           await this.initBrowserCdpSession();
           await this.moveWindowOffscreen();
+          this.restoreFocus();
           log.info('Launched headed Chromium (hidden) for interactive handoff support');
           return ctx as unknown as BrowserContext;
         } catch (err2) {
@@ -347,9 +353,10 @@ class BrowserManager {
     this.rawPages.set(sessionId, page);
 
     // In headed mode, newPage() may bring Chrome to the foreground on macOS.
-    // Move it offscreen unless we're in an active handoff.
+    // Move it offscreen and restore focus unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
       await this.moveWindowOffscreen();
+      this.restoreFocus();
     }
 
     log.debug({ sessionId }, 'Session page created');
@@ -551,6 +558,43 @@ class BrowserManager {
       log.debug('moveWindowOnscreen: moved window onscreen via CDP');
     } catch (err) {
       log.warn({ err }, 'moveWindowOnscreen: CDP setWindowBounds failed');
+    }
+  }
+
+  /**
+   * Save the current frontmost macOS app so we can re-activate it after
+   * Chrome steals focus. Called once before browser launch.
+   */
+  private saveFrontmostApp(): void {
+    if (process.platform !== 'darwin') return;
+    try {
+      const { execSync } = require('node:child_process');
+      this.previousFrontmostApp = execSync(
+        "osascript -e 'tell application \"System Events\" to get name of first application process whose frontmost is true'",
+        { timeout: 2000, encoding: 'utf-8' },
+      ).trim();
+      log.debug({ app: this.previousFrontmostApp }, 'Saved frontmost app before Chrome launch');
+    } catch {
+      this.previousFrontmostApp = null;
+    }
+  }
+
+  /**
+   * Re-activate the app that was frontmost before Chrome stole focus.
+   * Unlike the old hideChrome() approach, this doesn't hide Chrome or
+   * affect any Chrome windows — it just gives focus back to the user's app.
+   */
+  restoreFocus(): void {
+    if (process.platform !== 'darwin' || !this.previousFrontmostApp) return;
+    try {
+      const { execSync } = require('node:child_process');
+      execSync(
+        `osascript -e 'tell application "${this.previousFrontmostApp}" to activate'`,
+        { stdio: 'ignore', timeout: 2000 },
+      );
+      log.debug({ app: this.previousFrontmostApp }, 'Restored focus to previous app');
+    } catch {
+      // Best effort — the app may have been closed
     }
   }
 
