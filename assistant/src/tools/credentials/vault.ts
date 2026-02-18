@@ -98,6 +98,10 @@ class CredentialStoreTool implements Tool {
             type: 'string',
             description: 'Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)',
           },
+          client_secret: {
+            type: 'string',
+            description: 'OAuth2 client secret for providers that require it (e.g. Slack). If omitted, PKCE is used (only for oauth2_connect action)',
+          },
           alias: {
             type: 'string',
             description: 'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
@@ -417,6 +421,7 @@ class CredentialStoreTool implements Tool {
         const clientId = input.client_id as string | undefined;
         const extraParams = input.extra_params as Record<string, string> | undefined;
         const userinfoUrl = input.userinfo_url as string | undefined;
+        const clientSecret = input.client_secret as string | undefined;
 
         if (!service) return { content: 'Error: service is required for oauth2_connect action', isError: true };
         if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action', isError: true };
@@ -438,7 +443,7 @@ class CredentialStoreTool implements Tool {
           const allowedTools = input.allowed_tools as string[] | undefined;
 
           const { tokens, grantedScopes } = await startOAuth2Flow(
-            { authUrl, tokenUrl, scopes, clientId, extraParams, userinfoUrl },
+            { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl },
             {
               openUrl: (url) => {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
@@ -475,6 +480,7 @@ class CredentialStoreTool implements Tool {
             accountInfo: accountInfo ?? null,
             oauth2TokenUrl: tokenUrl,
             oauth2ClientId: clientId,
+            ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
           });
 
           if (tokens.refreshToken) {

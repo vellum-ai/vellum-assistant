@@ -2148,13 +2148,82 @@ graph LR
 
 ---
 
-## Integrations — OAuth2 + Gmail
+## Integrations — OAuth2 + Unified Messaging
 
-The integration framework lets Vellum connect to third-party services (starting with Gmail) via OAuth2 PKCE. The architecture follows these principles:
+The integration framework lets Vellum connect to third-party services via OAuth2. The architecture follows these principles:
 
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
-- **PKCE flow, no client secret** — Desktop apps use the OAuth2 Authorization Code flow with PKCE (S256). A temporary `Bun.serve` HTTP server on `127.0.0.1` captures the callback.
-- **Extensible registry** — New integrations register via `IntegrationDefinition` objects. The registry derives connection status from vault presence rather than maintaining separate state.
+- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh.
+- **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
+- **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
+
+### Unified Messaging Architecture
+
+```mermaid
+graph TB
+    subgraph "Messaging Skill (bundled-skills/messaging/)"
+        SKILL_MD["SKILL.md<br/>agent instructions"]
+        TOOLS_JSON["TOOLS.json<br/>tool manifest"]
+        subgraph "Generic Tools"
+            AUTH_TEST["messaging_auth_test"]
+            LIST["messaging_list_conversations"]
+            READ["messaging_read"]
+            SEARCH["messaging_search"]
+            SEND["messaging_send"]
+            REPLY["messaging_reply"]
+            MARK_READ["messaging_mark_read"]
+            ACTIVITY["messaging_analyze_activity"]
+            STYLE["messaging_analyze_style"]
+            DRAFT["messaging_draft"]
+        end
+        subgraph "Slack-specific Tools"
+            REACT["slack_add_reaction"]
+            LEAVE["slack_leave_channel"]
+        end
+        subgraph "Gmail-specific Tools"
+            ARCHIVE["gmail_archive"]
+            LABEL["gmail_label"]
+            TRASH["gmail_trash"]
+            UNSUB["gmail_unsubscribe"]
+            GMAIL_DRAFT["gmail_draft"]
+        end
+        SHARED["shared.ts<br/>resolveProvider + withProviderToken"]
+    end
+
+    subgraph "Messaging Layer (messaging/)"
+        PROVIDER_IF["MessagingProvider interface"]
+        REGISTRY["Provider Registry"]
+        TYPES["Platform-agnostic types<br/>Conversation, Message, SearchResult"]
+        ACTIVITY_ANALYZER["Activity Analyzer"]
+        STYLE_ANALYZER["Style Analyzer"]
+        DRAFT_STORE["Draft Store"]
+    end
+
+    subgraph "Provider Adapters"
+        SLACK_ADAPTER["Slack Adapter<br/>messaging/providers/slack/"]
+        GMAIL_ADAPTER["Gmail Adapter<br/>messaging/providers/gmail/"]
+    end
+
+    subgraph "External APIs"
+        SLACK_API["Slack Web API"]
+        GMAIL_API["Gmail REST API"]
+    end
+
+    SHARED --> REGISTRY
+    REGISTRY --> PROVIDER_IF
+    SLACK_ADAPTER -.->|implements| PROVIDER_IF
+    GMAIL_ADAPTER -.->|implements| PROVIDER_IF
+    SLACK_ADAPTER --> SLACK_API
+    GMAIL_ADAPTER --> GMAIL_API
+    AUTH_TEST --> SHARED
+    LIST --> SHARED
+    SEARCH --> SHARED
+    SEND --> SHARED
+    REACT --> SLACK_ADAPTER
+    ARCHIVE --> GMAIL_ADAPTER
+    ACTIVITY --> ACTIVITY_ANALYZER
+    STYLE --> STYLE_ANALYZER
+```
 
 ### Data Flow
 
@@ -2213,27 +2282,31 @@ sequenceDiagram
 
 | Decision | Rationale |
 |----------|-----------|
-| PKCE (no client secret) | Desktop apps cannot securely store client secrets; PKCE is the recommended flow |
+| PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
-| `allowedTools` only (no `allowedDomains`) | Gmail tools run server-side; domain restrictions would block the credential broker's `serverUse` path |
+| Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
+| Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
-| Newsletter analyzer is a helper, not a tool | Grouping logic runs in the tool executor, not as a separate LLM-callable tool — reduces round-trips |
+| Platform-specific extension tools | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface |
 
 ### Source Files
 
 | File | Role |
 |------|------|
-| `assistant/src/integrations/types.ts` | `IntegrationDefinition`, `IntegrationStatus`, `OAuth2Config` type definitions |
-| `assistant/src/integrations/registry.ts` | In-memory registry; status derived from vault presence |
-| `assistant/src/integrations/oauth2.ts` | PKCE loopback flow: code_verifier, Bun.serve callback, token exchange |
-| `assistant/src/integrations/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
-| `assistant/src/integrations/definitions/gmail.ts` | Gmail `IntegrationDefinition` with scopes and allowed tools |
-| `assistant/src/integrations/gmail/client.ts` | Thin Gmail REST API wrapper (listMessages, getMessage, modify, send, etc.) |
-| `assistant/src/integrations/gmail/types.ts` | Gmail API response types |
-| `assistant/src/integrations/gmail/newsletter-analyzer.ts` | `groupBySender()` helper for email declutter flow |
-| `assistant/src/config/bundled-skills/gmail/TOOLS.json` | Gmail tool manifest (12 tools) loaded by skill-tool framework |
-| `assistant/src/config/bundled-skills/gmail/tools/` | Gmail skill scripts delegating to integration layer |
+| `assistant/src/security/oauth2.ts` | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange |
+| `assistant/src/security/token-manager.ts` | `withValidToken()` — auto-refresh, 401 retry, expiry buffer |
+| `assistant/src/messaging/provider.ts` | `MessagingProvider` interface |
+| `assistant/src/messaging/provider-types.ts` | Platform-agnostic types (Conversation, Message, SearchResult) |
+| `assistant/src/messaging/registry.ts` | Provider registry: register, lookup, list connected |
+| `assistant/src/messaging/activity-analyzer.ts` | Activity classification for conversations |
+| `assistant/src/messaging/style-analyzer.ts` | Writing style extraction from message corpus |
+| `assistant/src/messaging/draft-store.ts` | Local draft storage (platform/id JSON files) |
+| `assistant/src/messaging/providers/slack/` | Slack adapter, client, types |
+| `assistant/src/messaging/providers/gmail/` | Gmail adapter, client, types |
+| `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
+| `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
+| `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 
 ---
 
@@ -2762,6 +2835,8 @@ graph TD
 
     subgraph "Provider Registry"
         GMAIL["Gmail Provider"]
+        SLACK_W["Slack Provider"]
+        GCAL["Google Calendar Provider"]
         FUTURE["Future Providers..."]
     end
 
@@ -2777,6 +2852,8 @@ graph TD
     WATCH --> CLAIM
     CLAIM --> POLL
     POLL --> GMAIL
+    POLL --> SLACK_W
+    POLL --> GCAL
     POLL --> FUTURE
     POLL --> DEDUP
     DEDUP --> PROCESS

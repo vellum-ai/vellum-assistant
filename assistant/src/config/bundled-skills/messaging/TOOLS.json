@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "messaging_auth_test",
+      "description": "Verify that a messaging platform is connected and show account info.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform to test (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." }
+        }
+      },
+      "executor": "tools/messaging-auth-test.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_list_conversations",
+      "description": "List channels, inboxes, DMs, or groups with unread counts.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "types": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["channel", "dm", "group", "inbox"] },
+            "description": "Filter by conversation type"
+          },
+          "limit": { "type": "number", "description": "Maximum number of conversations to return (default 200)" }
+        }
+      },
+      "executor": "tools/messaging-list-conversations.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_read",
+      "description": "Read message history from a conversation. Optionally read a specific thread.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "conversation_id": { "type": "string", "description": "Conversation/channel/label ID to read from" },
+          "thread_id": { "type": "string", "description": "Thread ID to read replies from (optional)" },
+          "limit": { "type": "number", "description": "Maximum number of messages to return (default 50)" }
+        },
+        "required": ["conversation_id"]
+      },
+      "executor": "tools/messaging-read.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_search",
+      "description": "Search messages across a platform using its native query syntax.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "query": { "type": "string", "description": "Search query using the platform's native syntax" },
+          "max_results": { "type": "number", "description": "Maximum number of results to return (default 20)" }
+        },
+        "required": ["query"]
+      },
+      "executor": "tools/messaging-search.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_send",
+      "description": "Send a message on a platform. This is a high-risk action that always requires user approval. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "conversation_id": { "type": "string", "description": "Channel ID, email address, or conversation ID to send to" },
+          "text": { "type": "string", "description": "Message text to send" },
+          "subject": { "type": "string", "description": "Email subject line (Gmail only)" },
+          "in_reply_to": { "type": "string", "description": "Message-ID header for replies (Gmail only)" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["conversation_id", "text", "confidence"]
+      },
+      "executor": "tools/messaging-send.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_reply",
+      "description": "Reply in a thread. Medium-risk action. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "conversation_id": { "type": "string", "description": "Channel ID or conversation ID" },
+          "thread_id": { "type": "string", "description": "Thread ID to reply to" },
+          "text": { "type": "string", "description": "Reply text" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["conversation_id", "thread_id", "text", "confidence"]
+      },
+      "executor": "tools/messaging-reply.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_mark_read",
+      "description": "Mark a conversation or message as read.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "conversation_id": { "type": "string", "description": "Conversation/channel ID" },
+          "message_id": { "type": "string", "description": "Specific message ID to mark as read (optional)" }
+        },
+        "required": ["conversation_id"]
+      },
+      "executor": "tools/messaging-mark-read.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_add_reaction",
+      "description": "Add an emoji reaction to a Slack message. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "description": "Slack channel ID" },
+          "timestamp": { "type": "string", "description": "Message timestamp (ts)" },
+          "emoji": { "type": "string", "description": "Emoji name without colons (e.g. \"thumbsup\")" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["channel", "timestamp", "emoji", "confidence"]
+      },
+      "executor": "tools/slack-add-reaction.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "slack_leave_channel",
+      "description": "Leave a Slack channel. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": { "type": "string", "description": "Slack channel ID to leave" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["channel", "confidence"]
+      },
+      "executor": "tools/slack-leave-channel.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_analyze_activity",
+      "description": "Analyze channel or conversation activity levels. Groups conversations as high/medium/low/dead activity.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." }
+        }
+      },
+      "executor": "tools/messaging-analyze-activity.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_analyze_style",
+      "description": "Analyze sent messages to extract personal writing style patterns. Saves style characteristics to memory for personalized drafting. Run once to enable style-aware message composition.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "max_messages": { "type": "number", "description": "Max sent messages to analyze (default 50, max 100)" },
+          "query_filter": { "type": "string", "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail, 'from:@me' for Slack)" }
+        }
+      },
+      "executor": "tools/messaging-analyze-style.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "messaging_draft",
+      "description": "Create, list, or delete local drafts for any platform.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["create", "list", "delete"], "description": "Draft operation" },
+          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list." },
+          "conversation_id": { "type": "string", "description": "Target conversation/channel ID (for create)" },
+          "text": { "type": "string", "description": "Draft text (for create)" },
+          "thread_id": { "type": "string", "description": "Thread ID (for create, optional)" },
+          "subject": { "type": "string", "description": "Email subject (for create, Gmail only)" },
+          "draft_id": { "type": "string", "description": "Draft ID (for delete)" }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/messaging-draft.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_archive",
+      "description": "Archive a Gmail message (remove from inbox). Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Gmail message ID to archive" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/gmail-archive.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_batch_archive",
+      "description": "Archive multiple Gmail messages at once. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Gmail message IDs to archive"
+          },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_ids", "confidence"]
+      },
+      "executor": "tools/gmail-batch-archive.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_label",
+      "description": "Add or remove labels on a Gmail message. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Gmail message ID" },
+          "add_label_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to add"
+          },
+          "remove_label_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to remove"
+          },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/gmail-label.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_batch_label",
+      "description": "Add or remove labels on multiple Gmail messages. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Gmail message IDs"
+          },
+          "add_label_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to add"
+          },
+          "remove_label_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Label IDs to remove"
+          },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_ids", "confidence"]
+      },
+      "executor": "tools/gmail-batch-label.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_trash",
+      "description": "Move a Gmail message to trash. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Gmail message ID to trash" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/gmail-trash.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_unsubscribe",
+      "description": "Unsubscribe from a mailing list by following the List-Unsubscribe header. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "A Gmail message ID from the mailing list to unsubscribe from" },
+          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/gmail-unsubscribe.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_draft",
+      "description": "Create a draft email in Gmail. The draft will appear in Gmail Drafts for user review.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string", "description": "Recipient email address" },
+          "subject": { "type": "string", "description": "Email subject line" },
+          "body": { "type": "string", "description": "Email body (plain text)" },
+          "in_reply_to": { "type": "string", "description": "Message-ID header of the email being replied to" }
+        },
+        "required": ["to", "subject", "body"]
+      },
+      "executor": "tools/gmail-draft.ts",
+      "execution_target": "host"
+    }
+  ]
+}
