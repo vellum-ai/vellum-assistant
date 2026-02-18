@@ -76,6 +76,38 @@ async function runScheduleOnce(
   // ── Cron jobs ───────────────────────────────────────────────────────
   const jobs = claimDueSchedules(now);
   for (const job of jobs) {
+    // Check if message is a task invocation (run_task:<task_id>)
+    const taskMatch = job.message.match(/^run_task:(\S+)$/);
+    if (taskMatch) {
+      const taskId = taskMatch[1];
+      try {
+        log.info({ jobId: job.id, name: job.name, taskId }, 'Executing scheduled task');
+        const { runTask } = await import('../tasks/task-runner.js');
+        const result = await runTask(
+          { taskId, workingDir: process.cwd() },
+          processMessage as (conversationId: string, message: string) => Promise<void>,
+        );
+
+        // Track the schedule run using the task's conversation
+        const runId = createScheduleRun(job.id, result.conversationId);
+        if (result.status === 'failed') {
+          completeScheduleRun(runId, { status: 'error', error: result.error ?? 'Task run failed' });
+        } else {
+          completeScheduleRun(runId, { status: 'ok' });
+          notifySchedule({ id: job.id, name: job.name });
+        }
+        processed += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn({ err, jobId: job.id, name: job.name, taskId }, 'Scheduled task execution failed');
+        // Create a fallback conversation for the schedule run record
+        const fallbackConversation = createConversation(`Schedule: ${job.name}`);
+        const runId = createScheduleRun(job.id, fallbackConversation.id);
+        completeScheduleRun(runId, { status: 'error', error: message });
+      }
+      continue;
+    }
+
     const conversation = createConversation(`Schedule: ${job.name}`);
     const runId = createScheduleRun(job.id, conversation.id);
 
