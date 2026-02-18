@@ -3,7 +3,8 @@ import SwiftUI
 import VellumAssistantShared
 
 // Loaded once at startup; avoids decoding the 2.3MB PNG on every re-render.
-private let chatBackgroundImage: UIImage? = {
+// Internal (not private) so ThreadListView in the same module can share it.
+let chatBackgroundImage: UIImage? = {
     guard let url = Bundle.main.url(forResource: "background", withExtension: "png") else { return nil }
     return UIImage(contentsOfFile: url.path)
 }()
