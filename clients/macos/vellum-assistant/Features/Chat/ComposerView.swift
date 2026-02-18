@@ -11,6 +11,7 @@ struct SlashCommand {
 
     static let all: [SlashCommand] = [
         SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
+        SlashCommand(name: "models", description: "List all available models", icon: "list.bullet"),
     ]
 }
 
@@ -503,6 +504,9 @@ struct ComposerView: View {
         slashSelectedIndex = 0
         if command.name == "model" {
             inputText = "/model"
+            onSend()
+        } else if command.name == "models" {
+            inputText = "/models"
             onSend()
         }
     }

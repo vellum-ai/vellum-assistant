@@ -348,6 +348,13 @@ extension ChatViewModel {
                     completedToolCalls = toolCalls
                 }
             }
+            // Tag assistant message with modelList if it follows a "/models" user message
+            // so the client renders the table UI instead of plain markdown.
+            if let lastUserMsg = messages.last(where: { $0.role == .user }),
+               lastUserMsg.text.trimmingCharacters(in: .whitespacesAndNewlines) == "/models",
+               let assistantIndex = messages.lastIndex(where: { $0.role == .assistant }) {
+                messages[assistantIndex].modelList = ModelListData()
+            }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false

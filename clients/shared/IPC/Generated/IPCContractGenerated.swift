@@ -746,6 +746,7 @@ public struct IPCModelInfo: Codable, Sendable {
     public let type: String
     public let model: String
     public let provider: String
+    public let configuredProviders: [String]?
 }
 
 public struct IPCModelSetRequest: Codable, Sendable {

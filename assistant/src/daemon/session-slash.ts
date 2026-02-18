@@ -128,8 +128,34 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   };
 }
 
+function resolveModelList(): SlashResolution {
+  const config = getConfig();
+  const lines = ['Available models:\n'];
+
+  for (const [cmd, { provider, model, displayName }] of Object.entries(PROVIDER_MODEL_SHORTCUTS)) {
+    const hasKey = provider === 'ollama' || !!config.apiKeys[provider];
+    const isCurrent = config.provider === provider && config.model === model;
+    const status = hasKey ? '✓' : '✗';
+    const current = isCurrent ? ' **[current]**' : '';
+    lines.push(`- **${displayName}** (/${cmd}) ${status}${current}`);
+  }
+
+  lines.push('\n✓ = API key configured, ✗ = not configured');
+  lines.push('\nTip: Configure a provider with `config set apiKeys.<provider> <key>`');
+
+  return {
+    kind: 'unknown',
+    message: lines.join('\n'),
+  };
+}
+
 function resolveModelCommand(content: string): SlashResolution | null {
   const trimmed = content.trim();
+  // Match /models → route to list
+  if (trimmed === '/models') {
+    return resolveModelList();
+  }
+
   if (!trimmed.startsWith('/model')) return null;
   // Ensure it's exactly "/model" or "/model " (not "/modelsomething")
   if (trimmed.length > 6 && trimmed[6] !== ' ') return null;
@@ -150,25 +176,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
 
   // Handle /model list
   if (args === 'list') {
-    const config = getConfig();
-    const lines = ['Available models:\n'];
-
-    // Group by provider
-    for (const [cmd, { provider, model, displayName }] of Object.entries(PROVIDER_MODEL_SHORTCUTS)) {
-      const hasKey = provider === 'ollama' || !!config.apiKeys[provider];
-      const isCurrent = config.provider === provider && config.model === model;
-      const status = hasKey ? '✓' : '✗';
-      const current = isCurrent ? ' **[current]**' : '';
-      lines.push(`- **${displayName}** (/${cmd}) ${status}${current}`);
-    }
-
-    lines.push('\n✓ = API key configured, ✗ = not configured');
-    lines.push('\nTip: Configure a provider with `config set apiKeys.<provider> <key>`');
-
-    return {
-      kind: 'unknown',
-      message: lines.join('\n'),
-    };
+    return resolveModelList();
   }
 
   // Try to match the model name

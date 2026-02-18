@@ -27,10 +27,13 @@ import { log, type HandlerContext } from './shared.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
+  const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
+  if (!configured.includes('ollama')) configured.push('ollama');
   ctx.send(socket, {
     type: 'model_info',
     model: config.model,
     provider: config.provider,
+    configuredProviders: configured,
   });
 }
 

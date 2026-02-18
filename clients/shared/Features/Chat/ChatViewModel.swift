@@ -197,6 +197,11 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
+        // When "/models" is sent, also refresh configuredProviders so the table UI has fresh data
+        if text == "/models" && !hasSkillInvocation {
+            try? daemonClient.send(ModelGetRequestMessage())
+        }
+
         // Fire auto-title callback on the first user message
         if !text.isEmpty, let callback = onFirstUserMessage {
             onFirstUserMessage = nil
@@ -988,6 +993,15 @@ public final class ChatViewModel: ObservableObject {
             }
 
             chatMessages.append(chatMsg)
+        }
+
+        // Tag assistant messages that follow a "/models" user message so
+        // the client renders the table UI instead of plain markdown.
+        for i in chatMessages.indices {
+            if chatMessages[i].role == .user && chatMessages[i].text.trimmingCharacters(in: .whitespacesAndNewlines) == "/models",
+               i + 1 < chatMessages.count && chatMessages[i + 1].role == .assistant {
+                chatMessages[i + 1].modelList = ModelListData()
+            }
         }
 
         let hasUserSentMessages = messages.contains { $0.role == .user }

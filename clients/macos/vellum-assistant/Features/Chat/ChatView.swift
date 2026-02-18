@@ -75,6 +75,7 @@ struct ChatView: View {
     let onMicrophoneToggle: () -> Void
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var selectedModel: String = ""
+    var configuredProviders: Set<String> = []
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
     let onAddTrustRule: (String, String, String, String) -> Bool
@@ -296,6 +297,10 @@ struct ChatView: View {
         )
     }
 
+    private func modelListView(for message: ChatMessage) -> some View {
+        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+    }
+
     @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
@@ -498,6 +503,10 @@ struct ChatView: View {
                             }
                         } else if message.modelPicker != nil {
                             modelPickerView(for: message)
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else if message.modelList != nil {
+                            modelListView(for: message)
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {

@@ -912,6 +912,7 @@ export interface ModelInfo {
   type: 'model_info';
   model: string;
   provider: string;
+  configuredProviders?: string[];
 }
 
 export interface HistoryResponseToolCall {

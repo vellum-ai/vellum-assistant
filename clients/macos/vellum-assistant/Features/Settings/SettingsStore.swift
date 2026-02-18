@@ -17,6 +17,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Model Selection
 
     @Published var selectedModel: String = "claude-opus-4-6"
+    @Published var configuredProviders: Set<String> = ["ollama"]
 
     static let availableModels: [String] = [
         "claude-opus-4-6",
@@ -112,6 +113,9 @@ public final class SettingsStore: ObservableObject {
             guard let self else { return }
             self.lastDaemonModel = response.model
             self.selectedModel = response.model
+            if let providers = response.configuredProviders {
+                self.configuredProviders = Set(providers)
+            }
         }
 
         // Refresh Vercel key state on init
