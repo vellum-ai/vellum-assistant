@@ -253,6 +253,18 @@ export function disableWatcher(id: string, reason: string): void {
 }
 
 /**
+ * Persist a background conversation ID for a watcher.
+ * Called after creating the conversation in Phase 2 of the engine tick.
+ */
+export function setWatcherConversationId(id: string, conversationId: string): void {
+  const db = getDb();
+  db.update(watchers)
+    .set({ conversationId, updatedAt: Date.now() })
+    .where(eq(watchers.id, id))
+    .run();
+}
+
+/**
  * Reset watchers stuck in 'polling' back to 'idle' (daemon restart recovery).
  */
 export function resetStuckWatchers(): number {

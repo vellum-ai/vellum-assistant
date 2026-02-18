@@ -146,7 +146,7 @@ export const gmailProvider: WatcherProvider = {
         // Fetch metadata for new messages
         const messages = await batchGetMessages(
           token,
-          Array.from(messageIds).slice(0, 50),
+          Array.from(messageIds),
           'metadata',
           ['From', 'Subject', 'Date'],
         );

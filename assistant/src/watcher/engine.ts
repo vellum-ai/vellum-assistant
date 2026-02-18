@@ -17,6 +17,7 @@ import {
   getPendingEvents,
   updateEventDisposition,
   resetStuckWatchers,
+  setWatcherConversationId,
 } from './watcher-store.js';
 import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
 
@@ -142,7 +143,7 @@ export async function runWatchersOnce(
           threadType: 'background' as 'standard' | 'private',
         });
         conversationId = conv.id;
-        // conversationId is persisted via completeWatcherPoll above
+        setWatcherConversationId(watcher.id, conversationId);
       }
 
       // Build the LLM message with action prompt + event data
