@@ -16,7 +16,7 @@ private enum HostingMode: String, CaseIterable {
 
     var detail: String {
         switch self {
-        case .local: return "Run on your machine with an API key"
+        case .local: return "Run on your machine"
         case .aws: return "Host on your AWS account"
         case .gcp: return "Host on your GCP account"
         }
@@ -62,9 +62,7 @@ struct APIKeyStepView: View {
                 hostingModeSelector
             }
 
-            if !userHostedEnabled || hostingMode == .local {
-                apiKeyField
-            }
+            apiKeyField
 
             primaryButton
 
@@ -89,9 +87,7 @@ struct APIKeyStepView: View {
                 showContent = true
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                if !userHostedEnabled || hostingMode == .local {
-                    keyFieldFocused = true
-                }
+                keyFieldFocused = true
             }
         }
 
@@ -197,7 +193,7 @@ struct APIKeyStepView: View {
 
     private var primaryButton: some View {
         Button(action: { saveAndContinue() }) {
-            Text(userHostedEnabled && hostingMode != .local ? "Continue" : "Save API key")
+            Text(userHostedEnabled ? "Continue" : "Save API key")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(adaptiveColor(light: .white, dark: .white))
                 .frame(maxWidth: .infinity)
@@ -227,15 +223,13 @@ struct APIKeyStepView: View {
 
     private var footerLinks: some View {
         HStack(spacing: VSpacing.lg) {
-            if !userHostedEnabled || hostingMode == .local {
-                Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                    Text("Get an API key")
-                        .font(.system(size: 13))
-                        .foregroundColor(adaptiveColor(light: VColor.accent, dark: .white))
-                }
-                .onHover { hovering in
-                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
+            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                Text("Get an API key")
+                    .font(.system(size: 13))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: .white))
+            }
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
             }
 
             Button(action: { goBack() }) {
@@ -254,10 +248,7 @@ struct APIKeyStepView: View {
     // MARK: - Helpers
 
     private var primaryButtonDisabled: Bool {
-        if userHostedEnabled && hostingMode != .local {
-            return false
-        }
-        return apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var maskedKey: String {
@@ -279,11 +270,9 @@ struct APIKeyStepView: View {
             saveHostingModeToConfig(hostingMode)
         }
 
-        if !userHostedEnabled || hostingMode == .local {
-            let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            APIKeyManager.setKey(trimmed)
-        }
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed)
 
         state.advance()
     }
