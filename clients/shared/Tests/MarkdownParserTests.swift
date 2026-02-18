@@ -52,9 +52,12 @@ final class MarkdownParserTests: XCTestCase {
 
     func testMultipleParagraphs() {
         let blocks = MarkdownBlockParser.parse("First\n\nSecond")
-        XCTAssertEqual(blocks.count, 2)
-        if case .text(let t1) = blocks[0] { XCTAssertEqual(t1, "First") }
-        if case .text(let t2) = blocks[1] { XCTAssertEqual(t2, "Second") }
+        XCTAssertEqual(blocks.count, 1)
+        if case .text(let text) = blocks[0] {
+            XCTAssertEqual(text, "First\n\nSecond")
+        } else {
+            XCTFail("Expected single text block")
+        }
     }
 
     // MARK: - Code Blocks

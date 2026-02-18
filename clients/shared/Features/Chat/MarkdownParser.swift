@@ -136,12 +136,8 @@ public enum MarkdownBlockParser {
                 continue
             }
 
-            // --- Empty line ---
-            if trimmed.isEmpty {
-                flushText()
-                i += 1
-                continue
-            }
+            // Empty lines: accumulate into currentText to preserve paragraph spacing
+            // (avoids splitting multi-paragraph prose into separate .text blocks)
 
             // --- Plain text ---
             currentText.append(lines[i])
