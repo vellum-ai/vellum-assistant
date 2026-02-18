@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
-import { resolve, relative, posix } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
 import type { DockerConfig } from '../../../config/types.js';
@@ -8,13 +8,15 @@ import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
 
 const log = getLogger('docker-sandbox');
 
+export const DEFAULT_SANDBOX_IMAGE = 'vellum-sandbox:latest';
+
 /**
  * Fallback defaults when DockerBackend is constructed without explicit config.
  * Must stay in sync with DockerConfigSchema defaults in config/schema.ts.
  */
 const DEFAULTS: Required<DockerConfig> = {
-  image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-  shell: 'sh',
+  image: DEFAULT_SANDBOX_IMAGE,
+  shell: 'bash',
   cpus: 1,
   memoryMb: 512,
   pidsLimit: 256,
@@ -76,6 +78,27 @@ function checkDockerDaemon(): void {
   }
 }
 
+/**
+ * Resolve the path to Dockerfile.sandbox relative to this source file.
+ * Works in both development (source layout) and bundled environments.
+ *
+ * In compiled Bun binaries, import.meta.dirname resolves into the virtual
+ * $bunfs filesystem, so the Dockerfile won't exist there. Fall back to
+ * looking next to the compiled binary (process.execPath) in that case.
+ */
+function getSandboxDockerfilePath(): string {
+  const dir = import.meta.dirname ?? __dirname;
+  const sourcePath = resolve(dir, '../../../../Dockerfile.sandbox');
+
+  // In compiled Bun binaries, dir points into /$bunfs/ which is virtual.
+  // Fall back to looking next to the compiled binary itself.
+  if (!existsSync(sourcePath) && dir.startsWith('/$bunfs/')) {
+    return resolve(dirname(process.execPath), 'Dockerfile.sandbox');
+  }
+
+  return sourcePath;
+}
+
 function checkImageAvailable(image: string): void {
   if (imageAvailableCache.has(image)) return;
   try {
@@ -84,7 +107,47 @@ function checkImageAvailable(image: string): void {
     imageAvailableCache.add(image);
     return;
   } catch {
-    // Image not available locally — try to pull it.
+    // Image not available locally — try to build or pull it.
+  }
+
+  // For the default sandbox image, build from Dockerfile.sandbox instead of pulling.
+  if (image === DEFAULT_SANDBOX_IMAGE) {
+    const dockerfile = getSandboxDockerfilePath();
+    if (existsSync(dockerfile)) {
+      log.info(`Building sandbox image "${image}" from ${dockerfile}...`);
+      try {
+        // --no-cache avoids stale apt-get layers with expired GPG signatures.
+        execFileSync('docker', ['build', '--no-cache', '-t', image, '-f', dockerfile, '.'], {
+          stdio: ['ignore', 'ignore', 'pipe'],
+          timeout: 120000,
+          cwd: resolve(dockerfile, '..'),
+        });
+        imageAvailableCache.add(image);
+        return;
+      } catch (err: unknown) {
+        const stderr = err instanceof Error && 'stderr' in err
+          ? String((err as { stderr: unknown }).stderr).trim()
+          : '';
+        const detail = stderr ? `\n\nBuild output:\n${stderr}` : '';
+        throw new ToolError(
+          `Failed to build sandbox image "${image}" from ${dockerfile}. ` +
+          'Check Docker is running and try building manually: ' +
+          `docker build --no-cache -t ${image} -f ${dockerfile} ${resolve(dockerfile, '..')}` +
+          detail,
+          'bash',
+        );
+      }
+    }
+
+    // Dockerfile not found — can't build the local-only image and pulling won't work.
+    throw new ToolError(
+      `Cannot find Dockerfile.sandbox to build "${image}". ` +
+      'This image is built locally and is not available from a registry. ' +
+      'If you have the Vellum source tree, build it manually:\n' +
+      '  docker build --no-cache -t vellum-sandbox:latest -f Dockerfile.sandbox .\n' +
+      'Or set sandbox.docker.image to a different image in your config.',
+      'bash',
+    );
   }
 
   log.info(`Docker image "${image}" not found locally, pulling...`);

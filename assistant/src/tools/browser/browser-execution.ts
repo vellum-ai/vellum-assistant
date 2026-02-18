@@ -224,7 +224,7 @@ export async function executeBrowserNavigate(
       if (navMsg.includes('Timeout') || navMsg.includes('timeout')) {
         // If the page URL never changed from before navigation, the page
         // never actually loaded — re-throw instead of reporting success.
-        if (page.url() === urlBeforeNav) {
+        if (page.url() === urlBeforeNav && urlBeforeNav !== parsedUrl.href) {
           throw navErr;
         }
         navigationTimedOut = true;
@@ -319,6 +319,19 @@ export async function executeBrowserNavigate(
             const newTitle = await page.title();
             lines.push('');
             lines.push(`CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`);
+
+            // Re-check for auth challenges — the page behind the CAPTCHA may have a login form
+            const postCaptchaAuth = await detectAuthChallenge(page);
+            if (postCaptchaAuth) {
+              lines.push('');
+              lines.push(formatAuthChallenge(postCaptchaAuth));
+              lines.push('');
+              lines.push('Handle this by using browser tools to interact with the login form:');
+              lines.push('1. Use browser_snapshot to find the sign-in form elements');
+              lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
+              lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
+              lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
+            }
           } else {
             lines.push('');
             lines.push('⚠️ CAPTCHA/Cloudflare verification detected on this page.');

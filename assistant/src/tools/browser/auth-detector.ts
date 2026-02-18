@@ -240,6 +240,14 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
     if (rect.width > 0 && rect.height > 0) return true;
   }
 
+  // hCaptcha fallback — catch custom-rendered hCaptcha in arbitrary host elements
+  // by looking for any visible hCaptcha iframe (check all, not just the first)
+  const hcaptchaIframes = document.querySelectorAll('iframe[src*="hcaptcha"]');
+  for (const iframe of hcaptchaIframes) {
+    const rect = iframe.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
+
   return false;
 })()`;
 

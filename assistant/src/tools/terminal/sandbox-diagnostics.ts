@@ -2,6 +2,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import { isMacOS, isLinux, getSandboxWorkingDir } from '../../util/platform.js';
 import { getConfig } from '../../config/loader.js';
 import type { SandboxConfig } from '../../config/schema.js';
+import { DEFAULT_SANDBOX_IMAGE } from './backends/docker.js';
 
 export interface SandboxCheckResult {
   label: string;
@@ -43,7 +44,11 @@ function checkDockerImage(image: string): SandboxCheckResult {
     execFileSync('docker', ['image', 'inspect', image], { stdio: 'pipe', timeout: 10000 });
     return { label: `Docker image available (${image})`, ok: true };
   } catch {
-    return { label: `Docker image available (${image})`, ok: false, detail: `pull with: docker pull ${image}` };
+    // The default sandbox image is built locally from Dockerfile.sandbox — docker pull won't work.
+    const remediation = image === DEFAULT_SANDBOX_IMAGE
+      ? 'build with: docker build --no-cache -t vellum-sandbox:latest -f Dockerfile.sandbox .'
+      : `pull with: docker pull ${image}`;
+    return { label: `Docker image available (${image})`, ok: false, detail: remediation };
   }
 }
 

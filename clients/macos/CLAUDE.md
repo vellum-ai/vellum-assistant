@@ -86,6 +86,14 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
 - `DaemonClient` — `@MainActor`, Unix domain socket (`~/.vellum/vellum.sock`), auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
 - `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
+- `IPC/Generated/IPCContractGenerated.swift` — **auto-generated** Swift types from the TypeScript IPC contract. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
+
+**When modifying `assistant/src/daemon/ipc-contract.ts`** (adding/changing message types), you MUST run these commands from the `assistant/` directory:
+```bash
+bun run generate:ipc              # regenerate IPCContractGenerated.swift
+bun run ipc:inventory:update      # regenerate ipc-contract-inventory.json
+```
+Both generated files must be committed alongside your contract changes. CI checks (`check:ipc-generated` and `ipc:inventory`) will fail if they are out of sync.
 
 `AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Still used by `KnowledgeCron` for local insight analysis (direct Haiku calls, not through daemon).
 

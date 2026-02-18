@@ -2,7 +2,6 @@ import AppKit
 import VellumAssistantShared
 import Combine
 import CoreText
-import HotKey
 import SwiftUI
 import UserNotifications
 import os
@@ -74,7 +73,7 @@ enum InteractionType {
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
-    private var hotKey: HotKey?
+    private var hotKeyMonitor: Any?
     private var escapeMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
@@ -259,7 +258,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindow?.close()
             settingsWindow = nil
 
-            hotKey = nil
+            if let hotKeyMonitor {
+                NSEvent.removeMonitor(hotKeyMonitor)
+                self.hotKeyMonitor = nil
+            }
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
@@ -674,9 +676,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey
 
     private func setupHotKey() {
-        hotKey = HotKey(key: .g, modifiers: [.command, .shift])
-        hotKey?.keyDownHandler = { [weak self] in
-            self?.showMainWindow()
+        // Use NSEvent global monitor instead of Carbon RegisterEventHotKey (HotKey package).
+        // Carbon hotkeys consume the event globally, preventing other apps from seeing the
+        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming, so Cmd+Shift+G
+        // still reaches the frontmost app.
+        hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
+                  event.charactersIgnoringModifiers == "g" else { return }
+            Task { @MainActor in
+                self?.showMainWindow()
+            }
         }
     }
 

@@ -743,6 +743,8 @@ describe('Trust Store', () => {
         'host_file_write',
         'scaffold_managed_skill',
         'skill_load',
+        'ui_dismiss',
+        'ui_update',
       ]);
     });
 

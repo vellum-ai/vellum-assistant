@@ -379,6 +379,13 @@ jobs:
           (cd cli && zip -r ../cli.zip .)
           ls -lh cli.zip
 
+      - name: Download install.sh from velly repo
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/vellum-ai/velly/contents/install.sh --jq '.content' | base64 -d > install.sh
+          chmod +x install.sh
+
       - name: Download macOS build artifacts
         id: download-macos
         if: needs.build-macos.result == 'success'
@@ -425,6 +432,9 @@ jobs:
           [ -f "assistant.zip" ] && ASSETS+=("assistant.zip#assistant.zip")
           [ -f "cli.zip" ] && ASSETS+=("cli.zip#cli.zip")
           [ -f "gateway.zip" ] && ASSETS+=("gateway.zip#gateway.zip")
+
+          # Include install script
+          [ -f "install.sh" ] && ASSETS+=("install.sh#install.sh")
 
           # Include macOS artifacts if the build succeeded
           if [ -d "macos-artifacts" ]; then

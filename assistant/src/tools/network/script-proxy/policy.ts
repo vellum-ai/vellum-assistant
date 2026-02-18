@@ -37,6 +37,11 @@ export function evaluateRequest(
     if (!tpls) continue;
 
     for (const tpl of tpls) {
+      // Query templates are handled via URL rewriting in the MITM path
+      // and can't be injected by the HTTP forwarder. Exclude them so
+      // a host with both query and header templates doesn't appear
+      // ambiguous — consistent with the MITM rewriteCallback filtering.
+      if (tpl.injectionType === 'query') continue;
       if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
         candidates.push({ credentialId: id, template: tpl });
       }
@@ -100,9 +105,13 @@ export function evaluateRequestWithApproval(
 
   const target: RequestTargetContext = { hostname, port, path, scheme };
 
-  // Check whether any template in the full registry covers this host.
+  // Check whether any non-query template in the full registry covers this
+  // host. Query templates are excluded for consistency with evaluateRequest
+  // — they're handled via URL rewriting in the MITM path and shouldn't
+  // cause a false ask_missing_credential on the HTTP forwarder path.
   const matchingPatterns: string[] = [];
   for (const tpl of allKnownTemplates) {
+    if (tpl.injectionType === 'query') continue;
     if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
       matchingPatterns.push(tpl.hostPattern);
     }
