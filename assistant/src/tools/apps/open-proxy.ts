@@ -33,6 +33,9 @@ export async function openAppViaSurface(
       app_id: appId,
       ...extraInput,
     });
+    if (result.isError) {
+      return 'Failed to auto-open app. Use app_open to open it manually.';
+    }
     return result.content;
   } catch {
     return 'Failed to auto-open app. Use app_open to open it manually.';
