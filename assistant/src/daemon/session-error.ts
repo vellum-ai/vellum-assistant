@@ -33,6 +33,17 @@ const RATE_LIMIT_PATTERNS = [
   /overloaded/i,
 ];
 
+// Context-too-large patterns (request exceeds the model's context window)
+const CONTEXT_TOO_LARGE_PATTERNS = [
+  /context.?length.?exceeded/i,
+  /maximum.?context.?length/i,
+  /token.?limit.?exceeded/i,
+  /prompt.?is.?too.?long/i,
+  /request too large/i,
+  /too many.*input.*tokens/i,
+  /max_tokens/i,
+];
+
 // Provider API error patterns (5xx, server error, etc.)
 const PROVIDER_API_PATTERNS = [
   /\b5\d{2}\b/,
@@ -152,8 +163,15 @@ function classifyCore(
         retryable: true,
       };
     }
-    // 4xx (non-429) — client-side issue, not retryable
+    // 4xx (non-429) — check for context-too-large before generic fallback
     if (error.statusCode >= 400) {
+      if (isContextTooLarge(message)) {
+        return {
+          code: 'CONTEXT_TOO_LARGE',
+          userMessage: 'The conversation is too long for the model to process. Start a new conversation or try a shorter message.',
+          retryable: false,
+        };
+      }
       return {
         code: 'PROVIDER_API',
         userMessage: 'The AI provider rejected the request. Please try again or check your settings.',
@@ -166,7 +184,21 @@ function classifyCore(
   return classifyByMessage(message);
 }
 
+/** Check whether an error message indicates a context-too-large failure. */
+export function isContextTooLarge(message: string): boolean {
+  return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
+}
+
 function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debugDetails'> {
+  // Check context-too-large before other patterns
+  if (isContextTooLarge(message)) {
+    return {
+      code: 'CONTEXT_TOO_LARGE',
+      userMessage: 'The conversation is too long for the model to process. Start a new conversation or try a shorter message.',
+      retryable: false,
+    };
+  }
+
   // Check rate limit first (before network, since 429 could match both)
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
