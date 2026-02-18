@@ -25,6 +25,7 @@ import {
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { registerSessionSender } from '../tools/browser/browser-screencast.js';
+import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -171,5 +172,80 @@ export function createToolExecutor(
     }
 
     return result;
+  };
+}
+
+// ── createProxyApprovalCallback ──────────────────────────────────────
+
+/**
+ * Build a proxy approval callback that routes `ask_missing_credential` and
+ * `ask_unauthenticated` policy decisions through the existing permission
+ * prompter UI. The proxy service calls this when an outbound request needs
+ * user confirmation before proceeding.
+ */
+export function createProxyApprovalCallback(
+  prompter: PermissionPrompter,
+  ctx: ToolSetupContext,
+): ProxyApprovalCallback {
+  return async (request: ProxyApprovalRequest): Promise<boolean> => {
+    const { decision } = request;
+    const { hostname, port, path } = decision.target;
+
+    // Build a display-friendly tool name and input for the prompter
+    const toolName = decision.kind === 'ask_missing_credential'
+      ? 'proxy:missing_credential'
+      : 'proxy:unauthenticated';
+
+    const input: Record<string, unknown> = {
+      hostname,
+      port,
+      path,
+      proxy_session_id: request.sessionId,
+    };
+    if (decision.kind === 'ask_missing_credential') {
+      input.matching_patterns = decision.matchingPatterns;
+    }
+
+    // Check trust store before prompting
+    const scope = `proxy:${hostname}`;
+    const candidates = [scope, `proxy:${hostname}`, 'proxy:*'];
+    const existingRule = findHighestPriorityRule(toolName, candidates, ctx.workingDir);
+    if (existingRule && existingRule.decision !== 'ask') {
+      return existingRule.decision === 'allow';
+    }
+
+    // Build allowlist options for the prompter
+    const portSuffix = port ? `:${port}` : '';
+    const allowlistOptions = [
+      { label: `proxy:${hostname}${portSuffix}`, description: `Proxy requests to ${hostname}`, pattern: `proxy:${hostname}` },
+      { label: 'proxy:*', description: 'All proxied requests', pattern: 'proxy:*' },
+    ];
+
+    const scopeOptions = generateScopeOptions(ctx.workingDir);
+    const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
+
+    const response = await prompter.prompt(
+      toolName,
+      input,
+      riskLevel,
+      allowlistOptions,
+      scopeOptions,
+      undefined,
+      undefined,
+      ctx.conversationId,
+    );
+
+    // Persist trust rule if the user chose "always allow" or "always deny"
+    if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
+        response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
+    }
+    if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
+    }
+
+    return response.decision === 'allow'
+      || response.decision === 'always_allow'
+      || response.decision === 'always_allow_high_risk';
   };
 }
