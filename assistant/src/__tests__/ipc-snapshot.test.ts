@@ -1253,7 +1253,7 @@ describe('IPC message snapshots', () => {
     });
 
     test('session_list_response sessions include threadType field', () => {
-      const list = serverMessages.session_list_response;
+      const list = serverMessages.session_list_response as unknown as { sessions: Array<Record<string, unknown>> };
       for (const s of list.sessions) {
         expect('threadType' in s).toBe(true);
         expect(s.threadType).toBe('standard');

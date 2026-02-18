@@ -519,7 +519,7 @@ describe('createProxyApprovalCallback', () => {
     // Verify findHighestPriorityRule was called with network_request
     // and URL-based candidates
     expect(findHighestPriorityRuleMock).toHaveBeenCalledTimes(1);
-    const [toolArg, candidatesArg] = findHighestPriorityRuleMock.mock.calls[0] as [string, string[], string];
+    const [toolArg, candidatesArg] = findHighestPriorityRuleMock.mock.calls[0] as unknown as [string, string[], string];
     expect(toolArg).toBe('network_request');
     // Candidates should include URL-based patterns
     expect(candidatesArg.some((c: string) => c.startsWith('network_request:https://api.fal.ai'))).toBe(true);
