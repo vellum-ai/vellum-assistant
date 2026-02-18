@@ -484,8 +484,15 @@ struct MainWindowView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { _ in
-            windowState.selection = .panel(.documentEditor)
+        .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
+            guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }
+            if documentManager.hasActiveDocument && documentManager.surfaceId == surfaceId {
+                // Document already in memory — just show the panel
+                windowState.selection = .panel(.documentEditor)
+            } else {
+                // Load from daemon — handleDocumentLoadResponse will open the panel when ready
+                try? daemonClient.sendDocumentLoad(surfaceId: surfaceId)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
             if let updated = notification.userInfo?["surface"] as? Surface,

@@ -180,6 +180,12 @@ struct DocumentEditorView: NSViewRepresentable {
             isInitialized = true
             log.info("Document editor loaded")
             print("✅ WebView finished loading - editor initialized!")
+            // Apply any content that accumulated while the WebView was loading
+            // (document_editor_update messages that arrived before isInitialized was set)
+            let tracked = documentManager.currentContent
+            if !tracked.isEmpty {
+                setInitialContent(title: documentManager.title, markdown: tracked)
+            }
         }
 
         private func escapeForJS(_ str: String) -> String {
