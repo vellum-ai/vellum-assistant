@@ -122,7 +122,8 @@ export interface HandlerContext {
 
 /**
  * Query the main display dimensions via CoreGraphics.
- * Cached after the first successful call; falls back to 1920x1080.
+ * Cached after the first call (including fallback) so the slow Swift
+ * subprocess is never spawned more than once per process lifetime.
  */
 export function getScreenDimensions(): { width: number; height: number } {
   if (cachedScreenDims) return cachedScreenDims;
@@ -139,7 +140,8 @@ export function getScreenDimensions(): { width: number; height: number } {
   } catch (err) {
     log.debug({ err }, 'Failed to query screen dimensions, using fallback');
   }
-  return FALLBACK_SCREEN;
+  cachedScreenDims = FALLBACK_SCREEN;
+  return cachedScreenDims;
 }
 
 /**
