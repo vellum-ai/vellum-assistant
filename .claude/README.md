@@ -159,6 +159,49 @@ Reads a plan file from `.private/plans/`, then sequentially implements and mainl
 /execute-plan AUTH_REFACTOR.md   # executes .private/plans/AUTH_REFACTOR.md
 ```
 
+### `/safe-execute-plan` / `/safe-check-review` / `/resume-plan` - Human-in-the-loop plan execution
+
+A three-command workflow for executing plans one PR at a time with human review between each step:
+
+1. `/safe-execute-plan <file>` — implement the first PR and stop for review
+2. `/safe-check-review [file]` — check for reviewer feedback, push fixes if needed, confirm ready to merge
+3. `/resume-plan [file]` — merge the current PR, implement the next one, stop for review again
+
+Multiple plans can run in parallel by specifying the plan name.
+
+### `/safe-blitz` - End-to-end feature execution on a feature branch
+
+Like `/blitz` but creates a dedicated feature branch and opens a final PR into main for human review instead of merging automatically.
+
+```
+/safe-blitz Add WebSocket transport for daemon IPC
+/safe-blitz --auto Refactor the logger
+/safe-blitz --workers 5 --branch feature/dark-mode Add dark mode support
+```
+
+**Flags:** `--auto` (skip pauses), `--workers N` (parallel workers, default 12), `--skip-plan` (use existing "Ready" issues), `--branch NAME` (custom branch name)
+
+### `/safe-blitz-done` - Finalize a safe-blitz
+
+Squash-merges the feature branch PR into main, closes the project issue, and cleans up the local branch. Auto-detects the PR from the current branch, open `feature/*` PRs, or the project board.
+
+### `/ship-and-merge` - Ship with automated review loop
+
+Ships uncommitted changes via a PR, waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges.
+
+### `/plan-html` - Create or refresh a plan with HTML view
+
+Creates or refreshes a rollout plan in `.private/plans/` with both markdown and a polished HTML review view (per-PR file lists, dependency diagram).
+
+### `/release` - Cut a release
+
+Pulls main, determines/creates a version tag, generates release notes from commits, publishes a GitHub Release, and confirms CI was triggered.
+
+```
+/release        # auto-increments patch version
+/release v1.2.0 # specific version
+```
+
 ### `/scrub` - Kill, wipe, and relaunch the macOS app
 
 Kills the running vellum-assistant app, deletes all persistent data (logs, knowledge store, caches, UserDefaults) so the next launch behaves like a first run (including onboarding), then starts the daemon and rebuilds/launches the app.

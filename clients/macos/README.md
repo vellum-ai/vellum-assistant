@@ -6,7 +6,7 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to a network-accessible daemon via TCP.
 
-**Status:** Basic structure in place (PR 4 of 13). The iOS target requires xcodebuild with iOS SDK to build - it cannot be built with `swift build` on macOS due to UIKit dependencies.
+**Status:** Fully functional. The iOS target requires xcodebuild with iOS SDK to build — it cannot be built with `swift build` on macOS due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
 
 **Code organization:**
 - `clients/shared/` — Shared library (IPC layer, chat models/ViewModels, design system)

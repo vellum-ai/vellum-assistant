@@ -136,7 +136,7 @@ swift test --filter VellumAssistantSharedTests
 | Connection mode | `connection_mode` | `Standalone` | `Standalone` or `Connected to Mac` |
 | Daemon hostname | `daemon_hostname` | `localhost` | Mac hostname or IP |
 | Daemon port | `daemon_port` | `8765` | Daemon TCP port |
-| Session token | see `DaemonConfig.fromUserDefaults()` | — | Token from `~/.vellum/session-token` on Mac |
+| Session token | Keychain (device) / UserDefaults (simulator), provider key `"daemon-token"` | — | Token from `~/.vellum/session-token` on Mac |
 | Use TLS | `daemon_tls_enabled` | `false` | Enable TLS for TCP connection |
 | Anthropic API key | (UserDefaults on simulator, Keychain on device) | — | For standalone mode |
 

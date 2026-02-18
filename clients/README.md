@@ -8,17 +8,21 @@ This directory contains native client applications for the Vellum Assistant, org
 clients/
 ├── Package.swift              # Multi-platform Swift Package Manager manifest
 ├── shared/                    # VellumAssistantShared - cross-platform code
-│   ├── IPC/                   # Daemon communication (both macOS and iOS)
-│   └── App/                   # Shared app utilities
+│   ├── IPC/                   # Daemon communication (DaemonClient, DaemonConfig, IPCMessages)
+│   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
+│   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
+│   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
+│   ├── Utilities/             # Shared utilities (APIKeyManager, PermissionManager)
+│   └── App/                   # Shared app utilities (SigningIdentityManager)
 ├── macos/                     # macOS-specific code
 │   ├── vellum-assistant/      # VellumAssistantLib - macOS app logic
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── CLAUDE.md              # Development guide for Claude Code
 └── ios/                       # iOS-specific code
-    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate)
-    ├── Views/                 # SwiftUI views (ChatTabView, MessageBubbleView, etc.)
-    └── Resources/             # Assets, Info.plist
+    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, UserDefaultsKeys)
+    ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, SettingsView, etc.)
+    └── Resources/             # Assets, Info.plist, background.png
 ```
 
 ## Targets
@@ -34,9 +38,12 @@ clients/
   - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
-- **Shared utilities** (signing, configuration)
+- **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
+- **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
+- **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `FeatureFlagManager`)
+- **Shared app utilities** (signing identity management)
 
-**Dependencies**: None (only system frameworks: Network)
+**Dependencies**: None (only system frameworks: Network, Security)
 
 ### VellumAssistantLib (Library)
 **Platforms**: macOS 14+ only
@@ -174,11 +181,7 @@ After migration:
 ## Documentation
 
 - **macOS development**: See `clients/macos/CLAUDE.md`
-- **iOS rollout plan**: See `.private/plans/sharded-mapping-shannon.md` (13 PRs)
-- **Completed iOS PRs**:
-  - PR #1821: iOS shared library foundation
-  - PR #1973: iOS app target with basic structure
-  - PR #1975: iOS chat interface implementation
+- **iOS development**: See `clients/ios/README.md`
 
 ## Testing
 
