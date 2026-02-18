@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { computeMemoryFingerprint } from './fingerprint.js';
 import * as schema from './schema.js';
 import { getDbPath, ensureDataDir, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 
@@ -1004,8 +1004,7 @@ function migrateMemoryItemsScopeSaltedFingerprints(database: ReturnType<typeof d
     );
 
     for (const item of items) {
-      const normalized = `${item.scope_id}|${item.kind}|${item.subject.toLowerCase()}|${item.statement.toLowerCase()}`;
-      const fingerprint = createHash('sha256').update(normalized).digest('hex');
+      const fingerprint = computeMemoryFingerprint(item.scope_id, item.kind, item.subject, item.statement);
       updateStmt.run(fingerprint, item.id);
     }
 

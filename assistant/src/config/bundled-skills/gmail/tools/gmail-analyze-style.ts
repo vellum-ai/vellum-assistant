@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
@@ -6,6 +5,7 @@ import type { Message, ToolDefinition } from '../../../../providers/types.js';
 import { getProvider } from '../../../../providers/registry.js';
 import { getConfig } from '../../../../config/loader.js';
 import { getDb } from '../../../../memory/db.js';
+import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
 import { memoryItems } from '../../../../memory/schema.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import * as gmail from '../client.js';
@@ -111,8 +111,7 @@ function upsertMemoryItem(opts: {
 }): void {
   const db = getDb();
   const now = Date.now();
-  const normalized = `${opts.scopeId}|${opts.kind}|${opts.subject.toLowerCase()}|${opts.statement.toLowerCase()}`;
-  const fingerprint = createHash('sha256').update(normalized).digest('hex');
+  const fingerprint = computeMemoryFingerprint(opts.scopeId, opts.kind, opts.subject, opts.statement);
 
   const existing = db
     .select()
