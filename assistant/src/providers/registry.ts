@@ -6,8 +6,7 @@ import { OllamaProvider } from "./ollama/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { RetryProvider } from "./retry.js";
 import { FailoverProvider } from "./failover.js";
-import { LogfireProvider } from "./logfire.js";
-import { LOGFIRE_ENABLED } from "../flags.js";
+import { wrapWithLogfire } from "../logfire.js";
 import { ConfigError } from "../util/errors.js";
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -80,11 +79,6 @@ export interface ProvidersConfig {
   apiKeys: Record<string, string>;
   provider: string;
   model: string;
-}
-
-function wrapWithLogfire(provider: Provider): Provider {
-  if (!LOGFIRE_ENABLED) return provider;
-  return new LogfireProvider(provider);
 }
 
 function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
