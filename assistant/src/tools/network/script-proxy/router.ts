@@ -49,7 +49,7 @@ export function routeConnection(
     if (!tpls) continue;
 
     for (const tpl of tpls) {
-      if (minimatch(hostname, tpl.hostPattern)) {
+      if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
         return { action: 'mitm', reason: 'mitm:credential_injection' };
       }
     }

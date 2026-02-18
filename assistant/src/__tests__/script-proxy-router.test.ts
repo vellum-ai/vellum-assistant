@@ -119,6 +119,17 @@ describe('routeConnection', () => {
     });
   });
 
+  test('matches hostnames case-insensitively', () => {
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-fal', [headerTemplate('*.fal.ai')]],
+    ]);
+    const result = routeConnection('API.FAL.AI', 443, ['cred-fal'], templates);
+    expect(result).toEqual<RouteDecision>({
+      action: 'mitm',
+      reason: 'mitm:credential_injection',
+    });
+  });
+
   test('returns mitm when one credential has multiple templates and one matches', () => {
     const templates = new Map<string, CredentialInjectionTemplate[]>([
       ['cred-multi', [headerTemplate('*.openai.com'), headerTemplate('*.fal.ai')]],
