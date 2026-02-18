@@ -31,6 +31,10 @@ export async function initLogfire(): Promise<void> {
       token: process.env.LOGFIRE_TOKEN,
       serviceName: 'vellum-assistant',
       serviceVersion: APP_VERSION,
+      nodeAutoInstrumentations: {
+        '@opentelemetry/instrumentation-runtime-node': { enabled: false },
+        '@opentelemetry/instrumentation-fs': { enabled: false },
+      },
     });
     logfireInstance = logfire;
     log.info('Logfire initialized');
