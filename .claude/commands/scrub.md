@@ -55,7 +55,7 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 9. Start the daemon fresh from the repo root (in background):
    ```bash
-   cd assistant && bun run src/index.ts daemon start > ~/.vellum/daemon-stdout.log 2>&1 & cd ..
+   cd assistant && bun run src/index.ts daemon start > ~/.vellum/daemon-stdout.log 2>&1 &
    ```
    Wait a moment for the daemon to initialize:
    ```bash
