@@ -400,7 +400,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             self?.onInlineConfirmationResponse?(requestId, decision)
         }
         viewModel.onWatchStarted = { [weak self] msg, client in
-            guard let self, let concreteClient = client as? DaemonClient else { return }
+            guard let self else { return }
             let session = WatchSession(
                 watchId: msg.watchId,
                 sessionId: msg.sessionId,
@@ -408,7 +408,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 intervalSeconds: Int(msg.intervalSeconds)
             )
             self.ambientAgent?.activeWatchSession = session
-            session.start(daemonClient: concreteClient)
+            session.start(daemonClient: client)
         }
         viewModel.onWatchCompleteRequest = { [weak self] _ in
             self?.ambientAgent?.activeWatchSession?.stop()
