@@ -967,6 +967,10 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     /// Lightweight session transport metadata for channel identity and natural-language guidance.
     public let transport: IPCSessionTransportMetadata?
     public let threadType: String?
+    /// Skill IDs to pre-activate in the new session (loaded before the first message).
+    public let preactivatedSkillIds: [String]?
+    /// If provided, automatically sent as the first user message after session creation.
+    public let initialMessage: String?
 }
 
 public struct IPCSessionInfo: Codable, Sendable {

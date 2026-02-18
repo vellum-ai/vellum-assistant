@@ -74,6 +74,10 @@ export interface SessionCreateRequest {
   correlationId?: string;
   transport?: SessionTransportMetadata;
   threadType?: 'standard' | 'private';
+  /** Skill IDs to pre-activate in the new session (loaded before the first message). */
+  preactivatedSkillIds?: string[];
+  /** If provided, automatically sent as the first user message after session creation. */
+  initialMessage?: string;
 }
 
 export interface SessionSwitchRequest {
