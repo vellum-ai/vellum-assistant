@@ -629,6 +629,80 @@ describe('Memory regressions', () => {
     expect(updated!.verificationState).toBe('user_confirmed');
   });
 
+  test('private thread cannot update default-scope item by ID', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const { handleMemoryUpdate } = await import('../tools/memory/handlers.js');
+
+    // Pre-seed an item in the default scope
+    db.insert(memoryItems).values({
+      id: 'item-default-no-cross',
+      kind: 'fact',
+      subject: 'cross-scope update',
+      statement: 'Original default-scope statement',
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.6,
+      fingerprint: 'fp-default-no-cross',
+      verificationState: 'assistant_inferred',
+      scopeId: 'default',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastUsedAt: null,
+    }).run();
+
+    // Attempt to update from a private scope — should fail with "not found"
+    const result = await handleMemoryUpdate(
+      { memory_id: 'item-default-no-cross', statement: 'Hijacked statement' },
+      DEFAULT_CONFIG,
+      'private-thread-xyz',
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not found');
+
+    // Verify the original item is unchanged
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-default-no-cross')).get();
+    expect(item).toBeDefined();
+    expect(item!.statement).toBe('Original default-scope statement');
+  });
+
+  test('standard thread cannot update private-scope item by ID', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const { handleMemoryUpdate } = await import('../tools/memory/handlers.js');
+
+    // Pre-seed an item in a private scope
+    db.insert(memoryItems).values({
+      id: 'item-private-no-cross',
+      kind: 'preference',
+      subject: 'cross-scope update reverse',
+      statement: 'Private scope secret preference',
+      status: 'active',
+      confidence: 0.9,
+      importance: 0.7,
+      fingerprint: 'fp-private-no-cross',
+      verificationState: 'user_confirmed',
+      scopeId: 'private-thread-abc',
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastUsedAt: null,
+    }).run();
+
+    // Attempt to update from the default scope — should fail with "not found"
+    const result = await handleMemoryUpdate(
+      { memory_id: 'item-private-no-cross', statement: 'Overwritten from default' },
+      DEFAULT_CONFIG,
+      'default',
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not found');
+
+    // Verify the original item is unchanged
+    const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-private-no-cross')).get();
+    expect(item).toBeDefined();
+    expect(item!.statement).toBe('Private scope secret preference');
+  });
+
   test('extracted items from user messages get user_reported verification state', async () => {
     const db = getDb();
     const now = Date.now();

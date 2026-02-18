@@ -53,9 +53,9 @@ class MemoryUpdateTool implements Tool {
     return memoryUpdateDefinition;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemoryUpdate(input, config);
+    return handleMemoryUpdate(input, config, context.memoryScopeId);
   }
 }
 

@@ -149,6 +149,7 @@ export async function handleMemorySave(
 export async function handleMemoryUpdate(
   args: Record<string, unknown>,
   _config: AssistantConfig,
+  scopeId: string = 'default',
 ): Promise<ToolExecutionResult> {
   const rawMemoryId = args.memory_id;
   if (typeof rawMemoryId !== 'string' || rawMemoryId.trim().length === 0) {
@@ -165,10 +166,13 @@ export async function handleMemoryUpdate(
 
   try {
     const db = getDb();
+
+    // Constrain lookup to the current scope so threads cannot mutate
+    // memory items belonging to a different scope.
     const existing = db
       .select()
       .from(memoryItems)
-      .where(eq(memoryItems.id, memoryId))
+      .where(and(eq(memoryItems.id, memoryId), eq(memoryItems.scopeId, scopeId)))
       .get();
 
     if (!existing) {
@@ -178,13 +182,16 @@ export async function handleMemoryUpdate(
     const now = Date.now();
     const trimmedStatement = statement.trim().slice(0, 500);
 
-    const normalized = `${existing.kind}|${existing.subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
+    // Salt fingerprint with scopeId so identical statements in different
+    // scopes stay distinct — mirrors the pattern in handleMemorySave.
+    const normalized = `${scopeId}|${existing.kind}|${existing.subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
 
+    // Collision detection also constrained to the current scope.
     const collision = db
       .select({ id: memoryItems.id })
       .from(memoryItems)
-      .where(eq(memoryItems.fingerprint, fingerprint))
+      .where(and(eq(memoryItems.fingerprint, fingerprint), eq(memoryItems.scopeId, scopeId)))
       .get();
     if (collision && collision.id !== existing.id) {
       return {
