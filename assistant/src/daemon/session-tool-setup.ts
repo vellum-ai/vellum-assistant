@@ -13,7 +13,7 @@ import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateScopeOptions } from '../permissions/checker.js';
+import { generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { coreAppProxyTools } from '../tools/apps/definitions.js';
@@ -190,35 +190,40 @@ export function createProxyApprovalCallback(
     const { decision } = request;
     const { hostname, port, path } = decision.target;
 
-    // Build a display-friendly tool name and input for the prompter
-    const toolName = decision.kind === 'ask_missing_credential'
-      ? 'proxy:missing_credential'
-      : 'proxy:unauthenticated';
+    // Use the standard network_request tool name so trust rules align with
+    // the checker's URL-based candidate generation and allowlist options.
+    const toolName = 'network_request';
+    const url = `https://${hostname}${port ? ':' + port : ''}${path}`;
 
     const input: Record<string, unknown> = {
-      hostname,
-      port,
-      path,
+      url,
       proxy_session_id: request.sessionId,
     };
     if (decision.kind === 'ask_missing_credential') {
       input.matching_patterns = decision.matchingPatterns;
     }
 
-    // Check trust store before prompting
-    const scope = `proxy:${hostname}`;
-    const candidates = [scope, `proxy:${hostname}`, 'proxy:*'];
-    const existingRule = findHighestPriorityRule(toolName, candidates, ctx.workingDir);
+    // Check trust store before prompting — build candidates that mirror
+    // buildCommandCandidates() in checker.ts for network_request.
+    let urlObj: URL | null = null;
+    try { urlObj = new URL(url); } catch { /* invalid URL — fall through */ }
+
+    const candidates: string[] = [`${toolName}:${url}`];
+    if (urlObj) {
+      candidates.push(`${toolName}:${urlObj.href}`);
+      candidates.push(`${toolName}:${urlObj.origin}/*`);
+    }
+    candidates.push(`${toolName}:*`);
+    // Deduplicate
+    const uniqueCandidates = [...new Set(candidates)];
+
+    const existingRule = findHighestPriorityRule(toolName, uniqueCandidates, ctx.workingDir);
     if (existingRule && existingRule.decision !== 'ask') {
       return existingRule.decision === 'allow';
     }
 
-    // Build allowlist options for the prompter
-    const portSuffix = port ? `:${port}` : '';
-    const allowlistOptions = [
-      { label: `proxy:${hostname}${portSuffix}`, description: `Proxy requests to ${hostname}`, pattern: `proxy:${hostname}` },
-      { label: 'proxy:*', description: 'All proxied requests', pattern: 'proxy:*' },
-    ];
+    // Use the checker's built-in allowlist generation for network_request
+    const allowlistOptions = generateAllowlistOptions('network_request', { url });
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
     const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
