@@ -3,6 +3,31 @@ import { SubagentManager } from '../subagent/manager.js';
 import type { SubagentState } from '../subagent/types.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 
+/** Minimal shape matching the private ManagedSubagent interface for test injection. */
+interface FakeManagedSubagent {
+  session: {
+    abort: () => void;
+    dispose: () => void;
+    messages: Array<{ role: string; content: Array<{ type: string; text: string }> }>;
+    sendToClient: () => void;
+    loadFromDb?: () => Promise<void>;
+    persistUserMessage?: (msg: string) => string;
+    runAgentLoop?: () => Promise<void>;
+  };
+  state: SubagentState;
+}
+
+/** Type-safe accessor for SubagentManager's private internals via bracket notation. */
+interface ManagerInternals {
+  subagents: Map<string, FakeManagedSubagent>;
+  parentToChildren: Map<string, Set<string>>;
+  runSubagent: (subagentId: string, objective: string, sendToClient: (msg: ServerMessage) => void) => Promise<void>;
+}
+
+function asInternals(manager: SubagentManager): ManagerInternals {
+  return manager as unknown as ManagerInternals;
+}
+
 /**
  * Inject a fake managed subagent into the manager's private maps
  * so we can test abort/notification logic without needing a real Session.
@@ -12,16 +37,16 @@ function injectFakeSubagent(
   subagentId: string,
   state: SubagentState,
 ): void {
-  const fakeSession = {
+  const fakeSession: FakeManagedSubagent['session'] = {
     abort: () => {},
     dispose: () => {},
     messages: [],
     sendToClient: () => {},
   };
 
-  // Access private maps via bracket notation.
-  const subagents = (manager as any).subagents as Map<string, any>;
-  const parentToChildren = (manager as any).parentToChildren as Map<string, Set<string>>;
+  const internals = asInternals(manager);
+  const subagents = internals.subagents;
+  const parentToChildren = internals.parentToChildren;
 
   subagents.set(subagentId, { session: fakeSession, state });
 
@@ -80,15 +105,15 @@ describe('SubagentManager abort notification', () => {
     const subagentId = 'sub-1';
     injectFakeSubagent(manager, subagentId, makeState(subagentId));
 
-    const clientMessages: any[] = [];
+    const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
     manager.abort(subagentId, sendToClient);
 
     const statusMsg = clientMessages.find((m) => m.type === 'subagent_status_changed');
     expect(statusMsg).toBeDefined();
-    expect(statusMsg.subagentId).toBe(subagentId);
-    expect(statusMsg.status).toBe('aborted');
+    expect((statusMsg as Record<string, unknown>).subagentId).toBe(subagentId);
+    expect((statusMsg as Record<string, unknown>).status).toBe('aborted');
   });
 
   test('abort returns false for unknown subagent', () => {
@@ -131,7 +156,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     injectFakeSubagent(manager, subagentId, state);
 
     // Patch the fake session to simulate a successful agent loop.
-    const managed = (manager as any).subagents.get(subagentId);
+    const managed = asInternals(manager).subagents.get(subagentId)!;
     managed.session.loadFromDb = async () => {};
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {};
@@ -144,11 +169,11 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    const clientMessages: any[] = [];
+    const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
     // Call private runSubagent directly.
-    await (manager as any).runSubagent(subagentId, 'Do something', sendToClient);
+    await asInternals(manager).runSubagent(subagentId, 'Do something', sendToClient);
 
     expect(state.status).toBe('completed');
     expect(notifications).toHaveLength(1);
@@ -165,7 +190,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     injectFakeSubagent(manager, subagentId, state);
 
     // Patch the fake session to simulate a failure.
-    const managed = (manager as any).subagents.get(subagentId);
+    const managed = asInternals(manager).subagents.get(subagentId)!;
     managed.session.loadFromDb = async () => {};
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {
@@ -177,10 +202,10 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    const clientMessages: any[] = [];
+    const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
-    await (manager as any).runSubagent(subagentId, 'Do something', sendToClient);
+    await asInternals(manager).runSubagent(subagentId, 'Do something', sendToClient);
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
@@ -196,7 +221,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     const state = makeState(subagentId, { status: 'aborted' });
     injectFakeSubagent(manager, subagentId, state);
 
-    const managed = (manager as any).subagents.get(subagentId);
+    const managed = asInternals(manager).subagents.get(subagentId)!;
     managed.session.loadFromDb = async () => {};
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {
@@ -208,7 +233,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    await (manager as any).runSubagent(subagentId, 'Do something', () => {});
+    await asInternals(manager).runSubagent(subagentId, 'Do something', () => {});
 
     // Should NOT notify — status was already terminal (aborted).
     expect(notifications).toHaveLength(0);
@@ -264,7 +289,7 @@ describe('SubagentManager abort race guard', () => {
     injectFakeSubagent(manager, subagentId, state);
 
     // Patch session to simulate successful completion after abort.
-    const managed = (manager as any).subagents.get(subagentId);
+    const managed = asInternals(manager).subagents.get(subagentId)!;
     managed.session.loadFromDb = async () => {};
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {};
@@ -277,7 +302,7 @@ describe('SubagentManager abort race guard', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    await (manager as any).runSubagent(subagentId, 'Do something', () => {});
+    await asInternals(manager).runSubagent(subagentId, 'Do something', () => {});
 
     // Should NOT notify — status was already terminal (aborted) when loop finished.
     expect(notifications).toHaveLength(0);

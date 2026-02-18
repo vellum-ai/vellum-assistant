@@ -1774,7 +1774,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
-    case subagentEvent(SubagentEventMessage)
+    indirect case subagentEvent(SubagentEventMessage)
     case pong
     case unknown(String)
 
