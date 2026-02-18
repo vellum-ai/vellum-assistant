@@ -64,6 +64,7 @@ export async function runHookScript(
     const { command, args } = spawnResult;
     const child = spawn(command, args, {
       cwd: hook.dir,
+      detached: true,
       env: {
         ...process.env,
         VELLUM_HOOK_EVENT: eventData.event,
@@ -89,10 +90,9 @@ export async function runHookScript(
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      child.kill('SIGTERM');
-      // Give the process a short grace period to exit after SIGTERM, then SIGKILL
+      try { process.kill(-child.pid!, 'SIGTERM'); } catch {}
       const killTimer = setTimeout(() => {
-        child.kill('SIGKILL');
+        try { process.kill(-child.pid!, 'SIGKILL'); } catch {}
       }, 2000);
       child.once('close', () => {
         clearTimeout(killTimer);

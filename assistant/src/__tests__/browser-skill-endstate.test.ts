@@ -64,10 +64,10 @@ describe('browser skill migration end-state', () => {
 
   test('startup tool definition count is reduced (no browser tools)', () => {
     const definitions = getAllToolDefinitions();
-    // Startup has exactly 48 definitions (no browser tools).
+    // Startup has exactly 51 definitions (no browser tools, includes ui_update/ui_dismiss).
     // Allow ±2 for minor additions/removals in unrelated modules.
-    expect(definitions.length).toBeGreaterThanOrEqual(46);
-    expect(definitions.length).toBeLessThanOrEqual(50);
+    expect(definitions.length).toBeGreaterThanOrEqual(49);
+    expect(definitions.length).toBeLessThanOrEqual(53);
 
     const defNames = definitions.map((d) => d.name);
     for (const name of BROWSER_TOOLS) {

@@ -45,8 +45,7 @@ describe('TypeScript hooks runner', () => {
 
   test('[experimental] runs .ts hook via bun run', async () => {
     const hook = createHook('ts-hook', 'run.ts', `
-import { readFileSync } from 'node:fs';
-const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
+const data = JSON.parse(await Bun.stdin.text());
 console.log(JSON.stringify({ event: data.event, ok: true }));
 `);
 
@@ -61,8 +60,7 @@ console.log(JSON.stringify({ event: data.event, ok: true }));
 
   test('[experimental] .ts hook receives event data on stdin', async () => {
     const hook = createHook('stdin-hook', 'handler.ts', `
-import { readFileSync } from 'node:fs';
-const data = JSON.parse(readFileSync('/dev/stdin', 'utf-8'));
+const data = JSON.parse(await Bun.stdin.text());
 console.log(data.customField);
 `);
 

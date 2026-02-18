@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 const TEST_DIR = join(tmpdir(), `vellum-migration-test-${randomBytes(4).toString('hex')}`);
 const WORKSPACE_DIR = join(TEST_DIR, 'workspace');
 const CONFIG_PATH = join(WORKSPACE_DIR, 'config.json');
-const STORE_PATH = join(TEST_DIR, 'keys.enc');
+const STORE_PATH = join(TEST_DIR, 'protected', 'keys.enc');
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -45,14 +45,26 @@ import { getSecureKey } from '../security/secure-keys.js';
 // Tests
 // ---------------------------------------------------------------------------
 
+const ENV_KEYS_TO_CLEAR = [
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY',
+  'OLLAMA_API_KEY', 'FIREWORKS_API_KEY', 'BRAVE_API_KEY', 'PERPLEXITY_API_KEY',
+] as const;
+
 describe('key migration', () => {
+  const savedEnv = new Map<string, string | undefined>();
+
   beforeEach(() => {
+    for (const key of ENV_KEYS_TO_CLEAR) {
+      savedEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
     mkdirSync(TEST_DIR, { recursive: true });
     mkdirSync(WORKSPACE_DIR, { recursive: true });
     mkdirSync(join(TEST_DIR, 'logs'), { recursive: true });
+    mkdirSync(join(TEST_DIR, 'protected'), { recursive: true });
     _setStorePath(STORE_PATH);
     _setBackend('encrypted');
     invalidateConfigCache();
@@ -62,6 +74,12 @@ describe('key migration', () => {
     _setStorePath(null);
     _setBackend(undefined);
     invalidateConfigCache();
+    for (const key of ENV_KEYS_TO_CLEAR) {
+      const val = savedEnv.get(key);
+      if (val !== undefined) process.env[key] = val;
+      else delete process.env[key];
+    }
+    savedEnv.clear();
   });
 
   test('[experimental] migrates plaintext apiKeys from config.json to secure storage', () => {

@@ -249,11 +249,10 @@ describe('policyCallback credential injection', () => {
       credentialMetadataList.push(resolved.metadata);
 
       const session = createSession(CONV_ID, ['cred-vanish'], undefined, DATA_DIR);
+      const started = await startSession(session.id);
 
       // Remove the resolution so the policyCallback's resolveById fails at request time
       resolveByIdResults.delete('cred-vanish');
-
-      const started = await startSession(session.id);
 
       const status = await proxyRequest(
         started.port!,
