@@ -13,10 +13,11 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
-import { attachments, messageAttachments, messages, conversations } from '../../memory/schema.js';
+import { attachments, messageAttachments, messages, conversations, conversationKeys } from '../../memory/schema.js';
 import type { StoredAttachment } from '../../memory/attachments-store.js';
 import { filterVisibleAttachments, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../memory/conversation-store.js';
+import { escapeSqlLike } from '../../memory/search/lexical.js';
 
 // ---------------------------------------------------------------------------
 // Recency presets — map human-readable labels to epoch-ms cutoff offsets
@@ -101,6 +102,25 @@ function getAttachmentVisibilityContext(attachmentId: string): AttachmentContext
 }
 
 // ---------------------------------------------------------------------------
+// Assistant ID lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the assistant ID that owns a conversation via the conversation_keys
+ * table. Returns null when no mapping exists (e.g. native macOS app sessions
+ * that use the implicit 'local-assistant' identity).
+ */
+function getAssistantIdForConversation(conversationId: string): string | null {
+  const db = getDb();
+  const row = db
+    .select({ assistantId: conversationKeys.assistantId })
+    .from(conversationKeys)
+    .where(eq(conversationKeys.conversationId, conversationId))
+    .get();
+  return row?.assistantId ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Search logic
 // ---------------------------------------------------------------------------
 
@@ -109,6 +129,8 @@ export interface AssetSearchParams {
   filename?: string;
   recency?: string;
   conversation_id?: string;
+  /** Tenant boundary — when set, only attachments belonging to this assistant are returned. */
+  assistant_id?: string;
   limit?: number;
 }
 
@@ -125,9 +147,9 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     conditions.push(like(attachments.mimeType, mimePattern));
   }
 
-  // Filename filter — case-insensitive substring match
+  // Filename filter — case-insensitive substring match (escape LIKE wildcards)
   if (params.filename) {
-    conditions.push(like(attachments.originalFilename, `%${params.filename}%`));
+    conditions.push(like(attachments.originalFilename, `%${escapeSqlLike(params.filename)}%`));
   }
 
   // Recency filter — computed cutoff timestamp
@@ -137,6 +159,11 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       const cutoff = Date.now() - offsetMs;
       conditions.push(gte(attachments.createdAt, cutoff));
     }
+  }
+
+  // Tenant boundary — restrict to the active assistant's attachments
+  if (params.assistant_id) {
+    conditions.push(eq(attachments.assistantId, params.assistant_id));
   }
 
   // Conversation scope — join through message_attachments + messages
@@ -169,7 +196,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     }
     if (params.filename) {
       whereParts.push(`a.original_filename LIKE ?`);
-      bindValues.push(`%${params.filename}%`);
+      bindValues.push(`%${escapeSqlLike(params.filename)}%`);
     }
     if (params.recency) {
       const offsetMs = RECENCY_MS[params.recency];
@@ -177,6 +204,10 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
         whereParts.push(`a.created_at >= ?`);
         bindValues.push(Date.now() - offsetMs);
       }
+    }
+    if (params.assistant_id) {
+      whereParts.push(`a.assistant_id = ?`);
+      bindValues.push(params.assistant_id);
     }
 
     const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
@@ -314,11 +345,15 @@ class AssetSearchTool implements Tool {
     }
 
     try {
+      // Scope results to the active assistant to prevent cross-tenant leaks
+      const assistantId = getAssistantIdForConversation(context.conversationId) ?? undefined;
+
       const results = searchAttachments({
         mime_type: mimeType,
         filename,
         recency,
         conversation_id: conversationId,
+        assistant_id: assistantId,
         limit,
       });
 
