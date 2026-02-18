@@ -2,6 +2,12 @@
 import SwiftUI
 import VellumAssistantShared
 
+// Loaded once at startup; avoids decoding the 2.3MB PNG on every re-render.
+private let chatBackgroundImage: UIImage? = {
+    guard let url = Bundle.main.url(forResource: "background", withExtension: "png") else { return nil }
+    return UIImage(contentsOfFile: url.path)
+}()
+
 struct ChatTabView: View {
     @StateObject private var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
@@ -292,9 +298,7 @@ struct ChatTabView: View {
 
     @ViewBuilder
     private var chatBackground: some View {
-        if colorScheme == .dark,
-           let url = Bundle.main.url(forResource: "background", withExtension: "png"),
-           let uiImage = UIImage(contentsOfFile: url.path) {
+        if colorScheme == .dark, let uiImage = chatBackgroundImage {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFit()
