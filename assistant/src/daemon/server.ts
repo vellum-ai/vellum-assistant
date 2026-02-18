@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, isTCPEnabled } from '../util/platform.js';
+import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled } from '../util/platform.js';
 import { hasNoAuthOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
@@ -174,8 +174,8 @@ export class DaemonServer {
           this.tcpServer.on('error', (err) => {
             log.error({ err, tcpPort }, 'TCP server error');
           });
-          this.tcpServer.listen(tcpPort, '0.0.0.0', () => {
-            log.info({ tcpPort }, 'TCP listener started');
+          this.tcpServer.listen(tcpPort, getTCPHost(), () => {
+            log.info({ tcpPort, tcpHost: getTCPHost() }, 'TCP listener started');
           });
         }
 

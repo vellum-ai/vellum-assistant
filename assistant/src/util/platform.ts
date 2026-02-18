@@ -117,12 +117,23 @@ export function getTCPPort(): number {
 
 /**
  * Returns whether the daemon TCP listener should be enabled.
- * Reads VELLUM_DAEMON_TCP_ENABLED env var; defaults to true.
+ * Reads VELLUM_DAEMON_TCP_ENABLED env var; defaults to false.
+ * Set VELLUM_DAEMON_TCP_ENABLED=1 (or =true) to enable for iOS device connectivity.
  */
 export function isTCPEnabled(): boolean {
   const override = process.env.VELLUM_DAEMON_TCP_ENABLED?.trim();
-  if (override === 'false' || override === '0') return false;
-  return true;
+  if (override === 'true' || override === '1') return true;
+  return false;
+}
+
+/**
+ * Returns the hostname/address for the TCP listener.
+ * Reads VELLUM_DAEMON_TCP_HOST env var; defaults to '127.0.0.1' (localhost only).
+ * Set VELLUM_DAEMON_TCP_HOST=0.0.0.0 to accept connections from all interfaces
+ * (required for real iOS device connections over a local network).
+ */
+export function getTCPHost(): string {
+  return process.env.VELLUM_DAEMON_TCP_HOST?.trim() || '127.0.0.1';
 }
 
 export function getHttpTokenPath(): string {

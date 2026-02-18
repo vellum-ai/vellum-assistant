@@ -206,6 +206,12 @@ final class DaemonLauncher {
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
 
+        // Enable TCP listener so the iOS app can connect over localhost (or LAN
+        // if VELLUM_DAEMON_TCP_HOST=0.0.0.0 is set in the environment).
+        var env = ProcessInfo.processInfo.environment
+        env["VELLUM_DAEMON_TCP_ENABLED"] = "1"
+        proc.environment = env
+
         // Ensure ~/.vellum/ exists for PID/socket/logs
         try FileManager.default.createDirectory(at: vellumDir, withIntermediateDirectories: true)
 

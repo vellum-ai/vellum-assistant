@@ -99,14 +99,19 @@ Requires the Vellum daemon running on your Mac (either as the macOS desktop app 
 2. Use that IP as the hostname (e.g. `192.168.1.42`)
 3. Copy the session token from Mac app **Settings → iOS Device → Copy** (or `~/.vellum/session-token`)
 
-**Starting the daemon:**
+**Starting the daemon with TCP enabled:**
 ```bash
 cd assistant
-bun run src/daemon/main.ts
-# TCP port 8765 starts automatically alongside the Unix socket
+# For simulator (localhost only):
+VELLUM_DAEMON_TCP_ENABLED=1 bun run src/daemon/main.ts
+
+# For real device (all network interfaces):
+VELLUM_DAEMON_TCP_ENABLED=1 VELLUM_DAEMON_TCP_HOST=0.0.0.0 bun run src/daemon/main.ts
 ```
 
-Or launch the macOS desktop app — the daemon starts automatically.
+TCP is opt-in (`VELLUM_DAEMON_TCP_ENABLED=1`) for security — the Unix socket default binds only to the local filesystem. By default the TCP listener binds to `127.0.0.1` (simulator use). Set `VELLUM_DAEMON_TCP_HOST=0.0.0.0` to accept LAN connections from a real device.
+
+The macOS app sets `VELLUM_DAEMON_TCP_ENABLED=1` automatically when the daemon starts.
 
 ## Running Tests
 

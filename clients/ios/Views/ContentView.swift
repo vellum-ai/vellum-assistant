@@ -8,6 +8,10 @@ struct ContentView: View {
     var body: some View {
         TabView {
             ThreadListView(daemonClient: clientProvider.client)
+                // Force @StateObject teardown + recreation when the client changes.
+                // Without this, IOSThreadStore keeps its original (now-disconnected)
+                // client reference after a mode switch in Settings.
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tabItem {
                     Label("Chats", systemImage: "message")
                 }
