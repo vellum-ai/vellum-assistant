@@ -65,13 +65,43 @@ function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
 }
 
 /**
+ * Returns true if a value looks like a valid credential record (has required fields).
+ * Filters out corrupted or incomplete entries during migration.
+ */
+function isValidCredentialRecord(record: unknown): record is Record<string, unknown> {
+  if (typeof record !== 'object' || record === null) return false;
+  const r = record as Record<string, unknown>;
+  return (
+    typeof r.credentialId === 'string' &&
+    typeof r.service === 'string' &&
+    typeof r.field === 'string' &&
+    typeof r.createdAt === 'number' &&
+    typeof r.updatedAt === 'number'
+  );
+}
+
+/**
  * Migrate a v1 record to v2 by backfilling new optional fields with defaults.
  */
 function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadata {
   return {
-    ...(record as CredentialMetadata),
-    alias: (record.alias as string | undefined) ?? undefined,
-    injectionTemplates: (record.injectionTemplates as CredentialInjectionTemplate[] | undefined) ?? undefined,
+    credentialId: record.credentialId as string,
+    service: record.service as string,
+    field: record.field as string,
+    allowedTools: Array.isArray(record.allowedTools) ? (record.allowedTools as string[]) : [],
+    allowedDomains: Array.isArray(record.allowedDomains) ? (record.allowedDomains as string[]) : [],
+    usageDescription: typeof record.usageDescription === 'string' ? record.usageDescription : undefined,
+    expiresAt: typeof record.expiresAt === 'number' ? record.expiresAt : undefined,
+    grantedScopes: Array.isArray(record.grantedScopes) ? (record.grantedScopes as string[]) : undefined,
+    accountInfo: typeof record.accountInfo === 'string' ? record.accountInfo : undefined,
+    oauth2TokenUrl: typeof record.oauth2TokenUrl === 'string' ? record.oauth2TokenUrl : undefined,
+    oauth2ClientId: typeof record.oauth2ClientId === 'string' ? record.oauth2ClientId : undefined,
+    alias: typeof record.alias === 'string' ? record.alias : undefined,
+    injectionTemplates: Array.isArray(record.injectionTemplates)
+      ? (record.injectionTemplates as CredentialInjectionTemplate[])
+      : undefined,
+    createdAt: record.createdAt as number,
+    updatedAt: record.updatedAt as number,
   };
 }
 
@@ -91,15 +121,21 @@ function loadFile(): LoadResult {
       // Newer version we don't understand — refuse to touch it
       return { unknownVersion: true };
     }
-    const rawCredentials: Record<string, unknown>[] = Array.isArray(data.credentials) ? data.credentials : [];
+    const rawCredentials: unknown[] = Array.isArray(data.credentials) ? data.credentials : [];
+    // Filter out malformed entries that lack required fields
+    const validRecords = rawCredentials.filter(isValidCredentialRecord);
 
-    // Migrate from v1 (no alias/injectionTemplates) to v2
-    const credentials = fileVersion < 2
-      ? rawCredentials.map(migrateRecordV1toV2)
-      : (rawCredentials as unknown as CredentialMetadata[]);
+    if (fileVersion < CURRENT_VERSION) {
+      // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
+      const credentials = validRecords.map(migrateRecordV1toV2);
+      const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
+      saveFile(migrated);
+      return migrated;
+    }
 
-    return { version: CURRENT_VERSION, credentials };
+    return { version: CURRENT_VERSION, credentials: validRecords as unknown as CredentialMetadata[] };
   } catch {
+    // Corrupted / unparseable file — treat as empty to avoid data loss on next write
     return { version: CURRENT_VERSION, credentials: [] };
   }
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -419,9 +419,353 @@ describe('credential metadata store', () => {
       upsertCredentialMetadata('github', 'token', { alias: 'gh-main' });
 
       // Verify on-disk file is now v2
-      const raw = JSON.parse(require('node:fs').readFileSync(META_PATH, 'utf-8'));
+      const raw = JSON.parse(readFileSync(META_PATH, 'utf-8'));
       expect(raw.version).toBe(2);
       expect(raw.credentials[0].alias).toBe('gh-main');
+    });
+
+    test('v1 load auto-persists as v2 on disk without requiring a write', () => {
+      const v1Data = {
+        version: 1,
+        credentials: [
+          {
+            credentialId: 'cred-autopersist',
+            service: 'slack',
+            field: 'token',
+            allowedTools: ['browser_fill_credential'],
+            allowedDomains: ['slack.com'],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), 'utf-8');
+
+      // A read-only operation should still persist the v2 upgrade
+      listCredentialMetadata();
+
+      const raw = JSON.parse(readFileSync(META_PATH, 'utf-8'));
+      expect(raw.version).toBe(2);
+      expect(raw.credentials[0].credentialId).toBe('cred-autopersist');
+    });
+
+    test('v1 file with multiple credentials migrates all records', () => {
+      const v1Data = {
+        version: 1,
+        credentials: [
+          {
+            credentialId: 'cred-multi-1',
+            service: 'github',
+            field: 'token',
+            allowedTools: ['browser_fill_credential'],
+            allowedDomains: ['github.com'],
+            usageDescription: 'GitHub PAT',
+            grantedScopes: ['repo', 'user'],
+            accountInfo: 'octocat',
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: 'cred-multi-2',
+            service: 'aws',
+            field: 'access_key',
+            allowedTools: ['api_request'],
+            allowedDomains: ['amazonaws.com'],
+            expiresAt: 1800000000000,
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          {
+            credentialId: 'cred-multi-3',
+            service: 'stripe',
+            field: 'sk_live',
+            allowedTools: [],
+            allowedDomains: ['api.stripe.com'],
+            oauth2TokenUrl: 'https://connect.stripe.com/oauth/token',
+            oauth2ClientId: 'ca_test123',
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), 'utf-8');
+
+      const records = listCredentialMetadata();
+      expect(records).toHaveLength(3);
+
+      // All records should have v2 fields as undefined
+      for (const r of records) {
+        expect(r.alias).toBeUndefined();
+        expect(r.injectionTemplates).toBeUndefined();
+      }
+
+      // Original v1 fields preserved
+      expect(records[0].grantedScopes).toEqual(['repo', 'user']);
+      expect(records[0].accountInfo).toBe('octocat');
+      expect(records[1].expiresAt).toBe(1800000000000);
+      expect(records[2].oauth2TokenUrl).toBe('https://connect.stripe.com/oauth/token');
+      expect(records[2].oauth2ClientId).toBe('ca_test123');
+    });
+  });
+
+  // ── Malformed file handling ─────────────────────────────────────────
+
+  describe('malformed file handling', () => {
+    test('corrupted JSON file is treated as empty', () => {
+      writeFileSync(META_PATH, '{{{{not valid json!!!!', 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('corrupted file allows new writes', () => {
+      writeFileSync(META_PATH, 'totally broken content ~@#$%', 'utf-8');
+      const record = upsertCredentialMetadata('fresh', 'start');
+      expect(record.service).toBe('fresh');
+      expect(record.field).toBe('start');
+
+      // Re-read should work
+      const loaded = getCredentialMetadata('fresh', 'start');
+      expect(loaded).toBeDefined();
+    });
+
+    test('empty file is treated as empty store', () => {
+      writeFileSync(META_PATH, '', 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('file with null content is treated as empty', () => {
+      writeFileSync(META_PATH, 'null', 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('file with array instead of object is treated as empty', () => {
+      writeFileSync(META_PATH, '[]', 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('file with non-array credentials field is treated as empty list', () => {
+      writeFileSync(META_PATH, JSON.stringify({ version: 2, credentials: 'not-an-array' }), 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('file with missing credentials field is treated as empty list', () => {
+      writeFileSync(META_PATH, JSON.stringify({ version: 2 }), 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('malformed records within credentials array are filtered out', () => {
+      const data = {
+        version: 2,
+        credentials: [
+          // Valid record
+          {
+            credentialId: 'valid-001',
+            service: 'github',
+            field: 'token',
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          // Missing credentialId
+          {
+            service: 'broken',
+            field: 'token',
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          // Not an object
+          'just a string',
+          // Null entry
+          null,
+          // Missing timestamps
+          {
+            credentialId: 'missing-ts',
+            service: 'incomplete',
+            field: 'key',
+            allowedTools: [],
+            allowedDomains: [],
+          },
+          // Another valid record
+          {
+            credentialId: 'valid-002',
+            service: 'slack',
+            field: 'token',
+            allowedTools: ['api_request'],
+            allowedDomains: ['slack.com'],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(data, null, 2), 'utf-8');
+
+      const records = listCredentialMetadata();
+      expect(records).toHaveLength(2);
+      expect(records[0].credentialId).toBe('valid-001');
+      expect(records[1].credentialId).toBe('valid-002');
+    });
+
+    test('v1 file with malformed records filters them during migration', () => {
+      const v1Data = {
+        version: 1,
+        credentials: [
+          // Valid
+          {
+            credentialId: 'good-cred',
+            service: 'github',
+            field: 'token',
+            allowedTools: ['browser_fill_credential'],
+            allowedDomains: ['github.com'],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+          // Invalid — no service field
+          {
+            credentialId: 'bad-cred',
+            field: 'token',
+            allowedTools: [],
+            allowedDomains: [],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), 'utf-8');
+
+      const records = listCredentialMetadata();
+      expect(records).toHaveLength(1);
+      expect(records[0].credentialId).toBe('good-cred');
+      expect(records[0].alias).toBeUndefined();
+      expect(records[0].injectionTemplates).toBeUndefined();
+    });
+  });
+
+  // ── Atomic write safety ───────────────────────────────────────────
+
+  describe('atomic write safety', () => {
+    test('no partial writes: temp files are cleaned up after save', () => {
+      upsertCredentialMetadata('github', 'token');
+
+      const files = readdirSync(TEST_DIR);
+      // Should only have the metadata.json file, no .tmp-* remnants
+      const tmpFiles = files.filter(f => f.startsWith('.tmp-'));
+      expect(tmpFiles).toHaveLength(0);
+      expect(files).toContain('metadata.json');
+    });
+
+    test('saved file is always valid JSON', () => {
+      upsertCredentialMetadata('github', 'token', { alias: 'gh' });
+      upsertCredentialMetadata('slack', 'webhook', { allowedDomains: ['slack.com'] });
+      deleteCredentialMetadata('github', 'token');
+
+      const raw = readFileSync(META_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.version).toBe(2);
+      expect(parsed.credentials).toHaveLength(1);
+      expect(parsed.credentials[0].service).toBe('slack');
+    });
+
+    test('file written by saveFile has version field', () => {
+      upsertCredentialMetadata('test', 'key');
+      const raw = JSON.parse(readFileSync(META_PATH, 'utf-8'));
+      expect(raw.version).toBe(2);
+    });
+  });
+
+  // ── Empty credential lists ────────────────────────────────────────
+
+  describe('empty credential lists', () => {
+    test('empty v2 file returns empty array', () => {
+      writeFileSync(META_PATH, JSON.stringify({ version: 2, credentials: [] }, null, 2), 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('empty v1 file is migrated to v2 with empty credentials', () => {
+      writeFileSync(META_PATH, JSON.stringify({ version: 1, credentials: [] }, null, 2), 'utf-8');
+      expect(listCredentialMetadata()).toEqual([]);
+
+      // Should be persisted as v2
+      const raw = JSON.parse(readFileSync(META_PATH, 'utf-8'));
+      expect(raw.version).toBe(2);
+      expect(raw.credentials).toEqual([]);
+    });
+
+    test('non-existent file returns empty array', () => {
+      // META_PATH doesn't exist yet (beforeEach creates dir but not file)
+      expect(listCredentialMetadata()).toEqual([]);
+    });
+
+    test('assertMetadataWritable succeeds for empty store', () => {
+      expect(() => assertMetadataWritable()).not.toThrow();
+    });
+
+    test('delete on empty store returns false', () => {
+      expect(deleteCredentialMetadata('nonexistent', 'field')).toBe(false);
+    });
+
+    test('getCredentialMetadata on empty store returns undefined', () => {
+      expect(getCredentialMetadata('nonexistent', 'field')).toBeUndefined();
+    });
+
+    test('getCredentialMetadataById on empty store returns undefined', () => {
+      expect(getCredentialMetadataById('nonexistent-id')).toBeUndefined();
+    });
+  });
+
+  // ── v1 migration with realistic data ──────────────────────────────
+
+  describe('v1 migration — realistic legacy data', () => {
+    test('v1 record with allowedTools as non-array gets defaults', () => {
+      const v1Data = {
+        version: 1,
+        credentials: [
+          {
+            credentialId: 'cred-bad-tools',
+            service: 'github',
+            field: 'token',
+            allowedTools: 'browser_fill_credential', // wrong type — should be array
+            allowedDomains: ['github.com'],
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), 'utf-8');
+
+      const records = listCredentialMetadata();
+      expect(records).toHaveLength(1);
+      // Non-array allowedTools should be replaced with empty array
+      expect(records[0].allowedTools).toEqual([]);
+      expect(records[0].allowedDomains).toEqual(['github.com']);
+    });
+
+    test('v1 record with extra unknown fields preserves known fields', () => {
+      const v1Data = {
+        version: 1,
+        credentials: [
+          {
+            credentialId: 'cred-extra',
+            service: 'github',
+            field: 'token',
+            allowedTools: [],
+            allowedDomains: [],
+            someNewFutureField: 'should not crash',
+            anotherFutureField: 42,
+            createdAt: 1700000000000,
+            updatedAt: 1700000000000,
+          },
+        ],
+      };
+      writeFileSync(META_PATH, JSON.stringify(v1Data, null, 2), 'utf-8');
+
+      const records = listCredentialMetadata();
+      expect(records).toHaveLength(1);
+      expect(records[0].credentialId).toBe('cred-extra');
+      expect(records[0].service).toBe('github');
+      expect(records[0].alias).toBeUndefined();
+      expect(records[0].injectionTemplates).toBeUndefined();
     });
   });
 });
