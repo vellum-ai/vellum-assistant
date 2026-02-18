@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve, relative, posix } from 'node:path';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
@@ -8,13 +8,15 @@ import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
 
 const log = getLogger('docker-sandbox');
 
+export const DEFAULT_SANDBOX_IMAGE = 'vellum-sandbox:latest';
+
 /**
  * Fallback defaults when DockerBackend is constructed without explicit config.
  * Must stay in sync with DockerConfigSchema defaults in config/schema.ts.
  */
 const DEFAULTS: Required<DockerConfig> = {
-  image: 'node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687',
-  shell: 'sh',
+  image: DEFAULT_SANDBOX_IMAGE,
+  shell: 'bash',
   cpus: 1,
   memoryMb: 512,
   pidsLimit: 256,
@@ -76,6 +78,15 @@ function checkDockerDaemon(): void {
   }
 }
 
+/**
+ * Resolve the path to Dockerfile.sandbox relative to this source file.
+ * Works in both development (source layout) and bundled environments.
+ */
+function getSandboxDockerfilePath(): string {
+  const dir = import.meta.dirname ?? __dirname;
+  return resolve(dir, '../../../../Dockerfile.sandbox');
+}
+
 function checkImageAvailable(image: string): void {
   if (imageAvailableCache.has(image)) return;
   try {
@@ -84,7 +95,31 @@ function checkImageAvailable(image: string): void {
     imageAvailableCache.add(image);
     return;
   } catch {
-    // Image not available locally — try to pull it.
+    // Image not available locally — try to build or pull it.
+  }
+
+  // For the default sandbox image, build from Dockerfile.sandbox instead of pulling.
+  if (image === DEFAULT_SANDBOX_IMAGE) {
+    const dockerfile = getSandboxDockerfilePath();
+    if (existsSync(dockerfile)) {
+      log.info(`Building sandbox image "${image}" from ${dockerfile}...`);
+      try {
+        execFileSync('docker', ['build', '-t', image, '-f', dockerfile, '.'], {
+          stdio: 'ignore',
+          timeout: 120000,
+          cwd: resolve(dockerfile, '..'),
+        });
+        imageAvailableCache.add(image);
+        return;
+      } catch {
+        throw new ToolError(
+          `Failed to build sandbox image "${image}" from ${dockerfile}. ` +
+          'Check Docker is running and try building manually: ' +
+          `docker build -t ${image} -f ${dockerfile} ${resolve(dockerfile, '..')}`,
+          'bash',
+        );
+      }
+    }
   }
 
   log.info(`Docker image "${image}" not found locally, pulling...`);
