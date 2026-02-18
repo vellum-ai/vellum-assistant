@@ -2343,7 +2343,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ## Script Proxy — Proxied Bash Execution and Credential Injection
 
-Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy that intercepts outbound requests, injects stored credentials into matching hosts, and prompts the user for approval on unknown or uncredentialed targets. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms.
+Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms. The individual components — HTTP forwarder, CONNECT tunnel, MITM handler, hybrid router, policy engine, and approval callback — are implemented and tested, but are **not yet wired together in the runtime**. The session manager currently starts a proxy server with no policy callback or MITM handler configured, so all traffic passes through as a plain forwarder/tunnel. The sections below describe the target architecture; see the "Implementation Status" note at the end for what is connected today.
 
 ### Proxied Bash Execution Path
 
@@ -2480,7 +2480,7 @@ sequenceDiagram
 | `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
 | `ask_unauthenticated` | Completely unknown host — prompt for unauthenticated access |
 
-**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` wires the policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules are saved under tool names `proxy:missing_credential` and `proxy:unauthenticated` with scope patterns like `proxy:api.example.com` or `proxy:*`.
+**Trust rule persistence** *(not yet wired)*: The `createProxyApprovalCallback` in `session-tool-setup.ts` is defined and unit-tested but is not yet invoked by the session startup path (`shell.ts` calls `createSession`/`startSession` without passing an approval callback). Once wired, it will route the policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules will be saved under tool names `proxy:missing_credential` and `proxy:unauthenticated` with scope patterns like `proxy:api.example.com` or `proxy:*`.
 
 **Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
 
@@ -2541,8 +2541,23 @@ All proxy logging passes through sanitization helpers (`logging.ts`) that redact
 | `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
 | `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
 | `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
-| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wires policy decisions to permission prompter |
+| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — defined and tested, not yet invoked by session startup |
 | `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
+
+### Implementation Status
+
+The proxy subsystem is partially wired. What works today:
+
+- **Session lifecycle**: `createSession` / `startSession` / `stopSession` with idle timeout
+- **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge`
+- **Proxy env injection**: `HTTP_PROXY` / `HTTPS_PROXY` / `NODE_EXTRA_CA_CERTS` are injected into the container
+- **Plain HTTP forwarding and CONNECT tunnelling**: All traffic passes through without interception
+
+What is implemented but **not yet connected** in the runtime:
+
+- **MITM interception**: `createProxyServer` accepts a `mitmHandler` config but the session manager does not pass one
+- **Policy callback / credential injection**: The policy engine and rewrite callbacks exist but are not wired into the server
+- **Approval loop**: `createProxyApprovalCallback` is defined and unit-tested but not invoked by `shell.ts`
 
 ---
 
