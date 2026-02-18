@@ -12,18 +12,21 @@ Order food from delivery services (DoorDash, Uber Eats, Grubhub, etc.) using bro
 
 ## Ordering Flow — Follow These Steps IN ORDER
 
-### Step 1: Navigate and Sign In FIRST
+### Step 1: Sign In FIRST (use direct login URLs)
 
-This is the most important step. Delivery sites block browsing and ordering without being signed in.
+This is the most important step. Delivery sites block browsing and ordering without being signed in. **Navigate directly to the sign-in page** to avoid fighting homepage modals.
 
-1. Navigate to the delivery site (e.g. `browser_navigate` to `https://www.doordash.com`).
+1. Navigate directly to the sign-in page:
+   - DoorDash → `https://identity.doordash.com/auth/sign-in`
+   - Uber Eats → `https://auth.uber.com/v2/`
+   - Grubhub → `https://www.grubhub.com/login`
 2. Take a `browser_snapshot` once the page loads.
-3. **Sign in immediately** before doing ANYTHING else:
-   - Look for a "Sign In" button, a login modal, or an email input field in the snapshot.
-   - If you see an email input, fill it using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` from the snapshot — NEVER type into the browser URL bar.
-   - Click "Continue to Sign In" or equivalent submit button.
+3. **Sign in using the email input on the page:**
+   - Fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` from the snapshot — NEVER type into the browser URL bar.
+   - Click "Continue" or equivalent submit button.
    - The site will send a verification code via SMS. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user: "DoorDash sent a verification code to your phone. Please enter it below." Then type the code into the verification input on the page.
-4. If you're already signed in (you see "Welcome back", account menu, or the user's name), skip sign-in and continue.
+4. After sign-in completes, navigate to the homepage (e.g. `https://www.doordash.com`).
+5. If you're already signed in (you see "Welcome back", account menu, or the user's name on the homepage), skip sign-in and continue.
 
 ### EVERY snapshot: Dismiss modals FIRST
 
