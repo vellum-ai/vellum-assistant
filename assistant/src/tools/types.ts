@@ -128,6 +128,8 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** Memory scope ID from the session's memory policy, so memory tools can target the correct scope. */
   memoryScopeId?: string;
+  /** When true, tools with private side-effects should always prompt for confirmation. */
+  forcePromptSideEffects?: boolean;
 }
 
 export interface DiffInfo {

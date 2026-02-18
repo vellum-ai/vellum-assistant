@@ -65,7 +65,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     enqueueMessage: () => ({ queued: false, requestId: 'r' }),
     getQueueDepth: () => 0,
     processMessage: async () => '',
-    memoryPolicy: { scopeId: 'default' },
+    memoryPolicy: { scopeId: 'default', strictSideEffects: false },
     ...overrides,
   };
 }

@@ -41,8 +41,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
-  /** Session memory policy — used to propagate scopeId into ToolContext. */
-  memoryPolicy: { scopeId: string };
+  /** Session memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
+  memoryPolicy: { scopeId: string; strictSideEffects: boolean };
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -92,6 +92,7 @@ export function createToolExecutor(
       sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
+      forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => ctx.sendToClient(msg as any),
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),

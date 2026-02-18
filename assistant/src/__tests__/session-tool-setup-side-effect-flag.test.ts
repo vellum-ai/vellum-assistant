@@ -1,6 +1,6 @@
 /**
- * Tests that createToolExecutor propagates memoryScopeId from the session's
- * memory policy into the ToolContext passed to the underlying executor.
+ * Tests that createToolExecutor propagates forcePromptSideEffects from the
+ * session's memory policy (strictSideEffects) into the ToolContext.
  */
 
 import { describe, test, expect, mock } from 'bun:test';
@@ -37,7 +37,7 @@ import { createToolExecutor } from '../daemon/session-tool-setup.js';
 
 function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
   return {
-    conversationId: 'conv-scope',
+    conversationId: 'conv-side-effect',
     currentRequestId: 'req-1',
     workingDir: '/tmp/test',
     abortController: null,
@@ -79,8 +79,8 @@ const noopLifecycleHandler = mock(() => {});
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('session-tool-setup memoryScopeId propagation', () => {
-  test('passes default memoryScopeId to executor context', async () => {
+describe('session-tool-setup forcePromptSideEffects propagation', () => {
+  test('sets forcePromptSideEffects to false for default sessions', async () => {
     const ctx = makeCtx({ memoryPolicy: { scopeId: 'default', strictSideEffects: false } });
     const { executor, getCaptured } = makeCapturingExecutor();
 
@@ -95,11 +95,11 @@ describe('session-tool-setup memoryScopeId propagation', () => {
     await toolFn('some_tool', { key: 'value' });
 
     expect(getCaptured()).toBeDefined();
-    expect(getCaptured()!.memoryScopeId).toBe('default');
+    expect(getCaptured()!.forcePromptSideEffects).toBe(false);
   });
 
-  test('passes custom memoryScopeId from session memory policy', async () => {
-    const ctx = makeCtx({ memoryPolicy: { scopeId: 'private-thread-abc', strictSideEffects: false } });
+  test('sets forcePromptSideEffects to true for private sessions with strictSideEffects', async () => {
+    const ctx = makeCtx({ memoryPolicy: { scopeId: 'private-thread-123', strictSideEffects: true } });
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
@@ -110,12 +110,12 @@ describe('session-tool-setup memoryScopeId propagation', () => {
       noopLifecycleHandler,
     );
 
-    await toolFn('memory_write', { content: 'test' });
+    await toolFn('memory_write', { content: 'secret' });
 
-    expect(getCaptured()!.memoryScopeId).toBe('private-thread-abc');
+    expect(getCaptured()!.forcePromptSideEffects).toBe(true);
   });
 
-  test('reads memoryScopeId at call time, not construction time', async () => {
+  test('reads forcePromptSideEffects at call time, not construction time', async () => {
     const ctx = makeCtx({ memoryPolicy: { scopeId: 'initial', strictSideEffects: false } });
     const { executor, getCaptured } = makeCapturingExecutor();
 
@@ -128,10 +128,10 @@ describe('session-tool-setup memoryScopeId propagation', () => {
     );
 
     // Mutate the memory policy after construction
-    ctx.memoryPolicy = { scopeId: 'updated-scope', strictSideEffects: false };
+    ctx.memoryPolicy = { scopeId: 'initial', strictSideEffects: true };
 
     await toolFn('some_tool', {});
 
-    expect(getCaptured()!.memoryScopeId).toBe('updated-scope');
+    expect(getCaptured()!.forcePromptSideEffects).toBe(true);
   });
 });
