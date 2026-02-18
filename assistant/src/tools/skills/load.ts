@@ -99,6 +99,24 @@ export class SkillLoadTool implements Tool {
     }
 
     const versionAttr = versionHash ? ` version="${versionHash}"` : '';
+
+    // Emit markers for included skills so their tools get projected
+    const includeMarkers: string[] = [];
+    if (skill.includes && skill.includes.length > 0 && catalogIndex) {
+      for (const childId of skill.includes) {
+        const child = catalogIndex.get(childId);
+        if (!child) continue;
+        let childHash: string | undefined;
+        try {
+          childHash = computeSkillVersionHash(child.directoryPath);
+        } catch (err) {
+          log.warn({ err, skillId: childId }, 'Failed to compute included skill version hash');
+        }
+        const childVersionAttr = childHash ? ` version="${childHash}"` : '';
+        includeMarkers.push(`<loaded_skill id="${childId}"${childVersionAttr} />`);
+      }
+    }
+
     return {
       content: [
         `Skill: ${skill.name}`,
@@ -111,6 +129,7 @@ export class SkillLoadTool implements Tool {
         immediateChildrenSection,
         '',
         `<loaded_skill id="${skill.id}"${versionAttr} />`,
+        ...includeMarkers,
       ].join('\n'),
       isError: false,
     };
