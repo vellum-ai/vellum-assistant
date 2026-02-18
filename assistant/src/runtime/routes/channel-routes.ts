@@ -193,17 +193,9 @@ export async function handleChannelInbound(
   let processingSucceeded = false;
   if (!result.duplicate && processMessage) {
     try {
-      // Block secret-bearing content before processing. Inside the try block
-      // so that unexpected errors (e.g. ConfigError) still trigger
-      // recordProcessingFailure and keep the event in the retry pipeline.
-      const contentToCheck = content ?? '';
-      const ingressCheck = checkIngressForSecrets(contentToCheck);
-      if (ingressCheck.blocked) {
-        throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-      }
-
-      // Persist the raw payload so the event can be replayed on failure.
-      // Runs after the ingress check so secret-bearing content is never written to disk.
+      // Persist the raw payload first so dead-lettered events can always be
+      // replayed. If the ingress check later detects secrets we clear it
+      // before throwing, so secret-bearing content is never left on disk.
       channelDeliveryStore.storePayload(result.eventId, {
         sourceChannel, externalChatId, externalMessageId, content,
         attachmentIds, sourceMetadata: body.sourceMetadata,
@@ -211,6 +203,13 @@ export async function handleChannelInbound(
         senderExternalUserId: body.senderExternalUserId,
         senderUsername: body.senderUsername,
       });
+
+      const contentToCheck = content ?? '';
+      const ingressCheck = checkIngressForSecrets(contentToCheck);
+      if (ingressCheck.blocked) {
+        channelDeliveryStore.clearPayload(result.eventId);
+        throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+      }
 
       const { messageId: userMessageId } = await processMessage(
         assistantId,
