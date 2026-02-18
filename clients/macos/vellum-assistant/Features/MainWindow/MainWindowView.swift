@@ -1109,8 +1109,12 @@ struct MainWindowView: View {
             // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
+                // Compute content area width accounting for sidebar, divider, padding, and zoom
+                let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
+                let sidebarW = sidebarVisible ? threadDrawerWidth + Double(VSpacing.xs) : 0
+                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - sidebarW - Double(VSpacing.sm)
                 let effectiveWidth = Binding<Double>(
-                    get: { appPanelWidth > 0 ? appPanelWidth : geometry.size.width * 0.7 },
+                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
                     set: { appPanelWidth = $0 }
                 )
                 VSplitView(
