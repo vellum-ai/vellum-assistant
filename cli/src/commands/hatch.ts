@@ -744,14 +744,20 @@ async function hatchCustom(
     }
 
     const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
-    saveAssistantEntry({
-      assistantId: instanceName,
-      runtimeUrl,
-      bearerToken,
-      species,
-      sshUser: host.includes("@") ? host.split("@")[0] : userInfo().username,
-      hatchedAt: new Date().toISOString(),
-    });
+    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+    if (entryFilePath) {
+      writeFileSync(
+        entryFilePath,
+        JSON.stringify({
+          assistantId: instanceName,
+          runtimeUrl,
+          bearerToken,
+          species,
+          sshUser: host.includes("@") ? host.split("@")[0] : userInfo().username,
+          hatchedAt: new Date().toISOString(),
+        }),
+      );
+    }
 
     if (detached) {
       console.log("");
