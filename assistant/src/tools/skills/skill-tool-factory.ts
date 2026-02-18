@@ -20,6 +20,7 @@ export function createSkillTool(
   skillId: string,
   skillDir: string,
   versionHash: string,
+  bundled?: boolean,
 ): Tool {
   return {
     name: entry.name,
@@ -30,6 +31,7 @@ export function createSkillTool(
     ownerSkillId: skillId,
     executionTarget: entry.execution_target as ExecutionTarget,
     ownerSkillVersionHash: versionHash,
+    ownerSkillBundled: bundled,
 
     getDefinition(): ToolDefinition {
       return {
@@ -56,6 +58,7 @@ export function createSkillToolsFromManifest(
   skillId: string,
   skillDir: string,
   versionHash: string,
+  bundled?: boolean,
 ): Tool[] {
-  return entries.map(entry => createSkillTool(entry, skillId, skillDir, versionHash));
+  return entries.map(entry => createSkillTool(entry, skillId, skillDir, versionHash, bundled));
 }

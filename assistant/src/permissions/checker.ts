@@ -370,12 +370,12 @@ export async function check(
 
   // No matching rule (or High risk with allow rule) → risk-based fallback
 
-  // Skill-origin tools default to prompting when no trust rule matches,
-  // regardless of risk level. This ensures third-party skill tools don't
-  // silently auto-execute even when classified as Low risk.
+  // Third-party skill-origin tools default to prompting when no trust rule
+  // matches, regardless of risk level. Bundled skill tools are first-party
+  // and trusted, so they fall through to the normal risk-based policy.
   if (!matchedRule) {
     const tool = getTool(toolName);
-    if (tool?.origin === 'skill') {
+    if (tool?.origin === 'skill' && !tool.ownerSkillBundled) {
       return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
     }
   }

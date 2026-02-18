@@ -158,6 +158,8 @@ export interface Tool {
   ownerSkillId?: string;
   /** Content-hash of the owning skill's source at registration time. */
   ownerSkillVersionHash?: string;
+  /** Whether the owning skill is bundled with the daemon (trusted first-party). */
+  ownerSkillBundled?: boolean;
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;

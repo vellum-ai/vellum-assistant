@@ -165,6 +165,7 @@ export function projectSkillTools(
       skillId,
       skill.directoryPath,
       currentHash,
+      skill.bundled,
     );
 
     if (tools.length > 0) {
