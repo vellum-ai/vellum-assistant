@@ -52,7 +52,7 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
-import { registerTool } from '../tools/registry.js';
+import { registerTool, getTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
 
 // Import managed skill tools so they register in the tool registry.
@@ -3548,10 +3548,8 @@ describe('Permission Checker', () => {
     // (which depends on playwright and browser-manager).
     beforeAll(() => {
       for (const name of browserToolNames) {
-        const existing = (() => {
-          try { return (registerTool as any).__registry?.get(name); } catch { return undefined; }
-        })();
-        if (existing) continue;
+        // Skip if already registered (e.g. via initializeTools)
+        if (getTool(name)) continue;
 
         registerTool({
           name,
