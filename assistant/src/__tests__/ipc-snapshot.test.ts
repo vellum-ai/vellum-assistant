@@ -493,6 +493,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   daemon_status: {
     type: 'daemon_status',
     httpPort: 7821,
+    monitoringEnabled: true,
   },
   generation_cancelled: {
     type: 'generation_cancelled',

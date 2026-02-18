@@ -1,4 +1,4 @@
-// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+// Bun Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`IPC message snapshots ClientMessage types auth serializes to expected JSON 1`] = `
 {
@@ -778,6 +778,7 @@ exports[`IPC message snapshots ServerMessage types pong serializes to expected J
 exports[`IPC message snapshots ServerMessage types daemon_status serializes to expected JSON 1`] = `
 {
   "httpPort": 7821,
+  "monitoringEnabled": true,
   "type": "daemon_status",
 }
 `;

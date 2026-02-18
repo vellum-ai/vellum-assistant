@@ -95,6 +95,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
 
+    /// Whether LLM monitoring (Logfire) is enabled in the daemon, populated via `daemon_status`.
+    @Published public var monitoringEnabled: Bool = false
+
     /// Latest memory health payload from daemon `memory_status` events.
     @Published public var latestMemoryStatus: MemoryStatusMessage?
 
@@ -1183,6 +1186,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Handle daemon status internally.
         if case .daemonStatus(let status) = message {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
+            monitoringEnabled = status.monitoringEnabled ?? false
         }
 
         // Handle blob probe result internally.

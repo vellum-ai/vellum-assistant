@@ -228,8 +228,12 @@ function loadDotEnv(): void {
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
-  initSentry();
+  // Logfire must initialize before Sentry: both register a global OTEL
+  // TracerProvider and only the first registration wins. Logfire needs
+  // the global provider to export LLM spans; Sentry error capture works
+  // fine without owning the OTEL provider.
   await initLogfire();
+  initSentry();
 
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and

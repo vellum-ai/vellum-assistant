@@ -922,6 +922,7 @@ export interface PongMessage {
 export interface DaemonStatusMessage {
   type: 'daemon_status';
   httpPort?: number;
+  monitoringEnabled?: boolean;
 }
 
 export interface GenerationCancelled {

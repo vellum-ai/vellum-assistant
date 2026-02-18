@@ -316,6 +316,12 @@ public struct SettingsView: View {
             #if DEBUG
             if let daemonClient {
                 Section("Developer") {
+                    HStack {
+                        Text("Monitoring")
+                        Spacer()
+                        Text(daemonClient.monitoringEnabled ? "Enabled" : "Disabled")
+                            .foregroundColor(daemonClient.monitoringEnabled ? VColor.success : VColor.textMuted)
+                    }
                     Button("View Environment Variables") {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })

@@ -7,6 +7,7 @@ import { hasNoAuthOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
+import { isLogfireEnabled } from '../logfire.js';
 import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
@@ -336,6 +337,7 @@ export class DaemonServer {
     this.broadcast({
       type: 'daemon_status',
       httpPort: port,
+      monitoringEnabled: isLogfireEnabled(),
     });
   }
 
@@ -713,6 +715,7 @@ export class DaemonServer {
     this.send(socket, {
       type: 'daemon_status',
       httpPort: this.httpPort,
+      monitoringEnabled: isLogfireEnabled(),
     });
   }
 

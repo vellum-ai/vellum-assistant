@@ -335,6 +335,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
 public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let type: String
     public let httpPort: Double?
+    public let monitoringEnabled: Bool?
 }
 
 public struct IPCDiagnosticsExportRequest: Codable, Sendable {
@@ -401,6 +402,12 @@ public struct IPCDocumentLoadResponse: Codable, Sendable {
     public let updatedAt: Int
     public let success: Bool
     public let error: String?
+}
+
+public struct IPCDocumentPreviewSurfaceData: Codable, Sendable {
+    public let title: String
+    public let surfaceId: String
+    public let subtitle: String?
 }
 
 public struct IPCDocumentSaveRequest: Codable, Sendable {
@@ -1516,6 +1523,19 @@ public struct IPCUiSurfaceShowCard: Codable, Sendable {
 public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
     public let surfaceType: String
     public let data: IPCConfirmationSurfaceData
+    public let type: String
+    public let sessionId: String
+    public let surfaceId: String
+    public let title: String?
+    public let actions: [IPCSurfaceAction]?
+    public let display: String?
+    /// The message ID that this surface belongs to (for history loading).
+    public let messageId: String?
+}
+
+public struct IPCUiSurfaceShowDocumentPreview: Codable, Sendable {
+    public let surfaceType: String
+    public let data: IPCDocumentPreviewSurfaceData
     public let type: String
     public let sessionId: String
     public let surfaceId: String

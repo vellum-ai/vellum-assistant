@@ -608,6 +608,21 @@ struct SettingsPanel: View {
 
                         HStack {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Monitoring")
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                Text("LLM observability via Logfire")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            Text(daemonClient?.monitoringEnabled == true ? "Enabled" : "Disabled")
+                                .font(VFont.body)
+                                .foregroundColor(daemonClient?.monitoringEnabled == true ? VColor.success : VColor.textMuted)
+                        }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Environment Variables")
                                     .font(VFont.body)
                                     .foregroundColor(VColor.textSecondary)
