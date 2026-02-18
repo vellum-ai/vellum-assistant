@@ -77,22 +77,38 @@ The build script:
 3. Codesigns with ad-hoc signature (or release identity)
 
 ### iOS App
+
+**Option A: Xcode** (recommended)
 ```bash
 cd clients
 open Package.swift
 # Xcode: Select vellum-assistant-ios scheme
-# Choose iOS Simulator (e.g., iPhone 15)
+# Choose iOS Simulator (e.g., iPhone 17 Pro Max)
 # Run (⌘R)
 ```
 
-**Current status** (as of PR 5):
-- ✅ Basic app structure with tab bar (Chat, Settings)
-- ✅ Chat interface with message rendering and streaming
-- ✅ Tool confirmation and inline surface support
-- ✅ Daemon connection via TCP
-- ⏳ Settings and onboarding (PR 6)
-- ⏳ Voice input (PR 7)
-- ⏳ Attachment handling (PR 8)
+**Option B: command line**
+```bash
+cd clients
+xcodebuild build \
+  -scheme vellum-assistant-ios \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  CODE_SIGNING_ALLOWED=NO \
+  -derivedDataPath /tmp/vellum-ios-build
+```
+
+See [clients/ios/README.md](ios/README.md) for full build, packaging, and configuration instructions.
+
+**Current features:**
+- ✅ Standalone mode — direct Anthropic API connection (no Mac required)
+- ✅ Connected to Mac mode — TCP proxy through the Vellum daemon
+- ✅ Chat interface with streaming, markdown, code blocks
+- ✅ Multiple threads with JSON persistence
+- ✅ Onboarding with adaptive steps per connection mode
+- ✅ Voice input
+- ✅ Attachment support (photos, files)
+- ✅ Settings with live client switching (no restart needed)
+- ✅ Push notifications (APNS + rich inline reply)
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
@@ -142,21 +158,18 @@ After migration:
 
 ## Known Limitations
 
-### iOS TCP Connection
-- Currently plaintext (no TLS)
-- Safe for localhost development only
-- TLS layer tracked for PR 11 (Daemon authentication)
-
 ### iOS Signing Operations
-- iOS clients log errors when daemon sends signing requests
+- iOS clients log errors when daemon sends signing requests (macOS-specific IPC)
 - Cannot send error responses (protocol limitation)
-- Daemon should detect iOS clients and avoid sending these messages
 
-### iOS Localhost Default
-- iOS defaults to `localhost:8765` in UserDefaults
-- Works for simulator testing (daemon runs on host Mac)
-- Real device usage requires configuring daemon hostname (network-accessible IP)
-- PR 6 (iOS settings/onboarding) will provide UI for configuration
+### iOS TCP — Real Device Networking
+- `localhost` only works in the simulator (simulator shares Mac's network stack)
+- For real device: enter Mac's local IP in Settings → Mac Daemon → Hostname
+- For remote access: requires VPN, SSH tunnel, or port forwarding
+
+### iOS Computer-Use
+- AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
+- Computer-use sessions initiated from iOS proxy through the Mac daemon
 
 ## Documentation
 

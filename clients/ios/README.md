@@ -2,31 +2,115 @@
 
 The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Package at `clients/Package.swift`.
 
-## iOS Build
+## Features
 
-The iOS app requires Xcode to build for a device or simulator.
+- **Standalone mode** — connects directly to Anthropic API using your API key (no Mac required)
+- **Connected to Mac mode** — proxies through the Vellum daemon running on your Mac over TCP
+- Chat interface with streaming responses, markdown rendering, and code blocks
+- Multiple threads with persistence across restarts
+- Attachment support (photos, files)
+- Voice input via `SFSpeechRecognizer`
+- Onboarding flow with adaptive steps based on connection mode
 
-To build for CI using xcodebuild:
+## Building and Running
 
-```bash
-xcodebuild \
-  -scheme vellum-assistant-ios \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  build \
-  CODE_SIGNING_ALLOWED=NO
-```
-
-### Development
+### Option A: Xcode (recommended for development)
 
 1. Open `clients/Package.swift` in Xcode
 2. Select the `vellum-assistant-ios` scheme
-3. Choose an iOS Simulator as destination
+3. Choose an iOS Simulator as destination (e.g. iPhone 17 Pro Max)
 4. Build and Run (⌘R)
+
+### Option B: xcodebuild + Simulator (command line)
+
+```bash
+# Build
+cd clients
+xcodebuild build \
+  -scheme vellum-assistant-ios \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  CODE_SIGNING_ALLOWED=NO \
+  -derivedDataPath /tmp/vellum-ios-build
+
+# Package into .app bundle
+BUILD_DIR=/tmp/vellum-ios-build/Build/Products/Debug-iphonesimulator
+APP_DIR=/tmp/VellumAssistant.app
+mkdir -p "$APP_DIR"
+cp "$BUILD_DIR/vellum-assistant-ios" "$APP_DIR/"
+cp -r "$BUILD_DIR/vellum-assistant_vellum-assistant-ios.bundle" "$APP_DIR/" 2>/dev/null || true
+cat > "$APP_DIR/Info.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleExecutable</key><string>vellum-assistant-ios</string>
+    <key>CFBundleIdentifier</key><string>ai.vellum.assistant.ios</string>
+    <key>CFBundleName</key><string>Vellum</string>
+    <key>CFBundleDisplayName</key><string>Vellum</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleSupportedPlatforms</key><array><string>iPhoneSimulator</string></array>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array><string>UIInterfaceOrientationPortrait</string></array>
+    <key>MinimumOSVersion</key><string>17.0</string>
+    <key>DTPlatformName</key><string>iphonesimulator</string>
+</dict></plist>
+EOF
+
+# Install and launch in simulator
+UDID=$(xcrun simctl list devices available | grep 'iPhone 17 Pro Max' | head -1 | sed 's/.*(\([A-Z0-9-]*\)).*/\1/')
+xcrun simctl boot "$UDID" 2>/dev/null || true
+xcrun simctl uninstall "$UDID" ai.vellum.assistant.ios 2>/dev/null || true
+xcrun simctl install "$UDID" "$APP_DIR"
+open -a Simulator
+xcrun simctl launch "$UDID" ai.vellum.assistant.ios
+```
+
+## Connection Modes
+
+### Standalone Mode (no Mac required)
+
+1. Launch the app → complete onboarding → choose **"Standalone"**
+2. Enter your [Anthropic API key](https://console.anthropic.com/) when prompted
+3. Start chatting — the app calls the Anthropic API directly
+
+**Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys are stored in `UserDefaults` instead, which works fine for development. On a real device, keys are stored in the Keychain.
+
+### Connected to Mac Mode
+
+Requires the Vellum daemon running on your Mac (either as the macOS desktop app or `bun run src/daemon/main.ts`).
+
+**In the simulator** (same machine as Mac):
+
+1. Choose **"Connect to Mac"** in onboarding
+2. Hostname: `localhost`, Port: `8765`
+3. Get the session token from your Mac:
+   ```bash
+   cat ~/.vellum/session-token
+   ```
+4. Paste the token into the Session Token field
+
+**On a real iPhone** (same Wi-Fi network):
+
+1. Find your Mac's local IP:
+   - System Settings → Network → Wi-Fi → Details → IP Address
+   - Or run `ipconfig getifaddr en0` in Terminal
+2. Use that IP as the hostname (e.g. `192.168.1.42`)
+3. Copy the session token from Mac app **Settings → iOS Device → Copy** (or `~/.vellum/session-token`)
+
+**Starting the daemon:**
+```bash
+cd assistant
+bun run src/daemon/main.ts
+# TCP port 8765 starts automatically alongside the Unix socket
+```
+
+Or launch the macOS desktop app — the daemon starts automatically.
 
 ## Running Tests
 
-The `VellumAssistantSharedTests` target covers shared IPC logic (e.g. `MockDaemonClient`) and
-can be run on macOS without a simulator:
+The `VellumAssistantSharedTests` target covers shared IPC logic and can be run on macOS without a simulator:
 
 ```bash
 cd clients/macos
@@ -40,19 +124,26 @@ cd clients
 swift test --filter VellumAssistantSharedTests
 ```
 
-## Configuration
+## Configuration Reference
 
-The iOS app connects to the Vellum daemon over TCP.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Host    | `localhost` | Daemon hostname (configure in Settings for real device) |
-| Port    | `8765` | Daemon TCP port |
-
-For simulator testing the daemon runs on the host Mac, so `localhost` works out of the box.
-For real device testing, configure the daemon's network-accessible IP in the app's Settings screen.
+| Setting | UserDefaults Key | Default | Description |
+|---------|-----------------|---------|-------------|
+| Connection mode | `connection_mode` | `Standalone` | `Standalone` or `Connected to Mac` |
+| Daemon hostname | `daemon_hostname` | `localhost` | Mac hostname or IP |
+| Daemon port | `daemon_port` | `8765` | Daemon TCP port |
+| Session token | see `DaemonConfig.fromUserDefaults()` | — | Token from `~/.vellum/session-token` on Mac |
+| Use TLS | `daemon_tls_enabled` | `false` | Enable TLS for TCP connection |
+| Anthropic API key | (UserDefaults on simulator, Keychain on device) | — | For standalone mode |
 
 ## Dependencies
 
-The iOS app depends only on `VellumAssistantShared`. It must **not** import `VellumAssistantLib`,
-which links macOS-only frameworks (AppKit, ScreenCaptureKit, etc.).
+The iOS app depends only on `VellumAssistantShared`. It must **not** import `VellumAssistantLib`, which links macOS-only frameworks (AppKit, ScreenCaptureKit, etc.).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "Cannot connect to daemon" | Daemon not running or wrong hostname/port | Start daemon, verify `localhost:8765` in simulator |
+| Auth timeout / immediate disconnect | Missing or wrong session token | Copy from `~/.vellum/session-token` on Mac |
+| "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
+| Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vellum.assistant.ios` then reinstall |
