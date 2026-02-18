@@ -218,6 +218,8 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let principalId: String?
     /// Content-hash of the skill source for version tracking.
     public let principalVersion: String?
+    /// When false, the client should hide "always allow" / trust-rule persistence affordances.
+    public let persistentDecisionsAllowed: Bool?
 }
 
 public struct IPCConfirmationRequestAllowlistOption: Codable, Sendable {

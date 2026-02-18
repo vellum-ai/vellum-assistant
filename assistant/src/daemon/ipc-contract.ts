@@ -839,6 +839,8 @@ export interface ConfirmationRequest {
   principalId?: string;
   /** Content-hash of the skill source for version tracking. */
   principalVersion?: string;
+  /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
+  persistentDecisionsAllowed?: boolean;
 }
 
 export interface SecretRequest {
