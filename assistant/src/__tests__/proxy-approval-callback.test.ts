@@ -143,8 +143,8 @@ describe('createProxyApprovalCallback', () => {
   test('skips prompting and returns true when trust store has an allow rule', async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: 'rule-1',
-      tool: 'proxy:missing_credential',
-      pattern: 'proxy:api.fal.ai',
+      tool: 'network_request',
+      pattern: 'network_request:https://api.fal.ai:443/*',
       scope: '/tmp/test-project',
       decision: 'allow' as const,
       priority: 100,
@@ -166,8 +166,8 @@ describe('createProxyApprovalCallback', () => {
   test('skips prompting and returns false when trust store has a deny rule', async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: 'rule-2',
-      tool: 'proxy:unauthenticated',
-      pattern: 'proxy:example.com',
+      tool: 'network_request',
+      pattern: 'network_request:https://example.com/*',
       scope: '/tmp/test-project',
       decision: 'deny' as const,
       priority: 100,
@@ -188,8 +188,8 @@ describe('createProxyApprovalCallback', () => {
   test('prompts when trust store has an ask rule', async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: 'rule-3',
-      tool: 'proxy:unauthenticated',
-      pattern: 'proxy:example.com',
+      tool: 'network_request',
+      pattern: 'network_request:https://example.com/*',
       scope: '/tmp/test-project',
       decision: 'ask' as const,
       priority: 100,
@@ -229,7 +229,7 @@ describe('createProxyApprovalCallback', () => {
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
-      prompter.resolveConfirmation(msg.requestId, 'always_allow', 'proxy:api.fal.ai', '/tmp/test-project');
+      prompter.resolveConfirmation(msg.requestId, 'always_allow', 'network_request:https://api.fal.ai:443/*', '/tmp/test-project');
       return p;
     };
 
@@ -238,8 +238,8 @@ describe('createProxyApprovalCallback', () => {
 
     expect(result).toBe(true);
     expect(addRuleMock).toHaveBeenCalledWith(
-      'proxy:missing_credential',
-      'proxy:api.fal.ai',
+      'network_request',
+      'network_request:https://api.fal.ai:443/*',
       '/tmp/test-project',
       'allow',
       100,
@@ -258,7 +258,7 @@ describe('createProxyApprovalCallback', () => {
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
-      prompter.resolveConfirmation(msg.requestId, 'always_deny', 'proxy:example.com', 'everywhere');
+      prompter.resolveConfirmation(msg.requestId, 'always_deny', 'network_request:https://example.com/*', 'everywhere');
       return p;
     };
 
@@ -267,8 +267,8 @@ describe('createProxyApprovalCallback', () => {
 
     expect(result).toBe(false);
     expect(addRuleMock).toHaveBeenCalledWith(
-      'proxy:unauthenticated',
-      'proxy:example.com',
+      'network_request',
+      'network_request:https://example.com/*',
       'everywhere',
       'deny',
     );
@@ -285,9 +285,9 @@ describe('createProxyApprovalCallback', () => {
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; toolName: string; input: Record<string, unknown> };
-      // Verify the confirmation request has the right tool name
-      expect(msg.toolName).toBe('proxy:missing_credential');
-      expect(msg.input).toHaveProperty('hostname', 'api.fal.ai');
+      // Verify the confirmation request uses the network_request tool name
+      expect(msg.toolName).toBe('network_request');
+      expect(msg.input).toHaveProperty('url', 'https://api.fal.ai:443/v1/run');
       expect(msg.input).toHaveProperty('matching_patterns', ['*.fal.ai']);
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
@@ -308,8 +308,8 @@ describe('createProxyApprovalCallback', () => {
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string; toolName: string; input: Record<string, unknown>; riskLevel: string };
-      expect(msg.toolName).toBe('proxy:unauthenticated');
-      expect(msg.input).toHaveProperty('hostname', 'example.com');
+      expect(msg.toolName).toBe('network_request');
+      expect(msg.input).toHaveProperty('url', 'https://example.com/data');
       expect(msg.riskLevel).toBe('medium');
       prompter.resolveConfirmation(msg.requestId, 'deny');
       return p;
@@ -340,7 +340,7 @@ describe('createProxyApprovalCallback', () => {
     await callback(makeAskMissingCredentialRequest());
   });
 
-  test('includes port in allowlist option label when port is present', async () => {
+  test('generates URL-based allowlist options via generateAllowlistOptions', async () => {
     const ctx = makeContext();
     const prompterSendToClient = mock(() => {});
     const prompter = new PermissionPrompter(prompterSendToClient);
@@ -350,9 +350,15 @@ describe('createProxyApprovalCallback', () => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
-      const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string }> };
-      // First option should include the port
-      expect(msg.allowlistOptions[0].label).toBe('proxy:api.fal.ai:443');
+      const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string; pattern: string }> };
+      // The checker's generateAllowlistOptions for network_request produces
+      // URL-based options: exact URL, origin wildcard, and tool wildcard
+      const patterns = msg.allowlistOptions.map((o) => o.pattern);
+      // Should include an origin-level wildcard pattern (port 443 is normalized
+      // away by the URL constructor since it's the default HTTPS port)
+      expect(patterns.some((p) => p.includes('https://api.fal.ai/*'))).toBe(true);
+      // Should include the catch-all tool wildcard
+      expect(patterns).toContain('network_request:*');
       prompter.resolveConfirmation(msg.requestId, 'allow');
       return p;
     };
@@ -361,7 +367,7 @@ describe('createProxyApprovalCallback', () => {
     await callback(makeAskMissingCredentialRequest());
   });
 
-  test('omits port from allowlist option label when port is null', async () => {
+  test('generates allowlist options without port when port is null', async () => {
     const ctx = makeContext();
     const prompterSendToClient = mock(() => {});
     const prompter = new PermissionPrompter(prompterSendToClient);
@@ -371,9 +377,12 @@ describe('createProxyApprovalCallback', () => {
       const p = originalPrompt(...args);
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
-      const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string }> };
-      // Port is null — label should not include ":null"
-      expect(msg.allowlistOptions[0].label).toBe('proxy:example.com');
+      const msg = call[0] as { requestId: string; allowlistOptions: Array<{ label: string; pattern: string }> };
+      // Port is null — URL should be https://example.com/data (no port)
+      const patterns = msg.allowlistOptions.map((o) => o.pattern);
+      expect(patterns.some((p) => p.includes('https://example.com/*'))).toBe(true);
+      // Should NOT include ":null" in any pattern
+      expect(patterns.every((p) => !p.includes(':null'))).toBe(true);
       prompter.resolveConfirmation(msg.requestId, 'deny');
       return p;
     };
@@ -398,7 +407,7 @@ describe('createProxyApprovalCallback', () => {
       await new Promise((r) => setTimeout(r, 10));
       const call = (prompterSendToClient.mock.calls as unknown[][])[0];
       const msg = call[0] as { requestId: string };
-      prompter.resolveConfirmation(msg.requestId, 'always_allow_high_risk', 'proxy:api.fal.ai', '/tmp/test-project');
+      prompter.resolveConfirmation(msg.requestId, 'always_allow_high_risk', 'network_request:https://api.fal.ai:443/*', '/tmp/test-project');
       return p;
     };
 
@@ -407,8 +416,8 @@ describe('createProxyApprovalCallback', () => {
 
     expect(result).toBe(true);
     expect(addRuleMock).toHaveBeenCalledWith(
-      'proxy:missing_credential',
-      'proxy:api.fal.ai',
+      'network_request',
+      'network_request:https://api.fal.ai:443/*',
       '/tmp/test-project',
       'allow',
       100,
@@ -483,5 +492,37 @@ describe('createProxyApprovalCallback', () => {
     expect(result).toBe(true);
     // No pattern/scope -> cannot save a rule
     expect(addRuleMock).not.toHaveBeenCalled();
+  });
+
+  test('trust store candidates include URL-based patterns for network_request', async () => {
+    // Verify that findHighestPriorityRule is called with network_request
+    // tool name and URL-based candidates
+    findHighestPriorityRuleMock.mockReturnValue(null);
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, 'allow');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    await callback(makeAskMissingCredentialRequest());
+
+    // Verify findHighestPriorityRule was called with network_request
+    // and URL-based candidates
+    expect(findHighestPriorityRuleMock).toHaveBeenCalledTimes(1);
+    const [toolArg, candidatesArg] = findHighestPriorityRuleMock.mock.calls[0] as [string, string[], string];
+    expect(toolArg).toBe('network_request');
+    // Candidates should include URL-based patterns
+    expect(candidatesArg.some((c: string) => c.startsWith('network_request:https://api.fal.ai'))).toBe(true);
+    expect(candidatesArg).toContain('network_request:*');
   });
 });
