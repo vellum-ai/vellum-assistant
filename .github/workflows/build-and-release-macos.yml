@@ -88,6 +88,16 @@ jobs:
           echo "Daemon binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
 
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/hatch-main.ts \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+          echo "CLI binary built:"
+          ls -lh ../clients/macos/cli-bin/vellum-cli
+
       - name: Build release .app
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -107,8 +117,8 @@ jobs:
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin
-          rm -rf ../../assistant/node_modules
+          rm -rf .build daemon-bin cli-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules
           # Clear Xcode caches
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
