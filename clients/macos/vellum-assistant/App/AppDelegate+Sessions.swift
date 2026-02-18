@@ -20,6 +20,7 @@ extension AppDelegate {
         // Poll every 500ms for up to 30 seconds
         for _ in 0..<60 {
             try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return false }
             if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
         }
         return false
