@@ -68,7 +68,7 @@ final class AppListManager: ObservableObject {
     }
 
     func pinApp(id: String) {
-        guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = apps.firstIndex(where: { $0.id == id }), !apps[index].isPinned else { return }
         let nextOrder = (apps.compactMap(\.pinnedOrder).max() ?? -1) + 1
         apps[index].isPinned = true
         apps[index].pinnedOrder = nextOrder
