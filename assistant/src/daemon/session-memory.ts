@@ -7,6 +7,7 @@ import {
   injectMemoryRecallIntoUserMessage,
   injectMemoryRecallAsSeparateMessage,
 } from '../memory/retriever.js';
+import type { ScopePolicyOverride } from '../memory/search/types.js';
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 import { estimatePromptTokens } from '../context/token-estimator.js';
@@ -32,6 +33,7 @@ export interface MemoryPrepareContext {
   provider: Provider;
   conflictGate: ConflictGate;
   scopeId: string;
+  includeDefaultFallback: boolean;
 }
 
 /**
@@ -97,7 +99,8 @@ export async function prepareMemoryContext(
   const profileConfig = memoryEnabled ? runtimeConfig.memory?.profile : undefined;
   const dynamicProfile = profileConfig?.enabled
     ? compileDynamicProfile({
-        scopeId: 'default',
+        scopeId: ctx.scopeId,
+        includeDefaultFallback: ctx.includeDefaultFallback,
         maxInjectTokensOverride: profileConfig.maxInjectTokens,
       })
     : { text: '' };
@@ -119,10 +122,18 @@ export async function prepareMemoryContext(
         maxInjectTokens: dynamicBudgetConfig.maxInjectTokens,
       })
     : undefined;
+  // Build scope policy override for non-default scopes so retrieval
+  // honours the session's memory policy regardless of the global config.
+  const scopePolicyOverride: ScopePolicyOverride | undefined =
+    ctx.scopeId !== 'default'
+      ? { scopeId: ctx.scopeId, fallbackToDefault: ctx.includeDefaultFallback }
+      : undefined;
+
   const recall = await buildMemoryRecall(recallQuery, ctx.conversationId, runtimeConfig, {
     excludeMessageIds: [userMessageId],
     signal: abortSignal,
     maxInjectTokensOverride: recallBudget,
+    scopePolicyOverride,
   });
   const memoryStatus = getMemoryConflictAndCleanupStats();
 
