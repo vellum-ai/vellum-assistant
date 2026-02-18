@@ -6,9 +6,10 @@ import type { Contact, ContactChannel, ContactWithChannels } from './types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Escape LIKE metacharacters so user input is matched literally. */
+/** Strip LIKE metacharacters so user input is matched literally.
+ * SQLite has no default escape character for LIKE, so we strip rather than escape. */
 function escapeLike(value: string): string {
-  return value.replace(/%/g, '\\%').replace(/_/g, '\\_');
+  return value.replace(/%/g, '').replace(/_/g, '');
 }
 
 function parseContact(row: typeof contacts.$inferSelect): Contact {
