@@ -104,18 +104,24 @@ function checkImageAvailable(image: string): void {
     if (existsSync(dockerfile)) {
       log.info(`Building sandbox image "${image}" from ${dockerfile}...`);
       try {
-        execFileSync('docker', ['build', '-t', image, '-f', dockerfile, '.'], {
-          stdio: 'ignore',
+        // --no-cache avoids stale apt-get layers with expired GPG signatures.
+        execFileSync('docker', ['build', '--no-cache', '-t', image, '-f', dockerfile, '.'], {
+          stdio: ['ignore', 'ignore', 'pipe'],
           timeout: 120000,
           cwd: resolve(dockerfile, '..'),
         });
         imageAvailableCache.add(image);
         return;
-      } catch {
+      } catch (err: unknown) {
+        const stderr = err instanceof Error && 'stderr' in err
+          ? String((err as { stderr: unknown }).stderr).trim()
+          : '';
+        const detail = stderr ? `\n\nBuild output:\n${stderr}` : '';
         throw new ToolError(
           `Failed to build sandbox image "${image}" from ${dockerfile}. ` +
           'Check Docker is running and try building manually: ' +
-          `docker build -t ${image} -f ${dockerfile} ${resolve(dockerfile, '..')}`,
+          `docker build --no-cache -t ${image} -f ${dockerfile} ${resolve(dockerfile, '..')}` +
+          detail,
           'bash',
         );
       }
