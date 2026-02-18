@@ -11,7 +11,11 @@ struct SkillInvocationChip: View {
                     .font(VFont.cardEmoji)
             }
 
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Using skill")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textMuted)
+
                 Text(data.name)
                     .font(VFont.mono)
                     .foregroundColor(VColor.textPrimary)
