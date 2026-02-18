@@ -231,6 +231,7 @@ struct ChatContentView: View {
         case .queueFull: return "tray.full.fill"
         case .sessionAborted: return "stop.circle.fill"
         case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"
+        case .contextTooLarge: return "doc.text.fill.viewfinder"
         case .unknown: return "exclamationmark.triangle.fill"
         }
     }
