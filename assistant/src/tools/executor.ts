@@ -531,6 +531,11 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'host_bash',
   'web_fetch',
   'browser_navigate',
+  'browser_click',
+  'browser_type',
+  'browser_press_key',
+  'browser_close',
+  'browser_fill_credential',
 ]);
 
 /**
