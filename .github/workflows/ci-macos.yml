@@ -107,6 +107,7 @@ jobs:
           retention-days: 7
 
       - name: Generate GitHub App token
+        if: github.event.pull_request.head.repo.full_name == github.repository
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
@@ -114,6 +115,7 @@ jobs:
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
       - name: Comment artifact link on PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
