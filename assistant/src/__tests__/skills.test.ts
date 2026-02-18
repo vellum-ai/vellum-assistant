@@ -537,3 +537,44 @@ describe('bundled browser skill', () => {
     ]);
   });
 });
+
+describe('bundled computer-use skill', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('computer-use skill appears in full catalog (including bundled)', () => {
+    const catalog = loadSkillCatalog();
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
+    expect(cuSkill).toBeDefined();
+    expect(cuSkill!.name).toBe('Computer Use');
+    expect(cuSkill!.bundled).toBe(true);
+  });
+
+  test('computer-use skill is not user-invocable', () => {
+    const catalog = loadSkillCatalog();
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
+    expect(cuSkill).toBeDefined();
+    expect(cuSkill!.userInvocable).toBe(false);
+  });
+
+  test('computer-use skill has model invocation disabled', () => {
+    const catalog = loadSkillCatalog();
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
+    expect(cuSkill).toBeDefined();
+    expect(cuSkill!.disableModelInvocation).toBe(true);
+  });
+
+  test('computer-use skill has no tool manifest yet (skeleton only)', () => {
+    const catalog = loadSkillCatalog();
+    const cuSkill = catalog.find((s) => s.id === 'computer-use');
+    expect(cuSkill).toBeDefined();
+    expect(cuSkill!.toolManifest).toBeUndefined();
+  });
+});
