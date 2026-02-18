@@ -88,6 +88,7 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
                 retryable: false
             ))
             broadcast(errMsg)
+            broadcast(.messageComplete(MessageCompleteMessage(sessionId: sessionId)))
             return
         }
         let sessionId = msg.sessionId
@@ -147,6 +148,7 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
                     userMessage = "API error \(http.statusCode). Check your API key in Settings."
                 }
                 broadcast(.sessionError(SessionErrorMessage(sessionId: sessionId, code: .providerApi, userMessage: userMessage, retryable: false)))
+                broadcast(.messageComplete(MessageCompleteMessage(sessionId: sessionId)))
                 activeTasks.removeValue(forKey: sessionId)
                 return
             }
