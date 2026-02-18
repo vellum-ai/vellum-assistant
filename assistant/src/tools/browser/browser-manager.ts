@@ -238,6 +238,14 @@ class BrowserManager {
           const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
           this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
           this.setBrowserMode('cdp');
+          // Push the window offscreen immediately — macOS ignores --window-position
+          // on launch and may bring Chrome to the foreground.
+          const pages = ctx.pages?.() ?? [];
+          for (const p of pages) {
+            try {
+              await p.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+            } catch { /* blank page may not support evaluate */ }
+          }
           log.info('Launched headed Chromium (minimized) for interactive handoff support');
           return ctx as unknown as BrowserContext;
         } catch (err2) {
@@ -339,6 +347,15 @@ class BrowserManager {
     const page = await context.newPage();
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
+
+    // In headed mode, newPage() may bring Chrome to the foreground on macOS.
+    // Push it back offscreen unless we're in an active handoff.
+    if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
+      try {
+        await page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+      } catch { /* ignore if page isn't ready yet */ }
+    }
+
     log.debug({ sessionId }, 'Session page created');
     return page;
   }

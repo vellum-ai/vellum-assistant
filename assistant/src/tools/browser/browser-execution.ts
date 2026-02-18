@@ -197,6 +197,14 @@ export async function executeBrowserNavigate(
       routeHandler = null;
     }
 
+    // In headed mode, page.goto() may bring Chrome to the foreground on macOS.
+    // Push it back offscreen unless a handoff is active.
+    if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
+      try {
+        await page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+      } catch { /* ignore */ }
+    }
+
     if (blockedUrl) {
       if (sender) {
         updateBrowserStatus(context.sessionId, sender, 'idle');
