@@ -284,15 +284,9 @@ export async function executeBrowserNavigate(
     // Detect auth challenges (login pages, 2FA, OAuth consent) and CAPTCHA challenges
     try {
       const authChallenge = await detectAuthChallenge(page);
-      let challenge = authChallenge ?? await detectCaptchaChallenge(page);
-
-      // If auth detection returned a generic URL-only match (no DOM fields),
-      // also check for CAPTCHA — Cloudflare challenges on /auth URLs would
-      // otherwise be misclassified as login pages due to the ?? short-circuit.
-      if (challenge && challenge.type === 'login' && challenge.fields.length === 0) {
-        const captcha = await detectCaptchaChallenge(page);
-        if (captcha) challenge = captcha;
-      }
+      const captchaChallenge = await detectCaptchaChallenge(page);
+      // CAPTCHA takes priority — it blocks all interaction including login
+      let challenge = captchaChallenge ?? authChallenge;
 
       // Many CAPTCHA interstitials (e.g. Cloudflare "Just a moment") auto-resolve
       // within a few seconds. Wait and re-check before handing off to the user.
