@@ -4,6 +4,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import * as appStore from '../../memory/app-store.js';
 import { randomUUID } from 'node:crypto';
 import { generateEditorHTML } from './editor-template.js';
+import { openAppViaSurface } from '../apps/open-proxy.js';
 
 // ── document_create ──────────────────────────────────────────────────
 
@@ -63,48 +64,55 @@ export class DocumentCreateTool implements Tool {
       appType: 'app',
     });
 
-    // Open the document via the proxy resolver if available
-    if (context.proxyToolResolver) {
-      try {
-        const openResult = await context.proxyToolResolver('app_open', {
-          app_id: app.id,
-          preview: {
-            title,
-            subtitle: 'Document',
-            description: 'Long-form document with rich text editor',
-            icon: '📝',
-            metrics: [{ label: 'Words', value: String(wordCount) }],
-          },
-        });
+    // Open the document via the shared open-proxy helper
+    const openResultText = await openAppViaSurface(
+      app.id,
+      context.proxyToolResolver,
+      {
+        preview: {
+          title,
+          subtitle: 'Document',
+          description: 'Long-form document with rich text editor',
+          icon: '\u{1F4DD}',
+          metrics: [{ label: 'Words', value: String(wordCount) }],
+        },
+      },
+    );
 
-        return {
-          content: JSON.stringify({
-            app_id: appId,
-            surface_id: app.id, // For now, use app ID as surface ID
-            title,
-            opened: true,
-            open_result: openResult.content,
-          }),
-          isError: false,
-        };
-      } catch {
-        return {
-          content: JSON.stringify({
-            app_id: appId,
-            title,
-            opened: false,
-            error: 'Failed to open document editor',
-          }),
-          isError: false,
-        };
-      }
+    // The helper returns fallback text when the resolver is missing or throws
+    const opened = !!context.proxyToolResolver &&
+      openResultText !== 'Failed to auto-open app. Use app_open to open it manually.';
+
+    if (opened) {
+      return {
+        content: JSON.stringify({
+          app_id: appId,
+          surface_id: app.id,
+          title,
+          opened: true,
+          open_result: openResultText,
+        }),
+        isError: false,
+      };
+    }
+
+    if (!context.proxyToolResolver) {
+      return {
+        content: JSON.stringify({
+          app_id: appId,
+          title,
+          message: 'Document created but could not be opened (no proxy resolver available)',
+        }),
+        isError: false,
+      };
     }
 
     return {
       content: JSON.stringify({
         app_id: appId,
         title,
-        message: 'Document created but could not be opened (no proxy resolver available)',
+        opened: false,
+        error: 'Failed to open document editor',
       }),
       isError: false,
     };
