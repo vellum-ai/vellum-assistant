@@ -127,4 +127,50 @@ final class InlineVideoWebViewFailureTests: XCTestCase {
         stateManager.didFail("Connection lost")
         XCTAssertEqual(stateManager.state, .failed("Connection lost"))
     }
+
+    // MARK: - Cancellation error filtering
+
+    func testDidFailIgnoresCancellationError() {
+        var receivedMessage: String?
+        let coordinator = InlineVideoWebView.Coordinator(
+            provider: "youtube",
+            onLoadFailure: { msg in receivedMessage = msg }
+        )
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        let webView = WKWebView(frame: .zero)
+        coordinator.webView(webView, didFail: nil, withError: error)
+
+        XCTAssertNil(receivedMessage, "Cancellation errors should not invoke onLoadFailure")
+    }
+
+    func testDidFailProvisionalNavigationIgnoresCancellationError() {
+        var receivedMessage: String?
+        let coordinator = InlineVideoWebView.Coordinator(
+            provider: "youtube",
+            onLoadFailure: { msg in receivedMessage = msg }
+        )
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        let webView = WKWebView(frame: .zero)
+        coordinator.webView(webView, didFailProvisionalNavigation: nil, withError: error)
+
+        XCTAssertNil(receivedMessage, "Cancellation errors should not invoke onLoadFailure")
+    }
+
+    func testDidFailStillReportsNonCancellationErrors() {
+        var receivedMessage: String?
+        let coordinator = InlineVideoWebView.Coordinator(
+            provider: "youtube",
+            onLoadFailure: { msg in receivedMessage = msg }
+        )
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
+            NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
+        ])
+        let webView = WKWebView(frame: .zero)
+        coordinator.webView(webView, didFail: nil, withError: error)
+
+        XCTAssertEqual(receivedMessage, "The Internet connection appears to be offline.")
+    }
 }

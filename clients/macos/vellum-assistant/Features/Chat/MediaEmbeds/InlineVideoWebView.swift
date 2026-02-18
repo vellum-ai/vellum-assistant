@@ -158,6 +158,7 @@ struct InlineVideoWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard !Self.isCancellationError(error) else { return }
             onLoadFailure?(error.localizedDescription)
         }
 
@@ -166,7 +167,15 @@ struct InlineVideoWebView: NSViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
+            guard !Self.isCancellationError(error) else { return }
             onLoadFailure?(error.localizedDescription)
+        }
+
+        /// WebKit fires cancellation errors (NSURLErrorCancelled) for benign
+        /// reasons like a load being superseded by a new request or a navigation
+        /// policy cancellation. These are not real failures.
+        private static func isCancellationError(_ error: Error) -> Bool {
+            (error as NSError).code == NSURLErrorCancelled
         }
 
         // MARK: - WKUIDelegate
