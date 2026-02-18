@@ -255,6 +255,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `env_vars_response` message (debug builds only).
     public var onEnvVarsResponse: ((EnvVarsResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `work_items_list_response` message.
+    public var onWorkItemsListResponse: ((IPCWorkItemsListResponse) -> Void)?
+
+    /// Called when the daemon sends a `work_item_status_changed` broadcast.
+    public var onWorkItemStatusChanged: ((IPCWorkItemStatusChanged) -> Void)?
+
+    /// Called when the daemon sends a `work_item_run_task_response` message.
+    public var onWorkItemRunTaskResponse: ((IPCWorkItemRunTaskResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -810,6 +819,28 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ReminderCancelMessage(id: id))
     }
 
+    // MARK: - Work Items (Task Queue)
+
+    /// Request the list of work items from the daemon, optionally filtered by status.
+    public func sendWorkItemsList(status: String? = nil) throws {
+        try send(IPCWorkItemsListRequest(type: "work_items_list", status: status))
+    }
+
+    /// Mark a work item as complete (reviewed).
+    public func sendWorkItemComplete(id: String) throws {
+        try send(IPCWorkItemCompleteRequest(type: "work_item_complete", id: id))
+    }
+
+    /// Run the task associated with a work item.
+    public func sendWorkItemRunTask(id: String) throws {
+        try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id))
+    }
+
+    /// Update fields on an existing work item.
+    public func sendWorkItemUpdate(id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) throws {
+        try send(IPCWorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
@@ -1326,6 +1357,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onBrowserCDPRequest?(msg)
         case .envVarsResponse(let msg):
             onEnvVarsResponse?(msg)
+        case .workItemsListResponse(let msg):
+            onWorkItemsListResponse?(msg)
+        case .workItemStatusChanged(let msg):
+            onWorkItemStatusChanged?(msg)
+        case .workItemRunTaskResponse(let msg):
+            onWorkItemRunTaskResponse?(msg)
         default:
             break
         }

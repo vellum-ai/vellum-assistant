@@ -348,6 +348,10 @@ struct MainWindowView: View {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.agent)
                             },
+                            onTaskQueue: {
+                                showControlCenterDrawer = false
+                                windowState.togglePanel(.taskQueue)
+                            },
                             onSettings: {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.settings)
@@ -1026,6 +1030,11 @@ struct MainWindowView: View {
             sidebarView
         case .identity:
             IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+        case .taskQueue:
+            TaskQueuePanel(
+                daemonClient: daemonClient,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
@@ -1427,6 +1436,7 @@ private struct ControlCenterMenuButton: View {
 private struct DrawerMenuView: View {
     let onIdentity: () -> Void
     let onSkills: () -> Void
+    let onTaskQueue: () -> Void
     let onSettings: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
@@ -1435,6 +1445,7 @@ private struct DrawerMenuView: View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
             DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
+            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Task Queue", action: onTaskQueue)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)

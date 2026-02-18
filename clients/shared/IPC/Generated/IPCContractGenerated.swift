@@ -1835,3 +1835,155 @@ public struct IPCWatchStarted: Codable, Sendable {
     public let durationSeconds: Double
     public let intervalSeconds: Double
 }
+
+public struct IPCWorkItemCompleteRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemCreateRequest: Codable, Sendable {
+    public let type: String
+    public let taskId: String
+    public let title: String?
+    public let notes: String?
+    public let priorityTier: Double?
+    public let sortIndex: Int?
+}
+
+public struct IPCWorkItemCreateResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemCreateResponseItem
+}
+
+public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemGetRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemGetResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemGetResponseItem?
+}
+
+public struct IPCWorkItemGetResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let lastRunId: String
+    public let success: Bool
+    public let error: String?
+}
+
+public struct IPCWorkItemsListRequest: Codable, Sendable {
+    public let type: String
+    public let status: String?
+}
+
+public struct IPCWorkItemsListResponse: Codable, Sendable {
+    public let type: String
+    public let items: [IPCWorkItemsListResponseItem]
+}
+
+public struct IPCWorkItemsListResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
+
+/// Server push — broadcast when a work item status changes (e.g. running -> awaiting_review).
+public struct IPCWorkItemStatusChanged: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemStatusChangedItem
+}
+
+public struct IPCWorkItemStatusChangedItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let status: String
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let updatedAt: Int
+}
+
+public struct IPCWorkItemUpdateRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let title: String?
+    public let notes: String?
+    public let status: String?
+    public let priorityTier: Double?
+    public let sortIndex: Int?
+}
+
+public struct IPCWorkItemUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let item: IPCWorkItemUpdateResponseItem?
+}
+
+public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
+    public let id: String
+    public let taskId: String
+    public let title: String
+    public let notes: String?
+    public let status: String
+    public let priorityTier: Double
+    public let sortIndex: Int?
+    public let lastRunId: String?
+    public let lastRunConversationId: String?
+    public let lastRunStatus: String?
+    public let sourceType: String?
+    public let sourceId: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+}
