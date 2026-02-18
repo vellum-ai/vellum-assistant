@@ -636,6 +636,12 @@ function buildBrowserInteractionSection(): string {
     '2. `browser_snapshot` → get interactive elements with IDs',
     '3. Use `browser_click` / `browser_type` / `browser_press_key` with `element_id` from the snapshot',
     '4. After any action that changes the page (click, navigation, form submit), take a new `browser_snapshot` before the next interaction',
+    '',
+    '### User input during browser flows',
+    'When you need user input mid-browser-flow (e.g. "which restaurant?", "which item to add?"), do NOT end your turn with a text question — this breaks the browser flow and loses context.',
+    'Instead, use `ui_show` with `surface_type: "form"` or `surface_type: "list"` and `await_action: true` to present choices inline without ending the turn.',
+    'The form/list will block until the user responds, then you can continue the browser interaction in the same turn with all state preserved.',
+    'Example: after finding restaurants, show a list surface with the options. When the user selects one, immediately click through to that restaurant without needing a new snapshot cycle.',
   ].join('\n');
 }
 
