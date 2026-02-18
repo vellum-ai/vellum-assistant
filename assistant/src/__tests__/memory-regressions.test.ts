@@ -3805,4 +3805,145 @@ describe('Memory regressions', () => {
     expect(privateSummaries).toHaveLength(1);
     expect(privateSummaries[0].scopeKey).toBe(privConv.id);
   });
+
+  // ── End-to-end memory-boundary regression tests ─────────────────────
+
+  test('e2e: private-only facts are recalled in private thread but not in standard thread', async () => {
+    const db = getDb();
+
+    // 1. Create a private conversation and add a message with a distinctive fact
+    const privConv = createConversation({ title: 'Private e2e test', threadType: 'private' });
+    const privScope = getConversationMemoryScopeId(privConv.id);
+    expect(privScope).toMatch(/^private:/);
+
+    const privMsg = addMessage(
+      privConv.id,
+      'user',
+      'I prefer using the Zephyr framework for all backend microservices.',
+    );
+
+    // 2. Extract memory items — they inherit the private scope
+    const upserted = await extractAndUpsertMemoryItemsForMessage(privMsg.id, privScope);
+    expect(upserted).toBeGreaterThan(0);
+
+    // Verify items were stored with the private scope
+    const privateItems = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.scopeId, privScope))
+      .all();
+    expect(privateItems.length).toBeGreaterThan(0);
+    expect(privateItems.some((i) => i.statement.toLowerCase().includes('zephyr'))).toBe(true);
+
+    // Collect the item IDs so we can check them in recall results
+    const privateItemKeys = privateItems.map((i) => `item:${i.id}`);
+
+    // 3. Create a standard conversation for the "standard thread" perspective
+    const stdConv = createConversation({ title: 'Standard e2e test', threadType: 'standard' });
+    const stdScope = getConversationMemoryScopeId(stdConv.id);
+    expect(stdScope).toBe('default');
+
+    db.insert(messages).values({
+      id: 'msg-std-e2e-noleak',
+      conversationId: stdConv.id,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'placeholder for standard conv' }]),
+      createdAt: Date.now(),
+    }).run();
+
+    const recallConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    // 4. Private thread recall — should find the Zephyr fact
+    const privRecall = await buildMemoryRecall('Zephyr framework microservices', privConv.id, recallConfig, {
+      scopePolicyOverride: {
+        scopeId: privScope,
+        fallbackToDefault: true,
+      },
+    });
+    const privCandidateKeys = privRecall.topCandidates.map((c) => c.key);
+    const hasZephyrInPrivate = privateItemKeys.some((k) => privCandidateKeys.includes(k));
+    expect(hasZephyrInPrivate).toBe(true);
+    expect(privRecall.injectedText.toLowerCase()).toContain('zephyr');
+
+    // 5. Standard thread recall — must NOT find the Zephyr fact (no leak)
+    const stdRecall = await buildMemoryRecall('Zephyr framework microservices', stdConv.id, recallConfig, {
+      scopeId: 'default',
+    });
+    const stdCandidateKeys = stdRecall.topCandidates.map((c) => c.key);
+    const hasZephyrInStandard = privateItemKeys.some((k) => stdCandidateKeys.includes(k));
+    expect(hasZephyrInStandard).toBe(false);
+    expect(stdRecall.injectedText.toLowerCase()).not.toContain('zephyr');
+  });
+
+  test('e2e: private thread still recalls facts from default memory scope', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // 1. Create a standard conversation and add a fact to default scope
+    const stdConv = createConversation({ title: 'Default scope source', threadType: 'standard' });
+    const stdScope = getConversationMemoryScopeId(stdConv.id);
+    expect(stdScope).toBe('default');
+
+    const stdMsg = addMessage(
+      stdConv.id,
+      'user',
+      'I prefer using the Obsidian editor for all my note-taking workflows.',
+    );
+
+    const upsertedDefault = await extractAndUpsertMemoryItemsForMessage(stdMsg.id, stdScope);
+    expect(upsertedDefault).toBeGreaterThan(0);
+
+    // Verify items landed in the default scope
+    const defaultItems = db
+      .select()
+      .from(memoryItems)
+      .where(and(eq(memoryItems.scopeId, 'default'), eq(memoryItems.status, 'active')))
+      .all();
+    const hasObsidian = defaultItems.some((i) => i.statement.toLowerCase().includes('obsidian'));
+    expect(hasObsidian).toBe(true);
+
+    // Collect default item IDs containing "obsidian" for key-based verification
+    const obsidianItemKeys = defaultItems
+      .filter((i) => i.statement.toLowerCase().includes('obsidian'))
+      .map((i) => `item:${i.id}`);
+
+    // 2. Create a private conversation
+    const privConv = createConversation({ title: 'Private fallback test', threadType: 'private' });
+    const privScope = getConversationMemoryScopeId(privConv.id);
+    expect(privScope).toMatch(/^private:/);
+
+    db.insert(messages).values({
+      id: 'msg-priv-e2e-fallback',
+      conversationId: privConv.id,
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'placeholder for private conv fallback test' }]),
+      createdAt: now + 1,
+    }).run();
+
+    const recallConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
+      },
+    };
+
+    // 3. Private thread recall with fallback to default — should find the Obsidian fact
+    const privRecall = await buildMemoryRecall('Obsidian editor note-taking', privConv.id, recallConfig, {
+      scopePolicyOverride: {
+        scopeId: privScope,
+        fallbackToDefault: true,
+      },
+    });
+    const privCandidateKeys = privRecall.topCandidates.map((c) => c.key);
+    const hasObsidianInPrivate = obsidianItemKeys.some((k) => privCandidateKeys.includes(k));
+    expect(hasObsidianInPrivate).toBe(true);
+    expect(privRecall.injectedText.toLowerCase()).toContain('obsidian');
+  });
 });
