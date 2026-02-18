@@ -28,6 +28,7 @@ function parseTarget(url: string | undefined): { host: string; port: number } | 
   // Strip brackets from IPv6 literals — net.connect expects the raw address
   if (host.startsWith('[') && host.endsWith(']')) {
     host = host.slice(1, -1);
+    if (!host) return null;
   }
 
   return { host, port };

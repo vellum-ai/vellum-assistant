@@ -51,6 +51,7 @@ function parseConnectTarget(url: string | undefined): { host: string; port: numb
   // Strip brackets from IPv6 literals — net.connect expects the raw address
   if (host.startsWith('[') && host.endsWith(']')) {
     host = host.slice(1, -1);
+    if (!host) return null;
   }
   return { host, port };
 }
@@ -118,7 +119,9 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
           handleConnect(req, clientSocket, head);
         })
         .catch(() => {
-          clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          if (clientSocket.writable) {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          }
           clientSocket.destroy();
         });
     } else {
