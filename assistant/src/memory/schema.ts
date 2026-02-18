@@ -415,6 +415,16 @@ export const taskRuns = sqliteTable('task_runs', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const taskCandidates = sqliteTable('task_candidates', {
+  id: text('id').primaryKey(),
+  sourceConversationId: text('source_conversation_id').notNull(),
+  compiledTemplate: text('compiled_template').notNull(),
+  confidence: real('confidence'),
+  requiredTools: text('required_tools'),               // JSON array string
+  createdAt: integer('created_at').notNull(),
+  promotedTaskId: text('promoted_task_id'),             // set when candidate is promoted to a real task
+});
+
 export const homeBaseAppLinks = sqliteTable('home_base_app_links', {
   id: text('id').primaryKey(),
   appId: text('app_id').notNull(),

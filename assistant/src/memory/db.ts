@@ -729,9 +729,22 @@ export function initializeDb(): void {
     )
   `);
 
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS task_candidates (
+      id TEXT PRIMARY KEY,
+      source_conversation_id TEXT NOT NULL,
+      compiled_template TEXT NOT NULL,
+      confidence REAL,
+      required_tools TEXT,
+      created_at INTEGER NOT NULL,
+      promoted_task_id TEXT
+    )
+  `);
+
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_candidates_promoted ON task_candidates(promoted_task_id)`);
 
   migrateMemoryFtsBackfill(database);
 }
