@@ -1,6 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type * as net from 'node:net';
 
+interface MockMemoryPolicy {
+  scopeId: string;
+  includeDefaultFallback: boolean;
+  strictSideEffects: boolean;
+}
+
+const MOCK_DEFAULT_MEMORY_POLICY: MockMemoryPolicy = {
+  scopeId: 'default',
+  includeDefaultFallback: false,
+  strictSideEffects: false,
+};
+
 const conversation = {
   id: 'conv-1',
   title: 'Test Conversation',
@@ -9,12 +21,15 @@ const conversation = {
   totalOutputTokens: 0,
   totalEstimatedCost: 0,
   threadType: 'standard' as string,
+  memoryScopeId: 'default' as string,
 };
 
 let lastCreatedWorkingDir: string | undefined;
+let lastCreatedMemoryPolicy: MockMemoryPolicy | undefined;
 
 class MockSession {
   public readonly conversationId: string;
+  public memoryPolicy: MockMemoryPolicy;
   public updateClientCalls = 0;
   public setSandboxOverrideCalls = 0;
   private stale = false;
@@ -27,9 +42,13 @@ class MockSession {
     _maxResponseTokens?: number,
     _sendToClient?: unknown,
     workingDir?: string,
+    _broadcastToAllClients?: unknown,
+    memoryPolicy?: MockMemoryPolicy,
   ) {
     this.conversationId = conversationId;
     lastCreatedWorkingDir = workingDir;
+    this.memoryPolicy = memoryPolicy ?? MOCK_DEFAULT_MEMORY_POLICY;
+    lastCreatedMemoryPolicy = this.memoryPolicy;
   }
 
   async loadFromDb(): Promise<void> {}
@@ -55,6 +74,8 @@ class MockSession {
   }
 
   abort(): void {}
+
+  dispose(): void {}
 
   hasEscalationHandler(): boolean {
     return true;
@@ -134,12 +155,21 @@ mock.module('../memory/conversation-store.js', () => ({
   getLatestConversation: () => conversation,
   createConversation: () => conversation,
   getConversation: (id: string) => (id === conversation.id ? conversation : null),
+  getConversationThreadType: (id: string) => {
+    if (id === conversation.id) return conversation.threadType === 'private' ? 'private' : 'standard';
+    return 'standard';
+  },
+  getConversationMemoryScopeId: (id: string) => {
+    if (id === conversation.id) return conversation.memoryScopeId;
+    return 'default';
+  },
   getMessages: () => [],
   listConversations: () => [conversation],
 }));
 
 mock.module('../daemon/session.js', () => ({
   Session: MockSession,
+  DEFAULT_MEMORY_POLICY: MOCK_DEFAULT_MEMORY_POLICY,
 }));
 
 import { DaemonServer } from '../daemon/server.js';
@@ -178,7 +208,10 @@ function decodeMessages(writes: string[]): Array<Record<string, unknown>> {
 describe('DaemonServer initial session hydration', () => {
   beforeEach(() => {
     conversation.updatedAt = Date.now();
+    conversation.threadType = 'standard';
+    conversation.memoryScopeId = 'default';
     lastCreatedWorkingDir = undefined;
+    lastCreatedMemoryPolicy = undefined;
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -322,5 +355,91 @@ describe('DaemonServer initial session hydration', () => {
     for (const session of sessions) {
       expect(session.threadType).toBe('private');
     }
+  });
+
+  test('session for private conversation derives strict memory policy', async () => {
+    conversation.threadType = 'private';
+    conversation.memoryScopeId = 'private:conv-1';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.memoryPolicy).toEqual({
+      scopeId: 'private:conv-1',
+      includeDefaultFallback: true,
+      strictSideEffects: true,
+    });
+  });
+
+  test('session for standard conversation uses default memory policy', async () => {
+    conversation.threadType = 'standard';
+    conversation.memoryScopeId = 'default';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.memoryPolicy).toEqual(MOCK_DEFAULT_MEMORY_POLICY);
+  });
+
+  test('session_switch to private conversation derives correct policy on fresh session', async () => {
+    // Start with standard conversation
+    conversation.threadType = 'standard';
+    conversation.memoryScopeId = 'default';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    // Now switch the conversation metadata to private before the switch
+    conversation.threadType = 'private';
+    conversation.memoryScopeId = 'private:conv-1';
+
+    // Evict the existing session so the switch recreates it
+    const existingSession = internal.sessions.get(conversation.id);
+    if (existingSession) {
+      existingSession.markStale();
+    }
+
+    internal.dispatchMessage({ type: 'session_switch', sessionId: conversation.id }, socket);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The recreated session should have the private policy
+    expect(lastCreatedMemoryPolicy).toEqual({
+      scopeId: 'private:conv-1',
+      includeDefaultFallback: true,
+      strictSideEffects: true,
+    });
+  });
+
+  test('session_create with private threadType derives correct policy', async () => {
+    conversation.threadType = 'private';
+    conversation.memoryScopeId = 'private:conv-1';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket } = createFakeSocket();
+
+    internal.dispatchMessage({
+      type: 'session_create',
+      title: 'Private Thread',
+      threadType: 'private',
+    }, socket);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const session = internal.sessions.get(conversation.id);
+    expect(session).toBeDefined();
+    expect(session!.memoryPolicy).toEqual({
+      scopeId: 'private:conv-1',
+      includeDefaultFallback: true,
+      strictSideEffects: true,
+    });
   });
 });
