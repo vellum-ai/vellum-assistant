@@ -106,6 +106,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: MainWindow?
     private var settingsWindow: NSWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
+    private var tasksWindow: TasksWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -1016,6 +1017,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Tasks Window
+
+    @objc func showTasksWindow() {
+        NSApp.setActivationPolicy(.regular)
+        if tasksWindow == nil {
+            tasksWindow = TasksWindow(daemonClient: daemonClient)
+        }
+        tasksWindow?.show()
     }
 
     // MARK: - Application Lifecycle
