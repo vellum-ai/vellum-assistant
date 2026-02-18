@@ -174,6 +174,7 @@ export async function sendMessage(
   subject: string,
   body: string,
   inReplyTo?: string,
+  threadId?: string,
 ): Promise<GmailMessage> {
   const headers = [
     `To: ${to}`,
@@ -189,9 +190,11 @@ export async function sendMessage(
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
+  const payload: Record<string, unknown> = { raw };
+  if (threadId) payload.threadId = threadId;
   return request<GmailMessage>(token, '/messages/send', {
     method: 'POST',
-    body: JSON.stringify({ raw }),
+    body: JSON.stringify(payload),
   });
 }
 

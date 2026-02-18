@@ -99,12 +99,14 @@ export async function conversationHistory(
   limit = 50,
   latest?: string,
   oldest?: string,
+  cursor?: string,
 ): Promise<SlackConversationHistoryResponse> {
   return request<SlackConversationHistoryResponse>(token, 'conversations.history', {
     channel,
     limit: String(limit),
     latest,
     oldest,
+    cursor,
   });
 }
 

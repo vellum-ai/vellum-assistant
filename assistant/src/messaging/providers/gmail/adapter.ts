@@ -162,7 +162,7 @@ export const gmailMessagingProvider: MessagingProvider = {
     // conversationId is the recipient email for Gmail
     const to = conversationId;
     const subject = options?.subject ?? '';
-    const msg = await gmail.sendMessage(token, to, subject, text, options?.inReplyTo);
+    const msg = await gmail.sendMessage(token, to, subject, text, options?.inReplyTo, options?.threadId);
     return {
       id: msg.id,
       timestamp: msg.internalDate ? parseInt(msg.internalDate, 10) : Date.now(),
