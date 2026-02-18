@@ -8,6 +8,35 @@ import WebKit
 /// third-party video players.
 struct InlineVideoWebView: NSViewRepresentable {
     let url: URL
+    let provider: String
+
+    /// Host patterns allowed for programmatic navigations, keyed by provider.
+    /// Exact strings match literally; entries starting with `*.` match any
+    /// subdomain via `hasSuffix` (e.g. `*.googlevideo.com` matches
+    /// `r4---sn.googlevideo.com`).
+    static let allowedHostsByProvider: [String: [String]] = [
+        "youtube": [
+            "youtube.com",
+            "www.youtube.com",
+            "*.googlevideo.com",
+            "*.youtube.com",
+            "*.ytimg.com",
+            "*.google.com",
+            "*.gstatic.com",
+            "accounts.google.com",
+        ],
+        "vimeo": [
+            "*.vimeo.com",
+            "*.vimeocdn.com",
+            "player.vimeo.com",
+            "*.akamaized.net",
+        ],
+        "loom": [
+            "*.loom.com",
+            "*.loomcdn.com",
+            "cdn.loom.com",
+        ],
+    ]
 
     func makeNSView(context: Context) -> WKWebView {
         let webView = Self.makeConfiguredWebView()
@@ -22,7 +51,7 @@ struct InlineVideoWebView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(provider: provider)
     }
 
     /// Build a WKWebView with the privacy-hardened configuration used for embeds.
@@ -37,12 +66,39 @@ struct InlineVideoWebView: NSViewRepresentable {
         return webView
     }
 
+    /// Check whether `host` matches any of the allowed patterns for `provider`.
+    static func isAllowedHost(_ host: String, forProvider provider: String) -> Bool {
+        guard let patterns = allowedHostsByProvider[provider] else {
+            return false
+        }
+        for pattern in patterns {
+            if pattern.hasPrefix("*.") {
+                let suffix = String(pattern.dropFirst(1)) // e.g. ".googlevideo.com"
+                if host == String(pattern.dropFirst(2)) || host.hasSuffix(suffix) {
+                    return true
+                }
+            } else if host == pattern {
+                return true
+            }
+        }
+        return false
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        let provider: String
+        /// The first programmatic navigation is the embed URL we control — always allow it.
+        private var hasLoadedInitial = false
+
+        init(provider: String) {
+            self.provider = provider
+            super.init()
+        }
 
         // MARK: - WKNavigationDelegate
 
-        /// Only allow programmatic/iframe loads (navigationType == .other) which cover the
-        /// initial embed load and any in-player iframe navigations. All user-initiated
+        /// Only allow programmatic/iframe loads (navigationType == .other) whose host
+        /// belongs to the active provider's allowlist. The initial embed load is always
+        /// permitted since we construct that URL ourselves. All user-initiated
         /// navigations (link clicks, form submissions, etc.) are blocked and opened
         /// externally so the webview stays locked to the video player.
         func webView(
@@ -52,8 +108,23 @@ struct InlineVideoWebView: NSViewRepresentable {
         ) {
             switch navigationAction.navigationType {
             case .other:
-                // Programmatic loads — initial embed request + iframe navigations
-                decisionHandler(.allow)
+                if !hasLoadedInitial {
+                    hasLoadedInitial = true
+                    decisionHandler(.allow)
+                    return
+                }
+
+                if let host = navigationAction.request.url?.host,
+                   InlineVideoWebView.isAllowedHost(host, forProvider: provider) {
+                    decisionHandler(.allow)
+                } else {
+                    // Subresource from an unknown domain — block it and open externally
+                    // so the user can still reach it if they need to.
+                    if let url = navigationAction.request.url {
+                        NSWorkspace.shared.open(url)
+                    }
+                    decisionHandler(.cancel)
+                }
             default:
                 // User-initiated navigation — open in the default browser instead
                 if let url = navigationAction.request.url {

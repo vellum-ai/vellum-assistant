@@ -87,7 +87,7 @@ struct InlineVideoEmbedCard: View {
     private var initializingView: some View {
         // The webview loads asynchronously, so we transition straight to
         // .playing and let the embedded player handle its own loading UI.
-        InlineVideoWebView(url: playerURL)
+        InlineVideoWebView(url: playerURL, provider: provider)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .onAppear {
                 stateManager.didStartPlaying()
@@ -95,7 +95,7 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var playingView: some View {
-        InlineVideoWebView(url: playerURL)
+        InlineVideoWebView(url: playerURL, provider: provider)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 

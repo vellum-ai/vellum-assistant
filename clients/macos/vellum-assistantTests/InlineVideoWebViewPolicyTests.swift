@@ -31,14 +31,14 @@ final class InlineVideoWebViewPolicyTests: XCTestCase {
 
     func testURLIsStoredCorrectly() {
         let url = URL(string: "https://player.vimeo.com/video/76979871")!
-        let view = InlineVideoWebView(url: url)
+        let view = InlineVideoWebView(url: url, provider: "vimeo")
 
         XCTAssertEqual(view.url, url)
     }
 
     func testURLPreservesQueryParameters() {
         let url = URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0&mute=1")!
-        let view = InlineVideoWebView(url: url)
+        let view = InlineVideoWebView(url: url, provider: "youtube")
 
         XCTAssertEqual(view.url.absoluteString, url.absoluteString)
     }
@@ -46,7 +46,7 @@ final class InlineVideoWebViewPolicyTests: XCTestCase {
     // MARK: - Coordinator
 
     func testCoordinatorConformsToWKNavigationDelegate() {
-        let view = InlineVideoWebView(url: URL(string: "https://example.com")!)
+        let view = InlineVideoWebView(url: URL(string: "https://example.com")!, provider: "youtube")
         let coordinator = view.makeCoordinator()
 
         // Verify the coordinator can be used as a WKNavigationDelegate
