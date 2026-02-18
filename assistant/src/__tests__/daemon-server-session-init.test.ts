@@ -26,6 +26,7 @@ const conversation = {
 
 let lastCreatedWorkingDir: string | undefined;
 let lastCreatedMemoryPolicy: MockMemoryPolicy | undefined;
+let lastCreateConversationArgs: unknown;
 
 class MockSession {
   public readonly conversationId: string;
@@ -153,7 +154,15 @@ mock.module('../security/secret-allowlist.js', () => ({
 
 mock.module('../memory/conversation-store.js', () => ({
   getLatestConversation: () => conversation,
-  createConversation: () => conversation,
+  createConversation: (titleOrOpts?: string | { title?: string; threadType?: string }) => {
+    lastCreateConversationArgs = titleOrOpts;
+    // Derive threadType and memoryScopeId from input, mirroring real implementation
+    const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : (titleOrOpts ?? {});
+    const threadType = opts.threadType ?? 'standard';
+    conversation.threadType = threadType;
+    conversation.memoryScopeId = threadType === 'private' ? `private:${conversation.id}` : 'default';
+    return conversation;
+  },
   getConversation: (id: string) => (id === conversation.id ? conversation : null),
   getConversationThreadType: (id: string) => {
     if (id === conversation.id) return conversation.threadType === 'private' ? 'private' : 'standard';
@@ -212,6 +221,7 @@ describe('DaemonServer initial session hydration', () => {
     conversation.memoryScopeId = 'default';
     lastCreatedWorkingDir = undefined;
     lastCreatedMemoryPolicy = undefined;
+    lastCreateConversationArgs = undefined;
   });
 
   test('hydrates latest session before session_info so undo works after reconnect', async () => {
@@ -319,7 +329,8 @@ describe('DaemonServer initial session hydration', () => {
   });
 
   test('session_create includes threadType in session_info response', async () => {
-    conversation.threadType = 'private';
+    // conversation.threadType starts as 'standard' from beforeEach — the mock
+    // createConversation must derive 'private' from the IPC request input.
     const server = new DaemonServer();
     const internal = asDaemonServerTestAccess(server);
     const { socket, writes } = createFakeSocket();
@@ -331,6 +342,12 @@ describe('DaemonServer initial session hydration', () => {
     }, socket);
     // Allow async handler to complete
     await new Promise((r) => setTimeout(r, 50));
+
+    // Verify createConversation was called with the threadType from the request
+    expect(lastCreateConversationArgs).toEqual({
+      title: 'Thread-type test',
+      threadType: 'private',
+    });
 
     const messages = decodeMessages(writes);
     const sessionInfo = messages.find((msg) => msg.type === 'session_info');
@@ -421,8 +438,8 @@ describe('DaemonServer initial session hydration', () => {
   });
 
   test('session_create with private threadType derives correct policy', async () => {
-    conversation.threadType = 'private';
-    conversation.memoryScopeId = 'private:conv-1';
+    // conversation starts as 'standard' from beforeEach — the mock
+    // createConversation must derive private state from the IPC request.
     const server = new DaemonServer();
     const internal = asDaemonServerTestAccess(server);
     const { socket } = createFakeSocket();
@@ -433,6 +450,12 @@ describe('DaemonServer initial session hydration', () => {
       threadType: 'private',
     }, socket);
     await new Promise((r) => setTimeout(r, 50));
+
+    // Verify createConversation received the threadType
+    expect(lastCreateConversationArgs).toEqual({
+      title: 'Private Thread',
+      threadType: 'private',
+    });
 
     const session = internal.sessions.get(conversation.id);
     expect(session).toBeDefined();
