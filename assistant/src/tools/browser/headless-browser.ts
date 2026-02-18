@@ -1,227 +1,21 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition, ImageContent } from '../../providers/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { getLogger } from '../../util/logger.js';
 import {
-  parseUrl,
-  isPrivateOrLocalHost,
-  resolveHostAddresses,
-  resolveRequestAddress,
-  sanitizeUrlForOutput,
-} from '../network/url-safety.js';
-import { browserManager } from './browser-manager.js';
-import type { RouteHandler } from './browser-manager.js';
-import { detectAuthChallenge, formatAuthChallenge } from './auth-detector.js';
-import { credentialBroker } from '../credentials/broker.js';
-import {
-  ensureScreencast,
-  updateBrowserStatus,
-  updatePagesList,
-  stopBrowserScreencast,
-  stopAllScreencasts,
-  getSender,
-  getElementBounds,
-  updateHighlights,
-} from './browser-screencast.js';
+  executeBrowserNavigate,
+  executeBrowserSnapshot,
+  executeBrowserScreenshot,
+  executeBrowserClose,
+  executeBrowserClick,
+  executeBrowserType,
+  executeBrowserPressKey,
+  executeBrowserWaitFor,
+  executeBrowserExtract,
+  executeBrowserFillCredential,
+} from './browser-execution.js';
 
-const log = getLogger('headless-browser');
-
-const NAVIGATE_TIMEOUT_MS = 30_000;
-
-async function executeBrowserNavigate(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const parsedUrl = parseUrl(input.url);
-  if (!parsedUrl) {
-    return { content: 'Error: url is required and must be a valid HTTP(S) URL', isError: true };
-  }
-  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-    return { content: 'Error: url must use http or https', isError: true };
-  }
-
-  const allowPrivateNetwork = input.allow_private_network === true;
-  const safeRequestedUrl = sanitizeUrlForOutput(parsedUrl);
-
-  // Block private/local targets by default
-  if (!allowPrivateNetwork && isPrivateOrLocalHost(parsedUrl.hostname)) {
-    return {
-      content: `Error: Refusing to navigate to local/private network target (${parsedUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
-      isError: true,
-    };
-  }
-
-  // DNS resolution check for non-literal hostnames
-  if (!allowPrivateNetwork) {
-    const resolution = await resolveRequestAddress(
-      parsedUrl.hostname,
-      resolveHostAddresses,
-      allowPrivateNetwork,
-    );
-    if (resolution.blockedAddress) {
-      return {
-        content: `Error: Refusing to navigate to target (${parsedUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
-    }
-  }
-
-  let routeHandler: RouteHandler | null = null;
-  let blockedUrl: string | null = null;
-
-  // Start screencast if a sender is registered for this session
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'navigating', `Navigating to ${safeRequestedUrl}`);
-  }
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    log.debug({ url: safeRequestedUrl, sessionId: context.sessionId }, 'Navigating');
-
-    // Install request interception to block redirects/sub-requests to private networks.
-    // This prevents SSRF bypass via server-side redirects and DNS rebinding attacks,
-    // since Playwright follows redirects internally and performs its own DNS resolution.
-    if (!allowPrivateNetwork) {
-      routeHandler = async (route, request) => {
-        try {
-          const reqUrl = request.url();
-          let reqParsed: URL;
-          try {
-            reqParsed = new URL(reqUrl);
-          } catch {
-            await route.continue();
-            return;
-          }
-
-          // Check hostname against private/local patterns
-          if (isPrivateOrLocalHost(reqParsed.hostname)) {
-            blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn({ blockedUrl }, 'Blocked navigation to private network target via redirect');
-            await route.abort('blockedbyclient');
-            return;
-          }
-
-          // Resolve DNS and check resolved addresses
-          const resolution = await resolveRequestAddress(
-            reqParsed.hostname,
-            resolveHostAddresses,
-            false,
-          );
-          if (resolution.blockedAddress) {
-            blockedUrl = sanitizeUrlForOutput(reqParsed);
-            log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
-            await route.abort('blockedbyclient');
-            return;
-          }
-
-          await route.continue();
-        } catch (err) {
-          // Route may already be handled if the page navigated or was closed
-          log.debug({ err }, 'Route handler error (route likely already handled)');
-        }
-      };
-      await page.route('**/*', routeHandler);
-    }
-
-    const response = await page.goto(parsedUrl.href, {
-      waitUntil: 'domcontentloaded',
-      timeout: NAVIGATE_TIMEOUT_MS,
-    });
-
-    // Remove the route handler now that navigation is complete
-    if (routeHandler) {
-      await page.unroute('**/*', routeHandler);
-      routeHandler = null;
-    }
-
-    if (blockedUrl) {
-      if (sender) {
-        updateBrowserStatus(context.sessionId, sender, 'idle');
-      }
-      return {
-        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
-    }
-
-    // Navigation changed the page content, so clear stale snapshot mappings.
-    // Without this, element IDs from a previous page could resolve and cause
-    // confusing Playwright timeout errors instead of the actionable
-    // "run browser_snapshot first" message.
-    browserManager.clearSnapshotMap(context.sessionId);
-
-    const finalUrl = page.url();
-    const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
-    const title = await page.title();
-    const status = response?.status() ?? null;
-
-    const lines: string[] = [
-      `Requested URL: ${safeRequestedUrl}`,
-      `Final URL: ${safeFinalUrl}`,
-      `Status: ${status ?? 'unknown'}`,
-      `Title: ${title || '(none)'}`,
-    ];
-
-    if (finalUrl !== parsedUrl.href) {
-      lines.push(`Note: Page redirected from the requested URL.`);
-    }
-
-    // Detect auth challenges (login pages, 2FA, OAuth consent)
-    try {
-      const authChallenge = await detectAuthChallenge(page);
-      if (authChallenge) {
-        lines.push('');
-        lines.push(formatAuthChallenge(authChallenge));
-        lines.push('');
-        lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
-        const { buildAuthForm } = await import('./jit-auth.js');
-        const formData = buildAuthForm(authChallenge);
-        lines.push(JSON.stringify(formData, null, 2));
-        lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
-      }
-    } catch {
-      // Auth detection is best-effort; don't fail navigation
-    }
-
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-      await updatePagesList(context.sessionId, sender);
-    }
-
-    return { content: lines.join('\n'), isError: false };
-  } catch (err) {
-    // Best-effort cleanup of route handler on error
-    if (routeHandler) {
-      try {
-        const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-        await page.unroute('**/*', routeHandler);
-      } catch { /* ignore cleanup errors */ }
-    }
-
-    // If the route handler blocked a redirect to a private network address,
-    // page.goto() throws. Return the clear security message instead of the
-    // raw Playwright error (which could leak credentials from the URL).
-    if (blockedUrl) {
-      if (sender) {
-        updateBrowserStatus(context.sessionId, sender, 'idle');
-      }
-      return {
-        content: `Error: Navigation blocked. A request targeted a local/private network address (${blockedUrl}). Set allow_private_network=true if you explicitly need it.`,
-        isError: true,
-      };
-    }
-
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, url: safeRequestedUrl }, 'Navigation failed');
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Error: Navigation failed: ${msg}`, isError: true };
-  }
-}
+// ── browser_navigate ─────────────────────────────────────────────────
 
 class BrowserNavigateTool implements Tool {
   name = 'browser_navigate';
@@ -259,104 +53,6 @@ registerTool(new BrowserNavigateTool());
 
 // ── browser_snapshot ─────────────────────────────────────────────────
 
-const MAX_SNAPSHOT_ELEMENTS = 500;
-
-const INTERACTIVE_SELECTOR = [
-  'a[href]',
-  'button',
-  'input',
-  'select',
-  'textarea',
-  '[role="button"]',
-  '[role="link"]',
-  '[role="checkbox"]',
-  '[role="radio"]',
-  '[role="tab"]',
-  '[role="menuitem"]',
-  '[contenteditable="true"]',
-].join(', ');
-
-type SnapshotElement = {
-  eid: string;
-  tag: string;
-  attrs: Record<string, string>;
-  text: string;
-};
-
-async function executeBrowserSnapshot(
-  _input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    const currentUrl = page.url();
-    const title = await page.title();
-
-    const elements = (await page.evaluate(`
-      (() => {
-        const SELECTOR = ${JSON.stringify(INTERACTIVE_SELECTOR)};
-        const MAX = ${MAX_SNAPSHOT_ELEMENTS};
-        // Clear stale eid attributes from previous snapshots
-        document.querySelectorAll('[data-vellum-eid]').forEach(el => el.removeAttribute('data-vellum-eid'));
-        const els = Array.from(document.querySelectorAll(SELECTOR));
-        const visible = els.filter(el => {
-          const rect = el.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        });
-        return visible.slice(0, MAX).map((el, i) => {
-          const eid = 'e' + (i + 1);
-          el.setAttribute('data-vellum-eid', eid);
-          const tag = el.tagName.toLowerCase();
-          const attrs = {};
-          for (const attr of ['type', 'name', 'placeholder', 'href', 'value', 'role', 'aria-label', 'id']) {
-            if (el.hasAttribute(attr)) attrs[attr] = el.getAttribute(attr);
-          }
-          const text = (el.textContent || '').trim().slice(0, 80);
-          return { eid, tag, attrs, text };
-        });
-      })()
-    `)) as SnapshotElement[];
-
-    // Build and store selector map
-    const selectorMap = new Map<string, string>();
-    for (const el of elements) {
-      selectorMap.set(el.eid, `[data-vellum-eid="${el.eid}"]`);
-    }
-    browserManager.storeSnapshotMap(context.sessionId, selectorMap);
-
-    // Format output
-    const lines: string[] = [
-      `URL: ${currentUrl}`,
-      `Title: ${title || '(none)'}`,
-      '',
-    ];
-
-    if (elements.length === 0) {
-      lines.push('(no interactive elements found)');
-    } else {
-      for (const el of elements) {
-        let desc = `<${el.tag}`;
-        for (const [key, val] of Object.entries(el.attrs)) {
-          desc += ` ${key}="${val}"`;
-        }
-        desc += '>';
-        if (el.text) {
-          desc += ` ${el.text}`;
-        }
-        lines.push(`[${el.eid}] ${desc}`);
-      }
-      lines.push('');
-      lines.push(`${elements.length} interactive element${elements.length === 1 ? '' : 's'} found.`);
-    }
-
-    return { content: lines.join('\n'), isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Snapshot failed');
-    return { content: `Error: Snapshot failed: ${msg}`, isError: true };
-  }
-}
-
 class BrowserSnapshotTool implements Tool {
   name = 'browser_snapshot';
   description = 'List interactive elements on the current page. Returns elements with unique IDs that can be used with browser_click and browser_type.';
@@ -382,38 +78,6 @@ class BrowserSnapshotTool implements Tool {
 registerTool(new BrowserSnapshotTool());
 
 // ── browser_screenshot ───────────────────────────────────────────────
-
-async function executeBrowserScreenshot(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const fullPage = input.full_page === true;
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    const buffer = await page.screenshot({ type: 'jpeg', quality: 80, fullPage });
-    const base64Data = buffer.toString('base64');
-
-    const imageBlock: ImageContent = {
-      type: 'image' as const,
-      source: {
-        type: 'base64' as const,
-        media_type: 'image/jpeg',
-        data: base64Data,
-      },
-    };
-
-    return {
-      content: `Screenshot captured (${buffer.length} bytes, ${fullPage ? 'full page' : 'viewport'})`,
-      isError: false,
-      contentBlocks: [imageBlock],
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Screenshot failed');
-    return { content: `Error: Screenshot failed: ${msg}`, isError: true };
-  }
-}
 
 class BrowserScreenshotTool implements Tool {
   name = 'browser_screenshot';
@@ -446,30 +110,6 @@ registerTool(new BrowserScreenshotTool());
 
 // ── browser_close ────────────────────────────────────────────────────
 
-async function executeBrowserClose(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  try {
-    const sender = getSender(context.sessionId);
-    if (sender) {
-      await stopBrowserScreencast(context.sessionId, sender);
-    }
-
-    if (input.close_all_pages === true) {
-      await stopAllScreencasts();
-      await browserManager.closeAllPages();
-      return { content: 'All browser pages and context closed.', isError: false };
-    }
-    await browserManager.closeSessionPage(context.sessionId);
-    return { content: 'Browser page closed for this session.', isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Close failed');
-    return { content: `Error: Close failed: ${msg}`, isError: true };
-  }
-}
-
 class BrowserCloseTool implements Tool {
   name = 'browser_close';
   description = 'Close the browser page for the current session, or all pages if close_all_pages is true.';
@@ -499,70 +139,7 @@ class BrowserCloseTool implements Tool {
 
 registerTool(new BrowserCloseTool());
 
-// ── shared element resolution ────────────────────────────────────────
-
-function resolveSelector(
-  sessionId: string,
-  input: Record<string, unknown>,
-): { selector: string | null; error: string | null } {
-  const elementId = typeof input.element_id === 'string' ? input.element_id : null;
-  const rawSelector = typeof input.selector === 'string' ? input.selector : null;
-
-  if (!elementId && !rawSelector) {
-    return { selector: null, error: 'Error: Either element_id or selector is required.' };
-  }
-
-  if (elementId) {
-    const resolved = browserManager.resolveSnapshotSelector(sessionId, elementId);
-    if (!resolved) {
-      return {
-        selector: null,
-        error: `Error: element_id "${elementId}" not found. Run browser_snapshot first to get current element IDs.`,
-      };
-    }
-    return { selector: resolved, error: null };
-  }
-
-  return { selector: rawSelector!, error: null };
-}
-
 // ── browser_click ────────────────────────────────────────────────────
-
-async function executeBrowserClick(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
-  if (error) return { content: error, isError: true };
-
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Clicking element');
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Clicking element' }]);
-    }
-  }
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    await page.click(selector!);
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Clicked element: ${selector}`, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Click failed');
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Error: Click failed: ${msg}`, isError: true };
-  }
-}
 
 class BrowserClickTool implements Tool {
   name = 'browser_click';
@@ -598,70 +175,6 @@ class BrowserClickTool implements Tool {
 registerTool(new BrowserClickTool());
 
 // ── browser_type ─────────────────────────────────────────────────────
-
-async function executeBrowserType(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const { selector, error } = resolveSelector(context.sessionId, input);
-  if (error) return { content: error, isError: true };
-
-  const text = typeof input.text === 'string' ? input.text : '';
-  if (!text) {
-    return { content: 'Error: text is required.', isError: true };
-  }
-
-  const clearFirst = input.clear_first !== false; // default true
-  const pressEnter = input.press_enter === true;
-
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Typing text');
-    const bounds = await getElementBounds(context.sessionId, selector!);
-    if (bounds) {
-      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Typing' }]);
-    }
-  }
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    if (clearFirst) {
-      await page.fill(selector!, text);
-    } else {
-      // Read existing content before appending. Use .value for form inputs,
-      // with fallback to .innerText for contenteditable elements (preserves
-      // visual line breaks from <br> and block elements, unlike textContent).
-      const currentValue = (await page.evaluate(
-        `(() => { const el = document.querySelector(${JSON.stringify(selector!)}); if (!el) return ''; if (typeof el.value === 'string') return el.value; return el.innerText ?? ''; })()`,
-      )) as string;
-      await page.fill(selector!, currentValue + text);
-    }
-
-    if (pressEnter) {
-      await page.press(selector!, 'Enter');
-    }
-
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-
-    const lines = [`Typed into element: ${selector}`];
-    if (clearFirst) lines.push('(cleared existing content first)');
-    if (pressEnter) lines.push('(pressed Enter after typing)');
-    return { content: lines.join('\n'), isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, selector }, 'Type failed');
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Error: Type failed: ${msg}`, isError: true };
-  }
-}
 
 class BrowserTypeTool implements Tool {
   name = 'browser_type';
@@ -711,67 +224,6 @@ registerTool(new BrowserTypeTool());
 
 // ── browser_press_key ────────────────────────────────────────────────
 
-async function executeBrowserPressKey(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const key = typeof input.key === 'string' ? input.key : '';
-  if (!key) {
-    return { content: 'Error: key is required.', isError: true };
-  }
-
-  const sender = getSender(context.sessionId);
-  if (sender) {
-    await ensureScreencast(context.sessionId, sender);
-    updateBrowserStatus(context.sessionId, sender, 'interacting', `Pressing ${key}`);
-  }
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    // If element_id or selector is provided, press key on that element
-    const elementId = typeof input.element_id === 'string' ? input.element_id : null;
-    const rawSelector = typeof input.selector === 'string' ? input.selector : null;
-
-    if (elementId || rawSelector) {
-      const { selector, error } = resolveSelector(context.sessionId, input);
-      if (error) {
-        if (sender) {
-          updateBrowserStatus(context.sessionId, sender, 'idle');
-        }
-        return { content: error, isError: true };
-      }
-      if (sender) {
-        const bounds = await getElementBounds(context.sessionId, selector!);
-        if (bounds) {
-          updateHighlights(context.sessionId, sender, [{ ...bounds, label: `Pressing ${key}` }]);
-        }
-      }
-      await page.press(selector!, key);
-      if (sender) {
-        updateHighlights(context.sessionId, sender, []);
-        updateBrowserStatus(context.sessionId, sender, 'idle');
-      }
-      return { content: `Pressed "${key}" on element: ${selector}`, isError: false };
-    }
-
-    // No target → press key on the page (focused element)
-    await page.keyboard.press(key);
-    if (sender) {
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Pressed "${key}"`, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, key }, 'Press key failed');
-    if (sender) {
-      updateHighlights(context.sessionId, sender, []);
-      updateBrowserStatus(context.sessionId, sender, 'idle');
-    }
-    return { content: `Error: Press key failed: ${msg}`, isError: true };
-  }
-}
-
 class BrowserPressKeyTool implements Tool {
   name = 'browser_press_key';
   description = 'Press a keyboard key, optionally targeting a specific element. Use for Enter, Escape, Tab, arrow keys, etc.';
@@ -811,56 +263,6 @@ class BrowserPressKeyTool implements Tool {
 registerTool(new BrowserPressKeyTool());
 
 // ── browser_wait_for ─────────────────────────────────────────────────
-
-const MAX_WAIT_MS = 30_000;
-
-async function executeBrowserWaitFor(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const selector = typeof input.selector === 'string' && input.selector ? input.selector : null;
-  const text = typeof input.text === 'string' && input.text ? input.text : null;
-  const duration = typeof input.duration === 'number' ? input.duration : null;
-
-  const modeCount = [selector, text, duration].filter((v) => v !== null).length;
-  if (modeCount === 0) {
-    return { content: 'Error: Exactly one of selector, text, or duration is required.', isError: true };
-  }
-  if (modeCount > 1) {
-    return { content: 'Error: Provide exactly one of selector, text, or duration (not multiple).', isError: true };
-  }
-
-  const timeout = typeof input.timeout === 'number'
-    ? Math.min(input.timeout, MAX_WAIT_MS)
-    : MAX_WAIT_MS;
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    if (selector) {
-      await page.waitForSelector(selector, { timeout });
-      return { content: `Element matching "${selector}" appeared.`, isError: false };
-    }
-
-    if (text) {
-      const escaped = JSON.stringify(text);
-      await page.waitForFunction(
-        `document.body?.innerText?.includes(${escaped})`,
-        { timeout },
-      );
-      return { content: `Text "${text.slice(0, 80)}" appeared on page.`, isError: false };
-    }
-
-    // duration mode (milliseconds)
-    const waitMs = Math.min(duration!, MAX_WAIT_MS);
-    await new Promise((r) => setTimeout(r, waitMs));
-    return { content: `Waited ${waitMs}ms.`, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Wait failed');
-    return { content: `Error: Wait failed: ${msg}`, isError: true };
-  }
-}
 
 class BrowserWaitForTool implements Tool {
   name = 'browser_wait_for';
@@ -905,62 +307,6 @@ registerTool(new BrowserWaitForTool());
 
 // ── browser_extract ──────────────────────────────────────────────────
 
-const MAX_EXTRACT_LENGTH = 50_000;
-
-async function executeBrowserExtract(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const includeLinks = input.include_links === true;
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-    const currentUrl = page.url();
-    const title = await page.title();
-
-    let textContent = (await page.evaluate(
-      `document.body?.innerText ?? ''`,
-    )) as string;
-
-    if (textContent.length > MAX_EXTRACT_LENGTH) {
-      textContent = textContent.slice(0, MAX_EXTRACT_LENGTH) + '\n... (truncated)';
-    }
-
-    const lines: string[] = [
-      `URL: ${currentUrl}`,
-      `Title: ${title || '(none)'}`,
-      '',
-      textContent || '(empty page)',
-    ];
-
-    if (includeLinks) {
-      const links = (await page.evaluate(`
-        (() => {
-          const anchors = Array.from(document.querySelectorAll('a[href]'));
-          return anchors.slice(0, 200).map(a => ({
-            text: (a.textContent || '').trim().slice(0, 80),
-            href: a.href,
-          }));
-        })()
-      `)) as Array<{ text: string; href: string }>;
-
-      if (links.length > 0) {
-        lines.push('');
-        lines.push('Links:');
-        for (const link of links) {
-          lines.push(`  [${link.text || '(no text)'}](${link.href})`);
-        }
-      }
-    }
-
-    return { content: lines.join('\n'), isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Extract failed');
-    return { content: `Error: Extract failed: ${msg}`, isError: true };
-  }
-}
-
 class BrowserExtractTool implements Tool {
   name = 'browser_extract';
   description = 'Extract the text content of the current page. Optionally include links. Output is capped to prevent excessive token usage.';
@@ -991,86 +337,6 @@ class BrowserExtractTool implements Tool {
 registerTool(new BrowserExtractTool());
 
 // ── browser_fill_credential ──────────────────────────────────────────
-
-async function executeBrowserFillCredential(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const service = typeof input.service === 'string' ? input.service : '';
-  const field = typeof input.field === 'string' ? input.field : '';
-
-  if (!service) {
-    return { content: 'Error: service is required.', isError: true };
-  }
-  if (!field) {
-    return { content: 'Error: field is required.', isError: true };
-  }
-
-  const { selector, error } = resolveSelector(context.sessionId, input);
-  if (error) return { content: error, isError: true };
-
-  const pressEnter = input.press_enter === true;
-
-  try {
-    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
-
-    // Extract domain from the current page for domain policy enforcement
-    let pageDomain: string | undefined;
-    try {
-      const pageUrl = page.url();
-      if (pageUrl && pageUrl !== 'about:blank') {
-        const parsed = new URL(pageUrl);
-        pageDomain = parsed.hostname;
-      }
-    } catch {
-      // Invalid URL — pageDomain stays undefined, broker will deny if domain policy exists
-    }
-
-    const result = await credentialBroker.browserFill({
-      service,
-      field,
-      toolName: 'browser_fill_credential',
-      domain: pageDomain,
-      fill: async (value) => {
-        await page.fill(selector!, value);
-      },
-    });
-
-    if (!result.success) {
-      const reason = result.reason ?? 'unknown error';
-      if (reason.includes('No credential found') || reason.includes('no stored value')) {
-        return {
-          content: `No credential stored for ${service}/${field}. Use credential_store to save it first.`,
-          isError: true,
-        };
-      }
-      if (reason.includes('not allowed to use credential')) {
-        return {
-          content: `Policy denied: ${reason} Update the credential's allowed_tools via credential_store if this tool should have access.`,
-          isError: true,
-        };
-      }
-      if (reason.includes('not allowed for credential') || reason.includes('no page domain was provided')) {
-        return {
-          content: `Domain policy denied: ${reason} Navigate to an allowed domain before filling this credential.`,
-          isError: true,
-        };
-      }
-      log.error({ selector, reason }, 'Fill credential failed');
-      return { content: `Error: Fill credential failed: ${reason}`, isError: true };
-    }
-
-    if (pressEnter) {
-      await page.press(selector!, 'Enter');
-    }
-
-    return { content: `Filled ${field} for ${service} into the target element.`, isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err }, 'Fill credential failed');
-    return { content: `Error: Fill credential failed: ${msg}`, isError: true };
-  }
-}
 
 class BrowserFillCredentialTool implements Tool {
   name = 'browser_fill_credential';
@@ -1118,6 +384,7 @@ class BrowserFillCredentialTool implements Tool {
 
 registerTool(new BrowserFillCredentialTool());
 
+// Re-export execution functions for backward compatibility
 export {
   executeBrowserNavigate,
   executeBrowserSnapshot,
@@ -1129,4 +396,4 @@ export {
   executeBrowserWaitFor,
   executeBrowserExtract,
   executeBrowserFillCredential,
-};
+} from './browser-execution.js';
