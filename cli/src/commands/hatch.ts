@@ -9,9 +9,10 @@ import {
   FIREWALL_TAG,
   GATEWAY_PORT,
   SPECIES_CONFIG,
+  VALID_REMOTE_HOSTS,
   VALID_SPECIES,
 } from "../lib/constants";
-import type { Species } from "../lib/constants";
+import type { RemoteHost, Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
 import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
@@ -130,10 +131,13 @@ source ${INSTALL_SCRIPT_REMOTE_PATH}
 `;
 }
 
+const DEFAULT_REMOTE: RemoteHost = "local";
+
 interface HatchArgs {
   species: Species;
   detached: boolean;
   name: string | null;
+  remote: RemoteHost;
 }
 
 function parseArgs(): HatchArgs {
@@ -141,6 +145,7 @@ function parseArgs(): HatchArgs {
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
   let name: string | null = null;
+  let remote: RemoteHost = DEFAULT_REMOTE;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -154,17 +159,27 @@ function parseArgs(): HatchArgs {
       }
       name = next;
       i++;
+    } else if (arg === "--remote") {
+      const next = args[i + 1];
+      if (!next || !VALID_REMOTE_HOSTS.includes(next as RemoteHost)) {
+        console.error(
+          `Error: --remote requires one of: ${VALID_REMOTE_HOSTS.join(", ")}`,
+        );
+        process.exit(1);
+      }
+      remote = next as RemoteHost;
+      i++;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name };
+  return { species, detached, name, remote };
 }
 
 interface PollResult {
@@ -439,9 +454,12 @@ async function activateGcpCredentialsFromConfig(): Promise<void> {
   }
 }
 
-export async function hatch(): Promise<void> {
+async function hatchGcp(
+  species: Species,
+  detached: boolean,
+  name: string | null,
+): Promise<void> {
   const startTime = Date.now();
-  const { species, detached, name } = parseArgs();
   try {
     await activateGcpCredentialsFromConfig();
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
@@ -598,4 +616,16 @@ export async function hatch(): Promise<void> {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
+}
+
+export async function hatch(): Promise<void> {
+  const { species, detached, name, remote } = parseArgs();
+
+  if (remote === "gcp") {
+    await hatchGcp(species, detached, name);
+    return;
+  }
+
+  console.error(`Error: Remote host '${remote}' is not yet supported.`);
+  process.exit(1);
 }
