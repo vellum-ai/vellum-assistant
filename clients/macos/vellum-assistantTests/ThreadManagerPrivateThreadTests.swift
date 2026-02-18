@@ -7,7 +7,7 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
 
     private var daemonClient: DaemonClient!
     private var threadManager: ThreadManager!
-    private var capturedMessages: [Any]!
+    private var capturedMessages: [Any] = []
 
     override func setUp() {
         super.setUp()
@@ -15,14 +15,16 @@ final class ThreadManagerPrivateThreadTests: XCTestCase {
         daemonClient.isConnected = true
         capturedMessages = []
         daemonClient.sendOverride = { [weak self] msg in
-            self?.capturedMessages.append(msg)
+            guard let self else { return }
+            capturedMessages.append(msg)
         }
         threadManager = ThreadManager(daemonClient: daemonClient)
     }
 
     override func tearDown() {
+        daemonClient?.sendOverride = nil
         threadManager = nil
-        capturedMessages = nil
+        capturedMessages = []
         daemonClient = nil
         super.tearDown()
     }
