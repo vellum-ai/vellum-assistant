@@ -14,6 +14,13 @@ import {
   __resetRegistryForTesting,
 } from '../tools/registry.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
+import { projectSkillTools, resetSkillToolProjection } from '../daemon/session-skill-tools.js';
+import {
+  BROWSER_TOOL_NAMES,
+  BROWSER_TOOL_COUNT,
+  BROWSER_SKILL_ID,
+  buildSkillLoadHistory,
+} from './test-support/browser-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
 
@@ -153,6 +160,35 @@ describe('browser skill migration end-state', () => {
         .map((s, i) => (i === 0 ? 'Browser' : s.charAt(0).toUpperCase() + s.slice(1)))
         .join('');
       expect(content).toContain(fnName);
+    }
+  });
+
+  // ── 6. Runtime projection adds exactly 10 browser tools ──────────
+
+  test('skill_load projection adds all 10 browser tools', () => {
+    const history = buildSkillLoadHistory(BROWSER_SKILL_ID);
+    const tracking = new Map<string, string>();
+
+    try {
+      const projection = projectSkillTools(history, {
+        previouslyActiveSkillIds: tracking,
+      });
+
+      // Exactly 10 new tool definitions should be projected
+      expect(projection.toolDefinitions).toHaveLength(BROWSER_TOOL_COUNT);
+
+      // Every browser tool name should be in the projection
+      const projectedNames = projection.toolDefinitions.map((d) => d.name);
+      for (const name of BROWSER_TOOL_NAMES) {
+        expect(projectedNames).toContain(name);
+      }
+
+      // The allowedToolNames set should also contain all browser tools
+      for (const name of BROWSER_TOOL_NAMES) {
+        expect(projection.allowedToolNames.has(name)).toBe(true);
+      }
+    } finally {
+      resetSkillToolProjection(tracking);
     }
   });
 });
