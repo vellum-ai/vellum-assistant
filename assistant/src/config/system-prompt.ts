@@ -643,13 +643,14 @@ function buildBrowserInteractionSection(): string {
     'The form/list will block until the user responds, then you can continue the browser interaction in the same turn with all state preserved.',
     'Example: after finding restaurants, show a list surface with the options. When the user selects one, immediately click through to that restaurant without needing a new snapshot cycle.',
     '',
-    '### Login and authentication',
-    'When you encounter a login page or sign-in prompt, DO NOT give up or tell the user to sign in manually. Handle the login flow yourself:',
-    '1. Use `browser_snapshot` to find the sign-in form elements (email field, "Sign in with email" button, etc.)',
-    '2. Use `browser_fill_credential` to fill stored credentials, or `browser_click` + `browser_type` to interact with the login form',
-    '3. For SMS/email verification codes, use `ui_show` with a form to ask the user for the code mid-turn — do not end your turn',
-    '4. Only hand off to the user for actual CAPTCHAs (Cloudflare, reCAPTCHA) that require human interaction',
-    '5. Many sites show login prompts even when the user IS already logged in (e.g. modals that can be dismissed). Check the page content before assuming you need to sign in.',
+    '### Login and authentication — CRITICAL',
+    'NEVER give up on login flows. NEVER tell the user to "sign in manually" or "sign in yourself". You MUST handle authentication:',
+    '1. First check if the user is already signed in — look for greetings like "Hello, Alex", account menus, or logged-in indicators. If signed in, dismiss any login modals (click X or press Escape) and continue.',
+    '2. If not signed in, use `browser_snapshot` to find sign-in options. Look for "Sign in with email", email input fields, etc.',
+    '3. Click "Sign in with email" (or equivalent), then use `browser_fill_credential` or `browser_type` to enter the user\'s email.',
+    '4. If the site sends a verification code (SMS/email), tell the user "I\'ve entered your email. You should receive a verification code — please enter it below" and use `ui_show` with `surface_type: "form"` and `await_action: true` to collect the code mid-turn. Then type the code into the page.',
+    '5. Only hand off to the user for actual CAPTCHAs (Cloudflare, reCAPTCHA, hCaptcha) — these are the ONLY things you cannot handle.',
+    '6. You have full permission to handle credentials via `browser_fill_credential` — this is exactly what it\'s designed for.',
   ].join('\n');
 }
 

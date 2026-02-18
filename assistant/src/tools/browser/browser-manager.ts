@@ -230,7 +230,7 @@ class BrowserManager {
             channel: 'chrome',
             headless: false,
             args: [
-              '--window-position=-9999,-9999',
+              '--window-position=-32000,-32000',
               '--window-size=1,1',
               '--disable-blink-features=AutomationControlled',
             ],
@@ -238,18 +238,10 @@ class BrowserManager {
           const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
           this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
           this.setBrowserMode('cdp');
-          // Push the window offscreen immediately — macOS ignores --window-position
-          // on launch and may bring Chrome to the foreground.
-          const pages = ctx.pages?.() ?? [];
-          for (const p of pages) {
-            try {
-              await Promise.race([
-                p.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); }),
-                new Promise(r => setTimeout(r, 2000)),
-              ]);
-            } catch { /* blank page may not support evaluate */ }
-          }
-          log.info('Launched headed Chromium (minimized) for interactive handoff support');
+          // Hide Chrome on macOS — window.moveTo doesn't work on main browser windows.
+          // Use AppleScript to hide the Chrome app entirely.
+          this.hideChrome();
+          log.info('Launched headed Chromium (hidden) for interactive handoff support');
           return ctx as unknown as BrowserContext;
         } catch (err2) {
           log.warn({ err: err2 }, 'Headed Chromium launch failed, falling back to headless');
@@ -352,14 +344,9 @@ class BrowserManager {
     this.rawPages.set(sessionId, page);
 
     // In headed mode, newPage() may bring Chrome to the foreground on macOS.
-    // Push it back offscreen unless we're in an active handoff.
+    // Hide it unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
-      try {
-        await Promise.race([
-          page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); }),
-          new Promise(r => setTimeout(r, 2000)),
-        ]);
-      } catch { /* ignore if page isn't ready yet */ }
+      this.hideChrome();
     }
 
     log.debug({ sessionId }, 'Session page created');
@@ -492,6 +479,33 @@ class BrowserManager {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;
     return map.get(elementId) ?? null;
+  }
+
+  /**
+   * Hide Chrome app on macOS using AppleScript.
+   * window.moveTo/resizeTo don't work on main browser windows.
+   */
+  hideChrome(): void {
+    if (process.platform !== 'darwin') return;
+    try {
+      const { spawn } = require('node:child_process');
+      spawn('osascript', ['-e', 'tell application "System Events" to set visible of process "Google Chrome" to false'], { stdio: 'ignore', detached: true }).unref();
+    } catch {
+      // Best effort
+    }
+  }
+
+  /**
+   * Show Chrome app on macOS and bring to front using AppleScript.
+   */
+  showChrome(): void {
+    if (process.platform !== 'darwin') return;
+    try {
+      const { spawn } = require('node:child_process');
+      spawn('osascript', ['-e', 'tell application "Google Chrome" to activate'], { stdio: 'ignore', detached: true }).unref();
+    } catch {
+      // Best effort
+    }
   }
 
   isInteractive(sessionId: string): boolean {
