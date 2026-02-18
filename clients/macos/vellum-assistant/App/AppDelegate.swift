@@ -184,7 +184,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow()
+        showMainWindow(initialMessage: "Wake up, my friend")
     }
 
     private func showAuthWindow() {
