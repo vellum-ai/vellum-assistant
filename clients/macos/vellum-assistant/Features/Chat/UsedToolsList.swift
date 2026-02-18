@@ -1,91 +1,91 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Inline expandable list of tool calls shown after an assistant message completes.
-/// Replaces the former Activity Panel side panel with a self-contained in-chat view.
+/// Compact pill button shown after an assistant message completes tool calls.
+/// Clicking it opens a popover listing all steps with human-readable titles
+/// and expandable technical details — replacing the former Activity Panel.
 struct UsedToolsList: View {
     let toolCalls: [ToolCallData]
 
-    @State private var isListExpanded = false
+    @State private var isPopoverOpen = false
+    @State private var isHovered = false
 
     private var hasErrors: Bool { toolCalls.contains { $0.isError } }
 
-    private var headerLabel: String {
+    private var pillLabel: String {
         let count = toolCalls.count
-        if count == 1 {
-            return toolCalls[0].actionDescription
-        }
+        if count == 1 { return toolCalls[0].actionDescription }
         if hasErrors {
             let errCount = toolCalls.filter { $0.isError }.count
-            return errCount == count
-                ? "All \(count) steps failed"
-                : "\(errCount) of \(count) steps failed"
+            return errCount == count ? "All \(count) steps failed" : "\(errCount) of \(count) steps failed"
         }
         return "Completed \(count) steps"
     }
 
-    private var headerIcon: String {
+    private var pillIcon: String {
         hasErrors ? "xmark.circle.fill" : "checkmark.circle.fill"
     }
 
-    private var headerIconColor: Color {
+    private var pillIconColor: Color {
         hasErrors ? VColor.error : VColor.success
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // ── Header row (always visible) ──────────────────────────
-            Button {
-                withAnimation(VAnimation.fast) { isListExpanded.toggle() }
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: headerIcon)
-                        .font(.system(size: 13))
-                        .foregroundColor(headerIconColor)
+        Button {
+            isPopoverOpen.toggle()
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: pillIcon)
+                    .font(.system(size: 10))
+                    .foregroundColor(pillIconColor)
 
-                    Text(headerLabel)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
+                Text(pillLabel)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(1)
 
-                    Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(VColor.textMuted)
+                    .rotationEffect(.degrees(isPopoverOpen ? 90 : 0))
+                    .animation(VAnimation.fast, value: isPopoverOpen)
 
-                    Image(systemName: isListExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(VColor.textMuted)
-                }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+                Spacer()
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isHovered ? VColor.backgroundSubtle.opacity(0.6) : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .popover(isPresented: $isPopoverOpen, arrowEdge: .bottom) {
+            StepsPopover(toolCalls: toolCalls)
+        }
+    }
+}
 
-            // ── Expanded rows ─────────────────────────────────────────
-            if isListExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    Divider().padding(.horizontal, VSpacing.sm)
+// MARK: - Popover content
 
-                    ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
-                        UsedToolsRow(toolCall: toolCall)
+private struct StepsPopover: View {
+    let toolCalls: [ToolCallData]
 
-                        if index < toolCalls.count - 1 {
-                            Divider()
-                                .padding(.leading, 44) // align with text after icon
-                        }
-                    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                UsedToolsRow(toolCall: toolCall)
+
+                if index < toolCalls.count - 1 {
+                    Divider()
+                        .padding(.leading, 44)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(hasErrors ? VColor.error.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
-        )
-        .frame(maxWidth: 520, alignment: .leading)
-        .padding(.top, VSpacing.xxs)
+        .frame(width: 380)
+        .background(VColor.surface)
     }
 }
 
@@ -109,7 +109,7 @@ private struct UsedToolsRow: View {
                 withAnimation(VAnimation.fast) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {
-                    // Status icon with colored background
+                    // Colored status icon
                     ZStack {
                         RoundedRectangle(cornerRadius: VRadius.xs)
                             .fill(toolCall.isError ? VColor.error : VColor.success)
@@ -120,7 +120,7 @@ private struct UsedToolsRow: View {
                             .foregroundColor(.white)
                     }
 
-                    // Human-readable action description
+                    // Human-readable title + optional duration
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(toolCall.actionDescription)
                             .font(VFont.captionMedium)
@@ -155,7 +155,9 @@ private struct UsedToolsRow: View {
             // Expanded detail section
             if isExpanded {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Technical info
+                    Divider().padding(.horizontal, VSpacing.sm)
+
+                    // Technical details
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Technical details")
                             .font(VFont.small)
@@ -203,7 +205,7 @@ private struct UsedToolsRow: View {
                                         ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                                             Text(line)
                                                 .font(VFont.monoSmall)
-                                                .foregroundColor(diffLineColor(line))
+                                                .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                         }
                                     }
@@ -244,14 +246,10 @@ private struct UsedToolsRow: View {
         .animation(VAnimation.fast, value: isExpanded)
     }
 
-    private var resultIsDiff: Bool {
-        guard let r = toolCall.result else { return false }
-        return r.contains("@@") && r.contains("---") && r.contains("+++")
-    }
-
-    private func diffLineColor(_ line: String) -> Color {
-        if toolCall.isError { return VColor.error }
-        guard resultIsDiff else { return VColor.textSecondary }
+    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
+        if isError { return VColor.error }
+        let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
+        guard isDiff else { return VColor.textSecondary }
         if line.hasPrefix("+") { return Emerald._400 }
         if line.hasPrefix("-") { return Rose._400 }
         if line.hasPrefix("@@") { return VColor.textMuted }
@@ -279,8 +277,7 @@ private struct UsedToolsRow: View {
             ])
 
             UsedToolsList(toolCalls: [
-                ToolCallData(toolName: "bash", inputSummary: "rm -rf /important", result: "Permission denied", isError: true, isComplete: true, startedAt: Date().addingTimeInterval(-0.5), completedAt: Date()),
-                ToolCallData(toolName: "file_read", inputSummary: "/etc/hosts", result: "127.0.0.1 localhost", isComplete: true, startedAt: Date().addingTimeInterval(-0.2), completedAt: Date())
+                ToolCallData(toolName: "bash", inputSummary: "rm -rf /important", result: "Permission denied", isError: true, isComplete: true, startedAt: Date().addingTimeInterval(-0.5), completedAt: Date())
             ])
         }
         .padding(VSpacing.xl)
