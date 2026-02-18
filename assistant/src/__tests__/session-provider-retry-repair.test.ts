@@ -1,6 +1,7 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { Message, ProviderResponse } from '../providers/types.js';
 import type { AgentEvent } from '../agent/loop.js';
+import type { UserMessageAttachment } from '../daemon/ipc-protocol.js';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -22,11 +23,13 @@ mock.module('../config/loader.js', () => ({
     maxTokens: 4096,
     thinking: false,
     contextWindow: {
+      enabled: true,
       maxInputTokens: 100000,
-      thresholdTokens: 80000,
-      preserveRecentMessages: 6,
-      summaryModel: 'mock-model',
-      maxSummaryTokens: 512,
+      targetInputTokens: 70000,
+      compactThreshold: 0.8,
+      preserveRecentUserTurns: 6,
+      summaryMaxTokens: 512,
+      chunkTokens: 12000,
     },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     apiKeys: {},
@@ -70,6 +73,7 @@ mock.module('../memory/conversation-store.js', () => ({
   addMessage: () => ({ id: 'new-msg' }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+  updateConversationContextWindow: () => {},
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -87,10 +91,33 @@ mock.module('../memory/retriever.js', () => ({
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
 }));
 
+let maybeCompactCalls: Array<{ force: boolean }> = [];
+let forceCompactionEnabled = false;
+
 mock.module('../context/window-manager.js', () => ({
   ContextWindowManager: class {
     constructor() {}
-    async maybeCompact() { return { compacted: false }; }
+    async maybeCompact(messages: Message[], _signal?: AbortSignal, options?: { force?: boolean }) {
+      maybeCompactCalls.push({ force: options?.force === true });
+      if (options?.force && forceCompactionEnabled) {
+        return {
+          compacted: true,
+          messages,
+          previousEstimatedInputTokens: 120000,
+          estimatedInputTokens: 50000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 2,
+          compactedPersistedMessages: 2,
+          summaryCalls: 1,
+          summaryInputTokens: 200,
+          summaryOutputTokens: 50,
+          summaryModel: 'mock-summary-model',
+          summaryText: '## Goals\n- compacted',
+        };
+      }
+      return { compacted: false };
+    }
   },
   createContextSummaryMessage: () => ({ role: 'user', content: [{ type: 'text', text: 'summary' }] }),
   getSummaryFromContextMessage: () => null,
@@ -98,8 +125,7 @@ mock.module('../context/window-manager.js', () => ({
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-// Control whether agent loop should emit an ordering error
-let shouldEmitOrderingError = true;
+let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' = 'ordering';
 
 mock.module('../agent/loop.js', () => ({
   AgentLoop: class {
@@ -107,13 +133,13 @@ mock.module('../agent/loop.js', () => ({
     async run(messages: Message[], onEvent: (event: AgentEvent) => void, _signal?: AbortSignal): Promise<Message[]> {
       agentLoopRunCount++;
 
-      if (shouldEmitOrderingError && agentLoopRunCount === 1) {
-        // First call: simulate provider ordering error (no messages appended)
+      if (agentLoopRunCount === 1 && firstRunErrorMode !== 'none') {
         onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
-        onEvent({
-          type: 'error',
-          error: new Error('tool_result blocks that are not immediately after a tool_use block'),
-        });
+        const error =
+          firstRunErrorMode === 'ordering'
+            ? new Error('tool_result blocks that are not immediately after a tool_use block')
+            : new Error('context_length_exceeded: request has too many input tokens');
+        onEvent({ type: 'error', error });
         return [...messages]; // Return unchanged — no progress
       }
 
@@ -143,10 +169,24 @@ function makeSession(): Session {
   return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
 }
 
+function makeImageAttachments(count: number, bytesPerImage = 20_000): UserMessageAttachment[] {
+  return Array.from({ length: count }, (_, i) => ({
+    filename: `shot-${i + 1}.png`,
+    mimeType: 'image/png',
+    data: `${i}${'A'.repeat(bytesPerImage)}`,
+  }));
+}
+
 describe('provider ordering error retry', () => {
-  test('simulated strict provider error triggers exactly one retry', async () => {
+  beforeEach(() => {
     agentLoopRunCount = 0;
-    shouldEmitOrderingError = true;
+    firstRunErrorMode = 'ordering';
+    maybeCompactCalls = [];
+    forceCompactionEnabled = false;
+  });
+
+  test('simulated strict provider error triggers exactly one retry', async () => {
+    firstRunErrorMode = 'ordering';
 
     const session = makeSession();
     await session.loadFromDb();
@@ -159,8 +199,7 @@ describe('provider ordering error retry', () => {
   });
 
   test('[experimental] retry succeeds with repaired history and no spurious error event', async () => {
-    agentLoopRunCount = 0;
-    shouldEmitOrderingError = true;
+    firstRunErrorMode = 'ordering';
 
     const session = makeSession();
     await session.loadFromDb();
@@ -183,11 +222,8 @@ describe('provider ordering error retry', () => {
   });
 
   test('non-ordering errors do not trigger retry', async () => {
-    agentLoopRunCount = 0;
-    shouldEmitOrderingError = false;
+    firstRunErrorMode = 'none';
 
-    // Override the mock to emit a non-ordering error
-    // Since we set shouldEmitOrderingError = false, the mock will succeed immediately
     const session = makeSession();
     await session.loadFromDb();
 
@@ -196,5 +232,75 @@ describe('provider ordering error retry', () => {
 
     // Should have been called exactly 1 time (no retry for non-ordering errors)
     expect(agentLoopRunCount).toBe(1);
+  });
+
+  test('context-too-large triggers one forced-compaction retry for image-heavy input', async () => {
+    firstRunErrorMode = 'context_too_large';
+    forceCompactionEnabled = true;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(8),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+  });
+
+  test('context-too-large can recover by trimming older media when forced compaction cannot run', async () => {
+    firstRunErrorMode = 'context_too_large';
+    forceCompactionEnabled = false;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(8),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+  });
+
+  test('context-too-large still surfaces when no media payloads are available to trim', async () => {
+    firstRunErrorMode = 'context_too_large';
+    forceCompactionEnabled = false;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'No attachments here.',
+      [],
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    expect(agentLoopRunCount).toBe(1);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
+    expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
   });
 });
