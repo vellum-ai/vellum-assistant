@@ -187,6 +187,12 @@ struct MainWindowView: View {
     var body: some View {
         coreLayoutView
             .onChange(of: windowState.selection) { oldSelection, newSelection in
+                // When selection transitions to .thread, ensure ThreadManager is synced
+                // so chat content targets the correct thread (e.g. after dismissOverlay).
+                if case .thread(let id) = newSelection {
+                    threadManager.selectThread(id: id)
+                }
+
                 // Sync surface and chat dock state when selection changes
                 let expanded = windowState.isDynamicExpanded
                 let docked = windowState.isChatDockOpen
@@ -358,7 +364,7 @@ struct MainWindowView: View {
             // if the user is currently viewing a thread or has no selection (not an overlay).
             if let newId {
                 switch windowState.selection {
-                case .thread, .none:
+                case .thread, .none, .appEditing:
                     windowState.persistentThreadId = newId
                 default:
                     break
@@ -433,6 +439,7 @@ struct MainWindowView: View {
         let isSelected: Bool = {
             if thread.id == windowState.persistentThreadId { return true }
             if case .thread(let id) = windowState.selection, id == thread.id { return true }
+            if case .appEditing(_, let threadId) = windowState.selection, threadId == thread.id { return true }
             return false
         }()
         let isHovered = isHoveredThread == thread.id
