@@ -1,8 +1,8 @@
 ---
 name: "Browser"
 description: "Navigate and interact with web pages using a headless browser"
-user-invocable: false
-disable-model-invocation: true
+user-invocable: true
+disable-model-invocation: false
 metadata: {"vellum": {"emoji": "🌐"}}
 ---
 

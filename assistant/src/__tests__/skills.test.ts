@@ -501,24 +501,39 @@ describe('bundled browser skill', () => {
     expect(browserSkill!.description).toBe('Navigate and interact with web pages using a headless browser');
   });
 
-  test('browser skill is not user-invocable in staging mode', () => {
+  test('browser skill is user-invocable', () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === 'browser');
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.userInvocable).toBe(false);
+    expect(browserSkill!.userInvocable).toBe(true);
   });
 
-  test('browser skill has model invocation disabled in staging mode', () => {
+  test('browser skill has model invocation enabled', () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === 'browser');
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.disableModelInvocation).toBe(true);
+    expect(browserSkill!.disableModelInvocation).toBe(false);
   });
 
-  test('browser skill has no tool manifest yet (no TOOLS.json)', () => {
+  test('browser skill has a valid tool manifest with 10 tools', () => {
     const catalog = loadSkillCatalog();
     const browserSkill = catalog.find((s) => s.id === 'browser');
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.toolManifest).toBeUndefined();
+    expect(browserSkill!.toolManifest).toBeDefined();
+    expect(browserSkill!.toolManifest!.present).toBe(true);
+    expect(browserSkill!.toolManifest!.valid).toBe(true);
+    expect(browserSkill!.toolManifest!.toolCount).toBe(10);
+    expect(browserSkill!.toolManifest!.toolNames).toEqual([
+      'browser_navigate',
+      'browser_snapshot',
+      'browser_screenshot',
+      'browser_close',
+      'browser_click',
+      'browser_type',
+      'browser_press_key',
+      'browser_wait_for',
+      'browser_extract',
+      'browser_fill_credential',
+    ]);
   });
 });
