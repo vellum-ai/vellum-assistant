@@ -350,9 +350,11 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var buttonRow: some View {
+        // "Allow" comes first — intentional design choice to make the
+        // positive action the default leftmost (primary) button.
         HStack(spacing: VSpacing.xs) {
-            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
             confirmationButton("Allow", isPrimary: true, isDanger: false) { onAllow() }
+            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
             Spacer()
         }
