@@ -95,6 +95,7 @@ import {
 } from './session-tool-setup.js';
 import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
 import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
+import { commitTurnChanges } from '../workspace/turn-commit.js';
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -182,6 +183,8 @@ export class Session {
   workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
   public memoryPolicy: SessionMemoryPolicy;
+  /** Monotonically increasing turn counter for turn-boundary commits. */
+  private turnCount = 0;
 
   /** Resolved assistant attachment drafts from the most recent exchange. */
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
@@ -1210,6 +1213,11 @@ export class Session {
       void getHookManager().trigger('post-message', {
         sessionId: this.conversationId,
       });
+
+      // Turn-boundary commit: async, fire-and-forget so it never blocks the response.
+      // Increment turn counter and commit any workspace changes from this turn.
+      this.turnCount++;
+      void commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
 
       // Resolve accumulated attachment directives and tool content blocks
       const attachmentResult = await resolveAssistantAttachments(
