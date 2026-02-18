@@ -99,12 +99,12 @@ export function resolveFollowUp(id: string): FollowUp {
   return getFollowUp(id)!;
 }
 
-export function resolveByThread(channel: string, threadId: string): FollowUp | null {
+export function resolveByThread(channel: string, threadId: string): FollowUp[] {
   const db = getDb();
   const now = Date.now();
 
-  // Find a pending or overdue follow-up matching this thread
-  const row = db
+  // Find ALL pending/overdue/nudged follow-ups matching this thread
+  const rows = db
     .select()
     .from(followups)
     .where(
@@ -118,16 +118,18 @@ export function resolveByThread(channel: string, threadId: string): FollowUp | n
         ),
       ),
     )
-    .get();
+    .all();
 
-  if (!row) return null;
+  if (rows.length === 0) return [];
 
-  db.update(followups)
-    .set({ status: 'resolved', updatedAt: now })
-    .where(eq(followups.id, row.id))
-    .run();
+  for (const row of rows) {
+    db.update(followups)
+      .set({ status: 'resolved', updatedAt: now })
+      .where(eq(followups.id, row.id))
+      .run();
+  }
 
-  return getFollowUp(row.id)!;
+  return rows.map((row) => getFollowUp(row.id)!);
 }
 
 export function getOverdueFollowUps(): FollowUp[] {
