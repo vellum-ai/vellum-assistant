@@ -364,7 +364,7 @@ struct MainWindowView: View {
                         .frame(width: 200)
                         .offset(x: threadDrawerWidth + 8, y: -8)
                         .zIndex(10)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+                        .transition(.opacity)
                     }
                 }
             }
