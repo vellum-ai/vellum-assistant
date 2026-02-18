@@ -342,7 +342,7 @@ public struct ToolConfirmationBubble: View {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
-            VButton(label: "Always Allow", style: .ghost) {
+            confirmationButton("Always Allow", isPrimary: false, isDanger: false) {
                 let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
                 let scope = confirmation.scopeOptions.first?.scope ?? ""
                 if !pattern.isEmpty && !scope.isEmpty {
@@ -358,7 +358,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowDropdown: some View {
-        VButton(label: "Always Allow", style: .ghost) {
+        confirmationButton("Always Allow", isPrimary: false, isDanger: false) {
             withAnimation(VAnimation.fast) {
                 showAlwaysAllowMenu.toggle()
             }

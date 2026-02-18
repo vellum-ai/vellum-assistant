@@ -203,6 +203,8 @@ public struct ToolConfirmationData: Equatable {
     /// Short, personable description of the action being requested.
     public var humanDescription: String {
         let reason = (input["reason"]?.value as? String) ?? ""
+        // Lowercase the first letter so reason flows naturally mid-sentence (e.g. "to determine..." not "To determine...")
+        let r = reason.isEmpty ? "" : reason.prefix(1).lowercased() + reason.dropFirst()
 
         switch toolName {
         case "request_system_permission":
@@ -211,25 +213,25 @@ public struct ToolConfirmationData: Equatable {
             }
             return reason
         case "bash", "host_bash":
-            if !reason.isEmpty { return "I would like to run a shell command \(reason)." }
+            if !r.isEmpty { return "I would like to run a shell command \(r)." }
             return "I would like to run a shell command."
         case "file_write", "host_file_write":
-            if !reason.isEmpty { return "I would like to write a file \(reason)." }
+            if !r.isEmpty { return "I would like to write a file \(r)." }
             let path = (input["path"]?.value as? String) ?? ""
             if path.isEmpty { return "I would like to write a file." }
             return "I would like to write to \(URL(fileURLWithPath: path).lastPathComponent)."
         case "file_edit", "host_file_edit":
-            if !reason.isEmpty { return "I would like to edit a file \(reason)." }
+            if !r.isEmpty { return "I would like to edit a file \(r)." }
             let path = (input["path"]?.value as? String) ?? ""
             if path.isEmpty { return "I would like to edit a file." }
             return "I would like to edit \(URL(fileURLWithPath: path).lastPathComponent)."
         case "file_read", "host_file_read":
-            if !reason.isEmpty { return "I would like to read a file \(reason)." }
+            if !r.isEmpty { return "I would like to read a file \(r)." }
             let path = (input["path"]?.value as? String) ?? ""
             if path.isEmpty { return "I would like to read a file." }
             return "I would like to read \(URL(fileURLWithPath: path).lastPathComponent)."
         case "web_fetch":
-            if !reason.isEmpty { return "I would like to fetch a URL \(reason)." }
+            if !r.isEmpty { return "I would like to fetch a URL \(r)." }
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
                 return "I would like to fetch data from \(host)."
