@@ -757,7 +757,6 @@ struct MainWindowView: View {
 
             // Control Center pill button
             ControlCenterMenuButton(
-                isOpen: showControlCenterDrawer,
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         showControlCenterDrawer.toggle()
@@ -1404,7 +1403,6 @@ private struct NewConversationButton: View {
 }
 
 private struct ControlCenterMenuButton: View {
-    let isOpen: Bool
     let onToggle: () -> Void
 
     var body: some View {
