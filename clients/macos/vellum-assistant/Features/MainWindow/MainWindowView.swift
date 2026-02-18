@@ -165,6 +165,7 @@ struct MainWindowView: View {
             homeBaseDashboardAutoEnabled = true
             homeBaseDashboardDefaultEnabled = true
         }
+        guard homeBaseDashboardDefaultEnabled else { return }
         guard daemonClient.isConnected else { return }
         guard !requestedHomeBaseAtLaunch else { return }
         guard !windowState.isDynamicExpanded else {
