@@ -451,6 +451,8 @@ For controlled, sequential plan execution with human review at every step: **`/s
 
 All workflows use squash-merge (no merge commits), worktree isolation for parallel work, and track state in `.private/TODO.md`, `.private/DONE.md`, and `.private/UNREVIEWED_PRS.md`.
 
+**Validation**: Slash commands do **not** run tests, type-checking (`tsc`), or linting by default. These steps are only performed when the task specifically requires it (e.g., "fix the type errors", "make the tests pass"). This keeps agent-driven workflows fast for well-scoped changes.
+
 ## Release Management
 
 Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
