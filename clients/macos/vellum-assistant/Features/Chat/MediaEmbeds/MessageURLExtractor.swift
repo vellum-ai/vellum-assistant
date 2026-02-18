@@ -14,6 +14,12 @@ enum MessageURLExtractor {
     /// Extracts all distinct `http(s)://` URLs from `text`, returned in
     /// first-occurrence order. Duplicates are suppressed (first wins).
     static func extractPlainURLs(from text: String) -> [URL] {
+        extractPlainURLsWithPositions(from: text).map(\.url)
+    }
+
+    /// Returns plain-text URLs paired with their character offset in
+    /// `text`, used by `extractAllURLs` to merge-sort with markdown URLs.
+    private static func extractPlainURLsWithPositions(from text: String) -> [(url: URL, position: Int)] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
             return []
         }
@@ -22,7 +28,7 @@ enum MessageURLExtractor {
         let matches = detector.matches(in: text, options: [], range: nsRange)
 
         var seen = Set<String>()
-        var results: [URL] = []
+        var results: [(url: URL, position: Int)] = []
 
         for match in matches {
             guard let url = match.url else { continue }
@@ -37,30 +43,40 @@ enum MessageURLExtractor {
             let canonical = cleaned.absoluteString
             guard !seen.contains(canonical) else { continue }
             seen.insert(canonical)
-            results.append(cleaned)
+            results.append((url: cleaned, position: match.range.location))
         }
 
         return results
     }
 
     // Matches markdown-style links: [text](url) and [text](url "title")
-    // The URL group captures everything up to the first closing paren,
-    // optional whitespace, optional quoted title, then the final paren.
+    // The URL group supports up to 2 levels of nested parentheses in the
+    // URL (e.g. Wikipedia: `Swift_(programming_language_(nested))`).
     private static let markdownLinkPattern: NSRegularExpression = {
-        // Captures: [any text](url) or [any text](url "title")
-        // Group 1 = the URL portion (before optional whitespace + title).
-        let pattern = #"\[(?:[^\[\]]|\[.*?\])*\]\(\s*((?:[^()\s"]+|\([^)]*\))+)(?:\s+"[^"]*")?\s*\)"#
+        // paren2 matches innermost balanced parens: (...)
+        // paren1 matches one level up, allowing paren2 inside: (...(...))
+        // The URL is one or more non-special chars or paren1 groups.
+        let paren2 = #"\([^()]*\)"#
+        let paren1 = #"\((?:[^()]*|\#(paren2))*\)"#
+        let urlBody = #"(?:[^()\s"]+|\#(paren1))+"#
+        let pattern = #"\[(?:[^\[\]]|\[.*?\])*\]\(\s*(\#(urlBody))(?:\s+"[^"]*")?\s*\)"#
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
 
     /// Extracts `http(s)://` URLs that appear as markdown link targets
     /// (`[text](url)`) in `text`, returned in first-occurrence order.
     static func extractMarkdownLinkURLs(from text: String) -> [URL] {
+        extractMarkdownLinkURLsWithPositions(from: text).map(\.url)
+    }
+
+    /// Returns markdown-link URLs paired with their character offset in
+    /// `text`, used by `extractAllURLs` to merge-sort with plain URLs.
+    private static func extractMarkdownLinkURLsWithPositions(from text: String) -> [(url: URL, position: Int)] {
         let nsRange = NSRange(text.startIndex..., in: text)
         let matches = markdownLinkPattern.matches(in: text, options: [], range: nsRange)
 
         var seen = Set<String>()
-        var results: [URL] = []
+        var results: [(url: URL, position: Int)] = []
 
         for match in matches {
             guard match.numberOfRanges >= 2,
@@ -77,7 +93,9 @@ enum MessageURLExtractor {
             let canonical = url.absoluteString
             guard !seen.contains(canonical) else { continue }
             seen.insert(canonical)
-            results.append(url)
+
+            let position = text.distance(from: text.startIndex, to: urlRange.lowerBound)
+            results.append((url: url, position: position))
         }
 
         return results
@@ -121,24 +139,21 @@ enum MessageURLExtractor {
     static func extractAllURLs(from text: String) -> [URL] {
         let stripped = stripCodeRegions(from: text)
 
-        let plain = extractPlainURLs(from: stripped)
-        let markdown = extractMarkdownLinkURLs(from: stripped)
+        let plain = extractPlainURLsWithPositions(from: stripped)
+        let markdown = extractMarkdownLinkURLsWithPositions(from: stripped)
+
+        // Merge both lists, sort by position, then deduplicate.
+        var combined = plain + markdown
+        combined.sort { $0.position < $1.position }
 
         var seen = Set<String>()
         var results: [URL] = []
 
-        for url in plain {
-            let canonical = url.absoluteString
+        for entry in combined {
+            let canonical = entry.url.absoluteString
             guard !seen.contains(canonical) else { continue }
             seen.insert(canonical)
-            results.append(url)
-        }
-
-        for url in markdown {
-            let canonical = url.absoluteString
-            guard !seen.contains(canonical) else { continue }
-            seen.insert(canonical)
-            results.append(url)
+            results.append(entry.url)
         }
 
         return results

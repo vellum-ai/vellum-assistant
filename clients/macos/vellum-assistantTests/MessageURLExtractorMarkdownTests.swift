@@ -130,14 +130,13 @@ final class MessageURLExtractorMarkdownTests: XCTestCase {
     func testExtractAllURLsPreservesFirstOccurrenceOrder() {
         let text = "[MD First](https://first.com) then https://second.com and [MD Third](https://third.com)"
         let urls = MessageURLExtractor.extractAllURLs(from: text)
-        // Plain URLs come first (NSDataDetector finds https://second.com),
-        // then markdown-only URLs that weren't already seen.
-        XCTAssertTrue(urls.count >= 2)
-        // All three should be present
         let strings = urls.map(\.absoluteString)
-        XCTAssertTrue(strings.contains("https://first.com"))
-        XCTAssertTrue(strings.contains("https://second.com"))
-        XCTAssertTrue(strings.contains("https://third.com"))
+        // All three should be present in their original text order.
+        XCTAssertEqual(strings, [
+            "https://first.com",
+            "https://second.com",
+            "https://third.com",
+        ])
     }
 
     func testExtractAllURLsWithOnlyMarkdown() {
@@ -162,5 +161,48 @@ final class MessageURLExtractorMarkdownTests: XCTestCase {
             urls.first?.absoluteString,
             "https://en.wikipedia.org/wiki/Swift_(programming_language)"
         )
+    }
+
+    func testMarkdownLinkWithDoubleNestedParentheses() {
+        let urls = MessageURLExtractor.extractMarkdownLinkURLs(
+            from: "[x](https://example.com/foo_(bar_(baz)))"
+        )
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(
+            urls.first?.absoluteString,
+            "https://example.com/foo_(bar_(baz))"
+        )
+    }
+
+    func testMarkdownLinkWithMultipleParenGroups() {
+        let urls = MessageURLExtractor.extractMarkdownLinkURLs(
+            from: "[x](https://example.com/a_(b)_c_(d))"
+        )
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(
+            urls.first?.absoluteString,
+            "https://example.com/a_(b)_c_(d)"
+        )
+    }
+
+    // MARK: - Global first-occurrence ordering
+
+    func testExtractAllURLsPreservesGlobalOrder_MarkdownBeforePlain() {
+        // Markdown link appears first in text, plain URL second.
+        let text = "[First](https://first.com) then https://second.com"
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertEqual(urls[0].absoluteString, "https://first.com")
+        XCTAssertEqual(urls[1].absoluteString, "https://second.com")
+    }
+
+    func testExtractAllURLsPreservesGlobalOrder_Interleaved() {
+        // Pattern: markdown, plain, markdown — should come out in that order.
+        let text = "[A](https://a.com) then https://b.com then [C](https://c.com)"
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertEqual(urls.count, 3)
+        XCTAssertEqual(urls[0].absoluteString, "https://a.com")
+        XCTAssertEqual(urls[1].absoluteString, "https://b.com")
+        XCTAssertEqual(urls[2].absoluteString, "https://c.com")
     }
 }
