@@ -360,7 +360,7 @@ export async function check(
   // proxy with injected credentials. This runs after deny rules but
   // before allow/ask rules so that trust rules cannot auto-approve
   // proxied commands.
-  if ((toolName === 'bash' || toolName === 'host_bash') && input.network_mode === 'proxied') {
+  if (toolName === 'bash' && input.network_mode === 'proxied') {
     return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
   }
 
