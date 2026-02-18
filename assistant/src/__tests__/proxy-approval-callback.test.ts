@@ -140,11 +140,11 @@ describe('createProxyApprovalCallback', () => {
     expect(result).toBe(false);
   });
 
-  test('skips prompting and returns true when trust store has an allow rule', async () => {
+  test('skips prompting and returns true when trust store has an allow rule (medium risk)', async () => {
     findHighestPriorityRuleMock.mockReturnValue({
       id: 'rule-1',
       tool: 'network_request',
-      pattern: 'network_request:https://api.fal.ai:443/*',
+      pattern: 'network_request:https://example.com/*',
       scope: '/tmp/test-project',
       decision: 'allow' as const,
       priority: 100,
@@ -156,10 +156,70 @@ describe('createProxyApprovalCallback', () => {
     const prompter = new PermissionPrompter(prompterSendToClient);
 
     const callback = createProxyApprovalCallback(prompter, ctx);
-    const result = await callback(makeAskMissingCredentialRequest());
+    // ask_unauthenticated is medium risk — plain allow rule auto-allows
+    const result = await callback(makeAskUnauthenticatedRequest());
 
     expect(result).toBe(true);
     // Prompter should not have been called
+    expect(prompterSendToClient).not.toHaveBeenCalled();
+  });
+
+  test('high-risk with plain allow rule (no allowHighRisk) falls through to prompt', async () => {
+    findHighestPriorityRuleMock.mockReturnValue({
+      id: 'rule-hr-1',
+      tool: 'network_request',
+      pattern: 'network_request:https://api.fal.ai:443/*',
+      scope: '/tmp/test-project',
+      decision: 'allow' as const,
+      priority: 100,
+      createdAt: Date.now(),
+      // No allowHighRisk — should NOT auto-allow for high-risk decisions
+    });
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
+      const msg = call[0] as { requestId: string };
+      prompter.resolveConfirmation(msg.requestId, 'allow');
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    // ask_missing_credential is high risk
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    // Prompter SHOULD have been called — plain allow rule doesn't auto-allow high-risk
+    expect(prompterSendToClient).toHaveBeenCalled();
+  });
+
+  test('high-risk with allowHighRisk allow rule auto-allows without prompting', async () => {
+    findHighestPriorityRuleMock.mockReturnValue({
+      id: 'rule-hr-2',
+      tool: 'network_request',
+      pattern: 'network_request:https://api.fal.ai:443/*',
+      scope: '/tmp/test-project',
+      decision: 'allow' as const,
+      priority: 100,
+      createdAt: Date.now(),
+      allowHighRisk: true,
+    });
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    // Prompter should NOT have been called — allowHighRisk rule auto-allows
     expect(prompterSendToClient).not.toHaveBeenCalled();
   });
 
@@ -182,6 +242,19 @@ describe('createProxyApprovalCallback', () => {
     const result = await callback(makeAskUnauthenticatedRequest());
 
     expect(result).toBe(false);
+    expect(prompterSendToClient).not.toHaveBeenCalled();
+  });
+
+  test('fast-denies when hasNoClient is true (non-interactive session)', async () => {
+    const ctx = makeContext({ hasNoClient: true });
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(false);
+    // Prompter should not have been called — fast-deny path
     expect(prompterSendToClient).not.toHaveBeenCalled();
   });
 

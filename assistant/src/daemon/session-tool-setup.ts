@@ -204,6 +204,8 @@ export function createProxyApprovalCallback(
       input.matching_patterns = decision.matchingPatterns;
     }
 
+    const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
+
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
     let urlObj: URL | null = null;
@@ -220,14 +222,22 @@ export function createProxyApprovalCallback(
 
     const existingRule = findHighestPriorityRule(toolName, uniqueCandidates, ctx.workingDir);
     if (existingRule && existingRule.decision !== 'ask') {
-      return existingRule.decision === 'allow';
+      if (existingRule.decision === 'deny') return false;
+      // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)
+      // must fall through to prompting — mirroring the checker's behavior.
+      if (riskLevel !== 'high' || existingRule.allowHighRisk === true) return true;
     }
 
     // Use the checker's built-in allowlist generation for network_request
     const allowlistOptions = generateAllowlistOptions('network_request', { url });
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
-    const riskLevel = decision.kind === 'ask_missing_credential' ? 'high' : 'medium';
+
+    // Non-interactive sessions have no client to prompt — fast-deny to avoid
+    // blocking for the full permission timeout before auto-denying.
+    if (ctx.hasNoClient) {
+      return false;
+    }
 
     const response = await prompter.prompt(
       toolName,
