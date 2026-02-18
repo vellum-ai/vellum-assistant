@@ -3490,15 +3490,62 @@ describe('Memory regressions', () => {
     expect(defaultItems.length).toBeGreaterThan(0);
     expect(privateItems.length).toBeGreaterThan(0);
 
-    // The items should have the same fingerprint but different IDs
+    // Scope-salted fingerprints: same content in different scopes yields distinct fingerprints
     const defaultFingerprints = new Set(defaultItems.map(i => i.fingerprint));
     const matchingPrivate = privateItems.filter(i => defaultFingerprints.has(i.fingerprint));
-    expect(matchingPrivate.length).toBeGreaterThan(0);
-    for (const pi of matchingPrivate) {
-      const di = defaultItems.find(i => i.fingerprint === pi.fingerprint);
-      expect(di).toBeDefined();
-      expect(pi.id).not.toBe(di!.id);
-    }
+    expect(matchingPrivate.length).toBe(0);
+  });
+
+  // PR-21: identical fact in default vs private scopes gets distinct fingerprints
+  test('identical content in different scopes produces distinct fingerprints', async () => {
+    const db = getDb();
+    const now = Date.now();
+    const statement = 'I prefer using Vim keybindings in all my text editors.';
+
+    db.insert(conversations).values({
+      id: 'conv-fp-salt',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      threadType: 'standard',
+      memoryScopeId: 'default',
+    }).run();
+
+    db.insert(messages).values({
+      id: 'msg-fp-salt-default',
+      conversationId: 'conv-fp-salt',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: statement }]),
+      createdAt: now,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-fp-salt-private',
+      conversationId: 'conv-fp-salt',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: statement }]),
+      createdAt: now + 1,
+    }).run();
+
+    await extractAndUpsertMemoryItemsForMessage('msg-fp-salt-default');
+    await extractAndUpsertMemoryItemsForMessage('msg-fp-salt-private', 'private:fp-test');
+
+    const defaultItems = db.select().from(memoryItems)
+      .where(eq(memoryItems.scopeId, 'default'))
+      .all()
+      .filter(i => i.statement === statement);
+    const privateItems = db.select().from(memoryItems)
+      .where(eq(memoryItems.scopeId, 'private:fp-test'))
+      .all()
+      .filter(i => i.statement === statement);
+
+    expect(defaultItems.length).toBe(1);
+    expect(privateItems.length).toBe(1);
+    // Same content, different scopes — fingerprints must differ
+    expect(defaultItems[0].fingerprint).not.toBe(privateItems[0].fingerprint);
+    // But the actual content should be identical
+    expect(defaultItems[0].kind).toBe(privateItems[0].kind);
+    expect(defaultItems[0].subject).toBe(privateItems[0].subject);
+    expect(defaultItems[0].statement).toBe(privateItems[0].statement);
   });
 
   // PR-20: default scope items are not affected by private scope operations

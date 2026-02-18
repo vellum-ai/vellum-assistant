@@ -109,12 +109,13 @@ interface LLMExtractedItem {
 async function extractItemsWithLLM(
   text: string,
   extractionConfig: MemoryExtractionConfig,
+  scopeId: string,
 ): Promise<ExtractedItem[]> {
   const config = getConfig();
   const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     log.debug('No Anthropic API key available for LLM extraction, falling back to pattern-based');
-    return extractItemsPatternBased(text);
+    return extractItemsPatternBased(text, scopeId);
   }
 
   try {
@@ -200,7 +201,7 @@ async function extractItemsWithLLM(
       const statement = String(raw.statement).slice(0, 500);
       const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
       const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
-      const normalized = `${raw.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
+      const normalized = `${scopeId}|${raw.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
       const fingerprint = createHash('sha256').update(normalized).digest('hex');
       items.push({
         kind: raw.kind as MemoryItemKind,
@@ -216,7 +217,7 @@ async function extractItemsWithLLM(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message }, 'LLM extraction failed, falling back to pattern-based');
-    return extractItemsPatternBased(text);
+    return extractItemsPatternBased(text, scopeId);
   }
 }
 
@@ -245,16 +246,16 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
 
   const config = getConfig();
   const extractionConfig = config.memory.extraction;
+  const effectiveScopeId = scopeId ?? 'default';
   const extracted = extractionConfig.useLLM
-    ? await extractItemsWithLLM(text, extractionConfig)
-    : extractItemsPatternBased(text);
+    ? await extractItemsWithLLM(text, extractionConfig, effectiveScopeId)
+    : extractItemsPatternBased(text, effectiveScopeId);
 
   if (extracted.length === 0) return 0;
 
   // Determine verification state from message role
   const verificationState = message.role === 'user' ? 'user_reported' : 'assistant_inferred';
 
-  const effectiveScopeId = scopeId ?? 'default';
   let upserted = 0;
   for (const item of extracted) {
     const now = Date.now();
@@ -349,7 +350,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
 
 // ── Pattern-based extraction (fallback) ────────────────────────────────
 
-function extractItemsPatternBased(text: string): ExtractedItem[] {
+function extractItemsPatternBased(text: string, scopeId: string): ExtractedItem[] {
   const sentences = text
     .split(/[\n\r]+|(?<=[.!?])\s+/)
     .map((s) => s.trim())
@@ -362,7 +363,7 @@ function extractItemsPatternBased(text: string): ExtractedItem[] {
     if (!classification) continue;
     const subject = inferSubject(sentence, classification.kind);
     const statement = sentence.replace(/\s+/g, ' ').trim();
-    const normalized = `${classification.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
+    const normalized = `${scopeId}|${classification.kind}|${subject.toLowerCase()}|${statement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
     items.push({
       kind: classification.kind,
