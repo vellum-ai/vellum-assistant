@@ -1,14 +1,14 @@
-import { execOutput } from './step-runner.js';
+import { execOutput } from "./step-runner";
 
-const GS_PROJECT_ID = 'vellum-nonprod';
+const GS_PROJECT_ID = "vellum-nonprod";
 
 export async function fetchGcpSecret(name: string): Promise<string | null> {
   try {
-    return await execOutput('gcloud', [
-      'secrets',
-      'versions',
-      'access',
-      'latest',
+    return await execOutput("gcloud", [
+      "secrets",
+      "versions",
+      "access",
+      "latest",
       `--secret=${name}`,
       `--project=${GS_PROJECT_ID}`,
     ]);
@@ -22,7 +22,7 @@ export async function ensureAnthropicKey(): Promise<void> {
     return;
   }
 
-  const value = await fetchGcpSecret('ANTHROPIC_API_KEY');
+  const value = await fetchGcpSecret("ANTHROPIC_API_KEY");
   if (value) {
     process.env.ANTHROPIC_API_KEY = value;
   }

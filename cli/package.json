@@ -1,0 +1,23 @@
+{
+  "name": "@vellum-assistant/cli",
+  "version": "0.1.0",
+  "description": "CLI tools for vellum-assistant",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "author": "Vellum AI",
+  "license": "PROPRIETARY",
+  "dependencies": {
+    "ink": "^6.7.0",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.4",
+    "@types/react": "^19.2.14",
+    "eslint": "^10.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.55.0"
+  }
+}

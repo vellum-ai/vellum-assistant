@@ -1,14 +1,18 @@
-export const FIREWALL_TAG = 'vellum-assistant';
+export const DOCTOR_PORT = 7829;
+export const FIREWALL_TAG = "vellum-assistant";
 export const GATEWAY_PORT = 7830;
-export const GCP_PROJECT = 'vellum-nonprod';
-export const VALID_SPECIES = ['openclaw', 'velly'] as const;
+export const GCP_PROJECT = "vellum-nonprod";
+export const NATIVE_SERVICES = ["doctor", "assistant", "macos", "web"] as const;
+export const VALID_SERVICES = [...NATIVE_SERVICES, "postgres"] as const;
+export type ServiceName = (typeof VALID_SERVICES)[number];
+export const VALID_SPECIES = ["openclaw", "velly"] as const;
 export type Species = (typeof VALID_SPECIES)[number];
 
 const ANSI = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  red: "\x1b[31m",
+  magenta: "\x1b[35m",
 } as const;
 
 interface SpeciesConfig {
@@ -33,18 +37,18 @@ export const SPECIES_CONFIG: Record<Species, SpeciesConfig> = {
       `${ANSI.red}  V       V${ANSI.reset}`,
       `${ANSI.red}  |_|   |_|${ANSI.reset}`,
     ],
-    hatchedEmoji: '🦞',
+    hatchedEmoji: "🦞",
     waitingMessages: [
-      'Warming up the egg...',
-      'Getting cozy in there...',
-      'Preparing the nest...',
-      'Gathering shell fragments...',
+      "Warming up the egg...",
+      "Getting cozy in there...",
+      "Preparing the nest...",
+      "Gathering shell fragments...",
     ],
     runningMessages: [
-      'Running startup script...',
-      'Teaching the hatchling to code...',
-      'Growing stronger...',
-      'Almost ready to peek out...',
+      "Running startup script...",
+      "Teaching the hatchling to code...",
+      "Growing stronger...",
+      "Almost ready to peek out...",
     ],
   },
   velly: {
@@ -57,18 +61,18 @@ export const SPECIES_CONFIG: Record<Species, SpeciesConfig> = {
       `${ANSI.magenta}  /"     "\\${ANSI.reset}`,
       `${ANSI.magenta}  ^       ^${ANSI.reset}`,
     ],
-    hatchedEmoji: '🦉',
+    hatchedEmoji: "🦉",
     waitingMessages: [
-      'Warming up the nest...',
-      'Getting cozy in there...',
-      'Fluffing the feathers...',
-      'Preening in the moonlight...',
+      "Warming up the nest...",
+      "Getting cozy in there...",
+      "Fluffing the feathers...",
+      "Preening in the moonlight...",
     ],
     runningMessages: [
-      'Running startup script...',
-      'Teaching the owlet to code...',
-      'Spreading wings...',
-      'Almost ready to take flight...',
+      "Running startup script...",
+      "Teaching the owlet to code...",
+      "Spreading wings...",
+      "Almost ready to take flight...",
     ],
   },
 };
