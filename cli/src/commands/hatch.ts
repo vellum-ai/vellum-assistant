@@ -16,7 +16,6 @@ import type { FirewallRuleSpec } from "../lib/gcp";
 import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
-import { ensureAnthropicKey } from "../lib/secrets";
 import { exec, execOutput } from "../lib/step-runner";
 
 const DEFAULT_ZONE = "us-central1-a";
@@ -427,13 +426,9 @@ export async function hatch(): Promise<void> {
 
     const sshUser = userInfo().username;
     const bearerToken = randomBytes(32).toString("hex");
-    await ensureAnthropicKey(project);
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
-      console.error(
-        "Error: ANTHROPIC_API_KEY could not be fetched from GCP Secret Manager. " +
-          "Set it manually or check your gcloud configuration.",
-      );
+      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
       process.exit(1);
     }
     const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
