@@ -18,7 +18,7 @@ export type AssistantEventFilter = {
   sessionId?: string;
 };
 
-export type AssistantEventCallback = (event: AssistantEvent) => void;
+export type AssistantEventCallback = (event: AssistantEvent) => void | Promise<void>;
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
 export interface AssistantEventSubscription {
@@ -76,14 +76,15 @@ export class AssistantEventHub {
    * - `event.assistantId` must equal `filter.assistantId`
    * - if `filter.sessionId` is set, `event.sessionId` must equal it
    *
-   * Fanout is isolated: a throwing subscriber does not abort delivery to
-   * remaining subscribers. Errors are collected and re-thrown as an
-   * `AggregateError` after all callbacks have been invoked.
+   * Fanout is isolated: a throwing or rejecting subscriber does not abort
+   * delivery to remaining subscribers. All callbacks (sync and async) are
+   * awaited and their errors collected; any errors are re-thrown together
+   * as an `AggregateError` after all callbacks have been invoked.
    *
    * Subscribers are snapshotted at the start of each publish call so that
    * callbacks adding new subscriptions do not receive the in-flight event.
    */
-  publish(event: AssistantEvent): void {
+  async publish(event: AssistantEvent): Promise<void> {
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
@@ -92,7 +93,7 @@ export class AssistantEventHub {
       if (entry.filter.assistantId !== event.assistantId) continue;
       if (entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
       try {
-        entry.callback(event);
+        await entry.callback(event);
       } catch (err) {
         errors.push(err);
       }
