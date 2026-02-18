@@ -90,11 +90,15 @@ public final class AuthManager {
             let codeChallenge = generateCodeChallenge(from: codeVerifier)
             let stateParam = generateRandomString(length: 32)
             let redirectURI: String
+            #if DEBUG
+            redirectURI = "\(Self.callbackScheme)://auth/callback"
+            #else
             if #available(macOS 14.4, *) {
                 redirectURI = "https://\(Self.httpsCallbackHost)\(Self.httpsCallbackPath)"
             } else {
                 redirectURI = "\(Self.callbackScheme)://auth/callback"
             }
+            #endif
 
             guard var components = URLComponents(string: authEndpoint) else {
                 throw AuthServiceError.invalidURL
@@ -197,6 +201,13 @@ public final class AuthManager {
             }
 
             let session: ASWebAuthenticationSession
+            #if DEBUG
+            session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: callbackScheme,
+                completionHandler: completionHandler
+            )
+            #else
             if #available(macOS 14.4, *) {
                 session = ASWebAuthenticationSession(
                     url: url,
@@ -210,6 +221,7 @@ public final class AuthManager {
                     completionHandler: completionHandler
                 )
             }
+            #endif
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.webAuthSession = session
