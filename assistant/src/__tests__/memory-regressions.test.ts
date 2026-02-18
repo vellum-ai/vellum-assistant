@@ -3507,7 +3507,7 @@ describe('Memory regressions', () => {
     const withoutScope = await extractAndUpsertMemoryItemsForMessage('msg-scope-pass');
     expect(withoutScope).toBeGreaterThan(0);
 
-    // Call with explicit scopeId — should also succeed (scopeId is threaded but not yet used)
+    // Call with explicit scopeId — should also succeed and scope items accordingly
     db.insert(messages).values({
       id: 'msg-scope-pass-2',
       conversationId: 'conv-scope-pass',
