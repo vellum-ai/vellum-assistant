@@ -282,7 +282,6 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
-            currentTurnUserText = nil
             // Only clear isSending if no messages are still queued
             if pendingQueuedCount == 0 {
                 isSending = false
@@ -353,6 +352,7 @@ extension ChatViewModel {
                 }
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             // Reset processing messages to sent
@@ -379,6 +379,7 @@ extension ChatViewModel {
                 messages.removeSubrange((lastUserIndex + 1)...)
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
 
@@ -414,6 +415,7 @@ extension ChatViewModel {
                 messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             // Reset processing messages to sent
@@ -468,6 +470,7 @@ extension ChatViewModel {
                 messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             // Reset processing messages to sent
@@ -494,6 +497,7 @@ extension ChatViewModel {
                 messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             if !wasCancelling {
@@ -803,6 +807,7 @@ extension ChatViewModel {
                 messages[index].streamingCodeToolName = nil
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             // When the user intentionally cancelled, suppress both the typed

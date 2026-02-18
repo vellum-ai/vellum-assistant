@@ -527,6 +527,7 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             pendingQueuedCount = 0
@@ -568,6 +569,7 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
             currentAssistantMessageId = nil
+            currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
             pendingQueuedCount = 0
@@ -622,6 +624,7 @@ public final class ChatViewModel: ObservableObject {
             self.isCancelling = false
             self.isSending = false
             self.currentAssistantMessageId = nil
+            self.currentTurnUserText = nil
             self.currentAssistantHasText = false
             self.lastContentWasToolCall = false
             self.pendingQueuedCount = 0
