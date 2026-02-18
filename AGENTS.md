@@ -57,6 +57,6 @@ Concretely:
 
 When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag these in addition to standard code quality:
 
-- **Narrow capability:** A new feature is hardcoded to a single use case when the underlying capability could be made reusable. Suggest generalizing it per the Extensibility Principle above.
+- **Special-purpose capability added:** When a PR introduces a capability that is specific to one use case (e.g., a dedicated Google Cloud OAuth flow for Gmail), flag it for human review — don't reject it. Sometimes special-purpose implementations are the right call (e.g., making a painful setup "magical" requires specificity). The reviewer's job is to surface it so a human can decide whether it should be generalized or is fine as-is.
 - **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
 - **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.
