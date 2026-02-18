@@ -116,7 +116,10 @@ struct InputBarView: View {
                     .buttonStyle(.plain)
 
                     // Send button
-                    Button(action: onSend) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onSend()
+                    }) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
                             .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
