@@ -155,7 +155,7 @@ final class MessageURLExtractorCodeExclusionTests: XCTestCase {
     func testStripCodeRegionsDirectly() {
         let text = "Hello `code here` world"
         let stripped = MessageURLExtractor.stripCodeRegions(from: text)
-        XCTAssertEqual(stripped, "Hello  world")
+        XCTAssertEqual(stripped, "Hello   world")
     }
 
     func testStripFencedCodeRegionsDirectly() {
@@ -170,5 +170,72 @@ final class MessageURLExtractorCodeExclusionTests: XCTestCase {
         XCTAssertTrue(stripped.contains("Before"))
         XCTAssertTrue(stripped.contains("After"))
         XCTAssertFalse(stripped.contains("inside fence"))
+    }
+
+    // MARK: - Space placeholder prevents URL concatenation
+
+    func testInlineCodeStrippingPreservesSpaceSeparator() {
+        // Stripping code regions uses a space placeholder to prevent
+        // surrounding text from concatenating into spurious tokens.
+        let stripped = MessageURLExtractor.stripCodeRegions(from: "prefix`code`suffix")
+        XCTAssertEqual(stripped, "prefix suffix")
+        XCTAssertFalse(stripped.contains("prefixsuffix"),
+                       "Code stripping must not concatenate adjacent text")
+    }
+
+    func testSpacePlaceholderPreservesTokenBoundaries() {
+        let stripped = MessageURLExtractor.stripCodeRegions(from: "a`code`b")
+        // Should be "a b" (space between), not "ab".
+        XCTAssertEqual(stripped, "a b")
+    }
+
+    // MARK: - Unterminated fenced code blocks
+
+    func testURLInsideUnterminatedFencedBlockIsNotExtracted() {
+        let text = """
+        Here is some text
+        ```
+        curl https://api.example.com/streaming
+        more code here
+        """
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertTrue(urls.isEmpty, "URLs inside unterminated fenced blocks should be excluded")
+    }
+
+    func testURLBeforeUnterminatedFenceIsExtracted() {
+        let text = """
+        Visit https://real.example.com first.
+        ```python
+        requests.get("https://fake.example.com")
+        """
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://real.example.com")
+    }
+
+    func testUnterminatedFenceStripsToEndOfString() {
+        let text = """
+        Before
+        ```
+        inside unterminated fence
+        still inside
+        """
+        let stripped = MessageURLExtractor.stripCodeRegions(from: text)
+        XCTAssertTrue(stripped.contains("Before"))
+        XCTAssertFalse(stripped.contains("inside unterminated fence"))
+        XCTAssertFalse(stripped.contains("still inside"))
+    }
+
+    func testTerminatedFenceStillWorksNormally() {
+        // Ensure the regex change didn't break normal fenced blocks.
+        let text = """
+        ```
+        https://inside.example.com
+        ```
+        https://outside.example.com
+        """
+        let urls = MessageURLExtractor.extractAllURLs(from: text)
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://outside.example.com")
     }
 }
