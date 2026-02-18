@@ -82,3 +82,26 @@ export interface ServerUseResult<T> {
   result?: T;
   reason?: string;
 }
+
+/** Request to look up a credential by ID for proxy injection (no secret exposed). */
+export interface ServerUseByIdRequest {
+  credentialId: string;
+  requestingTool: string;
+}
+
+/** Successful by-id lookup result — metadata + injection templates, never plaintext. */
+export interface ServerUseByIdSuccess {
+  success: true;
+  credentialId: string;
+  service: string;
+  field: string;
+  injectionTemplates: import('./policy-types.js').CredentialInjectionTemplate[];
+}
+
+/** Denied or not-found by-id lookup result. */
+export interface ServerUseByIdDenied {
+  success: false;
+  reason: string;
+}
+
+export type ServerUseByIdResult = ServerUseByIdSuccess | ServerUseByIdDenied;

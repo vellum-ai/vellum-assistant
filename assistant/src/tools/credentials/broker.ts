@@ -5,11 +5,14 @@ import type {
   BrowserFillRequest,
   BrowserFillResult,
   ConsumeResult,
+  ServerUseByIdRequest,
+  ServerUseByIdResult,
   ServerUseRequest,
   ServerUseResult,
   UsageToken,
 } from './broker-types.js';
 import { getCredentialMetadata } from './metadata-store.js';
+import { resolveById } from './resolve.js';
 import { isToolAllowed } from './tool-policy.js';
 import { isDomainAllowed } from './domain-policy.js';
 import { getSecureKey } from '../../security/secure-keys.js';
@@ -286,6 +289,63 @@ export class CredentialBroker {
       );
       return { success: false, reason: 'Credential use failed' };
     }
+  }
+
+  /**
+   * Look up a credential by its opaque ID for proxy injection.
+   *
+   * Returns metadata and injection templates so the proxy knows how to
+   * inject the credential into outbound requests. The secret value is
+   * never included in the result — the proxy reads it separately via
+   * the secure key backend at injection time.
+   */
+  serverUseById(request: ServerUseByIdRequest): ServerUseByIdResult {
+    const resolved = resolveById(request.credentialId);
+    if (!resolved) {
+      return {
+        success: false,
+        reason: `No credential found for id "${request.credentialId}"`,
+      };
+    }
+
+    const { metadata } = resolved;
+
+    // Tool policy enforcement
+    if (!isToolAllowed(request.requestingTool, metadata.allowedTools)) {
+      const tools = metadata.allowedTools ?? [];
+      return {
+        success: false,
+        reason: `Tool "${request.requestingTool}" is not allowed to use credential ${metadata.service}/${metadata.field}. ` +
+          (tools.length === 0
+            ? 'No tools are currently allowed — update the credential with allowed_tools via credential_store.'
+            : `Allowed tools: ${tools.join(', ')}.`),
+      };
+    }
+
+    // Domain policy enforcement — credentials with domain restrictions are
+    // scoped to browser use on those domains and cannot be used server-side.
+    const domains = metadata.allowedDomains ?? [];
+    if (domains.length > 0) {
+      return {
+        success: false,
+        reason: `Credential ${metadata.service}/${metadata.field} has domain restrictions ` +
+          `(${domains.join(', ')}) and cannot be used server-side. ` +
+          'Remove domain restrictions or use a separate credential without domain policy.',
+      };
+    }
+
+    log.info(
+      { credentialId: request.credentialId, service: metadata.service, field: metadata.field, tool: request.requestingTool },
+      'Server-side credential lookup by ID completed',
+    );
+
+    return {
+      success: true,
+      credentialId: resolved.credentialId,
+      service: resolved.service,
+      field: resolved.field,
+      injectionTemplates: resolved.injectionTemplates,
+    };
   }
 
   /** Return the number of active (non-consumed, non-revoked) tokens. */
