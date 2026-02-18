@@ -82,10 +82,15 @@ public enum WorkspaceConfigIO {
         try data.write(to: tempURL)
 
         // Replace or move into place.
-        if FileManager.default.fileExists(atPath: filePath) {
-            _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tempURL)
-        } else {
-            try FileManager.default.moveItem(at: tempURL, to: fileURL)
+        do {
+            if FileManager.default.fileExists(atPath: filePath) {
+                _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tempURL)
+            } else {
+                try FileManager.default.moveItem(at: tempURL, to: fileURL)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
     }
 }
