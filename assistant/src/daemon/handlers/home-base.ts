@@ -6,6 +6,7 @@ import {
   getPrebuiltHomeBaseTaskPayload,
 } from '../../home-base/prebuilt/seed.js';
 import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
+import { getApp } from '../../memory/app-store.js';
 import { log, type HandlerContext } from './shared.js';
 
 export function handleHomeBaseGet(
@@ -24,15 +25,41 @@ export function handleHomeBaseGet(
       return;
     }
 
-    const tasks = getPrebuiltHomeBaseTaskPayload();
-    const preview = getPrebuiltHomeBasePreview();
     const link = getHomeBaseAppLink();
+    const source = link?.source ?? 'prebuilt_seed';
+
+    let preview: {
+      title: string;
+      subtitle: string;
+      description: string;
+      icon: string;
+      metrics: Array<{ label: string; value: string }>;
+    };
+
+    if (source === 'personalized') {
+      const app = getApp(appId);
+      if (app) {
+        preview = {
+          title: app.name,
+          subtitle: 'Dashboard',
+          description: app.description ?? '',
+          icon: app.icon ?? '🏠',
+          metrics: [],
+        };
+      } else {
+        preview = getPrebuiltHomeBasePreview();
+      }
+    } else {
+      preview = getPrebuiltHomeBasePreview();
+    }
+
+    const tasks = getPrebuiltHomeBaseTaskPayload();
 
     ctx.send(socket, {
       type: 'home_base_get_response',
       homeBase: {
         appId,
-        source: link?.source ?? 'prebuilt_seed',
+        source,
         starterTasks: tasks.starterTasks,
         onboardingTasks: tasks.onboardingTasks,
         preview,
