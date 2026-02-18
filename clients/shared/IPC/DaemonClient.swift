@@ -1201,10 +1201,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         case .uiSurfaceComplete(let msg):
             onSurfaceComplete?(msg)
         case .documentEditorShow(let msg):
-            print("🔵 DaemonClient: documentEditorShow received - surfaceId=\(msg.surfaceId), title=\(msg.title)")
-            print("🔵 DaemonClient: callback exists? \(onDocumentEditorShow != nil)")
+            log.debug("documentEditorShow received — surfaceId=\(msg.surfaceId, privacy: .public), title=\(msg.title, privacy: .public)")
             onDocumentEditorShow?(msg)
-            print("🔵 DaemonClient: callback invoked")
+            log.debug("documentEditorShow callback invoked")
         case .documentEditorUpdate(let msg):
             onDocumentEditorUpdate?(msg)
         case .documentSaveResponse(let msg):
