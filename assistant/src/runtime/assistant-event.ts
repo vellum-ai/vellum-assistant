@@ -6,6 +6,7 @@
  * assistant events without creating circular dependencies.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -26,6 +27,29 @@ export interface AssistantEvent {
   emittedAt: string;
   /** Unchanged IPC outbound message payload. */
   message: ServerMessage;
+}
+
+// ── Factory ───────────────────────────────────────────────────────────────────
+
+/**
+ * Construct an `AssistantEvent` envelope around a `ServerMessage`.
+ *
+ * @param assistantId  The logical assistant identifier (e.g. from the daemon or HTTP route).
+ * @param message      The unchanged IPC outbound message payload.
+ * @param sessionId    Optional conversation/session id — pass when known.
+ */
+export function buildAssistantEvent(
+  assistantId: string,
+  message: ServerMessage,
+  sessionId?: string,
+): AssistantEvent {
+  return {
+    id: randomUUID(),
+    assistantId,
+    sessionId,
+    emittedAt: new Date().toISOString(),
+    message,
+  };
 }
 
 // ── SSE framing ───────────────────────────────────────────────────────────────

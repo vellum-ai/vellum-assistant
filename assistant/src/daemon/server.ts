@@ -32,6 +32,8 @@ import { handleMessage, type HandlerContext, type SessionCreateOptions } from '.
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { SessionEvictor } from './session-evictor.js';
 import { getSubagentManager } from '../subagent/index.js';
 
@@ -99,6 +101,13 @@ export class DaemonServer {
     // is now handled via BOOTSTRAP.md in the system prompt.
     log.debug({ channelId: transport.channelId }, 'Transport metadata received');
   }
+
+  /**
+   * Logical assistant identifier used when publishing to the assistant-events hub.
+   * Defaults to 'default' for the IPC daemon runtime; override in tests or
+   * multi-tenant deployments where the daemon is scoped to a specific assistant.
+   */
+  assistantId: string = 'default';
 
   constructor() {
     this.socketPath = getSocketPath();
@@ -720,17 +729,54 @@ export class DaemonServer {
     });
   }
 
-  private send(socket: net.Socket, msg: ServerMessage): void {
+  /** Low-level wire write — does not publish to the assistant-events hub. */
+  private writeToSocket(socket: net.Socket, msg: ServerMessage): void {
     if (!socket.destroyed && socket.writable) {
       socket.write(serialize(msg));
     }
   }
 
+  private send(socket: net.Socket, msg: ServerMessage): void {
+    this.writeToSocket(socket, msg);
+    // Best-effort sessionId: prefer message field, fall back to socket binding.
+    const sessionId =
+      ('sessionId' in msg && typeof (msg as Record<string, unknown>).sessionId === 'string'
+        ? (msg as Record<string, unknown>).sessionId as string
+        : undefined) ?? this.socketToSession.get(socket);
+    this.publishAssistantEvent(msg, sessionId);
+  }
+
   broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
     for (const socket of this.authenticatedSockets) {
       if (socket === excludeSocket) continue;
-      this.send(socket, msg);
+      this.writeToSocket(socket, msg);  // bypass per-socket hub publish
     }
+    // Publish once for the broadcast. Prefer message-level sessionId; fall back
+    // to excludeSocket's session binding so session-scoped events (e.g.
+    // assistant_text_delta emitted without a sessionId field) are correctly tagged.
+    const msgRecord = msg as unknown as Record<string, unknown>;
+    const sessionId =
+      ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
+        ? msgRecord.sessionId as string
+        : undefined) ?? (excludeSocket ? this.socketToSession.get(excludeSocket) : undefined);
+    this.publishAssistantEvent(msg, sessionId);
+  }
+
+  /**
+   * Publish `msg` as an `AssistantEvent` to the process-level hub.
+   * Publishes are serialized via a promise chain so that subscribers always
+   * observe events in the order they were sent (e.g. text deltas before
+   * message_complete), even when subscriber callbacks are async.
+   */
+  private _hubChain: Promise<void> = Promise.resolve();
+
+  private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
+    const event = buildAssistantEvent(this.assistantId, msg, sessionId);
+    this._hubChain = this._hubChain
+      .then(() => assistantEventHub.publish(event))
+      .catch((err: unknown) => {
+        log.warn({ err }, 'assistant-events hub subscriber threw during IPC send');
+      });
   }
 
   private async sendInitialSession(socket: net.Socket): Promise<void> {
