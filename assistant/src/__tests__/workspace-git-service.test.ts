@@ -102,9 +102,6 @@ describe('WorkspaceGitService', () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      // Wait a bit for async initial commit to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-
       const log = execFileSync('git', ['log', '--oneline'], {
         cwd: testDir,
         encoding: 'utf-8',
@@ -122,9 +119,6 @@ describe('WorkspaceGitService', () => {
 
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-
-      // Wait for async initial commit
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       const log = execFileSync('git', ['log', '--oneline'], {
         cwd: testDir,
@@ -145,20 +139,58 @@ describe('WorkspaceGitService', () => {
       expect(files).toContain('subdir/file.txt');
     });
 
-    test('initial commit is async and non-blocking', async () => {
-      // Create many files to make commit slow
-      for (let i = 0; i < 100; i++) {
+    test('initial commit completes within ensureInitialized', async () => {
+      // Create some files before initializing git
+      for (let i = 0; i < 10; i++) {
         writeFileSync(join(testDir, `file${i}.txt`), 'content');
       }
 
       const service = new WorkspaceGitService(testDir);
-      const start = Date.now();
       await service.ensureInitialized();
-      const duration = Date.now() - start;
 
-      // ensureInitialized should return quickly (< 1s)
-      // even with 100 files, as the commit is async
-      expect(duration).toBeLessThan(1000);
+      // Initial commit should already be done - no need to wait
+      const log = execFileSync('git', ['log', '--oneline'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      });
+
+      expect(log).toContain('Initial commit: migrated existing workspace');
+    });
+
+    test('initial commit does not race with first commitChanges', async () => {
+      // Pre-populate workspace with files (simulating a migrated workspace)
+      writeFileSync(join(testDir, 'existing.txt'), 'pre-existing content');
+
+      const service = new WorkspaceGitService(testDir);
+
+      // Initialize - the initial commit now happens synchronously within
+      // ensureInitialized, so it completes before we can write new files.
+      await service.ensureInitialized();
+
+      // Now write a file AFTER init and commit it
+      writeFileSync(join(testDir, 'user-edit.txt'), 'user content');
+      await service.commitChanges('User turn 1');
+
+      // The user's commit (HEAD) should contain user-edit.txt
+      const userCommitFiles = execFileSync(
+        'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'],
+        { cwd: testDir, encoding: 'utf-8' },
+      ).trim();
+
+      expect(userCommitFiles).toContain('user-edit.txt');
+      // user-edit.txt should NOT appear in the initial commit
+      expect(userCommitFiles).not.toContain('existing.txt');
+
+      // The initial commit (HEAD~1) should contain existing.txt and .gitignore
+      const initialCommitFiles = execFileSync(
+        'git', ['show', '--name-only', '--pretty=format:', 'HEAD~1'],
+        { cwd: testDir, encoding: 'utf-8' },
+      ).trim();
+
+      expect(initialCommitFiles).toContain('existing.txt');
+      expect(initialCommitFiles).toContain('.gitignore');
+      // The initial commit should NOT contain user-edit.txt
+      expect(initialCommitFiles).not.toContain('user-edit.txt');
     });
   });
 
@@ -166,7 +198,6 @@ describe('WorkspaceGitService', () => {
     test('commits changes with message', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100)); // Wait for initial commit
 
       writeFileSync(join(testDir, 'test.txt'), 'hello world');
       await service.commitChanges('Add test file');
@@ -182,7 +213,6 @@ describe('WorkspaceGitService', () => {
     test('commits with metadata', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'test.txt'), 'content');
       await service.commitChanges('Add file', {
@@ -205,7 +235,6 @@ describe('WorkspaceGitService', () => {
     test('commits multiple files at once', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'file1.txt'), 'content1');
       writeFileSync(join(testDir, 'file2.txt'), 'content2');
@@ -226,7 +255,6 @@ describe('WorkspaceGitService', () => {
     test('allows empty commits', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Commit without any changes
       await service.commitChanges('Empty commit for checkpoint');
@@ -244,7 +272,6 @@ describe('WorkspaceGitService', () => {
     test('returns clean status for new workspace', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100)); // Wait for initial commit
 
       const status = await service.getStatus();
 
@@ -257,7 +284,6 @@ describe('WorkspaceGitService', () => {
     test('detects untracked files', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'new-file.txt'), 'content');
 
@@ -270,7 +296,6 @@ describe('WorkspaceGitService', () => {
     test('detects modified files', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'file.txt'), 'original');
       await service.commitChanges('Add file');
@@ -286,7 +311,6 @@ describe('WorkspaceGitService', () => {
     test('detects staged files', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'file.txt'), 'content');
 
@@ -304,7 +328,6 @@ describe('WorkspaceGitService', () => {
     test('serializes concurrent commit operations', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Start multiple concurrent commits
       const commits = [];
@@ -337,7 +360,6 @@ describe('WorkspaceGitService', () => {
     test('serializes concurrent status checks', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Start multiple concurrent status checks
       const checks = [];
@@ -388,10 +410,37 @@ describe('WorkspaceGitService', () => {
       await expect(service.ensureInitialized()).rejects.toThrow();
     });
 
+    test('failed initialization can be retried', async () => {
+      // Create a service pointing to a directory that doesn't exist yet
+      const retryDir = join(tmpdir(), `vellum-retry-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const service = new WorkspaceGitService(retryDir);
+
+      // First attempt: directory doesn't exist, should fail
+      await expect(service.ensureInitialized()).rejects.toThrow();
+
+      // Create the directory so the retry can succeed
+      mkdirSync(retryDir, { recursive: true });
+
+      try {
+        // Second attempt: directory now exists, should succeed because
+        // the .catch handler cleared initPromise after the first failure
+        await service.ensureInitialized();
+        expect(service.isInitialized()).toBe(true);
+
+        // Verify the repo was actually initialized
+        const log = execFileSync('git', ['log', '--oneline'], {
+          cwd: retryDir,
+          encoding: 'utf-8',
+        });
+        expect(log).toContain('Initial commit');
+      } finally {
+        rmSync(retryDir, { recursive: true, force: true });
+      }
+    });
+
     test('continues to work after failed operation', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Try to commit without any changes and without allow-empty
       // (This should succeed with --allow-empty, but let's test recovery)
@@ -408,7 +457,6 @@ describe('WorkspaceGitService', () => {
     test('respects .gitignore for data directory', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Create files in data directory
       mkdirSync(join(testDir, 'data'));
@@ -423,7 +471,6 @@ describe('WorkspaceGitService', () => {
     test('respects .gitignore for log files', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'test.log'), 'log content');
 
@@ -436,7 +483,6 @@ describe('WorkspaceGitService', () => {
     test('tracks non-ignored files', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       writeFileSync(join(testDir, 'config.json'), '{}');
       writeFileSync(join(testDir, 'README.md'), '# Test');

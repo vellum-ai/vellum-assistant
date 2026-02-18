@@ -73,7 +73,7 @@ interface GitStatus {
  * - Lazy initialization: git repo created only when needed
  * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
- * - Async initial commit to avoid blocking on large workspaces
+ * - Synchronous initial commit within mutex to prevent races
  */
 export class WorkspaceGitService {
   private readonly workspaceDir: string;
@@ -94,8 +94,10 @@ export class WorkspaceGitService {
    * 1. Run git init -b main
    * 2. Create .gitignore
    * 3. Set git identity
-   * 4. Stage all files
-   * 5. Create initial commit (async, returns immediately)
+   * 4. Stage all files and create initial commit
+   *
+   * The initial commit is created synchronously within the mutex lock
+   * to prevent races with the first commitChanges() call.
    */
   async ensureInitialized(): Promise<void> {
     // Fast path: already initialized
@@ -148,45 +150,32 @@ export class WorkspaceGitService {
       await this.execGit(['config', 'user.name', 'Vellum Assistant']);
       await this.execGit(['config', 'user.email', 'assistant@vellum.ai']);
 
-      this.initialized = true;
-
-      // Create initial commit asynchronously to avoid blocking
-      // This runs in the background after ensureInitialized returns
-      this.createInitialCommitAsync().catch(() => {
-        // Silently ignore errors - repo is still usable
-        // (errors expected during tests when directories are cleaned up)
-      });
-    });
-
-    return this.initPromise;
-  }
-
-  /**
-   * Create the initial commit asynchronously.
-   * Determines if this is a new or migrated workspace and commits accordingly.
-   */
-  private async createInitialCommitAsync(): Promise<void> {
-    await this.mutex.withLock(async () => {
-      // Check if workspace directory still exists (may have been deleted in tests)
-      if (!existsSync(this.workspaceDir)) {
-        return;
-      }
-
-      // Check if there are any existing files (excluding .git and .gitignore)
+      // Create initial commit synchronously within the lock to prevent
+      // races with the first commitChanges() call. Without this, the
+      // initial commit could run concurrently and consume edits meant
+      // for the first user-requested commit.
       const status = await this.getStatusInternal();
       const hasExistingFiles = status.untracked.length > 1 || // More than just .gitignore
         status.untracked.some(f => f !== '.gitignore');
 
-      // Stage all files
       await this.execGit(['add', '-A']);
 
-      // Create initial commit with appropriate message
       const message = hasExistingFiles
         ? 'Initial commit: migrated existing workspace'
         : 'Initial commit: new workspace';
 
       await this.execGit(['commit', '-m', message, '--allow-empty']);
+
+      this.initialized = true;
     });
+
+    // If initialization fails, clear the cached promise so subsequent
+    // calls can retry instead of permanently returning the rejected promise.
+    this.initPromise.catch(() => {
+      this.initPromise = null;
+    });
+
+    return this.initPromise;
   }
 
   /**
