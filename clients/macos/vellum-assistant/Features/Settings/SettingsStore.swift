@@ -222,6 +222,22 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Replaces the video-embed domain allowlist, normalizing the input and
+    /// persisting the result to the workspace config.
+    func setMediaEmbedVideoAllowlistDomains(_ domains: [String]) {
+        let normalized = MediaEmbedSettings.normalizeDomains(domains)
+        mediaEmbedVideoAllowlistDomains = normalized
+
+        let existingConfig = WorkspaceConfigIO.read(from: configPath)
+        var existingUI = existingConfig["ui"] as? [String: Any] ?? [:]
+        var existingMediaEmbeds = existingUI["mediaEmbeds"] as? [String: Any] ?? [:]
+
+        existingMediaEmbeds["videoAllowlistDomains"] = normalized
+        existingUI["mediaEmbeds"] = existingMediaEmbeds
+
+        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+    }
+
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
     /// the workspace config under `ui.mediaEmbeds`.
     private func persistMediaEmbedState() {
