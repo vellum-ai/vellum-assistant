@@ -869,7 +869,7 @@ Two columns on the `conversations` table drive the feature:
 | Column | Type | Values | Purpose |
 |---|---|---|---|
 | `thread_type` | `text NOT NULL DEFAULT 'standard'` | `'standard'` or `'private'` | Determines whether the conversation uses shared or isolated memory and permission policies |
-| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments, embeddings) to this namespace |
+| `memory_scope_id` | `text NOT NULL DEFAULT 'default'` | `'default'` for standard threads; `'private:<uuid>'` for private threads | Scopes all memory writes (items, segments) to this namespace; embeddings are isolated indirectly via their parent item/segment |
 
 ### Memory Isolation
 
@@ -897,7 +897,7 @@ graph TB
     PVT_READ -.->|"fallback"| DEFAULT_SCOPE
 ```
 
-**Write isolation**: All memory items, segments, and embeddings created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). They are invisible to standard threads and other private threads.
+**Write isolation**: All memory items and segments created during a private thread are tagged with its `memory_scope_id` (e.g. `'private:abc123'`). Embeddings are isolated indirectly — they reference scoped items/segments via `target_type`/`target_id`, so scope filtering at the item/segment level cascades to their embeddings. All scoped data is invisible to standard threads and other private threads.
 
 **Read fallback**: When recalling memories for a private thread, the retriever queries both the thread's own scope and the `'default'` scope. This ensures the assistant still has access to general knowledge (user profile, preferences, facts) learned in standard threads, while private-thread-specific memories take precedence in ranking. The fallback is implemented via `ScopePolicyOverride` with `fallbackToDefault: true`, which overrides the global scope policy on a per-call basis.
 
