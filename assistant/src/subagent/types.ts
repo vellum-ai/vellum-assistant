@@ -19,7 +19,7 @@ export type SubagentStatus =
   | 'aborted';
 
 /** Terminal states — once entered, a subagent cannot transition out. */
-export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> = new Set([
+export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> = new Set<SubagentStatus>([
   'completed',
   'failed',
   'aborted',
