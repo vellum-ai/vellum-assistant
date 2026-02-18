@@ -217,9 +217,10 @@ export async function handleSessionCreate(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  const threadType: ThreadType = msg.threadType === 'private' ? 'private' : 'standard';
   const conversation = conversationStore.createConversation({
     title: msg.title ?? 'New Conversation',
-    threadType: msg.threadType,
+    threadType,
   });
   const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
     systemPromptOverride: msg.systemPromptOverride,
