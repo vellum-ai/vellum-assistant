@@ -642,6 +642,14 @@ function buildBrowserInteractionSection(): string {
     'Instead, use `ui_show` with `surface_type: "form"` or `surface_type: "list"` and `await_action: true` to present choices inline without ending the turn.',
     'The form/list will block until the user responds, then you can continue the browser interaction in the same turn with all state preserved.',
     'Example: after finding restaurants, show a list surface with the options. When the user selects one, immediately click through to that restaurant without needing a new snapshot cycle.',
+    '',
+    '### Login and authentication',
+    'When you encounter a login page or sign-in prompt, DO NOT give up or tell the user to sign in manually. Handle the login flow yourself:',
+    '1. Use `browser_snapshot` to find the sign-in form elements (email field, "Sign in with email" button, etc.)',
+    '2. Use `browser_fill_credential` to fill stored credentials, or `browser_click` + `browser_type` to interact with the login form',
+    '3. For SMS/email verification codes, use `ui_show` with a form to ask the user for the code mid-turn — do not end your turn',
+    '4. Only hand off to the user for actual CAPTCHAs (Cloudflare, reCAPTCHA) that require human interaction',
+    '5. Many sites show login prompts even when the user IS already logged in (e.g. modals that can be dismissed). Check the page content before assuming you need to sign in.',
   ].join('\n');
 }
 

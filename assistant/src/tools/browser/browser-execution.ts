@@ -246,41 +246,35 @@ export async function executeBrowserNavigate(
       const authChallenge = await detectAuthChallenge(page);
       const challenge = authChallenge ?? await detectCaptchaChallenge(page);
       if (challenge) {
-        if (browserManager.browserMode === 'cdp') {
-          // In CDP mode, hand off to user for direct interaction
-          if (sender) {
+        if (challenge.type === 'captcha') {
+          // CAPTCHAs require human interaction — hand off to user
+          if (browserManager.browserMode === 'cdp' && sender) {
             const { startHandoff } = await import('./browser-handoff.js');
-            const handoffMessage = challenge.type === 'captcha'
-              ? 'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.'
-              : formatAuthChallenge(challenge);
             await startHandoff(context.sessionId, sender, {
-              reason: challenge.type === 'captcha' ? 'captcha' : 'auth',
-              message: handoffMessage,
+              reason: 'captcha',
+              message: 'Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window that just opened (not the preview panel — CAPTCHA providers detect preview clicks as automated). Click "Hand back" when done.',
               bringToFront: true,
             });
-          }
-          // After handoff completes, return updated page state
-          const newUrl = page.url();
-          const newTitle = await page.title();
-          lines.push('');
-          lines.push(challenge.type === 'captcha'
-            ? `CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`
-            : `Auth handled by user. Current page: ${newTitle} (${newUrl})`);
-        } else {
-          if (challenge.type === 'captcha') {
+            const newUrl = page.url();
+            const newTitle = await page.title();
+            lines.push('');
+            lines.push(`CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`);
+          } else {
             lines.push('');
             lines.push('⚠️ CAPTCHA/Cloudflare verification detected on this page.');
             lines.push('The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.');
-          } else {
-            lines.push('');
-            lines.push(formatAuthChallenge(challenge));
-            lines.push('');
-            lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
-            const { buildAuthForm } = await import('./jit-auth.js');
-            const formData = buildAuthForm(challenge);
-            lines.push(JSON.stringify(formData, null, 2));
-            lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
           }
+        } else {
+          // Login / 2FA / OAuth — the agent should handle these itself
+          // using browser tools + credential_store. Don't hand off.
+          lines.push('');
+          lines.push(formatAuthChallenge(challenge));
+          lines.push('');
+          lines.push('Handle this by using browser tools to interact with the login form:');
+          lines.push('1. Use browser_snapshot to find the sign-in form elements');
+          lines.push('2. Use browser_fill_credential to fill email/password from credential_store');
+          lines.push('3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn');
+          lines.push('4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself');
         }
       }
     } catch {
