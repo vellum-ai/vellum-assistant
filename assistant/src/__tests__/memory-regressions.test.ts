@@ -102,6 +102,7 @@ import {
   injectMemoryRecallAsSeparateMessage,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
+import { addMessage, createConversation } from '../memory/conversation-store.js';
 import {
   conversations,
   memoryEmbeddings,
@@ -3259,5 +3260,44 @@ describe('Memory regressions', () => {
 
     expect(keys).toContain('segment:seg-ovr-dp-default');
     expect(keys).not.toContain('segment:seg-ovr-dp-other');
+  });
+
+  // PR-17: addMessage() passes conversation scope to the indexer
+  test('addMessage inherits private conversation scope on memory segments', () => {
+    const conv = createConversation({ title: 'Private thread', threadType: 'private' });
+    expect(conv.memoryScopeId).toMatch(/^private:/);
+
+    const msg = addMessage(conv.id, 'user', 'My secret project details for the private thread.');
+
+    const db = getDb();
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msg.id))
+      .all();
+
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.scopeId).toBe(conv.memoryScopeId);
+    }
+  });
+
+  test('addMessage uses default scope for standard conversations', () => {
+    const conv = createConversation({ title: 'Standard thread', threadType: 'standard' });
+    expect(conv.memoryScopeId).toBe('default');
+
+    const msg = addMessage(conv.id, 'user', 'Normal conversation content for testing scope defaults.');
+
+    const db = getDb();
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msg.id))
+      .all();
+
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.scopeId).toBe('default');
+    }
   });
 });

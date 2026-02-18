@@ -125,12 +125,14 @@ export function addMessage(conversationId: string, role: string, content: string
 
   try {
     const config = getConfig();
+    const scopeId = getConversationMemoryScopeId(conversationId);
     indexMessageNow({
       messageId: message.id,
       conversationId: message.conversationId,
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
+      scopeId,
     }, config.memory);
   } catch (err) {
     log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
