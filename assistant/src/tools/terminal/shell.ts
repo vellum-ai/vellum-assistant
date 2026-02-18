@@ -110,6 +110,7 @@ class ShellTool implements Tool {
             credentialIds,
             undefined,
             getDataDir(),
+            context.proxyApprovalCallback,
           );
           const started = await startSession(session.id);
           proxySessionId = started.id;

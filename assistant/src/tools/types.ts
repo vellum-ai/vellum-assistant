@@ -133,6 +133,8 @@ export interface ToolContext {
   memoryScopeId?: string;
   /** When true, tools with private side-effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
+  /** Approval callback for proxy policy decisions that require user confirmation. */
+  proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
 }
 
 export interface DiffInfo {

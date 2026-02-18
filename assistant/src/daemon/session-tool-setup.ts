@@ -100,6 +100,7 @@ export function createToolExecutor(
       sendToClient: (msg) => ctx.sendToClient(msg as unknown as ServerMessage),
       isInteractive: !ctx.hasNoClient,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
+      proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
           params.service, params.field, params.label,

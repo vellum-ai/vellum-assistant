@@ -352,4 +352,27 @@ describe('session-manager', () => {
       expect(decision.reason).toBe('tunnel:no_credentials');
     });
   });
+
+  // ── Approval callback storage ──────────────────────────────────────
+
+  describe('approval callback', () => {
+    test('stores approval callback when provided', () => {
+      const callback = async () => true;
+      const session = createSession(CONV_ID, CRED_IDS, undefined, undefined, callback);
+      expect(session.id).toBeTruthy();
+      expect(session.status).toBe('starting');
+    });
+
+    test('works without approval callback (undefined)', () => {
+      const session = createSession(CONV_ID, CRED_IDS);
+      expect(session.id).toBeTruthy();
+      expect(session.status).toBe('starting');
+    });
+
+    test('works without approval callback (explicit undefined)', () => {
+      const session = createSession(CONV_ID, CRED_IDS, undefined, undefined, undefined);
+      expect(session.id).toBeTruthy();
+      expect(session.status).toBe('starting');
+    });
+  });
 });

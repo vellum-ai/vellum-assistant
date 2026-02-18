@@ -9,6 +9,7 @@ import type {
   ProxySessionId,
   ProxySessionConfig,
   ProxyEnvVars,
+  ProxyApprovalCallback,
 } from './types.js';
 import { getCAPath, ensureLocalCA } from './certs.js';
 import { resolveById } from '../../credentials/resolve.js';
@@ -25,6 +26,7 @@ interface ManagedSession {
   idleTimer: ReturnType<typeof setTimeout> | null;
   config: ProxySessionConfig;
   dataDir: string | null;
+  approvalCallback: ProxyApprovalCallback | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -58,6 +60,7 @@ export function createSession(
   credentialIds: string[],
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
+  approvalCallback?: ProxyApprovalCallback,
 ): ProxySession {
   const merged: ProxySessionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -87,6 +90,7 @@ export function createSession(
     idleTimer: null,
     config: merged,
     dataDir: dataDir ?? null,
+    approvalCallback: approvalCallback ?? null,
   });
 
   return cloneSession(session);
