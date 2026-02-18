@@ -242,9 +242,9 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
-                // Close the left sidebar when the activity or document editor panel opens to avoid crowding
+                // Close the left sidebar when the document editor panel opens to avoid crowding
                 if case .panel(let panel) = newSelection,
-                   (panel == .activity || panel == .documentEditor),
+                   panel == .documentEditor,
                    sidebarOpen {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         sidebarOpen = false
