@@ -129,7 +129,7 @@ function loadFile(): LoadResult {
       // Migrate from v1 to v2 and persist the upgrade so we don't re-migrate on every read
       const credentials = validRecords.map(migrateRecordV1toV2);
       const migrated: MetadataFile = { version: CURRENT_VERSION, credentials };
-      saveFile(migrated);
+      try { saveFile(migrated); } catch { /* persist failed — will retry on next write */ }
       return migrated;
     }
 
