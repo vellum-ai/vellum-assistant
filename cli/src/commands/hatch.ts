@@ -20,7 +20,6 @@ import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
 
-const DEFAULT_ZONE = "us-central1-a";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
@@ -476,19 +475,25 @@ async function hatchGcp(
     console.log(`   Species: ${species}`);
     console.log(`   Cloud: GCP`);
     console.log(`   Project: ${project}`);
-    console.log(`   Zone: ${DEFAULT_ZONE}`);
+    const zone = process.env.DEFAULT_ZONE;
+    if (!zone) {
+      console.error("Error: DEFAULT_ZONE environment variable is not set.");
+      process.exit(1);
+    }
+
+    console.log(`   Zone: ${zone}`);
     console.log(`   Machine type: ${MACHINE_TYPE}`);
     console.log("");
 
     if (name) {
-      if (await instanceExists(name, project, DEFAULT_ZONE)) {
+      if (await instanceExists(name, project, zone)) {
         console.error(
           `Error: Instance name '${name}' is already taken. Please choose a different name.`,
         );
         process.exit(1);
       }
     } else {
-      while (await instanceExists(instanceName, project, DEFAULT_ZONE)) {
+      while (await instanceExists(instanceName, project, zone)) {
         console.log(`⚠️  Instance name ${instanceName} already exists, generating a new name...`);
         const suffix = generateRandomSuffix();
         instanceName = `${species}-${suffix}`;
@@ -514,7 +519,7 @@ async function hatchGcp(
         "create",
         instanceName,
         `--project=${project}`,
-        `--zone=${DEFAULT_ZONE}`,
+        `--zone=${zone}`,
         `--machine-type=${MACHINE_TYPE}`,
         "--image-family=debian-11",
         "--image-project=debian-cloud",
@@ -543,7 +548,7 @@ async function hatchGcp(
         "describe",
         instanceName,
         `--project=${project}`,
-        `--zone=${DEFAULT_ZONE}`,
+        `--zone=${zone}`,
         "--format=get(networkInterfaces[0].accessConfigs[0].natIP)",
       ]);
       externalIp = ipOutput.trim() || null;
@@ -563,7 +568,7 @@ async function hatchGcp(
           runtimeUrl,
           bearerToken,
           project,
-          zone: DEFAULT_ZONE,
+          zone,
           species,
           sshUser,
           hatchedAt: new Date().toISOString(),
@@ -578,7 +583,7 @@ async function hatchGcp(
       console.log("Instance details:");
       console.log(`  Name: ${instanceName}`);
       console.log(`  Project: ${project}`);
-      console.log(`  Zone: ${DEFAULT_ZONE}`);
+      console.log(`  Zone: ${zone}`);
       if (externalIp) {
         console.log(`  External IP: ${externalIp}`);
       }
@@ -588,7 +593,7 @@ async function hatchGcp(
       console.log("");
 
       const success = await watchHatching(
-        () => pollInstance(instanceName, project, DEFAULT_ZONE),
+        () => pollInstance(instanceName, project, zone),
         instanceName,
         startTime,
         species,
@@ -597,11 +602,11 @@ async function hatchGcp(
       if (!success) {
         if (
           species === "vellum" &&
-          (await checkCurlFailure(instanceName, project, DEFAULT_ZONE))
+          (await checkCurlFailure(instanceName, project, zone))
         ) {
           console.log("");
           console.log("🔄 Detected install script curl failure, attempting recovery...");
-          await recoverFromCurlFailure(instanceName, project, DEFAULT_ZONE, sshUser);
+          await recoverFromCurlFailure(instanceName, project, zone, sshUser);
           console.log("✅ Recovery successful!");
         } else {
           console.log("");
@@ -612,7 +617,7 @@ async function hatchGcp(
       console.log("Instance details:");
       console.log(`  Name: ${instanceName}`);
       console.log(`  Project: ${project}`);
-      console.log(`  Zone: ${DEFAULT_ZONE}`);
+      console.log(`  Zone: ${zone}`);
       if (externalIp) {
         console.log(`  External IP: ${externalIp}`);
       }
