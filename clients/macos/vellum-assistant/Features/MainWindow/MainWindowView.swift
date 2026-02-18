@@ -19,9 +19,6 @@ struct MainWindowView: View {
     @State private var isHoveredThread: UUID?
     @State private var isHoveredApp: String?
     @State private var requestedHomeBaseAtLaunch = false
-    /// Set when the Home Base dashboard is about to open so the surface handler
-    /// can auto-dock the chat panel alongside it.
-    @State private var pendingHomeBaseAppId: String?
     @State private var threadPendingDeletion: UUID?
     @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
@@ -182,7 +179,6 @@ struct MainWindowView: View {
                 name: homeBase.preview.title,
                 icon: homeBase.preview.icon
             )
-            self.pendingHomeBaseAppId = homeBase.appId
             try? self.daemonClient.sendAppOpen(appId: homeBase.appId)
         }
 
@@ -463,16 +459,12 @@ struct MainWindowView: View {
                 if let surface = windowState.activeDynamicParsedSurface,
                    case .dynamicPage(let dpData) = surface.data,
                    let appId = dpData.appId {
-                    // Auto-dock chat alongside the Home Base dashboard
-                    if appId == pendingHomeBaseAppId {
-                        pendingHomeBaseAppId = nil
-                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                        if let threadId {
-                            threadManager.selectThread(id: threadId)
-                            windowState.setAppEditing(appId: appId, threadId: threadId)
-                        } else {
-                            windowState.selection = .app(appId)
-                        }
+                    // Auto-dock chat alongside the app so the user can
+                    // keep chatting while viewing the surface.
+                    let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
+                    if let threadId {
+                        threadManager.selectThread(id: threadId)
+                        windowState.setAppEditing(appId: appId, threadId: threadId)
                     } else {
                         windowState.selection = .app(appId)
                     }
