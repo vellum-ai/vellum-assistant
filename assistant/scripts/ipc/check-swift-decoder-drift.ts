@@ -29,6 +29,8 @@ const SWIFT_PATH = path.resolve(
  * macOS client. Add entries here with a comment explaining why.
  */
 const SWIFT_OMIT_ALLOWLIST = new Set<string>([
+  // Browser handoff — handled by CLI/daemon, not surfaced to macOS client
+  'browser_handoff_request',
   // Server-internal events not surfaced to macOS client
   'context_compacted',
   'memory_recalled',
