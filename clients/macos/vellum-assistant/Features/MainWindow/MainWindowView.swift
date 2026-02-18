@@ -1218,14 +1218,9 @@ struct MainWindowView: View {
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
                 onToggleChatDock: {
-                    if case .appEditing = windowState.selection {
-                        // Toggle off: close app, keep thread visible
-                        let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
-                        if let threadId {
-                            windowState.selection = .thread(threadId)
-                        } else {
-                            windowState.selection = nil
-                        }
+                    if case .appEditing(let appId, _) = windowState.selection {
+                        // Toggle off: go back to full-screen app view
+                        windowState.selection = .app(appId)
                     } else if case .app(let appId) = windowState.selection {
                         // Toggle on: find most recent thread and enter editing mode
                         let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
@@ -1793,7 +1788,7 @@ private struct DynamicWorkspaceWrapper: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Close workspace")
                 }
-                .padding(.leading, trafficLightPadding)
+                .padding(.leading, VSpacing.lg)
                 .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.md)
 
