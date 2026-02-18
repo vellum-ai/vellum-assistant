@@ -472,6 +472,7 @@ extension ChatViewModel {
             refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
+            pendingVoiceMessage = false
             let wasCancelling = isCancelling
             isCancelling = false
             // Mark current assistant message as no longer streaming
@@ -756,6 +757,7 @@ extension ChatViewModel {
             refinementStreamingText = nil
             cancelledDuringRefinement = false
             isThinking = false
+            pendingVoiceMessage = false
             let wasCancelling = isCancelling
             isCancelling = false
             if let existingId = currentAssistantMessageId,
