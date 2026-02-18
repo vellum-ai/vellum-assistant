@@ -402,17 +402,21 @@ public final class ChatViewModel: ObservableObject {
 
     /// Send a message to the daemon without showing a user bubble in the chat.
     /// Used for automated actions like inline model picker selections.
-    public func sendSilently(_ text: String) {
+    /// Returns `true` if the message was sent (or a session bootstrap was started),
+    /// `false` if the message was silently dropped (e.g. bootstrap already in flight).
+    @discardableResult
+    public func sendSilently(_ text: String) -> Bool {
         // Don't re-enter bootstrap if a session creation is already in progress —
         // that would overwrite pendingUserMessage and orphan the in-flight session.
         if sessionId == nil && isSending {
-            return
+            return false
         }
         if sessionId == nil {
             bootstrapSession(userMessage: text, attachments: nil)
         } else {
             sendUserMessage(text)
         }
+        return true
     }
 
     // MARK: - Actions
