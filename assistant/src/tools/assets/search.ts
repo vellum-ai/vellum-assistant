@@ -15,7 +15,7 @@ import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { attachments, messageAttachments, messages, conversations, conversationKeys } from '../../memory/schema.js';
 import type { StoredAttachment } from '../../memory/attachments-store.js';
-import type { AttachmentContext } from '../../daemon/media-visibility-policy.js';
+import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../memory/conversation-store.js';
 import { escapeSqlLike } from '../../memory/search/lexical.js';
 
@@ -99,7 +99,7 @@ function isAttachmentVisibleFromContext(attachmentId: string, currentContext: At
 
   // All sources are private — visible only if the caller is in one of those threads
   return sources.some(
-    (s) => currentContext.isPrivate && currentContext.conversationId === s.conversationId,
+    (s) => isAttachmentVisible({ conversationId: s.conversationId, isPrivate: true }, currentContext),
   );
 }
 
