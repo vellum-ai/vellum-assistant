@@ -108,8 +108,6 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        defer { completionHandler() }
-
         if response.actionIdentifier == "REPLY_ACTION",
            let textResponse = response as? UNTextInputNotificationResponse {
             let replyText = textResponse.userText
@@ -128,7 +126,14 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
                         attachments: nil
                     ))
                 }
+                // Call completionHandler inside the Task so iOS keeps the app alive
+                // until connect() and send() complete. Calling it via defer (outside
+                // the Task) would signal iOS immediately, allowing suspension before
+                // the async work finishes and silently dropping the reply.
+                completionHandler()
             }
+        } else {
+            completionHandler()
         }
     }
 
