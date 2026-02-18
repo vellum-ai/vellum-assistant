@@ -1050,3 +1050,168 @@ describe('ToolExecutor baseline: allow rule auto-allows file_edit USER.md', () =
     expect(lastCheckArgs!.toolName).toBe('file_edit');
   });
 });
+
+// ---------------------------------------------------------------------------
+// forcePromptSideEffects enforcement (PR 30)
+// ---------------------------------------------------------------------------
+
+describe('ToolExecutor forcePromptSideEffects enforcement', () => {
+  let promptCalled: boolean;
+
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    promptCalled = false;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  /**
+   * Prompter that tracks whether it was called and always allows.
+   */
+  function makeTrackingPrompter(): PermissionPrompter {
+    return {
+      prompt: async () => {
+        promptCalled = true;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+  }
+
+  test('side-effect tool with allow rule is forced to prompt when forcePromptSideEffects is true', async () => {
+    // check() returns allow (simulating a matched trust rule)
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'bash',
+      { command: 'echo hello' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // The prompter must have been called despite the allow rule
+    expect(promptCalled).toBe(true);
+  });
+
+  test('deny decision is preserved (not converted to prompt) even with forcePromptSideEffects', async () => {
+    checkResultOverride = { decision: 'deny', reason: 'Policy denies this tool' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'bash',
+      { command: 'rm -rf /' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    // Should be denied, not prompted
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe('Policy denies this tool');
+    expect(promptCalled).toBe(false);
+  });
+
+  test('non-side-effect tool is unchanged even with forcePromptSideEffects', async () => {
+    // check() returns allow for a read-only tool
+    checkResultOverride = { decision: 'allow', reason: 'Allowed by default' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_read',
+      { path: 'README.md' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Prompter should NOT be called — file_read is not a side-effect tool
+    expect(promptCalled).toBe(false);
+  });
+
+  test('side-effect tool is auto-allowed when forcePromptSideEffects is false', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_write',
+      { path: 'test.txt', content: 'data' },
+      makeContext({ forcePromptSideEffects: false }),
+    );
+
+    expect(result.isError).toBe(false);
+    // No prompt — standard behavior when forcePromptSideEffects is off
+    expect(promptCalled).toBe(false);
+  });
+
+  test('side-effect tool is auto-allowed when forcePromptSideEffects is undefined', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_edit',
+      { path: 'test.txt', old_string: 'a', new_string: 'b' },
+      makeContext(), // forcePromptSideEffects not set
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(false);
+  });
+
+  test('all side-effect tool types are forced to prompt', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const sideEffectTools = [
+      { name: 'file_write', input: { path: 'x', content: 'y' } },
+      { name: 'file_edit', input: { path: 'x', old_string: 'a', new_string: 'b' } },
+      { name: 'host_file_write', input: { path: 'x', content: 'y' } },
+      { name: 'host_file_edit', input: { path: 'x', old_string: 'a', new_string: 'b' } },
+      { name: 'bash', input: { command: 'echo hi' } },
+      { name: 'host_bash', input: { command: 'echo hi' } },
+      { name: 'web_fetch', input: { url: 'https://example.com' } },
+      { name: 'browser_navigate', input: { url: 'https://example.com' } },
+    ];
+
+    for (const { name, input } of sideEffectTools) {
+      promptCalled = false;
+      const executor = new ToolExecutor(makeTrackingPrompter());
+      const result = await executor.execute(
+        name,
+        input,
+        makeContext({ forcePromptSideEffects: true }),
+      );
+      expect(result.isError).toBe(false);
+      expect(promptCalled).toBe(true);
+    }
+  });
+
+  test('tool that is already prompted is not double-prompted', async () => {
+    // check() returns prompt (tool already needs prompting)
+    checkResultOverride = { decision: 'prompt', reason: 'Medium risk: requires approval' };
+
+    let promptCount = 0;
+    const countingPrompter = {
+      prompt: async () => {
+        promptCount++;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(countingPrompter);
+    const result = await executor.execute(
+      'bash',
+      { command: 'ls' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // Should only prompt once — forcePromptSideEffects doesn't add a second prompt
+    // when check() already returned 'prompt'
+    expect(promptCount).toBe(1);
+  });
+});

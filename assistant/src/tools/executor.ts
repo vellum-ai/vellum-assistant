@@ -103,6 +103,18 @@ export class ToolExecutor {
       const policyContext = buildPolicyContext(tool);
       const result = await check(name, input, context.workingDir, policyContext);
 
+      // Private threads force prompting for side-effect tools even when a
+      // trust/allow rule would auto-allow. Deny decisions are preserved —
+      // only allow → prompt promotion happens here.
+      if (
+        context.forcePromptSideEffects
+        && result.decision === 'allow'
+        && isSideEffectTool(name)
+      ) {
+        result.decision = 'prompt';
+        result.reason = 'Private thread: side-effect tools require explicit approval';
+      }
+
       if (result.decision === 'deny') {
         decision = 'denied';
         const durationMs = Date.now() - startTime;
