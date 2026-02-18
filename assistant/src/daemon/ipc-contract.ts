@@ -1110,7 +1110,7 @@ export interface TaskRouted {
   interactionType: 'computer_use' | 'text_qa';
   /** The task text passed to the escalated session. */
   task?: string;
-  /** Set when a text_qa session escalates to computer_use via request_computer_control. */
+  /** Set when a text_qa session escalates to computer_use via computer_use_request_control. */
   escalatedFrom?: string;
 }
 

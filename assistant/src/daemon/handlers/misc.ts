@@ -96,7 +96,7 @@ export async function handleTaskSubmit(
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
 
-      // Wire escalation handler so the agent can call request_computer_control
+      // Wire escalation handler so the agent can call computer_use_request_control
       wireEscalationHandler(session, socket, ctx, msg.screenWidth, msg.screenHeight);
 
       ctx.send(socket, {

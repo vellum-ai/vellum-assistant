@@ -662,7 +662,7 @@ function resolveExecutionTarget(toolName: string): ExecutionTarget {
     return 'host';
   }
   // Prefix heuristics for core tools that don't declare an explicit target.
-  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_') || toolName === 'request_computer_control') {
+  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_')) {
     return 'host';
   }
   return 'sandbox';

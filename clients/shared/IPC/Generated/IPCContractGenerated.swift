@@ -1324,7 +1324,7 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let interactionType: String
     /// The task text passed to the escalated session.
     public let task: String?
-    /// Set when a text_qa session escalates to computer_use via request_computer_control.
+    /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
     public let escalatedFrom: String?
 }
 

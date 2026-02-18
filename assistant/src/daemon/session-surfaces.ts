@@ -393,7 +393,7 @@ export function buildCompletionSummary(surfaceType: string | undefined, actionId
 
 /**
  * Resolve a proxy tool call that targets a UI surface.
- * Handles ui_show, ui_update, ui_dismiss, request_file, request_computer_control, and app_open.
+ * Handles ui_show, ui_update, ui_dismiss, request_file, computer_use_request_control, and app_open.
  */
 export async function surfaceProxyResolver(
   ctx: SurfaceSessionContext,
@@ -555,7 +555,7 @@ export async function surfaceProxyResolver(
     return { content: lastAction ? 'Surface completed' : 'Surface dismissed', isError: false };
   }
 
-  if (toolName === 'request_computer_control') {
+  if (toolName === 'computer_use_request_control') {
     const task = typeof input.task === 'string' ? input.task : 'Perform the requested task';
     if (!ctx.onEscalateToComputerUse) {
       return {

@@ -376,7 +376,7 @@ export class Session {
 
   /**
    * Set a callback for when a text_qa session escalates to computer use
-   * via the `request_computer_control` tool.
+   * via the `computer_use_request_control` tool.
    */
   setEscalationHandler(handler: (task: string, sourceSessionId: string) => boolean): void {
     this.onEscalateToComputerUse = handler;
