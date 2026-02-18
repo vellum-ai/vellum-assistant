@@ -99,7 +99,7 @@ struct ConnectionModeStep: View {
                     isSelected: selectedMode == ConnectionMode.standalone.rawValue
                 ) {
                     selectedMode = ConnectionMode.standalone.rawValue
-                    UserDefaults.standard.set(ConnectionMode.standalone.rawValue, forKey: "connection_mode")
+                    UserDefaults.standard.set(ConnectionMode.standalone.rawValue, forKey: UserDefaultsKeys.connectionMode)
                 }
 
                 ModeCard(
@@ -109,7 +109,7 @@ struct ConnectionModeStep: View {
                     isSelected: selectedMode == ConnectionMode.connected.rawValue
                 ) {
                     selectedMode = ConnectionMode.connected.rawValue
-                    UserDefaults.standard.set(ConnectionMode.connected.rawValue, forKey: "connection_mode")
+                    UserDefaults.standard.set(ConnectionMode.connected.rawValue, forKey: UserDefaultsKeys.connectionMode)
                 }
             }
             .padding(.horizontal, VSpacing.lg)
@@ -122,7 +122,7 @@ struct ConnectionModeStep: View {
         }
         .padding(VSpacing.xl)
         .onAppear {
-            let saved = UserDefaults.standard.string(forKey: "connection_mode") ?? ConnectionMode.standalone.rawValue
+            let saved = UserDefaults.standard.string(forKey: UserDefaultsKeys.connectionMode) ?? ConnectionMode.standalone.rawValue
             selectedMode = saved
         }
     }
@@ -284,9 +284,13 @@ struct DaemonSetupStep: View {
                     showingAlert = true
                     return
                 }
-                UserDefaults.standard.set(hostname, forKey: "daemon_hostname")
-                UserDefaults.standard.set(portInt, forKey: "daemon_port")
-                UserDefaults.standard.set(sessionToken.isEmpty ? nil : sessionToken, forKey: "daemon_" + "auth" + "_token")
+                UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
+                UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
+                if sessionToken.isEmpty {
+                    _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
+                } else {
+                    _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
+                }
                 onContinue?()
             }
             .buttonStyle(.borderedProminent)
@@ -306,10 +310,10 @@ struct DaemonSetupStep: View {
             Text(alertMessage)
         }
         .onAppear {
-            hostname = UserDefaults.standard.string(forKey: "daemon_hostname") ?? "localhost"
-            let portValue = UserDefaults.standard.integer(forKey: "daemon_port")
+            hostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
+            let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
             port = portValue > 0 ? String(portValue) : "8765"
-            sessionToken = UserDefaults.standard.string(forKey: "daemon_" + "auth" + "_token") ?? ""
+            sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
         }
     }
 }
