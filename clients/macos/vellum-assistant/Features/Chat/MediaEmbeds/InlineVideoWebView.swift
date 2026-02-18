@@ -139,11 +139,12 @@ struct InlineVideoWebView: NSViewRepresentable {
                     return
                 }
 
-                if let host = navigationAction.request.url?.host,
+                if let host = navigationAction.request.url?.host?.lowercased(),
                    InlineVideoWebView.isAllowedHost(host, forProvider: provider) {
                     decisionHandler(.allow)
                 } else {
-                    Self.openExternallyIfSafe(navigationAction.request.url)
+                    // Silently block — unlike user-initiated navigations, programmatic
+                    // requests (analytics, telemetry, CDN) shouldn't open browser tabs.
                     decisionHandler(.cancel)
                 }
             default:
