@@ -205,11 +205,11 @@ struct APIKeyStepView: View {
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .fill(primaryButtonDisabled
                             ? adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)),
+                                light: Slate._900.opacity(0.3),
                                 dark: Violet._600.opacity(0.3)
                             )
                             : adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                light: Slate._900,
                                 dark: Violet._600
                             )
                         )

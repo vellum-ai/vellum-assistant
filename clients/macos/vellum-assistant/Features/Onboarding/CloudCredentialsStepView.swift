@@ -254,7 +254,7 @@ struct CloudCredentialsStepView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)), dark: Violet._600))
+                    .foregroundColor(adaptiveColor(light: Slate._900, dark: Violet._600))
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -275,7 +275,7 @@ struct CloudCredentialsStepView: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(adaptiveColor(light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)), dark: Violet._600.opacity(0.3)), lineWidth: 1)
+                    .stroke(adaptiveColor(light: Slate._900.opacity(0.3), dark: Violet._600.opacity(0.3)), lineWidth: 1)
             )
         }
     }
@@ -335,11 +335,11 @@ struct CloudCredentialsStepView: View {
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .fill(continueDisabled
                             ? adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 0.3)),
+                                light: Slate._900.opacity(0.3),
                                 dark: Violet._600.opacity(0.3)
                             )
                             : adaptiveColor(
-                                light: Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1)),
+                                light: Slate._900,
                                 dark: Violet._600
                             )
                         )

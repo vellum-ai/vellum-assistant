@@ -94,8 +94,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            Color(hex: 0x0F172A),
-                            Color(hex: 0x080B17)
+                            adaptiveColor(light: Slate._100, dark: Slate._900),
+                            adaptiveColor(light: Slate._200, dark: Slate._950)
                         ],
                         center: .center,
                         startRadius: 0,
