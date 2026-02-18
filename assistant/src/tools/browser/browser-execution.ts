@@ -584,6 +584,76 @@ export async function executeBrowserPressKey(
   }
 }
 
+
+// ── browser_scroll ───────────────────────────────────────────────────
+
+export async function executeBrowserScroll(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const direction = typeof input.direction === 'string' ? input.direction : '';
+  if (!direction || !['up', 'down', 'left', 'right'].includes(direction)) {
+    return { content: 'Error: direction is required and must be one of: up, down, left, right.', isError: true };
+  }
+
+  const amount = typeof input.amount === 'number' ? input.amount : 500;
+
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', `Scrolling ${direction}`);
+  }
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    // If element_id or selector is provided, scroll within that element
+    const elementId = typeof input.element_id === 'string' ? input.element_id : null;
+    const rawSelector = typeof input.selector === 'string' ? input.selector : null;
+
+    if (elementId || rawSelector) {
+      const { selector, error } = resolveSelector(context.sessionId, input);
+      if (error) {
+        if (sender) updateBrowserStatus(context.sessionId, sender, 'idle');
+        return { content: error, isError: true };
+      }
+      // Move mouse to element center before scrolling
+      const bounds = await getElementBounds(context.sessionId, selector!);
+      if (bounds) {
+        // Convert screencast coords back to page coords for mouse.move
+        const result = await page.evaluate(`(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`) as { vw: number; vh: number };
+        const scale = Math.min(800 / result.vw, 600 / result.vh);
+        const pageX = (bounds.x + bounds.w / 2) / scale;
+        const pageY = (bounds.y + bounds.h / 2) / scale;
+        await page.mouse.move(pageX, pageY);
+      }
+    }
+
+    let deltaX = 0;
+    let deltaY = 0;
+    switch (direction) {
+      case 'up': deltaY = -amount; break;
+      case 'down': deltaY = amount; break;
+      case 'left': deltaX = -amount; break;
+      case 'right': deltaX = amount; break;
+    }
+
+    await page.mouse.wheel(deltaX, deltaY);
+
+    if (sender) {
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+    return { content: `Scrolled ${direction} by ${amount}px`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, direction }, 'Scroll failed');
+    if (sender) {
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+    return { content: `Error: Scroll failed: ${msg}`, isError: true };
+  }
+}
+
 // ── browser_wait_for ─────────────────────────────────────────────────
 
 export async function executeBrowserWaitFor(

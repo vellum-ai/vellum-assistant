@@ -10,6 +10,7 @@ import {
   executeBrowserClick,
   executeBrowserType,
   executeBrowserPressKey,
+  executeBrowserScroll,
   executeBrowserWaitFor,
   executeBrowserExtract,
   executeBrowserFillCredential,
@@ -262,6 +263,51 @@ class BrowserPressKeyTool implements Tool {
 
 registerTool(new BrowserPressKeyTool());
 
+// ── browser_scroll ───────────────────────────────────────────────────
+
+class BrowserScrollTool implements Tool {
+  name = 'browser_scroll';
+  description = 'Scroll the page or a specific element in a given direction. Useful for viewing content below the fold on long pages.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          direction: {
+            type: 'string',
+            enum: ['up', 'down', 'left', 'right'],
+            description: 'The direction to scroll.',
+          },
+          amount: {
+            type: 'number',
+            description: 'The number of pixels to scroll (default: 500).',
+          },
+          element_id: {
+            type: 'string',
+            description: 'Optional element ID from browser_snapshot to scroll within.',
+          },
+          selector: {
+            type: 'string',
+            description: 'Optional CSS selector of element to scroll within.',
+          },
+        },
+        required: ['direction'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserScroll(input, context);
+  }
+}
+
+registerTool(new BrowserScrollTool());
+
 // ── browser_wait_for ─────────────────────────────────────────────────
 
 class BrowserWaitForTool implements Tool {
@@ -393,6 +439,7 @@ export {
   executeBrowserClick,
   executeBrowserType,
   executeBrowserPressKey,
+  executeBrowserScroll,
   executeBrowserWaitFor,
   executeBrowserExtract,
   executeBrowserFillCredential,
