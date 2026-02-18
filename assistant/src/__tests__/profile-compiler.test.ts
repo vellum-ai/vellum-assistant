@@ -297,6 +297,52 @@ describe('profile-compiler', () => {
     expect(compiled.text).toContain('timezone: Timezone is America/Chicago');
   });
 
+  test('includeDefaultFallback: scoped entry wins over default with same subject', () => {
+    profileEnabled = true;
+
+    // Default scope entry — higher trust/importance so it would normally rank first
+    insertItem({
+      id: 'fb-default-lang',
+      kind: 'preference',
+      subject: 'language',
+      statement: 'Prefers JavaScript.',
+      verificationState: 'user_confirmed',
+      scopeId: 'default',
+      importance: 0.95,
+    });
+    // Scoped entry — lower importance but should still win because it is scoped
+    insertItem({
+      id: 'fb-proj-lang',
+      kind: 'preference',
+      subject: 'language',
+      statement: 'Prefers TypeScript.',
+      verificationState: 'assistant_inferred',
+      scopeId: 'project-x',
+      importance: 0.5,
+    });
+    // Default-only entry with no scoped counterpart — should still appear (gap-filling)
+    insertItem({
+      id: 'fb-default-tz',
+      kind: 'profile',
+      subject: 'timezone',
+      statement: 'Timezone is America/New_York.',
+      verificationState: 'user_confirmed',
+      scopeId: 'default',
+    });
+
+    const compiled = compileDynamicProfile({
+      scopeId: 'project-x',
+      includeDefaultFallback: true,
+    });
+
+    // Scoped entry should win deduplication for 'language'
+    expect(compiled.text).toContain('language: Prefers TypeScript');
+    expect(compiled.text).not.toContain('Prefers JavaScript');
+    // Default-only entry should still fill in as fallback
+    expect(compiled.text).toContain('timezone: Timezone is America/New_York');
+    expect(compiled.selectedCount).toBe(2);
+  });
+
   test('uses lower-ranked fallback for same subject when top candidate exceeds budget', () => {
     profileEnabled = true;
 

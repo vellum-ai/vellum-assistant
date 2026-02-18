@@ -36,6 +36,7 @@ interface ProfileCandidate {
   importance: number | null;
   lastSeenAt: number;
   firstSeenAt: number;
+  scopeId: string;
 }
 
 export function compileDynamicProfile(options?: CompileProfileOptions): CompiledProfile {
@@ -62,6 +63,7 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
       importance: memoryItems.importance,
       lastSeenAt: memoryItems.lastSeenAt,
       firstSeenAt: memoryItems.firstSeenAt,
+      scopeId: memoryItems.scopeId,
     })
     .from(memoryItems)
     .where(and(
@@ -76,7 +78,7 @@ export function compileDynamicProfile(options?: CompileProfileOptions): Compiled
   const nowMs = Date.now();
   const trusted = rows
     .filter((row) => TRUST_RANK[row.verificationState] !== undefined)
-    .sort((a, b) => compareProfileCandidates(a, b, nowMs));
+    .sort((a, b) => compareProfileCandidates(a, b, nowMs, shouldFallback ? scopeId : undefined));
 
   const selectedLines: string[] = [];
   const seenKeys = new Set<string>();
@@ -121,7 +123,21 @@ function candidateRankScore(c: ProfileCandidate, nowMs: number): number {
   return importance * 0.7 + recency * 0.3;
 }
 
-function compareProfileCandidates(left: ProfileCandidate, right: ProfileCandidate, nowMs: number): number {
+function compareProfileCandidates(
+  left: ProfileCandidate,
+  right: ProfileCandidate,
+  nowMs: number,
+  /** When set, entries matching this scope sort before 'default' entries. */
+  preferredScopeId?: string,
+): number {
+  // Scoped entries beat default fallback entries so local overrides win deduplication
+  if (preferredScopeId !== undefined) {
+    const leftIsPreferred = left.scopeId === preferredScopeId;
+    const rightIsPreferred = right.scopeId === preferredScopeId;
+    if (leftIsPreferred && !rightIsPreferred) return -1;
+    if (!leftIsPreferred && rightIsPreferred) return 1;
+  }
+
   const trustDelta = (TRUST_RANK[right.verificationState] ?? 0) - (TRUST_RANK[left.verificationState] ?? 0);
   if (trustDelta !== 0) return trustDelta;
 
