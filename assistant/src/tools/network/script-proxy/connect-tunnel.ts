@@ -9,6 +9,7 @@ import type { IncomingMessage } from 'node:http';
 /**
  * Parse and validate a CONNECT target of the form `host:port`.
  * Returns null if the target is malformed.
+ * Strips brackets from IPv6 literals (e.g. `[::1]:443` -> `::1`).
  */
 function parseTarget(url: string | undefined): { host: string; port: number } | null {
   if (!url) return null;
@@ -16,13 +17,18 @@ function parseTarget(url: string | undefined): { host: string; port: number } | 
   const colonIdx = url.lastIndexOf(':');
   if (colonIdx <= 0) return null; // no port separator, or leading colon only
 
-  const host = url.slice(0, colonIdx);
+  let host = url.slice(0, colonIdx);
   const portStr = url.slice(colonIdx + 1);
 
   if (!host || !portStr) return null;
 
   const port = Number(portStr);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+
+  // Strip brackets from IPv6 literals — net.connect expects the raw address
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
 
   return { host, port };
 }
@@ -44,7 +50,10 @@ export function handleConnect(
     return;
   }
 
+  let tunnelEstablished = false;
+
   const upstream = connect(target.port, target.host, () => {
+    tunnelEstablished = true;
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
 
     // Forward any data already buffered by the HTTP parser
@@ -58,7 +67,9 @@ export function handleConnect(
   });
 
   upstream.on('error', () => {
-    if (clientSocket.writable) {
+    // Only send HTTP error if the tunnel hasn't been established yet;
+    // once established the client expects raw TLS, not HTTP framing
+    if (!tunnelEstablished && clientSocket.writable) {
       clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     }
     clientSocket.destroy();

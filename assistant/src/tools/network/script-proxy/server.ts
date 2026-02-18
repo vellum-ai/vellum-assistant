@@ -43,11 +43,15 @@ function parseConnectTarget(url: string | undefined): { host: string; port: numb
   if (!url) return null;
   const colonIdx = url.lastIndexOf(':');
   if (colonIdx <= 0) return null;
-  const host = url.slice(0, colonIdx);
+  let host = url.slice(0, colonIdx);
   const portStr = url.slice(colonIdx + 1);
   if (!host || !portStr) return null;
   const port = Number(portStr);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  // Strip brackets from IPv6 literals — net.connect expects the raw address
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
   return { host, port };
 }
 
@@ -91,7 +95,38 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
       }
     }
 
-    handleConnect(req, clientSocket, head);
+    // Gate CONNECT tunnels through policyCallback the same way HTTP requests are gated
+    if (config.policyCallback) {
+      const connectTarget = parseConnectTarget(req.url);
+      if (!connectTarget) {
+        clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        clientSocket.destroy();
+        return;
+      }
+
+      if (config.onRequest) {
+        config.onRequest('CONNECT', req.url!);
+      }
+
+      config.policyCallback(connectTarget.host, '/')
+        .then((extraHeaders) => {
+          if (extraHeaders === null) {
+            clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            clientSocket.destroy();
+            return;
+          }
+          handleConnect(req, clientSocket, head);
+        })
+        .catch(() => {
+          clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          clientSocket.destroy();
+        });
+    } else {
+      if (config.onRequest && req.url) {
+        config.onRequest('CONNECT', req.url);
+      }
+      handleConnect(req, clientSocket, head);
+    }
   });
 
   return server;
