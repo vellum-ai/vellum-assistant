@@ -51,6 +51,20 @@ export class DocumentCreateTool implements Tool {
         initialContent,
       });
 
+      context.sendToClient({
+        type: 'ui_surface_show',
+        sessionId: context.sessionId,
+        surfaceId: `preview-${surfaceId}`,
+        surfaceType: 'document_preview',
+        display: 'inline',
+        title,
+        data: {
+          title,
+          surfaceId,
+          subtitle: 'Document',
+        },
+      });
+
       return {
         content: JSON.stringify({
           surface_id: surfaceId,
