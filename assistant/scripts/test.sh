@@ -80,11 +80,18 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     echo "  ✓ ${base} (${elapsed}ms)"
   fi
 ' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}"
+xargs_exit=$?
 
-# Verify tests actually ran — catch xargs startup failures
+# Verify tests actually ran — catch xargs startup failures (e.g. invalid TEST_WORKERS)
 actual_runs=$(ls "${results_dir}"/*.out 2>/dev/null | wc -l)
 if [[ ${actual_runs} -eq 0 ]]; then
-  echo "ERROR: No tests were executed (xargs may have failed to start)"
+  echo "ERROR: No tests were executed (xargs exit code: ${xargs_exit})"
+  exit 1
+fi
+
+# xargs exits 125-127 for its own errors (not child failures) — treat as hard failure
+if [[ ${xargs_exit} -ge 125 ]]; then
+  echo "ERROR: xargs failed with exit code ${xargs_exit}"
   exit 1
 fi
 
