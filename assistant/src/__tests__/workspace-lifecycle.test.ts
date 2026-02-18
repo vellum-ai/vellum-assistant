@@ -40,10 +40,17 @@ describe('Workspace git lifecycle (integration)', () => {
     }
   });
 
-  // Git helpers use GIT_CEILING_DIRECTORIES to prevent discovering parent
-  // repos on CI where /tmp may resolve inside a git worktree.
-  function gitEnv(cwd: string) {
-    return { ...process.env, GIT_CEILING_DIRECTORIES: cwd };
+  // Build a clean git env: strip all GIT_* env vars that CI runners
+  // inject, then set GIT_CEILING_DIRECTORIES to isolate test repos.
+  function gitEnv(cwd: string): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && !key.startsWith('GIT_')) {
+        env[key] = value;
+      }
+    }
+    env.GIT_CEILING_DIRECTORIES = cwd;
+    return env;
   }
 
   // Helper to read git log output
@@ -193,9 +200,15 @@ describe('Workspace git lifecycle (integration)', () => {
   });
 
   test('workspace recovers from corrupted .git directory', async () => {
-    // Create a directory that looks like .git but is corrupted
-    mkdirSync(join(testDir, '.git'), { recursive: true });
-    // No HEAD, no objects, no refs — git will fail on this
+    // Initialize a real repo, then corrupt it by removing HEAD.
+    // This is more realistic than an empty .git dir (which behaves
+    // differently across git versions and CI environments).
+    execFileSync('git', ['init', '-b', 'main'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+      env: gitEnv(testDir),
+    });
+    rmSync(join(testDir, '.git', 'HEAD'));
 
     const service = new WorkspaceGitService(testDir);
     await service.ensureInitialized();

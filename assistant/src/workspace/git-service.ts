@@ -8,6 +8,24 @@ const execFileAsync = promisify(execFile);
 const log = getLogger('workspace-git');
 
 /**
+ * Build a clean env for git subprocesses.
+ *
+ * Strips all GIT_* env vars (e.g. GIT_DIR, GIT_WORK_TREE) that CI runners
+ * or parent processes may set, then adds GIT_CEILING_DIRECTORIES to prevent
+ * walking up to a parent repo.
+ */
+function cleanGitEnv(workspaceDir: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !key.startsWith('GIT_')) {
+      env[key] = value;
+    }
+  }
+  env.GIT_CEILING_DIRECTORIES = workspaceDir;
+  return env;
+}
+
+/**
  * Patterns excluded from workspace git tracking.
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
@@ -417,7 +435,7 @@ export class WorkspaceGitService {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
         timeout: 30_000,
-        env: { ...process.env, GIT_CEILING_DIRECTORIES: this.workspaceDir },
+        env: cleanGitEnv(this.workspaceDir),
       });
       return { stdout, stderr };
     } catch (err) {
