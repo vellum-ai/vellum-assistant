@@ -22,6 +22,7 @@ struct MainWindowView: View {
     @State private var threadPendingDeletion: UUID?
     @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
+    @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     /// Stores the thread ID the user was on before entering temporary chat,
@@ -301,6 +302,41 @@ struct MainWindowView: View {
                         }
                 }
                 .coordinateSpace(name: drawerDragCoordinateSpaceName)
+                .overlay {
+                    // Click-outside-to-dismiss background for control center drawer
+                    if showControlCenterDrawer {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                    showControlCenterDrawer = false
+                                }
+                            }
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    // Control center drawer rendered at top level so it floats above all content
+                    if showControlCenterDrawer {
+                        DrawerMenuView(
+                            onSettings: {
+                                showControlCenterDrawer = false
+                                windowState.togglePanel(.settings)
+                            },
+                            onDebug: {
+                                showControlCenterDrawer = false
+                                windowState.togglePanel(.debug)
+                            },
+                            onDoctor: {
+                                showControlCenterDrawer = false
+                                windowState.togglePanel(.doctor)
+                            }
+                        )
+                        .frame(width: 200)
+                        .offset(x: threadDrawerWidth + 8, y: -8)
+                        .zIndex(10)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                }
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
@@ -351,6 +387,13 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             requestHomeBaseDashboardIfNeeded()
+        }
+        .onChange(of: sidebarOpen) { _, isOpen in
+            if !isOpen && showControlCenterDrawer {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showControlCenterDrawer = false
+                }
+            }
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
@@ -684,10 +727,12 @@ struct MainWindowView: View {
                 VColor.surfaceBorder.frame(height: 1)
 
                 ControlCenterMenuButton(
-                    sidebarWidth: threadDrawerWidth,
-                    onSettings: { windowState.togglePanel(.settings) },
-                    onDebug: { windowState.togglePanel(.debug) },
-                    onDoctor: { windowState.togglePanel(.doctor) }
+                    isOpen: showControlCenterDrawer,
+                    onToggle: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            showControlCenterDrawer.toggle()
+                        }
+                    }
                 )
             }
             .background(VColor.backgroundSubtle)
@@ -1329,18 +1374,13 @@ private struct SidebarBottomItem: View {
 }
 
 private struct ControlCenterMenuButton: View {
-    let sidebarWidth: Double
-    let onSettings: () -> Void
-    let onDebug: () -> Void
-    let onDoctor: () -> Void
+    let isOpen: Bool
+    let onToggle: () -> Void
     @State private var isHovered = false
-    @State private var showDrawer = false
 
     var body: some View {
         Button {
-            withAnimation(VAnimation.standard) {
-                showDrawer.toggle()
-            }
+            onToggle()
         } label: {
             HStack(spacing: VSpacing.md) {
                 Image(systemName: "shield.lefthalf.filled")
@@ -1360,7 +1400,7 @@ private struct ControlCenterMenuButton: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
-            .background(isHovered || showDrawer ? VColor.hoverOverlay.opacity(0.05) : Color.clear)
+            .background(isHovered || isOpen ? VColor.hoverOverlay.opacity(0.05) : Color.clear)
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovered = hovering
@@ -1368,18 +1408,6 @@ private struct ControlCenterMenuButton: View {
             }
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottomLeading) {
-            if showDrawer {
-                DrawerMenuView(
-                    onSettings: { showDrawer = false; onSettings() },
-                    onDebug: { showDrawer = false; onDebug() },
-                    onDoctor: { showDrawer = false; onDoctor() }
-                )
-                .frame(width: 200)
-                .offset(x: sidebarWidth)
-                .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-        }
     }
 }
 
