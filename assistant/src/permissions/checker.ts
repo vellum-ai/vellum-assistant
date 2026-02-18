@@ -380,17 +380,6 @@ export async function check(
     }
   }
 
-  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
-  // These are first-party tools with a vetted risk declaration — applying the
-  // same policy as the per-tool default allow rules for browser tools, but
-  // generically so every new bundled skill benefits automatically.
-  if (!matchedRule && risk === RiskLevel.Low) {
-    const tool = getTool(toolName);
-    if (tool?.origin === 'skill' && tool.ownerSkillBundled) {
-      return { decision: 'allow', reason: 'Bundled skill tool: low risk, auto-allowed' };
-    }
-  }
-
   // In strict mode, every tool without an explicit matching rule must be
   // prompted — there is no implicit auto-allow for any risk level.
   // This explicitly covers skill_load: activating a skill can grant the
@@ -399,6 +388,19 @@ export async function check(
   const permissionsMode = getConfig().permissions.mode;
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
+  }
+
+  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
+  // These are first-party tools with a vetted risk declaration — applying the
+  // same policy as the per-tool default allow rules for browser tools, but
+  // generically so every new bundled skill benefits automatically.
+  // This block must come AFTER the strict mode check so that strict mode
+  // still prompts for bundled skill tools without explicit rules.
+  if (!matchedRule && risk === RiskLevel.Low) {
+    const tool = getTool(toolName);
+    if (tool?.origin === 'skill' && tool.ownerSkillBundled) {
+      return { decision: 'allow', reason: 'Bundled skill tool: low risk, auto-allowed' };
+    }
   }
 
   if (risk === RiskLevel.High) {
