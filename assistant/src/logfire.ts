@@ -1,4 +1,5 @@
 import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition, ContentBlock } from './providers/types.js';
+import type { AnyValueMap } from '@opentelemetry/api-logs';
 import { APP_VERSION } from './version.js';
 import { getLogger } from './util/logger.js';
 
@@ -66,13 +67,26 @@ function extractTextContent(blocks: ContentBlock[]): string {
 function extractToolCalls(blocks: ContentBlock[]) {
   return blocks
     .filter((b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } => b.type === 'tool_use')
-    .map(b => ({ id: b.id, name: b.name, arguments: JSON.stringify(b.input) }));
+    .map(b => ({ id: b.id, type: 'function' as const, function: { name: b.name, arguments: JSON.stringify(b.input) } }));
 }
 
+// gen_ai event names (same constants used by @opentelemetry/instrumentation-openai)
+const EVENT_GEN_AI_SYSTEM_MESSAGE = 'gen_ai.system.message';
+const EVENT_GEN_AI_USER_MESSAGE = 'gen_ai.user.message';
+const EVENT_GEN_AI_ASSISTANT_MESSAGE = 'gen_ai.assistant.message';
+const EVENT_GEN_AI_TOOL_MESSAGE = 'gen_ai.tool.message';
+const EVENT_GEN_AI_CHOICE = 'gen_ai.choice';
+
 /**
- * Wrapper provider that instruments each sendMessage call with Logfire spans.
- * Uses logfire.span() and logfire.info() — the same pattern as the Python SDK.
- * No raw OTEL API usage; logfire handles the plumbing.
+ * Wrapper provider that instruments each sendMessage call with OTEL spans
+ * and log events, matching the exact pattern used by
+ * @opentelemetry/instrumentation-openai so Logfire renders the rich
+ * chat conversation view.
+ *
+ * The key insight: Logfire's AI observability UI recognizes OTEL *log events*
+ * (not child spans) with event.name matching gen_ai.* patterns. The OpenAI
+ * auto-instrumentation emits these via Logger.emit(); we do the same here
+ * for non-OpenAI providers (Anthropic, Gemini, etc.).
  */
 class LogfireProvider implements Provider {
   public readonly name: string;
@@ -91,91 +105,122 @@ class LogfireProvider implements Provider {
       return this.inner.sendMessage(messages, tools, systemPrompt, options);
     }
 
-    const lf = logfireInstance;
+    // Dynamically import OTEL APIs (available as transitive deps of logfire)
+    const { trace, context, SpanKind } = await import('@opentelemetry/api');
+    const { logs, SeverityNumber } = await import('@opentelemetry/api-logs');
 
-    return lf.span(`chat ${this.name}`, {
-      'gen_ai.system': this.name,
-      'gen_ai.operation.name': 'chat',
-      'gen_ai.request.model': this.name,
-      'llm.tool_count': tools?.length ?? 0,
-      'llm.message_count': messages.length,
-    }, {}, async (span) => {
-      const start = Date.now();
+    const tracer = trace.getTracer('vellum-assistant');
+    const logger = logs.getLogger('vellum-assistant');
 
-      // Log input messages as child spans
-      if (systemPrompt) {
-        lf.info('gen_ai.system.message', {
-          'gen_ai.system': this.name,
-          content: systemPrompt,
-        }, { parentSpan: span });
-      }
+    const operationName = 'chat';
+    const model = this.name;
 
-      for (const msg of messages) {
-        if (msg.role === 'user') {
-          const toolResults = msg.content.filter(b => b.type === 'tool_result');
-          if (toolResults.length > 0) {
-            for (const tr of toolResults) {
-              if (tr.type === 'tool_result') {
-                lf.info('gen_ai.tool.message', {
-                  'gen_ai.system': this.name,
-                  tool_use_id: tr.tool_use_id,
-                  content: tr.content,
-                }, { parentSpan: span });
-              }
-            }
-          } else {
-            const text = extractTextContent(msg.content);
-            if (text) {
-              lf.info('gen_ai.user.message', {
-                'gen_ai.system': this.name,
-                content: text,
-              }, { parentSpan: span });
+    // Create parent span matching the gen_ai semantic conventions
+    const span = tracer.startSpan(`${operationName} ${model}`, {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        'gen_ai.operation.name': operationName,
+        'gen_ai.request.model': model,
+        'gen_ai.system': this.name,
+      },
+    });
+
+    const ctx = trace.setSpan(context.active(), span);
+    const timestamp = Date.now();
+
+    // Emit input messages as OTEL log events (same pattern as OpenAI instrumentation)
+    if (systemPrompt) {
+      logger.emit({
+        timestamp,
+        context: ctx,
+        severityNumber: SeverityNumber.INFO,
+        attributes: { 'event.name': EVENT_GEN_AI_SYSTEM_MESSAGE, 'gen_ai.system': this.name },
+        body: { content: systemPrompt },
+      });
+    }
+
+    for (const msg of messages) {
+      if (msg.role === 'user') {
+        const toolResults = msg.content.filter(b => b.type === 'tool_result');
+        if (toolResults.length > 0) {
+          for (const tr of toolResults) {
+            if (tr.type === 'tool_result') {
+              logger.emit({
+                timestamp,
+                context: ctx,
+                severityNumber: SeverityNumber.INFO,
+                attributes: { 'event.name': EVENT_GEN_AI_TOOL_MESSAGE, 'gen_ai.system': this.name },
+                body: { id: tr.tool_use_id, content: tr.content },
+              });
             }
           }
-        } else if (msg.role === 'assistant') {
+        } else {
           const text = extractTextContent(msg.content);
-          const toolCalls = extractToolCalls(msg.content);
-          const attrs: Record<string, unknown> = { 'gen_ai.system': this.name };
-          if (text) attrs.content = text;
-          if (toolCalls.length > 0) attrs.tool_calls = toolCalls;
-          lf.info('gen_ai.assistant.message', attrs, { parentSpan: span });
+          if (text) {
+            logger.emit({
+              timestamp,
+              context: ctx,
+              severityNumber: SeverityNumber.INFO,
+              attributes: { 'event.name': EVENT_GEN_AI_USER_MESSAGE, 'gen_ai.system': this.name },
+              body: { content: text },
+            });
+          }
         }
-      }
-
-      try {
-        const response = await this.inner.sendMessage(messages, tools, systemPrompt, options);
-        const durationMs = Date.now() - start;
-
-        span.setAttributes({
-          'gen_ai.response.model': response.model,
-          'gen_ai.response.finish_reasons': [response.stopReason],
-          'gen_ai.usage.input_tokens': response.usage.inputTokens,
-          'gen_ai.usage.output_tokens': response.usage.outputTokens,
-          'llm.usage.cache_creation_input_tokens': response.usage.cacheCreationInputTokens ?? 0,
-          'llm.usage.cache_read_input_tokens': response.usage.cacheReadInputTokens ?? 0,
-          'llm.duration_ms': durationMs,
+      } else if (msg.role === 'assistant') {
+        const text = extractTextContent(msg.content);
+        const toolCalls = extractToolCalls(msg.content);
+        const body: AnyValueMap = {};
+        if (text) body.content = text;
+        if (toolCalls.length > 0) body.tool_calls = toolCalls as unknown as AnyValueMap;
+        logger.emit({
+          timestamp,
+          context: ctx,
+          severityNumber: SeverityNumber.INFO,
+          attributes: { 'event.name': EVENT_GEN_AI_ASSISTANT_MESSAGE, 'gen_ai.system': this.name },
+          body,
         });
-
-        // Log response
-        const responseText = extractTextContent(response.content);
-        const responseToolCalls = extractToolCalls(response.content);
-        const choiceAttrs: Record<string, unknown> = {
-          'gen_ai.system': this.name,
-          finish_reason: response.stopReason,
-        };
-        if (responseText) choiceAttrs.content = responseText;
-        if (responseToolCalls.length > 0) choiceAttrs.tool_calls = responseToolCalls;
-        lf.info('gen_ai.choice', choiceAttrs, { parentSpan: span });
-
-        return response;
-      } catch (error) {
-        span.setAttributes({
-          'llm.duration_ms': Date.now() - start,
-          'error.type': error instanceof Error ? error.constructor.name : 'Unknown',
-          'error.message': error instanceof Error ? error.message : String(error),
-        });
-        throw error;
       }
-    });
+    }
+
+    // Execute the actual LLM call within the span context
+    try {
+      const response = await context.with(ctx, () =>
+        this.inner.sendMessage(messages, tools, systemPrompt, options),
+      );
+
+      // Set response attributes on the span
+      span.setAttribute('gen_ai.response.model', response.model);
+      span.setAttribute('gen_ai.response.finish_reasons', [response.stopReason]);
+      span.setAttribute('gen_ai.usage.input_tokens', response.usage.inputTokens);
+      span.setAttribute('gen_ai.usage.output_tokens', response.usage.outputTokens);
+
+      // Emit response as a gen_ai.choice log event
+      const responseText = extractTextContent(response.content);
+      const responseToolCalls = extractToolCalls(response.content);
+      const message: AnyValueMap = {};
+      if (responseText) message.content = responseText;
+      if (responseToolCalls.length > 0) message.tool_calls = responseToolCalls as unknown as AnyValueMap;
+      const choiceBody: AnyValueMap = {
+        finish_reason: response.stopReason,
+        index: 0,
+        message,
+      };
+
+      logger.emit({
+        timestamp: Date.now(),
+        context: ctx,
+        severityNumber: SeverityNumber.INFO,
+        attributes: { 'event.name': EVENT_GEN_AI_CHOICE, 'gen_ai.system': this.name },
+        body: choiceBody,
+      });
+
+      span.end();
+      return response;
+    } catch (error) {
+      span.setAttribute('error.type', error instanceof Error ? error.constructor.name : 'Unknown');
+      span.setStatus({ code: 2 /* SpanStatusCode.ERROR */, message: error instanceof Error ? error.message : String(error) });
+      span.end();
+      throw error;
+    }
   }
 }
