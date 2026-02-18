@@ -435,7 +435,25 @@ struct MainWindowView: View {
                 threadManager.selectThread(id: thread.id)
             }
         }) {
-            HStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                Button {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
+                } label: {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(thread.isPinned || isHovered ? 1 : 0)
+                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -448,7 +466,8 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.sm)
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected || isHovered {
@@ -463,27 +482,6 @@ struct MainWindowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .leading) {
-            if thread.isPinned || isHovered {
-                Button {
-                    if thread.isPinned {
-                        threadManager.unpinThread(id: thread.id)
-                    } else {
-                        threadManager.pinThread(id: thread.id)
-                    }
-                } label: {
-                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, VSpacing.xs)
-                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-            }
-        }
         .overlay(alignment: .trailing) {
             if threadPendingDeletion == thread.id {
                 Button {
