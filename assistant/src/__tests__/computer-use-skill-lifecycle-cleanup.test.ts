@@ -156,7 +156,7 @@ describe('CU session skill tool lifecycle cleanup', () => {
     expect(getSkillRefCount('computer-use')).toBe(0);
   });
 
-  test('no computer_use_* tools remain in registry after session cleanup', async () => {
+  test('only escalation tool remains in registry after session cleanup', async () => {
     const provider = createProvider([doneResponse]);
     const session = new ComputerUseSession(
       'cleanup-registry-check',
@@ -173,7 +173,8 @@ describe('CU session skill tool lifecycle cleanup', () => {
 
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(0);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 
   test('multiple sequential CU sessions do not leak refcounts', async () => {
@@ -196,19 +197,21 @@ describe('CU session skill tool lifecycle cleanup', () => {
 
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(0);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 
   // Cross-suite regression: after CU sessions complete, core registry invariants hold
-  test('core registry has 0 computer_use_* tools after CU session lifecycle', () => {
+  test('core registry has 1 computer_use_* tool after CU session lifecycle (escalation only)', () => {
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(0);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 
-  test('computer_use_request_control is not in core registry after CU session lifecycle', async () => {
+  test('computer_use_request_control is in core registry after CU session lifecycle', async () => {
     const { getTool } = await import('../tools/registry.js');
     const tool = getTool('computer_use_request_control');
-    expect(tool).toBeUndefined();
+    expect(tool).toBeDefined();
   });
 });

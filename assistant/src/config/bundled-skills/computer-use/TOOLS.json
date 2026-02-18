@@ -321,24 +321,6 @@
       },
       "executor": "tools/computer-use-respond.ts",
       "execution_target": "host"
-    },
-    {
-      "name": "computer_use_request_control",
-      "description": "Escalate to foreground computer use. Call this when the user explicitly asks you to take control of their computer to perform a task (e.g. \"go ahead and do it\", \"take over\", \"open that for me\"). Provide a concise description of the task that computer use should accomplish.",
-      "category": "computer-use",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "task": {
-            "type": "string",
-            "description": "Concise description of what computer use should accomplish"
-          }
-        },
-        "required": ["task"]
-      },
-      "executor": "tools/computer-use-request-control.ts",
-      "execution_target": "host"
     }
   ]
 }

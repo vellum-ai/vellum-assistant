@@ -222,8 +222,9 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // All computer_use_* tools (including the escalation tool) are now provided
-  // by the bundled computer-use skill. No CU tools are registered in core.
+  // The escalation tool is registered in core so text_qa sessions can execute it.
+  // The 12 action tools are provided by the bundled computer-use skill.
+  registerTool(requestComputerControlTool);
   registerUiSurfaceTools();
   registerAppTools();
 

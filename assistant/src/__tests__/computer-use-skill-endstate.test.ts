@@ -23,13 +23,18 @@ beforeAll(async () => {
 describe('computer-use skill end-state', () => {
   // ── Core Registry ──────────────────────────────────────────────────
 
-  test('core registry contains 0 computer_use_* tools', () => {
+  test('core registry contains 1 computer_use_* tool (escalation only)', () => {
     const allTools = getAllTools();
     const cuTools = allTools.filter((t) => t.name.startsWith('computer_use_'));
-    expect(cuTools).toHaveLength(0);
+    expect(cuTools).toHaveLength(1);
+    expect(cuTools[0].name).toBe('computer_use_request_control');
   });
 
-  test('no individual computer_use_* tool is resolvable from core registry', () => {
+  test('computer_use_request_control is resolvable from core registry', () => {
+    expect(getTool('computer_use_request_control')).toBeDefined();
+  });
+
+  test('no action tool from COMPUTER_USE_TOOL_NAMES is resolvable from core registry', () => {
     for (const name of COMPUTER_USE_TOOL_NAMES) {
       expect(getTool(name)).toBeUndefined();
     }
