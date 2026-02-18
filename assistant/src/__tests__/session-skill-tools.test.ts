@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import * as realFs from 'node:fs';
-import type { Message, ToolDefinition } from '../providers/types.js';
+import type { Message, ToolDefinition, ToolUseContent, ToolResultContent } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
 import type { Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -2377,11 +2377,11 @@ describe('browser skill migration harness', () => {
     expect(history[0].role).toBe('assistant');
     expect(history[1].role).toBe('user');
     // Verify tool_use block
-    const toolUse = history[0].content[0] as any;
+    const toolUse = history[0].content[0] as ToolUseContent;
     expect(toolUse.type).toBe('tool_use');
     expect(toolUse.name).toBe('skill_load');
     // Verify tool_result has marker
-    const toolResult = history[1].content[0] as any;
+    const toolResult = history[1].content[0] as ToolResultContent;
     expect(toolResult.type).toBe('tool_result');
     expect(toolResult.content).toContain('<loaded_skill id="browser" version="v1:abc123" />');
   });

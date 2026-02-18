@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { createServer, type Server } from 'node:http';
-import { createServer as createTcpServer, type Server as TcpServer } from 'node:net';
+import { type Server } from 'node:http';
+import { createServer as createTcpServer } from 'node:net';
 import { connect } from 'node:net';
 import { createProxyServer } from '../tools/network/script-proxy/server.js';
 
@@ -95,7 +95,7 @@ describe('CONNECT tunnel', () => {
     cleanups.push(px);
 
     const { statusCode, socket } = await sendConnect(px.port, `127.0.0.1:${echo.port}`);
-    cleanups.push({ close: () => Promise.resolve(socket.destroy()) } as any);
+    cleanups.push({ close: () => { socket.destroy(); return Promise.resolve(); } });
 
     expect(statusCode).toBe(200);
     socket.destroy();
@@ -110,7 +110,7 @@ describe('CONNECT tunnel', () => {
     cleanups.push(px);
 
     const { statusCode, socket } = await sendConnect(px.port, `127.0.0.1:${echo.port}`);
-    cleanups.push({ close: () => Promise.resolve(socket.destroy()) } as any);
+    cleanups.push({ close: () => { socket.destroy(); return Promise.resolve(); } });
 
     expect(statusCode).toBe(200);
 

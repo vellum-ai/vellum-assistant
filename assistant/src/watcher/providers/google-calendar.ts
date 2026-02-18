@@ -7,7 +7,7 @@
  */
 
 import { withValidToken } from '../../security/token-manager.js';
-import { listEvents, getEvent, CalendarApiError } from '../../config/bundled-skills/google-calendar/calendar-client.js';
+import { listEvents, CalendarApiError } from '../../config/bundled-skills/google-calendar/calendar-client.js';
 import type { CalendarEvent } from '../../config/bundled-skills/google-calendar/types.js';
 import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
 import { getLogger } from '../../util/logger.js';

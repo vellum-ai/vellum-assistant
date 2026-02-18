@@ -337,12 +337,12 @@ describe('AssetSearchTool.execute', () => {
   test('tool definition has correct name and schema', () => {
     const def = tool.getDefinition();
     expect(def.name).toBe('asset_search');
-    expect((def.input_schema as any).properties).toHaveProperty('mime_type');
-    expect((def.input_schema as any).properties).toHaveProperty('filename');
-    expect((def.input_schema as any).properties).toHaveProperty('recency');
-    expect((def.input_schema as any).properties).toHaveProperty('conversation_id');
-    expect((def.input_schema as any).properties).toHaveProperty('limit');
-    expect((def.input_schema as any).required).toEqual([]);
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('mime_type');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('filename');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('recency');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('conversation_id');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('limit');
+    expect((def.input_schema as Record<string, unknown>).required).toEqual([]);
   });
 
   test('tool has LOW risk level', () => {

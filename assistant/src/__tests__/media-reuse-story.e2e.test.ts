@@ -240,7 +240,7 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       { prompt: 'Generate a portrait from selfie, style: watercolor', response: { ...mockProviderResponse, seed: 43 } },
     ];
 
-    for (const iteration of iterations) {
+    for (const _iteration of iterations) {
       // Verify the approval response helper produces correct decision shapes
       const approval = fakeAllowOnce();
       expect(approval.decision).toBe('allow');
@@ -311,9 +311,9 @@ describe('Credential injection template structure', () => {
     expect(template.headerName).toBeUndefined();
   });
 
-  test('host pattern matching for fal.ai subdomains', () => {
+  test('host pattern matching for fal.ai subdomains', async () => {
     // The proxy uses minimatch for host patterns. Verify the pattern shape.
-    const { minimatch } = require('minimatch');
+    const { minimatch } = await import('minimatch');
     const pattern = '*.fal.ai';
     expect(minimatch('api.fal.ai', pattern)).toBe(true);
     expect(minimatch('v1.fal.ai', pattern)).toBe(true);

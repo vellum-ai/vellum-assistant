@@ -275,13 +275,13 @@ describe('AssetMaterializeTool metadata', () => {
 
   test('tool definition has required params', () => {
     const def = assetMaterializeTool.getDefinition();
-    expect((def.input_schema as any).required).toEqual(['attachment_id', 'destination_path']);
+    expect((def.input_schema as Record<string, unknown>).required).toEqual(['attachment_id', 'destination_path']);
   });
 
   test('tool definition has attachment_id and destination_path properties', () => {
     const def = assetMaterializeTool.getDefinition();
-    expect((def.input_schema as any).properties).toHaveProperty('attachment_id');
-    expect((def.input_schema as any).properties).toHaveProperty('destination_path');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('attachment_id');
+    expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('destination_path');
   });
 
   test('tool has LOW risk level', () => {

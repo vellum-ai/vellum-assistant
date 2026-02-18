@@ -7,6 +7,9 @@ import { describe, test, expect, mock } from 'bun:test';
 import type { ToolExecutionResult, ToolContext } from '../tools/types.js';
 import type { ToolSetupContext } from '../daemon/session-tool-setup.js';
 import type { SurfaceType, SurfaceData } from '../daemon/ipc-protocol.js';
+import type { ToolExecutor } from '../tools/executor.js';
+import type { PermissionPrompter } from '../permissions/prompter.js';
+import type { SecretPrompter } from '../permissions/secret-prompter.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -71,8 +74,8 @@ function makeCapturingExecutor(result: ToolExecutionResult = { content: 'ok', is
   };
 }
 
-const noopPrompter = { prompt: mock(async () => ({ decision: 'allow' as const })) } as any;
-const noopSecretPrompter = { prompt: mock(async () => ({ cancelled: true })) } as any;
+const noopPrompter = { prompt: mock(async () => ({ decision: 'allow' as const })) } as unknown as PermissionPrompter;
+const noopSecretPrompter = { prompt: mock(async () => ({ cancelled: true })) } as unknown as SecretPrompter;
 const noopLifecycleHandler = mock(() => {});
 
 // ---------------------------------------------------------------------------
@@ -85,7 +88,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
-      executor as any,
+      executor as unknown as ToolExecutor,
       noopPrompter,
       noopSecretPrompter,
       ctx,
@@ -103,7 +106,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
-      executor as any,
+      executor as unknown as ToolExecutor,
       noopPrompter,
       noopSecretPrompter,
       ctx,
@@ -120,7 +123,7 @@ describe('session-tool-setup forcePromptSideEffects propagation', () => {
     const { executor, getCaptured } = makeCapturingExecutor();
 
     const toolFn = createToolExecutor(
-      executor as any,
+      executor as unknown as ToolExecutor,
       noopPrompter,
       noopSecretPrompter,
       ctx,
