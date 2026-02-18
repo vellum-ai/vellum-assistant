@@ -720,29 +720,6 @@ exports[`IPC message snapshots ClientMessage types document_list serializes to e
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types subagent_abort serializes to expected JSON 1`] = `
-{
-  "subagentId": "sub-001",
-  "type": "subagent_abort",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types subagent_status serializes to expected JSON 1`] = `
-{
-  "sessionId": "sess-001",
-  "subagentId": "sub-001",
-  "type": "subagent_status",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types subagent_message serializes to expected JSON 1`] = `
-{
-  "content": "Hello subagent",
-  "subagentId": "sub-001",
-  "type": "subagent_message",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
