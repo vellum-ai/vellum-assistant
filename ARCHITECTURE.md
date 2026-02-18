@@ -212,7 +212,7 @@ graph TB
     CLS -->|"textQA"| TEXT_SESS
 
     %% Text Q&A → CU escalation
-    TEXT_SESS -.->|"request_computer_control<br/>(explicit user request)"| PERCEIVE
+    TEXT_SESS -.->|"computer_use_request_control<br/>(explicit user request)"| PERCEIVE
 
     %% Computer Use loop
     PERCEIVE -->|"CuObservationMessage"| IPC_SERVER
@@ -1346,7 +1346,7 @@ graph TB
 
     subgraph "Text Q&A Session"
         TEXT_TOOLS["Tools: sandbox file_* / bash,<br/>host_file_* / host_bash,<br/>ui_show, ...<br/>+ dynamically projected skill tools<br/>(browser_* via bundled browser skill)"]
-        ESCALATE["request_computer_control<br/>(proxy tool)"]
+        ESCALATE["computer_use_request_control<br/>(proxy tool)"]
     end
 
     SUBMIT --> SLASH_CHECK
@@ -1371,9 +1371,9 @@ The text_qa system prompt includes an action execution hierarchy that guides too
 | **BEST** | Sandboxed filesystem/shell | `file_*`, `bash` | Work that can stay isolated in sandbox filesystem |
 | **BETTER** | Explicit host filesystem/shell | `host_file_*`, `host_bash` | Host reads/writes/commands that must touch the real machine |
 | **GOOD** | Headless browser | `browser_*` (bundled `browser` skill) | Web automation, form filling, scraping (background) |
-| **LAST RESORT** | Foreground computer use | `request_computer_control` | Only on explicit user request ("go ahead", "take over") |
+| **LAST RESORT** | Foreground computer use | `computer_use_request_control` | Only on explicit user request ("go ahead", "take over") |
 
-The `request_computer_control` tool is a core proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use_*` action tools from the bundled `computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
+The `computer_use_request_control` tool is a core proxy tool available only to text_qa sessions. When invoked, the session's `surfaceProxyResolver` creates a CU session and sends a `task_routed` message to the client, effectively escalating from text_qa to foreground computer use. The CU session constructor sets `preactivatedSkillIds: ['computer-use']`, and its `getProjectedCuToolDefinitions()` calls `projectSkillTools()` to load the 12 `computer_use_*` action tools from the bundled `computer-use` skill (via TOOLS.json). These tools are not core-registered at daemon startup; they exist only within CU sessions through skill projection.
 
 ### Sandbox Filesystem and Host Access
 
@@ -1400,7 +1400,7 @@ graph TB
     PREFLIGHT -->|"any fail"| FAIL_CLOSED["ToolError<br/>(fail closed, no fallback)"]
     CONTAINER --> SB_FS
 
-    EXEC -->|"host_file_* / host_bash / request_computer_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
+    EXEC -->|"host_file_* / host_bash / computer_use_request_control"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
     EXEC -->|"computer_use_* (skill-projected<br/>in CU sessions only)"| SKILL_CU_TOOLS["CU skill tools<br/>(bundled computer-use skill)"]
     HOST_TOOLS --> CHECK["Permission checker + trust-store"]
     SKILL_CU_TOOLS --> CHECK
@@ -1419,7 +1419,7 @@ graph TB
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
 - Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
-- Prompt defaults: host tools, `request_computer_control`, and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
+- Prompt defaults: host tools, `computer_use_request_control`, and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
 - Confirmation payloads include `executionTarget` (`sandbox` or `host`) so clients can label where the action will run.
 

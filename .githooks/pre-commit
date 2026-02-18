@@ -32,7 +32,7 @@ declare -a PATTERNS=(
 
     # Secrets
     "secret['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}['\"]"
-    "client[_-]?secret"
+    "client[_-]?secret['\"]?[[:space:]]*[:=]"
 
     # Tokens
     "token['\"]?[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z0-9_\-\.]{20,}['\"]"
@@ -108,8 +108,12 @@ if [ "${1:-}" = "--self-test" ]; then
     SESSION_KEY_LINE='session_key="session_abcdef123456789012"'
     SHARED_KEY_LINE='shared_key="shared_abcdef12345678901"'
 
+    # Real client_secret assignment (must match)
+    REAL_CLIENT_SECRET_LINE='client_secret = "abcdef123456"'
+
     # False-positive lines that must NOT match (plain identifiers, not secrets)
     SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
+    SAFE_CLIENT_SECRET_DOC='- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256).'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -189,6 +193,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
         echo -e "${RED}Self-test failed:${NC} cache key identifier false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_CLIENT_SECRET_DOC"; then
+        echo -e "${RED}Self-test failed:${NC} client_secret in documentation context still matches"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$REAL_CLIENT_SECRET_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} real client_secret assignment did not match"
         exit 1
     fi
 
