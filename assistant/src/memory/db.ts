@@ -741,6 +741,31 @@ export function initializeDb(): void {
     )
   `);
 
+  // ── Work Items (Task Queue) ─────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS work_items (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      title TEXT NOT NULL,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      priority_tier INTEGER NOT NULL DEFAULT 1,
+      sort_index INTEGER,
+      last_run_id TEXT,
+      last_run_conversation_id TEXT,
+      last_run_status TEXT,
+      source_type TEXT,
+      source_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_priority_sort ON work_items(priority_tier, sort_index)`);
+
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status)`);
