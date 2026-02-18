@@ -494,9 +494,7 @@ struct ThreadChatView: View {
 
     @ViewBuilder
     private var chatBackground: some View {
-        if colorScheme == .dark,
-           let url = Bundle.main.url(forResource: "background", withExtension: "png"),
-           let uiImage = UIImage(contentsOfFile: url.path) {
+        if colorScheme == .dark, let uiImage = chatBackgroundImage {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFit()
