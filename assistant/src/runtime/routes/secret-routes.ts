@@ -1,4 +1,5 @@
-import { API_KEY_PROVIDERS, invalidateConfigCache } from '../../config/loader.js';
+import { API_KEY_PROVIDERS, getConfig, invalidateConfigCache } from '../../config/loader.js';
+import { initializeProviders } from '../../providers/registry.js';
 import { setSecureKey } from '../../security/secure-keys.js';
 import { assertMetadataWritable, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { getLogger } from '../../util/logger.js';
@@ -37,6 +38,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
         return Response.json({ error: 'Failed to store API key in secure storage' }, { status: 500 });
       }
       invalidateConfigCache();
+      initializeProviders(getConfig());
       log.info({ provider: name }, 'API key updated via HTTP');
       return Response.json({ success: true, type, name }, { status: 201 });
     }
