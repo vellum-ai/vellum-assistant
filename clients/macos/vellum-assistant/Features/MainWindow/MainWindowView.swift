@@ -1350,15 +1350,16 @@ private struct ControlCenterMenuButton: View {
             }
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .bottomLeading) {
             if showDrawer {
                 DrawerMenuView(
                     onSettings: { showDrawer = false; onSettings() },
                     onDebug: { showDrawer = false; onDebug() },
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
-                .offset(y: -140)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .frame(width: 200)
+                .offset(x: 240)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
     }
@@ -1380,15 +1381,13 @@ private struct DrawerMenuView: View {
             DrawerMenuItem(icon: "stethoscope", label: "Vellum Doctor", action: onDoctor)
         }
         .padding(.vertical, VSpacing.sm)
-        .frame(maxWidth: .infinity)
         .background(VColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 12, y: -4)
-        .padding(.horizontal, VSpacing.sm)
+        .shadow(color: .black.opacity(0.3), radius: 12, x: 4)
     }
 }
 
