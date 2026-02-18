@@ -2954,6 +2954,23 @@ These messages will be added to the Unix socket IPC protocol:
 |---------|---------|
 | `work_item_status_changed` | Notify the client when a work item transitions state |
 
+## Avatar Evolution Pipeline
+
+The avatar evolves during onboarding based on conversation and identity choices.
+
+**Data flow:** Conversation → ModelTraitInferenceService (local heuristics) → AvatarEvolutionState → AvatarEvolutionResolver → LOOKS.md → AvatarAppearanceManager (file watcher) → UI
+
+**Components:**
+- `AvatarEvolutionState` — Lifecycle stage, trait scores, feature unlocks, user overrides
+- `DeterministicEvolutionEngine` — Maps onboarding milestones to guaranteed visual unlocks
+- `ModelTraitInferenceService` — Infers trait scores from conversation (local heuristics, swappable)
+- `AvatarEvolutionResolver` — Merges deterministic + model + user layers with strict precedence
+- `AvatarCustomizationPanel` — User override surface with per-field lock/unlock
+
+**Precedence:** `user overrides > deterministic constraints > model-driven traits > defaults`
+
+**Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |

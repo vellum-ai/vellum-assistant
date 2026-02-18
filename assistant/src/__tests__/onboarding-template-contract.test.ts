@@ -28,7 +28,13 @@ describe('onboarding template contracts', () => {
 
     test('contains the Home Base handoff format', () => {
       expect(bootstrap).toMatch(/came up with X ideas/i);
-      expect(bootstrap).toContain('check this out');
+      expect(bootstrap).toMatch(/check this out/i);
+    });
+
+    test('mentions avatar evolution instruction', () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain('avatar will start to reflect');
+      expect(lower).toContain('happens automatically');
     });
   });
 
@@ -43,6 +49,10 @@ describe('onboarding template contracts', () => {
     test('contains the emoji overwrite instruction', () => {
       const lower = identity.toLowerCase();
       expect(lower).toContain('change their emoji');
+    });
+
+    test('contains the style tendency field', () => {
+      expect(identity).toContain('**Style tendency:**');
     });
   });
 });
