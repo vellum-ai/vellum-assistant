@@ -65,9 +65,13 @@ export const slackProvider: WatcherProvider = {
       const items: WatcherItem[] = [];
       let latestTs = watermark;
 
-      // Poll each DM channel for new messages, paginating to fetch all
+      // Poll each DM channel for new messages, paginating to fetch all.
+      // We track a per-channel watermark candidate and only merge it into the
+      // global watermark after the entire pagination loop succeeds. This prevents
+      // advancing past unread messages when a later page fails (rate limit, etc.).
       for (const channel of dmChannels) {
         try {
+          let channelLatestTs = watermark;
           let cursor: string | undefined;
           do {
             const histResp = await slack.conversationHistory(token, channel.id, 100, undefined, watermark, cursor);
@@ -81,12 +85,16 @@ export const slackProvider: WatcherProvider = {
               const eventType = channel.is_im ? 'slack_dm' : 'slack_group_dm';
               items.push(messageToItem({ ...msg, channel: channel.id }, eventType, channelName));
 
-              if (parseFloat(msg.ts) > parseFloat(latestTs)) {
-                latestTs = msg.ts;
+              if (parseFloat(msg.ts) > parseFloat(channelLatestTs)) {
+                channelLatestTs = msg.ts;
               }
             }
             cursor = histResp.has_more ? histResp.response_metadata?.next_cursor : undefined;
           } while (cursor);
+          // Only advance after all pages for this channel succeeded
+          if (parseFloat(channelLatestTs) > parseFloat(latestTs)) {
+            latestTs = channelLatestTs;
+          }
         } catch (err) {
           // Skip channels we can't read (archived, permissions, etc.)
           log.debug({ channelId: channel.id, err }, 'Skipping channel in Slack watcher');

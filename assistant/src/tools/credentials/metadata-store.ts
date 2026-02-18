@@ -184,7 +184,8 @@ export function upsertCredentialMetadata(
     accountInfo?: string | null;
     oauth2TokenUrl?: string;
     oauth2ClientId?: string;
-    oauth2ClientSecret?: string;
+    /** Pass `null` to explicitly clear a previously-set client secret. */
+    oauth2ClientSecret?: string | null;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
@@ -223,7 +224,13 @@ export function upsertCredentialMetadata(
     }
     if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
-    if (policy?.oauth2ClientSecret !== undefined) existing.oauth2ClientSecret = policy.oauth2ClientSecret;
+    if (policy?.oauth2ClientSecret !== undefined) {
+      if (policy.oauth2ClientSecret === null) {
+        delete existing.oauth2ClientSecret;
+      } else {
+        existing.oauth2ClientSecret = policy.oauth2ClientSecret;
+      }
+    }
     if (policy?.alias !== undefined) {
       if (policy.alias === null) {
         delete existing.alias;
@@ -255,7 +262,7 @@ export function upsertCredentialMetadata(
     accountInfo: policy?.accountInfo ?? undefined,
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
-    oauth2ClientSecret: policy?.oauth2ClientSecret,
+    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,
