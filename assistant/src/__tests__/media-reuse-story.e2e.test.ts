@@ -53,6 +53,8 @@ mock.module('../config/loader.js', () => ({
     apiKeys: {},
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    timeouts: { shellDefaultTimeoutSec: 30, shellMaxTimeoutSec: 60 },
+    sandbox: { enabled: false, backend: 'native' },
   }),
 }));
 
@@ -103,7 +105,8 @@ import { isAttachmentVisible, filterVisibleAttachments, type AttachmentContext }
 import { TINY_PNG_BASE64, FAKE_SELFIE_ATTACHMENT, fakeAllowOnce, fakeDeny } from './fixtures/media-reuse-fixtures.js';
 import type { ToolContext } from '../tools/types.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
-import { createSession, startSession, stopAllSessions } from '../tools/network/script-proxy/index.js';
+import { stopAllSessions } from '../tools/network/script-proxy/index.js';
+import { shellTool } from '../tools/terminal/shell.js';
 
 import { mkdirSync } from 'node:fs';
 
@@ -161,36 +164,6 @@ function startEchoServer(): Promise<{ server: http.Server; port: number }> {
       const addr = server.address() as { port: number };
       resolve({ server, port: addr.port });
     });
-  });
-}
-
-/**
- * Send an HTTP request through the proxy to a target URL and return the
- * parsed JSON response body from the echo server.
- */
-function proxyGet(
-  proxyPort: number,
-  targetUrl: string,
-): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: proxyPort,
-        path: targetUrl,
-        method: 'GET',
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const body = JSON.parse(Buffer.concat(chunks).toString());
-          resolve({ statusCode: res.statusCode ?? 0, body });
-        });
-      },
-    );
-    req.on('error', reject);
-    req.end();
   });
 }
 
@@ -338,10 +311,9 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
     const inputPath = join(sandboxDir, 'inputs', 'selfie.png');
     expect(existsSync(inputPath)).toBe(true);
 
-    // Step 4: Real proxied request through a local mock endpoint.
-    // We spin up an echo server, configure the proxy with a credential
-    // that injects an Authorization header for 127.0.0.1, and verify the
-    // echo server actually receives the injected header.
+    // Step 4: Invoke the bash tool with network_mode='proxied', just as the
+    // agent loop would. The shell tool internally creates a proxy session,
+    // injects proxy env vars, spawns curl, and the proxy injects credentials.
     const echo = await startEchoServer();
     try {
       const tpl: CredentialInjectionTemplate = {
@@ -354,20 +326,25 @@ describe('Story E2E: selfie yesterday -> generated image today', () => {
       resolveByIdResults.set('cred-story', resolved);
       secureKeyValues.set('credential:test-service:api-key', 'fal_test_secret');
 
-      const session = createSession(threadB.id, ['cred-story'], undefined, testDir);
-      const started = await startSession(session.id);
-      expect(started.status).toBe('active');
-      expect(started.port).not.toBeNull();
-
-      const result = await proxyGet(
-        started.port!,
-        `http://127.0.0.1:${echo.port}/v1/generate`,
+      // Drive the proxy step through the bash tool — the actual integration path.
+      // -x "$HTTP_PROXY" forces curl to use the proxy explicitly (macOS curl
+      // ignores the uppercase HTTP_PROXY env var). --noproxy "" overrides the
+      // NO_PROXY list which excludes 127.0.0.1 by default.
+      const bashResult = await shellTool.execute(
+        {
+          command: `curl -s -x "$HTTP_PROXY" --noproxy "" http://127.0.0.1:${echo.port}/v1/generate`,
+          network_mode: 'proxied',
+          credential_ids: ['cred-story'],
+        },
+        contextB,
       );
+      expect(bashResult.isError).toBeFalsy();
 
-      expect(result.statusCode).toBe(200);
-      // The echo server returns the headers it received — verify injection
-      const echoHeaders = result.body.headers as Record<string, string>;
-      expect(echoHeaders['authorization']).toBe('Key fal_test_secret');
+      // The echo server returns JSON with the headers it received.
+      // When exit code is 0 and there's no stderr, formatShellOutput
+      // returns raw stdout as the content — so JSON.parse works directly.
+      const echoResponse = JSON.parse(bashResult.content);
+      expect(echoResponse.headers.authorization).toBe('Key fal_test_secret');
 
       await stopAllSessions();
       resolveByIdResults.delete('cred-story');
