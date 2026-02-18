@@ -37,6 +37,8 @@ export function createConversation(title?: string) {
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
+    threadType: 'standard',
+    memoryScopeId: 'default',
   };
   db.insert(conversations).values(conversation).run();
   return conversation;

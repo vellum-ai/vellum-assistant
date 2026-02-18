@@ -26,6 +26,7 @@ mock.module('../util/logger.js', () => ({
 import { initializeDb, getDb } from '../memory/db.js';
 import {
   createConversation,
+  getConversation,
   addMessage,
   getMessages,
   deleteLastExchange,
@@ -297,5 +298,47 @@ describe('attachment orphan cleanup', () => {
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
     const remaining = raw.query('SELECT COUNT(*) AS c FROM attachments').get() as { c: number };
     expect(remaining.c).toBe(1); // only the unlinked upload survives
+  });
+});
+
+describe('conversation thread metadata defaults', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test('new conversation has threadType defaulting to standard', () => {
+    const conv = createConversation('test');
+    expect(conv.threadType).toBe('standard');
+  });
+
+  test('new conversation has memoryScopeId defaulting to default', () => {
+    const conv = createConversation('test');
+    expect(conv.memoryScopeId).toBe('default');
+  });
+
+  test('defaults are persisted and retrievable from DB', () => {
+    const conv = createConversation('test');
+    const loaded = getConversation(conv.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.threadType).toBe('standard');
+    expect(loaded!.memoryScopeId).toBe('default');
+  });
+
+  test('existing conversations without explicit values get defaults via migration', () => {
+    // Insert a conversation row directly without the new columns
+    // (simulates a pre-migration row — the ALTER TABLE DEFAULT handles it)
+    const db = getDb();
+    const now = Date.now();
+    const id = 'legacy-conv-' + now;
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${id}', 'legacy', ${now}, ${now})`,
+    );
+
+    const loaded = getConversation(id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.threadType).toBe('standard');
+    expect(loaded!.memoryScopeId).toBe('default');
   });
 });
