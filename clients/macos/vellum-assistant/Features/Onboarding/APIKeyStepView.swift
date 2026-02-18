@@ -91,7 +91,7 @@ struct APIKeyStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep)
+        OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
             .padding(.bottom, VSpacing.lg)
     }
 
@@ -268,13 +268,18 @@ struct APIKeyStepView: View {
     private func saveAndContinue() {
         if userHostedEnabled {
             saveHostingModeToConfig(hostingMode)
+            state.cloudProvider = hostingMode.rawValue
         }
 
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
 
-        state.advance()
+        if userHostedEnabled && hostingMode == .local {
+            state.advance(by: 2)
+        } else {
+            state.advance()
+        }
     }
 
     private func saveHostingModeToConfig(_ mode: HostingMode) {

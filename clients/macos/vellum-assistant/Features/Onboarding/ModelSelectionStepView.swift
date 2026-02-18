@@ -5,6 +5,10 @@ import SwiftUI
 struct ModelSelectionStepView: View {
     @Bindable var state: OnboardingState
 
+    private var userHostedEnabled: Bool {
+        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+    }
+
     @State private var showTitle = false
     @State private var showContent = false
     @State private var selectedModel = "claude-sonnet-4-5-20250929"
@@ -73,7 +77,7 @@ struct ModelSelectionStepView: View {
             }
             .padding(.top, VSpacing.xs)
 
-            OnboardingFooter(currentStep: state.currentStep)
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
@@ -141,7 +145,11 @@ struct ModelSelectionStepView: View {
 
     private func goBack() {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            state.currentStep -= 1
+            if userHostedEnabled && state.cloudProvider == "local" {
+                state.currentStep = 1
+            } else {
+                state.currentStep -= 1
+            }
         }
     }
 

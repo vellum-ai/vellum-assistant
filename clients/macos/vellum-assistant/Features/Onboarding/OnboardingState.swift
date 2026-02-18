@@ -1,3 +1,4 @@
+import VellumAssistantShared
 import SwiftUI
 
 enum OnboardingVariant: String {
@@ -26,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 6
+    private static let currentFlowVersion = 7
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -37,6 +38,7 @@ final class OnboardingState {
     var skipPermissionChecks: Bool = false
     var hasHatched: Bool = false
     var interviewCompleted: Bool = false
+    var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
 
     /// When false, step changes are not written to UserDefaults (used by auth gate).
@@ -55,6 +57,10 @@ final class OnboardingState {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
+    var userHostedEnabled: Bool {
+        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+    }
+
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.
     /// For the first meeting variant, uses a timer-driven stored property instead.
     var crackProgress: CGFloat {
@@ -64,8 +70,8 @@ final class OnboardingState {
         switch currentStep {
         case 0: return hasHatched ? 0.15 : 0.0
         case 1: return 0.20
-        case 2: return 0.30
-        case 3: return 0.45
+        case 2: return 0.25
+        case 3: return 0.30
         case 4: return 0.60
         case 5: return speechGranted ? 0.70 : 0.65
         case 6: return accessibilityGranted ? 0.80 : 0.70
@@ -99,6 +105,7 @@ final class OnboardingState {
             }
             hasHatched = UserDefaults.standard.bool(forKey: "onboarding.hatched")
             interviewCompleted = UserDefaults.standard.bool(forKey: "onboarding.interviewCompleted")
+            cloudProvider = UserDefaults.standard.string(forKey: "onboarding.cloudProvider") ?? "local"
         }
         if let rawVariant = UserDefaults.standard.string(forKey: "onboarding.variant"),
            let variant = OnboardingVariant(rawValue: rawVariant) {
@@ -112,18 +119,18 @@ final class OnboardingState {
         // Default onboarding now exits immediately after the first post-hatch
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
-        // Trimmed flow: 3 steps (0, 1, 2). Previous default was 4.
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : 2
+        // When userHostedEnabled is on and a cloud provider is selected, the flow
+        // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
+        let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
         if currentStep > maxStep {
             currentStep = maxStep
         }
     }
 
-    func advance() {
+    func advance(by steps: Int = 1) {
         withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
-            currentStep += 1
-            // Previous flow skipped step 1 (naming) with: if currentStep == 1 { currentStep = 2 }
-            // Trimmed flow uses step 1 for APIKey, so no skip needed.
+            currentStep += steps
         }
         if shouldPersist { persist() }
     }
@@ -135,13 +142,14 @@ final class OnboardingState {
         UserDefaults.standard.set(chosenKey.rawValue, forKey: "onboarding.key")
         UserDefaults.standard.set(hasHatched, forKey: "onboarding.hatched")
         UserDefaults.standard.set(interviewCompleted, forKey: "onboarding.interviewCompleted")
+        UserDefaults.standard.set(cloudProvider, forKey: "onboarding.cloudProvider")
         UserDefaults.standard.set(onboardingVariant.rawValue, forKey: "onboarding.variant")
         UserDefaults.standard.set(Double(firstMeetingCrackProgress), forKey: "onboarding.firstMeetingCrackProgress")
         UserDefaults.standard.set(Self.currentFlowVersion, forKey: "onboarding.flowVersion")
     }
 
     static func clearPersistedState() {
-        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion"] {
+        for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
