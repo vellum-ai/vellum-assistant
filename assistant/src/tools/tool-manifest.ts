@@ -48,6 +48,7 @@ export const eagerModules: string[] = [
   './contacts/contact-upsert.js',
   './contacts/contact-search.js',
   './contacts/contact-merge.js',
+  './assets/search.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -80,6 +81,7 @@ export const eagerModuleToolNames: string[] = [
   'contact_upsert',
   'contact_search',
   'contact_merge',
+  'asset_search',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
