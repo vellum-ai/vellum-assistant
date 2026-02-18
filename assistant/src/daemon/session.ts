@@ -717,6 +717,7 @@ export class Session {
           provider: this.provider,
           conflictGate: this.conflictGate,
           scopeId: this.memoryPolicy.scopeId,
+          includeDefaultFallback: this.memoryPolicy.includeDefaultFallback,
         },
         content,
         userMessageId,

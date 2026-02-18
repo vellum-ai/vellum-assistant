@@ -5,6 +5,8 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 let runCalls: Message[][] = [];
 let profileCompilerCalls = 0;
+let profileCompilerArgs: Array<Record<string, unknown>> = [];
+let recallArgs: Array<Record<string, unknown>> = [];
 let profileEnabled = true;
 let memoryEnabled = true;
 let profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
@@ -131,29 +133,32 @@ mock.module('../memory/attachments-store.js', () => ({
 }));
 
 mock.module('../memory/retriever.js', () => ({
-  buildMemoryRecall: async () => ({
-    enabled: true,
-    degraded: false,
-    reason: null,
-    provider: 'mock',
-    model: 'mock',
-    injectedText: '',
-    lexicalHits: 0,
-    semanticHits: 0,
-    recencyHits: 0,
-    entityHits: 0,
-    relationSeedEntityCount: 0,
-    relationTraversedEdgeCount: 0,
-    relationNeighborEntityCount: 0,
-    relationExpandedItemCount: 0,
-    earlyTerminated: false,
-    mergedCount: 0,
-    selectedCount: 0,
-    rerankApplied: false,
-    injectedTokens: 0,
-    latencyMs: 0,
-    topCandidates: [],
-  }),
+  buildMemoryRecall: async (_query: string, _convId: string, _config: unknown, options?: Record<string, unknown>) => {
+    if (options) recallArgs.push(options);
+    return {
+      enabled: true,
+      degraded: false,
+      reason: null,
+      provider: 'mock',
+      model: 'mock',
+      injectedText: '',
+      lexicalHits: 0,
+      semanticHits: 0,
+      recencyHits: 0,
+      entityHits: 0,
+      relationSeedEntityCount: 0,
+      relationTraversedEdgeCount: 0,
+      relationNeighborEntityCount: 0,
+      relationExpandedItemCount: 0,
+      earlyTerminated: false,
+      mergedCount: 0,
+      selectedCount: 0,
+      rerankApplied: false,
+      injectedTokens: 0,
+      latencyMs: 0,
+      topCandidates: [],
+    };
+  },
   injectMemoryRecallIntoUserMessage: (msg: Message) => msg,
   injectMemoryRecallAsSeparateMessage: (msgs: Message[]) => msgs,
   stripMemoryRecallMessages: (msgs: Message[]) => msgs,
@@ -191,8 +196,9 @@ mock.module('../memory/admin.js', () => ({
 }));
 
 mock.module('../memory/profile-compiler.js', () => ({
-  compileDynamicProfile: () => {
+  compileDynamicProfile: (options?: Record<string, unknown>) => {
     profileCompilerCalls += 1;
+    if (options) profileCompilerArgs.push(options);
     return {
       text: profileText,
       sourceCount: 2,
@@ -223,13 +229,14 @@ mock.module('../agent/loop.js', () => ({
   },
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session, DEFAULT_MEMORY_POLICY } from '../daemon/session.js';
+import type { SessionMemoryPolicy } from '../daemon/session.js';
 import {
   injectDynamicProfileIntoUserMessage,
   stripDynamicProfileMessages,
 } from '../daemon/session-dynamic-profile.js';
 
-function makeSession(): Session {
+function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
   const provider = {
     name: 'mock',
     async sendMessage(): Promise<ProviderResponse> {
@@ -241,7 +248,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp', undefined, memoryPolicy);
 }
 
 function messageText(message: Message): string {
@@ -256,6 +263,8 @@ describe('Session dynamic profile injection', () => {
     runCalls = [];
     persistedMessages.length = 0;
     profileCompilerCalls = 0;
+    profileCompilerArgs = [];
+    recallArgs = [];
     profileEnabled = true;
     memoryEnabled = true;
     profileText = '<dynamic-user-profile>\n- timezone: America/Los_Angeles\n</dynamic-user-profile>';
@@ -384,5 +393,49 @@ describe('Session dynamic profile injection', () => {
     const runtimeText = messageText(runtimeUser);
     expect(runtimeText).not.toContain('<dynamic-profile-context>');
     expect(profileCompilerCalls).toBe(0);
+  });
+
+  test('private thread session uses private scope + default fallback in profile compile and recall', async () => {
+    const privatePolicy: SessionMemoryPolicy = {
+      scopeId: 'private-thread-abc',
+      includeDefaultFallback: true,
+      strictSideEffects: false,
+    };
+    const session = makeSession(privatePolicy);
+    await session.loadFromDb();
+
+    await session.processMessage('What do I prefer?', [], () => {});
+
+    // Profile compiler should receive the private scope with fallback enabled
+    expect(profileCompilerCalls).toBe(1);
+    expect(profileCompilerArgs).toHaveLength(1);
+    expect(profileCompilerArgs[0].scopeId).toBe('private-thread-abc');
+    expect(profileCompilerArgs[0].includeDefaultFallback).toBe(true);
+
+    // Memory recall should receive a scopePolicyOverride for the private scope
+    expect(recallArgs).toHaveLength(1);
+    expect(recallArgs[0].scopePolicyOverride).toEqual({
+      scopeId: 'private-thread-abc',
+      fallbackToDefault: true,
+    });
+  });
+
+  test('standard thread uses default scope without fallback in profile compile and no scope override in recall', async () => {
+    // Default policy: scopeId='default', includeDefaultFallback=false
+    const session = makeSession(DEFAULT_MEMORY_POLICY);
+    await session.loadFromDb();
+
+    await session.processMessage('Tell me about TypeScript', [], () => {});
+
+    // Profile compiler should receive default scope without fallback
+    expect(profileCompilerCalls).toBe(1);
+    expect(profileCompilerArgs).toHaveLength(1);
+    expect(profileCompilerArgs[0].scopeId).toBe('default');
+    expect(profileCompilerArgs[0].includeDefaultFallback).toBe(false);
+
+    // Memory recall should NOT have a scopePolicyOverride (default scope
+    // relies on the global config policy, not a per-call override)
+    expect(recallArgs).toHaveLength(1);
+    expect(recallArgs[0].scopePolicyOverride).toBeUndefined();
   });
 });
