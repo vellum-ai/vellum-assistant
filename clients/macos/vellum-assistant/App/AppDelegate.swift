@@ -140,8 +140,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         if !skipOnboarding && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            showOnboarding()
-            return
+            // If the user already has an API key and model configured,
+            // skip onboarding entirely — they're a returning user whose
+            // hasCompletedOnboarding flag was cleared (e.g. by /scrub).
+            let config = WorkspaceConfigIO.read()
+            if APIKeyManager.hasAnyKey(), config["model"] != nil {
+                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+            } else {
+                showOnboarding()
+                return
+            }
         }
 
         startAuthenticatedFlow()
@@ -150,7 +158,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
-            if authManager.isAuthenticated {
+            if authManager.isAuthenticated || APIKeyManager.hasAnyKey() {
                 proceedToApp()
             } else {
                 showAuthWindow()
