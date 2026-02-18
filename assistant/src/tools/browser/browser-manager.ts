@@ -120,19 +120,31 @@ class BrowserManager {
    * The sendToClient callback sends the request, and resolveCDPResponse() is called when the response arrives.
    */
   async requestCDPFromClient(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): Promise<boolean> {
+    // Cancel any existing pending request for this session to avoid leaked promises
+    const existing = this.cdpRequestResolvers.get(sessionId);
+    if (existing) {
+      existing({ success: false });
+    }
+
     return new Promise<boolean>((resolve) => {
+      const resolver = (response: { success: boolean; declined?: boolean }) => {
+        clearTimeout(timer);
+        // Only act if we're still the active resolver for this session
+        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
+          this.cdpRequestResolvers.delete(sessionId);
+        }
+        resolve(response.success);
+      };
+
       // Set a timeout in case the client never responds
       const timer = setTimeout(() => {
-        this.cdpRequestResolvers.delete(sessionId);
+        if (this.cdpRequestResolvers.get(sessionId) === resolver) {
+          this.cdpRequestResolvers.delete(sessionId);
+        }
         resolve(false);
       }, 60_000);
 
-      this.cdpRequestResolvers.set(sessionId, (response) => {
-        clearTimeout(timer);
-        this.cdpRequestResolvers.delete(sessionId);
-        resolve(response.success);
-      });
-
+      this.cdpRequestResolvers.set(sessionId, resolver);
       sendToClient({ type: 'browser_cdp_request', sessionId });
     });
   }
@@ -218,6 +230,7 @@ class BrowserManager {
           log.warn('Browser context closed unexpectedly, resetting state');
           this.context = null;
           this.contextCloseHandler = null;
+          this.cdpBrowser = null;
           this.pages.clear();
           this.rawPages.clear();
           this.cdpSessions.clear();
@@ -304,6 +317,17 @@ class BrowserManager {
       }
       this.context = null;
       log.info('Browser context closed');
+    }
+
+    // Disconnect CDP browser connection if present
+    if (this.cdpBrowser) {
+      const b = this.cdpBrowser as { disconnect?: () => Promise<void> };
+      this.cdpBrowser = null;
+      try {
+        await b.disconnect?.();
+      } catch (err) {
+        log.warn({ err }, 'Failed to disconnect CDP browser');
+      }
     }
   }
 
