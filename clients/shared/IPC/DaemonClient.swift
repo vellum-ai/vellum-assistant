@@ -246,6 +246,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `browser_interactive_mode_changed` message.
     public var onBrowserInteractiveModeChanged: ((BrowserInteractiveModeChangedMessage) -> Void)?
 
+    /// Called when the daemon sends a `browser_cdp_request` message.
+    public var onBrowserCDPRequest: ((BrowserCDPRequestMessage) -> Void)?
+
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
@@ -1319,6 +1322,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onBrowserFrame?(msg)
         case .browserInteractiveModeChanged(let msg):
             onBrowserInteractiveModeChanged?(msg)
+        case .browserCDPRequest(let msg):
+            onBrowserCDPRequest?(msg)
         case .envVarsResponse(let msg):
             onEnvVarsResponse?(msg)
         default:

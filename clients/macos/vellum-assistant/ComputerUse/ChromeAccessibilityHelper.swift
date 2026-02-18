@@ -47,25 +47,24 @@ final class ChromeAccessibilityHelper {
         return result
     }
 
-    /// Restart Chrome with `--force-renderer-accessibility` so the full AX tree is available.
-    /// Chrome's built-in session restore will reopen all tabs.
-    /// Returns true if Chrome was successfully restarted.
+    /// Restart Chrome with custom command-line flags.
+    /// Chrome's session restore will reopen all tabs.
     @MainActor
-    static func restartChromeWithAccessibility(app: NSRunningApplication) async -> Bool {
+    static func restartChromeWithFlags(app: NSRunningApplication, flags: [String]) async -> Bool {
         guard let bundleId = app.bundleIdentifier,
               let bundleURL = app.bundleURL else {
             log.error("Cannot restart: missing bundle info")
             return false
         }
 
-        log.info("Restarting \(bundleId, privacy: .public) with --force-renderer-accessibility")
+        log.info("Restarting \(bundleId, privacy: .public) with flags: \(flags, privacy: .public)")
 
         // Gracefully terminate — Chrome will save session state
         app.terminate()
 
         // Wait for Chrome to fully quit (up to 5 seconds)
         for _ in 0..<50 {
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+            try? await Task.sleep(nanoseconds: 100_000_000)
             if app.isTerminated { break }
         }
 
@@ -75,12 +74,11 @@ final class ChromeAccessibilityHelper {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
-        // Relaunch with accessibility flag
+        // Relaunch with flags
         do {
-            // Use completion handler to avoid Sendable warnings with NSWorkspace types
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let config = NSWorkspace.OpenConfiguration()
-                config.arguments = ["--force-renderer-accessibility"]
+                config.arguments = flags
                 config.activates = true
                 NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
                     if let error {
@@ -90,9 +88,7 @@ final class ChromeAccessibilityHelper {
                     }
                 }
             }
-            log.info("Chrome relaunched with accessibility flag")
-
-            // Wait for Chrome to start and restore tabs
+            log.info("Chrome relaunched with flags")
             try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
             return true
         } catch {
@@ -100,4 +96,45 @@ final class ChromeAccessibilityHelper {
             return false
         }
     }
+
+    /// Convenience: restart with just accessibility flag (backward compat).
+    @MainActor
+    static func restartChromeWithAccessibility(app: NSRunningApplication) async -> Bool {
+        return await restartChromeWithFlags(app: app, flags: ["--force-renderer-accessibility"])
+    }
+
+    /// Restart Chrome for CDP mode with both remote debugging and accessibility flags.
+    @MainActor
+    static func restartChromeForCDP(app: NSRunningApplication) async -> Bool {
+        let success = await restartChromeWithFlags(app: app, flags: [
+            "--remote-debugging-port=9222",
+            "--force-renderer-accessibility"
+        ])
+        guard success else { return false }
+
+        // Poll CDP endpoint to confirm it's ready
+        for _ in 0..<30 {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            if let url = URL(string: "http://localhost:9222/json/version"),
+               let (_, response) = try? await URLSession.shared.data(from: url),
+               let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 200 {
+                log.info("CDP endpoint confirmed ready")
+                return true
+            }
+        }
+        log.warning("CDP endpoint not responding after Chrome restart")
+        return false
+    }
+
+    /// Find the running Chrome app.
+    static func findRunningChrome() -> NSRunningApplication? {
+        for bundleId in chromeBundleIds {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+                return app
+            }
+        }
+        return nil
+    }
 }
+

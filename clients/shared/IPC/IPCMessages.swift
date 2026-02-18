@@ -1748,6 +1748,7 @@ public enum ServerMessage: Decodable, Sendable {
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
     case browserFrame(BrowserFrameMessage)
     case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
+    case browserCDPRequest(BrowserCDPRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case pong
     case unknown(String)
@@ -1998,6 +1999,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "browser_interactive_mode_changed":
             let message = try BrowserInteractiveModeChangedMessage(from: decoder)
             self = .browserInteractiveModeChanged(message)
+        case "browser_cdp_request":
+            let message = try BrowserCDPRequestMessage(from: decoder)
+            self = .browserCDPRequest(message)
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)
@@ -2006,6 +2010,28 @@ public enum ServerMessage: Decodable, Sendable {
         default:
             self = .unknown(type)
         }
+    }
+}
+
+
+// MARK: - Browser CDP Messages
+
+/// Received when daemon needs Chrome restarted with CDP.
+public struct BrowserCDPRequestMessage: Decodable, Sendable {
+    public let sessionId: String
+}
+
+/// Sent back to daemon after Chrome restart attempt.
+public struct BrowserCDPResponseMessage: Encodable, Sendable {
+    public let type: String = "browser_cdp_response"
+    public let sessionId: String
+    public let success: Bool
+    public let declined: Bool?
+
+    public init(sessionId: String, success: Bool, declined: Bool? = nil) {
+        self.sessionId = sessionId
+        self.success = success
+        self.declined = declined
     }
 }
 
