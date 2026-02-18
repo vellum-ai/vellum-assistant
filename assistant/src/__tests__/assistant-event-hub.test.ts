@@ -146,3 +146,70 @@ describe('AssistantEventHub — unsubscribe cleanup', () => {
     expect(received2).toHaveLength(1);
   });
 });
+
+// ── Exception isolation ───────────────────────────────────────────────────────
+
+describe('AssistantEventHub — exception isolation', () => {
+  test('a throwing subscriber does not stop fanout to remaining subscribers', () => {
+    const hub = new AssistantEventHub();
+    let secondCalled = false;
+
+    hub.subscribe({ assistantId: 'ast_1' }, () => { throw new Error('subscriber boom'); });
+    hub.subscribe({ assistantId: 'ast_1' }, () => { secondCalled = true; });
+
+    expect(() => hub.publish(makeEvent())).toThrow(AggregateError);
+    expect(secondCalled).toBe(true);
+  });
+
+  test('all subscriber errors are collected into AggregateError', () => {
+    const hub = new AssistantEventHub();
+
+    hub.subscribe({ assistantId: 'ast_1' }, () => { throw new Error('err-1'); });
+    hub.subscribe({ assistantId: 'ast_1' }, () => { throw new Error('err-2'); });
+
+    let caught: unknown;
+    try { hub.publish(makeEvent()); } catch (e) { caught = e; }
+
+    expect(caught).toBeInstanceOf(AggregateError);
+    const agg = caught as AggregateError;
+    expect(agg.errors.map((e: Error) => e.message)).toEqual(['err-1', 'err-2']);
+  });
+
+  test('publish does not throw when all subscribers succeed', () => {
+    const hub = new AssistantEventHub();
+    hub.subscribe({ assistantId: 'ast_1' }, () => {});
+    expect(() => hub.publish(makeEvent())).not.toThrow();
+  });
+});
+
+// ── Re-entrancy (snapshot isolation) ─────────────────────────────────────────
+
+describe('AssistantEventHub — re-entrancy / snapshot isolation', () => {
+  test('subscriber added during publish does not receive the in-flight event', () => {
+    const hub = new AssistantEventHub();
+    const lateReceived: AssistantEvent[] = [];
+
+    hub.subscribe({ assistantId: 'ast_1' }, () => {
+      // Add a new subscriber mid-fanout
+      hub.subscribe({ assistantId: 'ast_1' }, (e) => lateReceived.push(e));
+    });
+
+    hub.publish(makeEvent());
+
+    // The newly added subscriber must NOT have received the in-flight event
+    expect(lateReceived).toHaveLength(0);
+  });
+
+  test('subscriber that disposes itself mid-publish does not affect remaining subscribers', () => {
+    const hub = new AssistantEventHub();
+    const received: AssistantEvent[] = [];
+    let sub: ReturnType<typeof hub.subscribe>;
+
+    // eslint-disable-next-line prefer-const
+    sub = hub.subscribe({ assistantId: 'ast_1' }, () => { sub.dispose(); });
+    hub.subscribe({ assistantId: 'ast_1' }, (e) => received.push(e));
+
+    hub.publish(makeEvent());
+    expect(received).toHaveLength(1);
+  });
+});

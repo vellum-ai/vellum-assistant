@@ -75,13 +75,31 @@ export class AssistantEventHub {
    * Matching rules:
    * - `event.assistantId` must equal `filter.assistantId`
    * - if `filter.sessionId` is set, `event.sessionId` must equal it
+   *
+   * Fanout is isolated: a throwing subscriber does not abort delivery to
+   * remaining subscribers. Errors are collected and re-thrown as an
+   * `AggregateError` after all callbacks have been invoked.
+   *
+   * Subscribers are snapshotted at the start of each publish call so that
+   * callbacks adding new subscriptions do not receive the in-flight event.
    */
   publish(event: AssistantEvent): void {
-    for (const entry of this.subscribers) {
+    const snapshot = Array.from(this.subscribers);
+    const errors: unknown[] = [];
+
+    for (const entry of snapshot) {
       if (!entry.active) continue;
       if (entry.filter.assistantId !== event.assistantId) continue;
       if (entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
-      entry.callback(event);
+      try {
+        entry.callback(event);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'One or more assistant-event subscribers threw');
     }
   }
 
