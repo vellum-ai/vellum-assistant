@@ -505,11 +505,26 @@ extension ChatViewModel {
             if !wasCancelling {
                 errorText = err.message
                 // When the backend blocks a message for containing secrets,
-                // stash the last user message text so "Send Anyway" can resend
-                // with the bypass flag.
-                if err.category == "secret_blocked",
-                   let lastUserMsg = messages.last(where: { $0.role == .user }) {
-                    secretBlockedMessageText = lastUserMsg.text
+                // stash the full send context so "Send Anyway" can reconstruct
+                // the original UserMessageMessage with attachments and surface metadata.
+                if err.category == "secret_blocked" {
+                    // Prefer currentTurnUserText (the text that was actually sent)
+                    // over the transcript lookup, which can miss workspace refinements
+                    // that don't append a user chat message.
+                    if let sendText = currentTurnUserText {
+                        secretBlockedMessageText = sendText
+                    } else if let lastUserMsg = messages.last(where: { $0.role == .user }) {
+                        secretBlockedMessageText = lastUserMsg.text
+                    }
+                    // Reconstruct IPC attachments from the last user message's ChatAttachments
+                    if let lastUserMsg = messages.last(where: { $0.role == .user }),
+                       !lastUserMsg.attachments.isEmpty {
+                        secretBlockedAttachments = lastUserMsg.attachments.map {
+                            IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
+                        }
+                    }
+                    secretBlockedActiveSurfaceId = activeSurfaceId
+                    secretBlockedCurrentPage = currentPage
                 }
             }
             // Reset processing messages to sent

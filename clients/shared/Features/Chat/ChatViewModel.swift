@@ -73,6 +73,11 @@ public final class ChatViewModel: ObservableObject {
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
     private(set) var secretBlockedMessageText: String?
+    /// Stashed context from the blocked send, so sendAnyway() can reconstruct
+    /// the original UserMessageMessage with attachments and surface metadata.
+    private(set) var secretBlockedAttachments: [IPCAttachment]?
+    private(set) var secretBlockedActiveSurfaceId: String?
+    private(set) var secretBlockedCurrentPage: String?
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
@@ -233,6 +238,9 @@ public final class ChatViewModel: ObservableObject {
                 lastFailedMessageAttachments = nil
                 lastFailedSendError = nil
                 secretBlockedMessageText = nil
+                secretBlockedAttachments = nil
+                secretBlockedActiveSurfaceId = nil
+                secretBlockedCurrentPage = nil
                 currentTurnUserText = text
                 return
             }
@@ -276,6 +284,9 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -724,6 +735,9 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
     }
 
     /// Dismiss the typed session error state. Clears both the typed error
@@ -792,7 +806,20 @@ public final class ChatViewModel: ObservableObject {
     public func sendAnyway() {
         guard let text = secretBlockedMessageText, let sessionId else { return }
 
+        guard daemonClient.isConnected else {
+            errorText = "Cannot connect to assistant. Please ensure it's running."
+            return
+        }
+
+        // Snapshot and clear stashed context
+        let attachments = secretBlockedAttachments
+        let surfaceId = secretBlockedActiveSurfaceId
+        let page = secretBlockedCurrentPage
+
         secretBlockedMessageText = nil
+        secretBlockedAttachments = nil
+        secretBlockedActiveSurfaceId = nil
+        secretBlockedCurrentPage = nil
         errorText = nil
 
         isSending = true
@@ -806,6 +833,9 @@ public final class ChatViewModel: ObservableObject {
             try daemonClient.send(UserMessageMessage(
                 sessionId: sessionId,
                 content: text,
+                attachments: attachments,
+                activeSurfaceId: surfaceId,
+                currentPage: surfaceId != nil ? page : nil,
                 bypassSecretCheck: true
             ))
         } catch {
