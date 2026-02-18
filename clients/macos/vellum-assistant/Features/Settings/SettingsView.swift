@@ -6,6 +6,7 @@ public struct SettingsView: View {
     @ObservedObject var store: SettingsStore
     @State private var apiKeyText = ""
     @State private var braveKeyText = ""
+    @State private var perplexityKeyText = ""
     @State private var vercelKeyText = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
@@ -77,6 +78,38 @@ public struct SettingsView: View {
                     }
                     .onChange(of: store.selectedModel) { _, newValue in
                         store.setModel(newValue)
+                    }
+                }
+            }
+
+            Section("Perplexity API Key") {
+                if store.hasPerplexityKey {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        Text(store.maskedPerplexityKey)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            store.clearPerplexityKey()
+                            perplexityKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter Perplexity API key", text: $perplexityKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at perplexity.ai/settings/api")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            store.savePerplexityKey(perplexityKeyText)
+                            perplexityKeyText = ""
+                        }
+                        .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }
