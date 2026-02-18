@@ -611,22 +611,22 @@ struct MainWindowView: View {
                     }
 
                     // MARK: Apps Section
-                    if !appListManager.apps.isEmpty {
-                        VStack(spacing: VSpacing.xs) {
-                            HStack {
-                                SidebarSectionHeader(title: "Pinned Apps")
-                                Spacer()
-                                Button {
-                                    windowState.togglePanel(.directory)
-                                } label: {
-                                    Text("View more")
-                                        .font(VFont.caption)
-                                        .foregroundColor(VColor.accent)
-                                }
-                                .buttonStyle(.plain)
-                                .padding(.trailing, VSpacing.lg)
+                    VStack(spacing: VSpacing.xs) {
+                        HStack {
+                            SidebarSectionHeader(title: "Pinned Apps")
+                            Spacer()
+                            Button {
+                                windowState.togglePanel(.directory)
+                            } label: {
+                                Text("View more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.accent)
                             }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, VSpacing.lg)
+                        }
 
+                        if !appListManager.apps.isEmpty {
                             ForEach(displayedApps) { app in
                                 sidebarAppItem(app)
                                     .dropDestination(for: String.self) { items, _ in
@@ -937,6 +937,10 @@ struct MainWindowView: View {
                 },
                 onRecordAppOpen: { id, name, icon, appType in
                     appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                },
+                onPinApp: { id, name, icon, appType in
+                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                    appListManager.pinApp(id: id)
                 }
             )
         case .generated:
@@ -1058,6 +1062,10 @@ struct MainWindowView: View {
                     },
                     onRecordAppOpen: { id, name, icon, appType in
                         appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                    },
+                    onPinApp: { id, name, icon, appType in
+                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                        appListManager.pinApp(id: id)
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }

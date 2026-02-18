@@ -8,6 +8,8 @@ struct AppDirectoryView: View {
     let onOpenApp: (UiSurfaceShowMessage) -> Void
     /// Called to record an app open in the sidebar's recent apps list.
     var onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)?
+    /// Called to pin an app from the directory into the sidebar.
+    var onPinApp: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)?
 
     @State private var searchText = ""
     @State private var displayItems: [DirectoryAppItem] = []
@@ -178,6 +180,26 @@ struct AppDirectoryView: View {
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .overlay(alignment: .topTrailing) {
+            if isHovered, let localId = item.localAppId, onPinApp != nil {
+                Button {
+                    onPinApp?(localId, item.name, item.icon, item.appType)
+                } label: {
+                    Image(systemName: "pin")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textPrimary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 28, height: 28)
+                        .background(VColor.surface.opacity(0.9))
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(VColor.surfaceBorder, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(VSpacing.sm)
+                .transition(.opacity)
+                .accessibilityLabel("Pin \(item.name)")
+            }
+        }
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(VAnimation.fast, value: isHovered)
         .contentShape(Rectangle())
