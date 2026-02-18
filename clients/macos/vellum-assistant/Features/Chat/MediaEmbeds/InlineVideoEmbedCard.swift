@@ -64,10 +64,8 @@ struct InlineVideoEmbedCard: View {
         switch stateManager.state {
         case .placeholder:
             placeholderView
-        case .initializing:
-            initializingView
-        case .playing:
-            playingView
+        case .initializing, .playing:
+            activePlayerView
         case .failed(let message):
             failedView(message)
         }
@@ -89,20 +87,14 @@ struct InlineVideoEmbedCard: View {
         }
     }
 
-    private var initializingView: some View {
+    /// Single view for both .initializing and .playing so SwiftUI preserves
+    /// the WKWebView identity across the state transition, avoiding a
+    /// redundant teardown-and-reload cycle.
+    private var activePlayerView: some View {
         InlineVideoWebView(
             url: playerURL,
             provider: provider,
             onLoadSuccess: { stateManager.didStartPlaying() },
-            onLoadFailure: { msg in stateManager.didFail(msg) }
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-    }
-
-    private var playingView: some View {
-        InlineVideoWebView(
-            url: playerURL,
-            provider: provider,
             onLoadFailure: { msg in stateManager.didFail(msg) }
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
