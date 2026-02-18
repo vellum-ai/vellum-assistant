@@ -117,7 +117,7 @@ export function createSession(
  * is configured with a MITM handler that selectively intercepts HTTPS
  * connections to credential-matched hosts.
  */
-export async function startSession(sessionId: ProxySessionId): Promise<ProxySession> {
+export async function startSession(sessionId: ProxySessionId, options?: { listenHost?: string }): Promise<ProxySession> {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
   if (managed.session.status !== 'starting') {
@@ -264,7 +264,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
   try {
     return await new Promise<ProxySession>((resolve, reject) => {
-      server.listen(0, '127.0.0.1', () => {
+      server.listen(0, options?.listenHost ?? '127.0.0.1', () => {
         const addr = server.address();
         if (!addr || typeof addr === 'string') {
           reject(new Error('Failed to get server address'));
@@ -385,6 +385,7 @@ export async function getOrStartSession(
   config?: Partial<ProxySessionConfig>,
   dataDir?: string,
   approvalCallback?: ProxyApprovalCallback,
+  options?: { listenHost?: string },
 ): Promise<{ session: ProxySession; created: boolean }> {
   // Fast path — session already active, no lock needed.
   const existing = getActiveSession(conversationId);
@@ -417,7 +418,7 @@ export async function getOrStartSession(
     }
 
     const session = createSession(conversationId, credentialIds, config, dataDir, approvalCallback);
-    const started = await startSession(session.id);
+    const started = await startSession(session.id, options);
     return { session: started, created: true };
   })();
 

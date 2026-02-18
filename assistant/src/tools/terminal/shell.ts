@@ -107,6 +107,7 @@ class ShellTool implements Tool {
           undefined,
           getDataDir(),
           context.proxyApprovalCallback,
+          isDockerSandbox ? { listenHost: '0.0.0.0' } : undefined,
         );
         proxyEnv = getSessionEnv(session.id, { dockerMode: isDockerSandbox });
       } catch (err) {
