@@ -11,6 +11,7 @@ final class SecretPromptManagerTests: XCTestCase {
     override func setUp() {
         super.setUp()
         manager = SecretPromptManager()
+        manager.panelPresenter = { _ in /* suppress UI popups during tests */ }
         responses = []
         manager.onResponse = { [unowned self] requestId, value, delivery in
             self.responses.append((requestId: requestId, value: value, delivery: delivery))
