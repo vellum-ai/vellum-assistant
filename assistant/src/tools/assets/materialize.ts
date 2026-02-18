@@ -40,8 +40,9 @@ function formatBytes(bytes: number): string {
 
 /**
  * Load an attachment row (including base64 data) by its primary key.
- * Not scoped by assistantId — the ID from asset_search is sufficient
- * to identify the attachment unambiguously.
+ *
+ * Not scoped by assistantId because ToolContext doesn't carry it.
+ * Cross-thread isolation is enforced by the visibility check in execute().
  */
 function loadAttachmentById(
   attachmentId: string,
@@ -97,7 +98,7 @@ class AssetMaterializeTool implements Tool {
   name = 'asset_materialize';
   description = definition.description;
   category = 'assets';
-  defaultRiskLevel = RiskLevel.Low;
+  defaultRiskLevel = RiskLevel.Medium;
 
   getDefinition(): ToolDefinition {
     return definition;

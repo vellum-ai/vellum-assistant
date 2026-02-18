@@ -284,8 +284,8 @@ describe('AssetMaterializeTool metadata', () => {
     expect((def.input_schema as Record<string, unknown>).properties).toHaveProperty('destination_path');
   });
 
-  test('tool has LOW risk level', () => {
-    expect(assetMaterializeTool.defaultRiskLevel).toBe(RiskLevel.Low);
+  test('tool has MEDIUM risk level', () => {
+    expect(assetMaterializeTool.defaultRiskLevel).toBe(RiskLevel.Medium);
   });
 
   test('tool category is assets', () => {
