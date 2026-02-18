@@ -32,6 +32,8 @@ function createMockPage(closed = false) {
     unroute: async () => {},
     screenshot: async () => Buffer.from(''),
     keyboard: { press: async () => {} },
+    mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
+    bringToFront: async () => {},
   };
 }
 

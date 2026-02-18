@@ -49,6 +49,7 @@ export type Page = {
     move(x: number, y: number): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
+  bringToFront(): Promise<void>;
 };
 
 type ScreencastFrameMetadata = {
