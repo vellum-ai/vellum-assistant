@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
@@ -56,6 +56,7 @@ export async function handleMemorySave(
   _config: AssistantConfig,
   conversationId: string,
   messageId: string | undefined,
+  scopeId: string = 'default',
 ): Promise<ToolExecutionResult> {
   const statement = args.statement;
   if (typeof statement !== 'string' || statement.trim().length === 0) {
@@ -84,14 +85,15 @@ export async function handleMemorySave(
     const now = Date.now();
     const trimmedStatement = statement.trim().slice(0, 500);
 
-    // Build fingerprint for dedup consistency with items-extractor
-    const normalized = `${kind}|${subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
+    // Build fingerprint for dedup — salt with scopeId so identical statements
+    // in different scopes produce distinct fingerprints and stay separate.
+    const normalized = `${scopeId}|${kind}|${subject.toLowerCase()}|${trimmedStatement.toLowerCase()}`;
     const fingerprint = createHash('sha256').update(normalized).digest('hex');
 
     const existing = db
       .select()
       .from(memoryItems)
-      .where(eq(memoryItems.fingerprint, fingerprint))
+      .where(and(eq(memoryItems.fingerprint, fingerprint), eq(memoryItems.scopeId, scopeId)))
       .get();
 
     if (existing) {
@@ -122,6 +124,7 @@ export async function handleMemorySave(
       importance: 0.8,       // explicit saves are high importance
       fingerprint,
       verificationState: 'user_confirmed',
+      scopeId,
       firstSeenAt: now,
       lastSeenAt: now,
       lastUsedAt: null,

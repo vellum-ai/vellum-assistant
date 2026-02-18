@@ -559,6 +559,43 @@ describe('Memory regressions', () => {
     expect(saved!.verificationState).toBe('user_confirmed');
   });
 
+  test('memory_save in different scopes creates separate items', async () => {
+    const { handleMemorySave } = await import('../tools/memory/handlers.js');
+
+    const sharedArgs = { statement: 'I prefer dark mode', kind: 'preference' };
+
+    // Save in the default scope
+    const r1 = await handleMemorySave(sharedArgs, DEFAULT_CONFIG, 'conv-scope-1', 'msg-scope-1', 'default');
+    expect(r1.isError).toBe(false);
+    expect(r1.content).toContain('Saved to memory');
+
+    // Save the identical statement in a private scope
+    const r2 = await handleMemorySave(sharedArgs, DEFAULT_CONFIG, 'conv-scope-2', 'msg-scope-2', 'private-abc');
+    expect(r2.isError).toBe(false);
+    expect(r2.content).toContain('Saved to memory');
+
+    // Both items should exist with distinct IDs
+    const db = getDb();
+    const items = db.select().from(memoryItems)
+      .where(eq(memoryItems.statement, 'I prefer dark mode'))
+      .all();
+    expect(items.length).toBe(2);
+
+    const scopes = new Set(items.map((i) => i.scopeId));
+    expect(scopes.has('default')).toBe(true);
+    expect(scopes.has('private-abc')).toBe(true);
+
+    // Saving the same statement again in default scope should dedup (not create a third)
+    const r3 = await handleMemorySave(sharedArgs, DEFAULT_CONFIG, 'conv-scope-3', 'msg-scope-3', 'default');
+    expect(r3.isError).toBe(false);
+    expect(r3.content).toContain('already exists');
+
+    const afterDedup = db.select().from(memoryItems)
+      .where(eq(memoryItems.statement, 'I prefer dark mode'))
+      .all();
+    expect(afterDedup.length).toBe(2);
+  });
+
   test('memory_update promotes verificationState to user_confirmed', async () => {
     const db = getDb();
     const now = Date.now();

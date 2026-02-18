@@ -37,7 +37,7 @@ class MemorySaveTool implements Tool {
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemorySave(input, config, context.conversationId, context.requestId);
+    return handleMemorySave(input, config, context.conversationId, context.requestId, context.memoryScopeId);
   }
 }
 
