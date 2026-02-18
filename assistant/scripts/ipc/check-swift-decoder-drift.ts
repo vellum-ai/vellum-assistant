@@ -44,7 +44,7 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Page publishing — not yet consumed by the macOS client
   'publish_page_response',
   'unpublish_page_response',
-  // Daemon-internal watcher events not surfaced to macOS client
+  // Watcher messages — not yet consumed by the macOS client
   'watcher_escalation',
   'watcher_notification',
 ]);
@@ -68,7 +68,7 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
 const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
   // Defined in Swift LayoutConfig.swift ahead of daemon implementation
   'ui_layout_config',
-  // Document editor types defined in Swift ahead of daemon implementation
+  // Document editor types — removed from IPC contract but still used by macOS client
   'document_editor_show',
   'document_editor_update',
   'document_save_response',
