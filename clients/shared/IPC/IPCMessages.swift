@@ -1750,6 +1750,9 @@ public enum ServerMessage: Decodable, Sendable {
     case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
     case browserCDPRequest(BrowserCDPRequestMessage)
     case envVarsResponse(EnvVarsResponseMessage)
+    case workItemsListResponse(IPCWorkItemsListResponse)
+    case workItemStatusChanged(IPCWorkItemStatusChanged)
+    case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
     case pong
     case unknown(String)
 
@@ -2005,6 +2008,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)
+        case "work_items_list_response":
+            let message = try IPCWorkItemsListResponse(from: decoder)
+            self = .workItemsListResponse(message)
+        case "work_item_status_changed":
+            let message = try IPCWorkItemStatusChanged(from: decoder)
+            self = .workItemStatusChanged(message)
+        case "work_item_run_task_response":
+            let message = try IPCWorkItemRunTaskResponse(from: decoder)
+            self = .workItemRunTaskResponse(message)
         case "pong":
             self = .pong
         default:
