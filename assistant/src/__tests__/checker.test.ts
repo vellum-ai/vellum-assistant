@@ -78,6 +78,24 @@ const mockSkillTool: Tool = {
 };
 registerTool(mockSkillTool);
 
+// Register a mock bundled skill-origin tool for testing strict mode + bundled policy.
+const mockBundledSkillTool: Tool = {
+  name: 'skill_bundled_test_tool',
+  description: 'A test bundled skill tool',
+  category: 'skill',
+  defaultRiskLevel: RiskLevel.Low,
+  origin: 'skill',
+  ownerSkillId: 'gmail',
+  ownerSkillBundled: true,
+  getDefinition: () => ({
+    name: 'skill_bundled_test_tool',
+    description: 'A test bundled skill tool',
+    input_schema: { type: 'object' as const, properties: {} },
+  }),
+  execute: async () => ({ content: 'ok', isError: false }),
+};
+registerTool(mockBundledSkillTool);
+
 function writeSkill(skillId: string, name: string, description = 'Test skill'): void {
   const skillDir = join(checkerTestDir, 'skills', skillId);
   mkdirSync(skillDir, { recursive: true });
@@ -3014,6 +3032,13 @@ describe('Permission Checker', () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('skill_test_tool', {}, '/tmp');
         expect(result.decision).toBe('prompt');
+      });
+
+      test('bundled skill-origin tool with no rule prompts in strict mode', async () => {
+        testConfig.permissions.mode = 'strict';
+        const result = await check('skill_bundled_test_tool', {}, '/tmp');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('Strict mode');
       });
 
       test('explicit allow rule allows execution in strict mode', async () => {
