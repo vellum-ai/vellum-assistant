@@ -3825,10 +3825,8 @@ describe('bash network_mode=proxied force prompt (PR 14)', () => {
   });
 
   test('deny rule still blocks proxied host_bash command', async () => {
-    addRule('host_bash', 'curl *', 'everywhere', 'deny');
-    // Use a command without URL slashes so minimatch's '*' (which doesn't
-    // cross '/') can match the argument.
-    const result = await check('host_bash', { command: 'curl evil.com', network_mode: 'proxied' }, '/tmp');
+    addRule('host_bash', 'curl https://**', 'everywhere', 'deny');
+    const result = await check('host_bash', { command: 'curl https://evil.com', network_mode: 'proxied' }, '/tmp');
     expect(result.decision).toBe('deny');
     expect(result.reason).toContain('deny rule');
   });
