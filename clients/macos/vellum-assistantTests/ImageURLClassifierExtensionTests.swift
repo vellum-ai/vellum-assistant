@@ -104,21 +104,21 @@ final class ImageURLClassifierExtensionTests: XCTestCase {
         XCTAssertEqual(ImageURLClassifier.classify(url), .notImage)
     }
 
-    // MARK: - Non-image extensions
+    // MARK: - Unrecognized extensions return unknown (eligible for MIME probe)
 
-    func testHTMLReturnsNotImage() {
+    func testHTMLReturnsUnknown() {
         let url = URL(string: "https://example.com/page.html")!
-        XCTAssertEqual(ImageURLClassifier.classify(url), .notImage)
+        XCTAssertEqual(ImageURLClassifier.classify(url), .unknown)
     }
 
-    func testPDFReturnsNotImage() {
+    func testPDFReturnsUnknown() {
         let url = URL(string: "https://example.com/document.pdf")!
-        XCTAssertEqual(ImageURLClassifier.classify(url), .notImage)
+        XCTAssertEqual(ImageURLClassifier.classify(url), .unknown)
     }
 
-    func testZIPReturnsNotImage() {
+    func testZIPReturnsUnknown() {
         let url = URL(string: "https://example.com/archive.zip")!
-        XCTAssertEqual(ImageURLClassifier.classify(url), .notImage)
+        XCTAssertEqual(ImageURLClassifier.classify(url), .unknown)
     }
 
     // MARK: - No extension returns unknown
