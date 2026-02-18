@@ -15,7 +15,6 @@ import { accountManageTool } from './credentials/account-registry.js';
 import { reminderTool } from './reminder/reminder.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
-import { integrationManageTool } from './integrations/manage.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
@@ -36,6 +35,7 @@ export const eagerModules: string[] = [
   './schedule/list.js',
   './schedule/update.js',
   './schedule/delete.js',
+  './integrations/manage.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -66,6 +66,7 @@ export const eagerModuleToolNames: string[] = [
   'schedule_list',
   'schedule_update',
   'schedule_delete',
+  'integration_manage',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -81,7 +82,6 @@ export const explicitTools: Tool[] = [
   reminderTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
-  integrationManageTool,
   documentCreateTool,
   documentUpdateTool,
 ];

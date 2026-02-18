@@ -488,7 +488,7 @@ function buildIntegrationSection(): string {
 
     let line = `- **${def.name}**: ${state}`;
     if (!configured && def.setupSkillId) {
-      line += `. Use \`integration_manage\` to check status and \`skill_load\` with id "${def.setupSkillId}" to help set it up.`;
+      line += `. Use \`integration_manage\` to check status. To set it up, first install the skill via \`vellum_skills_catalog\` (search for "${def.setupSkillId}"), then load it with \`skill_load\`.`;
     }
     lines.push(line);
   }
