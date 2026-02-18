@@ -83,11 +83,46 @@ enum MessageURLExtractor {
         return results
     }
 
+    // Matches fenced code blocks: ``` with optional language id, content, closing ```
+    // Uses dotMatchesLineSeparators so `.` spans newlines.
+    private static let fencedCodeBlockPattern: NSRegularExpression = {
+        let pattern = "```[^`\\n]*\\n[\\s\\S]*?```"
+        return try! NSRegularExpression(pattern: pattern, options: [])
+    }()
+
+    // Matches inline code spans: `...` (single backtick, no nesting).
+    // Avoids matching empty backtick pairs or fenced blocks.
+    private static let inlineCodePattern: NSRegularExpression = {
+        let pattern = "`[^`]+`"
+        return try! NSRegularExpression(pattern: pattern, options: [])
+    }()
+
+    /// Removes fenced code blocks and inline code spans so that URLs
+    /// inside them are not picked up by extraction. Fenced blocks are
+    /// stripped first so that backticks inside fences don't interfere
+    /// with inline-code matching.
+    static func stripCodeRegions(from text: String) -> String {
+        let mutable = NSMutableString(string: text)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+
+        // Strip fenced blocks first (they may contain backticks).
+        fencedCodeBlockPattern.replaceMatches(in: mutable, options: [], range: fullRange, withTemplate: "")
+
+        // Then strip inline code spans from what remains.
+        let updatedRange = NSRange(location: 0, length: mutable.length)
+        inlineCodePattern.replaceMatches(in: mutable, options: [], range: updatedRange, withTemplate: "")
+
+        return mutable as String
+    }
+
     /// Combines plain-text and markdown-link URL extraction, returning a
     /// deduplicated list in first-occurrence order across both sources.
+    /// URLs inside inline code spans and fenced code blocks are excluded.
     static func extractAllURLs(from text: String) -> [URL] {
-        let plain = extractPlainURLs(from: text)
-        let markdown = extractMarkdownLinkURLs(from: text)
+        let stripped = stripCodeRegions(from: text)
+
+        let plain = extractPlainURLs(from: stripped)
+        let markdown = extractMarkdownLinkURLs(from: stripped)
 
         var seen = Set<String>()
         var results: [URL] = []
