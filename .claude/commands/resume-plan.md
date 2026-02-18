@@ -84,11 +84,7 @@ Read the next PR section from the plan. Implement all changes in the worktree.
 
 #### 8c. Validate
 
-```bash
-cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
-```
-
-Fix any failures before proceeding.
+**Do NOT run tests, type-checking (`tsc`), or linting unless the plan's PR section explicitly specifies validation steps.** These steps are slow and rarely catch issues for well-scoped changes.
 
 #### 8d. Ship (do NOT merge)
 

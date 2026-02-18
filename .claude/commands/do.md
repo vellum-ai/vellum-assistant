@@ -29,11 +29,9 @@ Remember the worktree path printed by the script. ALL work happens in the worktr
 
 ### 2. Implement the changes
 
-Working entirely inside the worktree directory, implement what was requested. Explore the codebase, make changes, add tests if appropriate, and type-check:
+Working entirely inside the worktree directory, implement what was requested. Explore the codebase and make changes.
 
-```bash
-cd <worktree>/assistant && export PATH="$HOME/.bun/bin:$PATH" && bunx tsc --noEmit
-```
+**Do NOT run tests, type-checking (`tsc`), or linting unless the task specifically requires it** (e.g., "fix the type errors", "make the tests pass"). These steps are slow and rarely catch issues for well-scoped changes.
 
 ### 3. Ship
 
