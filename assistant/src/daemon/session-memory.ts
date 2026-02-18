@@ -133,6 +133,7 @@ export async function prepareMemoryContext(
     excludeMessageIds: [userMessageId],
     signal: abortSignal,
     maxInjectTokensOverride: recallBudget,
+    scopeId: ctx.scopeId,
     scopePolicyOverride,
   });
   const memoryStatus = getMemoryConflictAndCleanupStats();

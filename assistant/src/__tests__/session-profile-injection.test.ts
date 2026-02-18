@@ -412,8 +412,9 @@ describe('Session dynamic profile injection', () => {
     expect(profileCompilerArgs[0].scopeId).toBe('private-thread-abc');
     expect(profileCompilerArgs[0].includeDefaultFallback).toBe(true);
 
-    // Memory recall should receive a scopePolicyOverride for the private scope
+    // Memory recall should receive scopeId and a scopePolicyOverride for the private scope
     expect(recallArgs).toHaveLength(1);
+    expect(recallArgs[0].scopeId).toBe('private-thread-abc');
     expect(recallArgs[0].scopePolicyOverride).toEqual({
       scopeId: 'private-thread-abc',
       fallbackToDefault: true,
@@ -433,9 +434,11 @@ describe('Session dynamic profile injection', () => {
     expect(profileCompilerArgs[0].scopeId).toBe('default');
     expect(profileCompilerArgs[0].includeDefaultFallback).toBe(false);
 
-    // Memory recall should NOT have a scopePolicyOverride (default scope
-    // relies on the global config policy, not a per-call override)
+    // Memory recall should forward scopeId='default' so buildScopeFilter
+    // properly filters to the default scope, and should NOT have a
+    // scopePolicyOverride (default scope relies on the global config policy)
     expect(recallArgs).toHaveLength(1);
+    expect(recallArgs[0].scopeId).toBe('default');
     expect(recallArgs[0].scopePolicyOverride).toBeUndefined();
   });
 });
