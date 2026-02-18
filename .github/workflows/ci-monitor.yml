@@ -1,0 +1,246 @@
+name: CI Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-assistant:
+    name: Check Assistant
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: assistant
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+      logs: ${{ steps.result.outputs.logs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        id: checks
+        run: |
+          FAILED="false"
+
+          echo "=== Type Check ===" >> /tmp/check-logs.txt
+          if ! bunx tsc --noEmit >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Type check failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "" >> /tmp/check-logs.txt
+          echo "=== Lint ===" >> /tmp/check-logs.txt
+          if ! bun run lint >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Lint failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "" >> /tmp/check-logs.txt
+          echo "=== Tests ===" >> /tmp/check-logs.txt
+          if ! EXCLUDE_EXPERIMENTAL=true bun run test >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Tests failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+
+      - name: Collect logs
+        if: always()
+        id: result
+        run: |
+          echo "failed=${{ steps.checks.outputs.failed }}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'logs<<LOGS_EOF'
+            tail -200 /tmp/check-logs.txt
+            echo 'LOGS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  check-cli:
+    name: Check CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cli
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+      logs: ${{ steps.result.outputs.logs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        id: checks
+        run: |
+          FAILED="false"
+
+          echo "=== Lint ===" >> /tmp/check-logs.txt
+          if ! bun run lint >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Lint failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "" >> /tmp/check-logs.txt
+          echo "=== Type Check ===" >> /tmp/check-logs.txt
+          if ! bun run typecheck >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Type check failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+
+      - name: Collect logs
+        if: always()
+        id: result
+        run: |
+          echo "failed=${{ steps.checks.outputs.failed }}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'logs<<LOGS_EOF'
+            tail -200 /tmp/check-logs.txt
+            echo 'LOGS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  check-gateway:
+    name: Check Gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: gateway
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+      logs: ${{ steps.result.outputs.logs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run checks
+        id: checks
+        run: |
+          FAILED="false"
+
+          echo "=== Lint ===" >> /tmp/check-logs.txt
+          if ! bun run lint >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Lint failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "" >> /tmp/check-logs.txt
+          echo "=== Type Check ===" >> /tmp/check-logs.txt
+          if ! bun run typecheck >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Type check failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "" >> /tmp/check-logs.txt
+          echo "=== Tests ===" >> /tmp/check-logs.txt
+          if ! bun run test >> /tmp/check-logs.txt 2>&1; then
+            FAILED="true"
+            echo "Tests failed" >> /tmp/check-logs.txt
+          fi
+
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+
+      - name: Collect logs
+        if: always()
+        id: result
+        run: |
+          echo "failed=${{ steps.checks.outputs.failed }}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'logs<<LOGS_EOF'
+            tail -200 /tmp/check-logs.txt
+            echo 'LOGS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  trigger-devin:
+    name: Trigger Devin Fix
+    runs-on: ubuntu-latest
+    needs: [check-assistant, check-cli, check-gateway]
+    if: |
+      always() && (
+        needs.check-assistant.outputs.failed == 'true' ||
+        needs.check-cli.outputs.failed == 'true' ||
+        needs.check-gateway.outputs.failed == 'true'
+      )
+    steps:
+      - name: Build failure summary
+        id: summary
+        env:
+          ASSISTANT_FAILED: ${{ needs.check-assistant.outputs.failed }}
+          ASSISTANT_LOGS: ${{ needs.check-assistant.outputs.logs }}
+          CLI_FAILED: ${{ needs.check-cli.outputs.failed }}
+          CLI_LOGS: ${{ needs.check-cli.outputs.logs }}
+          GATEWAY_FAILED: ${{ needs.check-gateway.outputs.failed }}
+          GATEWAY_LOGS: ${{ needs.check-gateway.outputs.logs }}
+        run: |
+          {
+            echo 'summary<<SUMMARY_EOF'
+
+            if [ "$ASSISTANT_FAILED" == "true" ]; then
+              printf '## Assistant failures:\n%s\n\n' "$ASSISTANT_LOGS"
+            fi
+
+            if [ "$CLI_FAILED" == "true" ]; then
+              printf '## CLI failures:\n%s\n\n' "$CLI_LOGS"
+            fi
+
+            if [ "$GATEWAY_FAILED" == "true" ]; then
+              printf '## Gateway failures:\n%s\n\n' "$GATEWAY_LOGS"
+            fi
+
+            echo 'SUMMARY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Devin session
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          FAILURE_SUMMARY: ${{ steps.summary.outputs.summary }}
+        run: |
+          PROMPT="The CI checks on the main branch of vellum-ai/vellum-assistant are failing. Please investigate and fix the issues.
+
+          IMPORTANT RULES:
+          - ONLY fix issues that are caused by tooling, configuration, lint rules, type errors, import issues, or other infrastructure problems.
+          - DO NOT fix tests that are failing because of actual logical bugs or intentional behavior changes — those are real failures and should be left for a human to address.
+          - If a test is asserting the wrong expected value due to a recent intentional code change, that is an actual failure — do NOT fix it.
+          - If a lint rule or type error can be resolved by fixing an import, adding a missing type annotation, updating a config, or similar mechanical fix, go ahead and fix it.
+          - If you determine that ALL failures are actual/intentional failures and none are infrastructure problems, do nothing and report that finding.
+
+          Here are the current failures:
+
+          ${FAILURE_SUMMARY}"
+
+          curl --fail-with-body --request POST \
+            --url https://api.devin.ai/v1/sessions \
+            --header "Authorization: Bearer $DEVIN_API_KEY" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg prompt "$PROMPT" '{prompt: $prompt, idempotent: true}')"
