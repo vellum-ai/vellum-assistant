@@ -161,6 +161,15 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     })),
   ]);
 
+  const skillLoadRule: DefaultRuleTemplate = {
+    id: 'default:allow-skill_load-global',
+    tool: 'skill_load',
+    pattern: 'skill_load:*',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
   return [
     ...protectedFileRules,
     ...hostFileRules,
@@ -170,5 +179,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...workspacePromptRules,
     bootstrapDeleteRule,
     ...skillSourceMutationRules,
+    skillLoadRule,
   ];
 }

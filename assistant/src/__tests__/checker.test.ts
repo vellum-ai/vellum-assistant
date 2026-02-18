@@ -2438,9 +2438,10 @@ describe('Permission Checker', () => {
         '/tmp',
       );
       // The disk-computed hash differs from the spoofed hash, so the
-      // version-specific rule doesn't match and strict mode prompts.
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
+      // version-specific rule doesn't match. The default allow rule
+      // for skill_load:* catches it instead.
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
     });
 
     // ── generateAllowlistOptions for skill_load ──
@@ -2507,13 +2508,14 @@ describe('Permission Checker', () => {
 
       // The disk-computed hash will differ from the spoofed hash, so
       // the version-specific candidate should NOT match the rule.
+      // The default allow rule for skill_load:* catches it instead.
       const result = await check(
         'skill_load',
         { skill: 'test-spoof-target', version_hash: spoofedHash },
         '/tmp',
       );
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
     });
 
     test('when disk hash computation fails, only bare skillId candidate is generated (no input fallback)', async () => {
@@ -2561,11 +2563,11 @@ describe('Permission Checker', () => {
       mkdirSync(join(checkerTestDir, 'skills'), { recursive: true });
     }
 
-    test('skill_load with no matching rule triggers prompt in strict mode', async () => {
+    test('skill_load is allowed by the default skill_load:* rule in strict mode', async () => {
       testConfig.permissions.mode = 'strict';
       const result = await check('skill_load', { skill: 'some-skill' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
     });
 
     test('skill_load with exact version rule auto-allows in strict mode', async () => {
@@ -2615,7 +2617,8 @@ describe('Permission Checker', () => {
       testConfig.permissions.mode = 'legacy';
       const result = await check('skill_load', { skill: 'any-skill' }, '/tmp');
       expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Low risk');
+      // The default allow rule matches before the Low risk fallback
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
     });
 
     test('skill_load deny rule blocks in strict mode', async () => {
@@ -2642,7 +2645,7 @@ describe('Permission Checker', () => {
       expect(result.reason).toContain('ask rule');
     });
 
-    test('skill_load with wrong version hash does not match and prompts in strict mode', async () => {
+    test('skill_load with wrong version hash falls through to default allow rule', async () => {
       ensureSkillsDir();
       writeSkill('pr34-wrong-ver', 'PR34 Wrong Version');
       testConfig.permissions.mode = 'strict';
@@ -2651,11 +2654,10 @@ describe('Permission Checker', () => {
       addRule('skill_load', 'skill_load:pr34-wrong-ver@v1:wronghash', 'everywhere', 'allow', 2000);
 
       const result = await check('skill_load', { skill: 'pr34-wrong-ver' }, '/tmp');
-      // The version-specific candidate won't match the wrong hash, but the
-      // bare id candidate (pr34-wrong-ver) doesn't match the versioned rule
-      // either, so strict mode kicks in.
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
+      // The version-specific candidate won't match the wrong hash, but
+      // the default allow rule for skill_load:* catches it.
+      expect(result.decision).toBe('allow');
+      expect(result.matchedRule!.pattern).toBe('skill_load:*');
     });
   });
 
@@ -2732,10 +2734,10 @@ describe('Permission Checker', () => {
 
       // v2: the version-specific candidate changes, so the old rule no
       // longer matches. The bare id candidate doesn't match the versioned
-      // rule either. Strict mode kicks in.
+      // rule either. The default allow rule for skill_load:* catches it.
       const resultV2 = await check('skill_load', { skill: 'pr35-hash-skill' }, '/tmp');
-      expect(resultV2.decision).toBe('prompt');
-      expect(resultV2.reason).toContain('Strict mode');
+      expect(resultV2.decision).toBe('allow');
+      expect(resultV2.matchedRule!.pattern).toBe('skill_load:*');
     });
 
     // ── skill tool use: principal version binding stops matching after edit ──
@@ -2987,11 +2989,11 @@ describe('Permission Checker', () => {
         expect(result.reason).toContain('Strict mode');
       });
 
-      test('low-risk skill_load with no rule prompts in strict mode', async () => {
+      test('low-risk skill_load is allowed by default rule in strict mode', async () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('skill_load', { skill: 'any-skill' }, '/tmp');
-        expect(result.decision).toBe('prompt');
-        expect(result.reason).toContain('Strict mode');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule!.pattern).toBe('skill_load:*');
       });
 
       test('medium-risk file_write with no rule prompts in strict mode', async () => {
@@ -3561,6 +3563,25 @@ describe('Permission Checker', () => {
       } finally {
         testConfig.permissions = { mode: 'legacy' };
       }
+    });
+  });
+
+  // ── default allow: skill_load ──────────────────────────────────
+
+  describe('default allow: skill_load', () => {
+    beforeEach(() => {
+      clearCache();
+      testConfig.permissions = { mode: 'strict' };
+    });
+
+    test('skill_load is allowed by default rule in strict mode', async () => {
+      const result = await check('skill_load', { skill: 'browser' }, '/tmp');
+      expect(result.decision).toBe('allow');
+    });
+
+    test('skill_load with any skill name matches the default rule', async () => {
+      const result = await check('skill_load', { skill: 'some-random-skill' }, '/tmp');
+      expect(result.decision).toBe('allow');
     });
   });
 });

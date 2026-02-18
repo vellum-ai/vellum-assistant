@@ -732,6 +732,7 @@ describe('Trust Store', () => {
         'host_file_write',
         'request_computer_control',
         'scaffold_managed_skill',
+        'skill_load',
       ]);
     });
 
@@ -972,6 +973,33 @@ describe('Trust Store', () => {
       expect(bundled!.tool).toBe('host_file_edit');
       expect(bundled!.decision).toBe('ask');
       expect(bundled!.priority).toBe(50);
+    });
+
+    // ── default allow: skill_load ────────────────────────────────
+
+    test('skill_load default allow rule exists in templates', () => {
+      const templates = getDefaultRuleTemplates();
+      const skillLoadRule = templates.find(t => t.id === 'default:allow-skill_load-global');
+      expect(skillLoadRule).toBeDefined();
+      expect(skillLoadRule!.tool).toBe('skill_load');
+      expect(skillLoadRule!.pattern).toBe('skill_load:*');
+      expect(skillLoadRule!.decision).toBe('allow');
+      expect(skillLoadRule!.scope).toBe('everywhere');
+    });
+
+    test('findHighestPriorityRule matches default allow for skill_load', () => {
+      const match = findHighestPriorityRule('skill_load', ['skill_load:browser'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:allow-skill_load-global');
+      expect(match!.decision).toBe('allow');
+      expect(match!.priority).toBe(100);
+    });
+
+    test('findHighestPriorityRule matches default allow for skill_load with any skill name', () => {
+      const match = findHighestPriorityRule('skill_load', ['skill_load:some-random-skill'], '/tmp');
+      expect(match).not.toBeNull();
+      expect(match!.id).toBe('default:allow-skill_load-global');
+      expect(match!.decision).toBe('allow');
     });
 
     test('no default ask rules exist for file_read on skill source paths', () => {
