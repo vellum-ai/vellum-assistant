@@ -241,10 +241,10 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
   }
 
   // hCaptcha fallback — catch custom-rendered hCaptcha in arbitrary host elements
-  // by looking for a visible hCaptcha iframe directly
-  const hcaptchaIframe = document.querySelector('iframe[src*="hcaptcha"]');
-  if (hcaptchaIframe) {
-    const rect = hcaptchaIframe.getBoundingClientRect();
+  // by looking for any visible hCaptcha iframe (check all, not just the first)
+  const hcaptchaIframes = document.querySelectorAll('iframe[src*="hcaptcha"]');
+  for (const iframe of hcaptchaIframes) {
+    const rect = iframe.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) return true;
   }
 
