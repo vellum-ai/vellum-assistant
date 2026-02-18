@@ -331,7 +331,7 @@ describe('HeartbeatService', () => {
   });
 
   describe('start and stop', () => {
-    test('start and stop are idempotent', () => {
+    test('start and stop are idempotent', async () => {
       const heartbeat = new HeartbeatService({
         intervalMs: 60000,
         getServices: () => services,
@@ -340,8 +340,8 @@ describe('HeartbeatService', () => {
       // Should not throw
       heartbeat.start();
       heartbeat.start(); // Idempotent
-      heartbeat.stop();
-      heartbeat.stop(); // Idempotent
+      await heartbeat.stop();
+      await heartbeat.stop(); // Idempotent
     });
   });
 });

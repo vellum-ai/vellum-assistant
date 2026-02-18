@@ -62,6 +62,8 @@ export class HeartbeatService {
   private readonly getServices: () => ReadonlyMap<string, WorkspaceGitService>;
   private readonly now: () => number;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Tracks the currently in-flight check to prevent overlapping runs and allow clean shutdown. */
+  private activeCheck: Promise<HeartbeatCheckResult> | null = null;
 
   constructor(options?: HeartbeatServiceOptions) {
     this.ageThresholdMs = options?.ageThresholdMs ?? DEFAULT_AGE_THRESHOLD_MS;
@@ -89,58 +91,79 @@ export class HeartbeatService {
   }
 
   /**
-   * Stop the periodic heartbeat timer.
+   * Stop the periodic heartbeat timer and wait for any in-flight check to complete.
+   * This prevents races between the heartbeat check and shutdown commits.
    */
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
-      log.info('Heartbeat service stopped');
     }
+    if (this.activeCheck) {
+      await this.activeCheck;
+    }
+    log.info('Heartbeat service stopped');
   }
 
   /**
    * Run a single heartbeat check across all tracked workspaces.
    * For each workspace with uncommitted changes that exceed the age or file
    * threshold, an auto-commit is created.
+   *
+   * If a previous check is still in-flight, this returns immediately with
+   * zeroed results to prevent overlapping commits on the same workspaces.
    */
   async check(): Promise<HeartbeatCheckResult> {
-    const result: HeartbeatCheckResult = {
-      checked: 0,
-      committed: 0,
-      skipped: 0,
-      failed: 0,
+    // Guard: skip if a previous check is still running
+    if (this.activeCheck) {
+      return { checked: 0, committed: 0, skipped: 0, failed: 0 };
+    }
+
+    const doCheck = async (): Promise<HeartbeatCheckResult> => {
+      const result: HeartbeatCheckResult = {
+        checked: 0,
+        committed: 0,
+        skipped: 0,
+        failed: 0,
+      };
+
+      const services = this.getServices();
+
+      for (const [workspaceDir, service] of services) {
+        // Only check workspaces that have been initialized (have a .git dir).
+        // Skip workspaces that haven't been used yet to avoid spurious init.
+        if (!service.isInitialized()) {
+          continue;
+        }
+
+        result.checked++;
+
+        try {
+          const committed = await this.checkWorkspace(workspaceDir, service, 'heartbeat');
+          if (committed) {
+            result.committed++;
+          } else {
+            result.skipped++;
+          }
+        } catch (err) {
+          log.warn({ err, workspaceDir }, 'Heartbeat check failed for workspace');
+          result.failed++;
+        }
+      }
+
+      if (result.committed > 0) {
+        log.info(result, 'Heartbeat check completed with commits');
+      }
+
+      return result;
     };
 
-    const services = this.getServices();
-
-    for (const [workspaceDir, service] of services) {
-      // Only check workspaces that have been initialized (have a .git dir).
-      // Skip workspaces that haven't been used yet to avoid spurious init.
-      if (!service.isInitialized()) {
-        continue;
-      }
-
-      result.checked++;
-
-      try {
-        const committed = await this.checkWorkspace(workspaceDir, service, 'heartbeat');
-        if (committed) {
-          result.committed++;
-        } else {
-          result.skipped++;
-        }
-      } catch (err) {
-        log.warn({ err, workspaceDir }, 'Heartbeat check failed for workspace');
-        result.failed++;
-      }
+    this.activeCheck = doCheck();
+    try {
+      return await this.activeCheck;
+    } finally {
+      this.activeCheck = null;
     }
-
-    if (result.committed > 0) {
-      log.info(result, 'Heartbeat check completed with commits');
-    }
-
-    return result;
   }
 
   /**
