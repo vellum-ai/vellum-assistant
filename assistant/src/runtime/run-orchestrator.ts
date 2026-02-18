@@ -111,6 +111,7 @@ export class RunOrchestrator {
           principalKind: msg.principalKind,
           principalId: msg.principalId,
           principalVersion: msg.principalVersion,
+          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
         });
         this.pending.set(run.id, {
           prompterRequestId: msg.requestId,
