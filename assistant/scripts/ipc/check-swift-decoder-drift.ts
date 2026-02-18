@@ -68,12 +68,6 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
 const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
   // Defined in Swift LayoutConfig.swift ahead of daemon implementation
   'ui_layout_config',
-  // Document editor types — removed from IPC contract but still used by macOS client
-  'document_editor_show',
-  'document_editor_update',
-  'document_save_response',
-  'document_load_response',
-  'document_list_response',
 ]);
 
 // --- Extract Swift decode cases ---

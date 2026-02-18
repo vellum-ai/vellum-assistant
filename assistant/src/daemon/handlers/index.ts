@@ -88,6 +88,12 @@ import {
   handleIpcBlobProbe,
 } from './misc.js';
 
+import {
+  handleDocumentSave,
+  handleDocumentLoad,
+  handleDocumentList,
+} from './documents.js';
+
 // Re-export types and utilities for backwards compatibility
 export type {
   HandlerContext,
@@ -226,6 +232,9 @@ const handlers: DispatchMap = {
   },
   diagnostics_export_request: handleDiagnosticsExport,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
+  document_save: handleDocumentSave,
+  document_load: handleDocumentLoad,
+  document_list: handleDocumentList,
 
   // Stub handlers: the integration registry was removed but the Swift client
   // still sends these messages. Return safe no-op responses so the client

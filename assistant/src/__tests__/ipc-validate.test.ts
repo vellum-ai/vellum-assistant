@@ -335,6 +335,9 @@ describe('IPC Validate', () => {
       secret_response: { requestId: 'r1' },
       ui_surface_action: { sessionId: 's1', surfaceId: 'sf1', actionId: 'a1' },
       ipc_blob_probe: { probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', nonceSha256: 'abc123' },
+      document_save: { surfaceId: 'doc1', conversationId: 'c1', title: 'Doc', content: 'text', wordCount: 1 },
+      document_load: { surfaceId: 'doc1' },
+      document_list: {},
     };
 
     test('KNOWN_CLIENT_TYPES matches live contract wire types', () => {

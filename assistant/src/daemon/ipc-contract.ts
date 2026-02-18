@@ -735,7 +735,10 @@ export type ClientMessage =
   | EnvVarsRequest
   | IntegrationListRequest
   | IntegrationConnectRequest
-  | IntegrationDisconnectRequest;
+  | IntegrationDisconnectRequest
+  | DocumentSaveRequest
+  | DocumentLoadRequest
+  | DocumentListRequest;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1592,6 +1595,75 @@ export interface UiSurfaceUndoResult {
   remainingUndos: number;
 }
 
+// ── Document Editor Messages ────────────────────────────────────────
+
+export interface DocumentEditorShow {
+  type: 'document_editor_show';
+  sessionId: string;
+  surfaceId: string;
+  title: string;
+  initialContent: string;
+}
+
+export interface DocumentEditorUpdate {
+  type: 'document_editor_update';
+  sessionId: string;
+  surfaceId: string;
+  markdown: string;
+  mode: string;
+}
+
+export interface DocumentSaveRequest {
+  type: 'document_save';
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+}
+
+export interface DocumentSaveResponse {
+  type: 'document_save_response';
+  surfaceId: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface DocumentLoadRequest {
+  type: 'document_load';
+  surfaceId: string;
+}
+
+export interface DocumentLoadResponse {
+  type: 'document_load_response';
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+  createdAt: number;
+  updatedAt: number;
+  success: boolean;
+  error?: string;
+}
+
+export interface DocumentListRequest {
+  type: 'document_list';
+  conversationId?: string;
+}
+
+export interface DocumentListResponse {
+  type: 'document_list_response';
+  documents: Array<{
+    surfaceId: string;
+    conversationId: string;
+    title: string;
+    wordCount: number;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -1677,7 +1749,12 @@ export type ServerMessage =
   | BrowserFrame
   | EnvVarsResponse
   | IntegrationListResponse
-  | IntegrationConnectResult;
+  | IntegrationConnectResult
+  | DocumentEditorShow
+  | DocumentEditorUpdate
+  | DocumentSaveResponse
+  | DocumentLoadResponse
+  | DocumentListResponse;
 
 // === Contract schema ===
 

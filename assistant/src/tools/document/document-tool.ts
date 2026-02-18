@@ -39,80 +39,36 @@ export class DocumentCreateTool implements Tool {
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const title = (input.title as string | undefined) || 'Untitled Document';
     const initialContent = (input.initial_content as string | undefined) || '';
-    const appId = `doc-${randomUUID()}`;
+    const surfaceId = `doc-${randomUUID()}`;
 
-    // Generate the Toast UI Editor HTML
-    const html = generateEditorHTML(title, initialContent);
+    // Send document_editor_show IPC message to open the built-in RTE
+    if (context.sendToClient) {
+      context.sendToClient({
+        type: 'document_editor_show',
+        sessionId: context.sessionId,
+        surfaceId,
+        title,
+        initialContent,
+      });
 
-    // Create the document app in the app store
-    const wordCount = initialContent.split(/\s+/).filter((w) => w.length > 0).length;
-    const app = appStore.createApp({
-      name: title,
-      description: `Document with ${wordCount} words`,
-      icon: '📝',
-      preview: initialContent.slice(0, 200),
-      htmlDefinition: html,
-      schemaJson: JSON.stringify({
-        type: 'object',
-        properties: {
-          title: { type: 'string' },
-          content: { type: 'string' },
-          wordCount: { type: 'number' },
-          documentType: { type: 'string', const: 'document' },
-        },
-      }),
-      appType: 'app',
-    });
-
-    // Open the document via the shared open-proxy helper
-    const openResultText = await openAppViaSurface(
-      app.id,
-      context.proxyToolResolver,
-      {
-        preview: {
-          title,
-          subtitle: 'Document',
-          description: 'Long-form document with rich text editor',
-          icon: '\u{1F4DD}',
-          metrics: [{ label: 'Words', value: String(wordCount) }],
-        },
-      },
-    );
-
-    // The helper returns fallback text when the resolver is missing or throws
-    const opened = !!context.proxyToolResolver &&
-      openResultText !== 'Failed to auto-open app. Use app_open to open it manually.';
-
-    if (opened) {
       return {
         content: JSON.stringify({
-          app_id: appId,
-          surface_id: app.id,
+          surface_id: surfaceId,
           title,
           opened: true,
-          open_result: openResultText,
+          message: 'Document editor opened in Directory panel',
         }),
         isError: false,
       };
     }
 
-    if (!context.proxyToolResolver) {
-      return {
-        content: JSON.stringify({
-          app_id: appId,
-          title,
-          message: 'Document created but could not be opened (no proxy resolver available)',
-        }),
-        isError: false,
-      };
-    }
-
+    // Fallback if no IPC client is connected
     return {
       content: JSON.stringify({
-        app_id: appId,
+        surface_id: surfaceId,
         title,
         opened: false,
-        error: 'Failed to open document editor',
+        error: 'No IPC client connected to open document editor',
       }),
       isError: false,
     };
@@ -160,42 +116,32 @@ export class DocumentUpdateTool implements Tool {
     const content = input.content as string;
     const mode = (input.mode as string | undefined) || 'append';
 
-    // Use the proxy resolver to call ui_update
-    if (context.proxyToolResolver) {
-      try {
-        const updateResult = await context.proxyToolResolver('ui_update', {
-          surface_id: surfaceId,
-          data: {
-            markdown: content,
-            updateMode: mode,
-          },
-        });
+    // Send document_editor_update IPC message to update the built-in RTE
+    if (context.sendToClient) {
+      context.sendToClient({
+        type: 'document_editor_update',
+        sessionId: context.sessionId,
+        surfaceId,
+        markdown: content,
+        mode,
+      });
 
-        return {
-          content: JSON.stringify({
-            success: true,
-            surface_id: surfaceId,
-            mode,
-            update_result: updateResult.content,
-          }),
-          isError: false,
-        };
-      } catch (err) {
-        return {
-          content: JSON.stringify({
-            success: false,
-            error: 'Failed to update document content',
-            details: err instanceof Error ? err.message : String(err),
-          }),
-          isError: true,
-        };
-      }
+      return {
+        content: JSON.stringify({
+          success: true,
+          surface_id: surfaceId,
+          mode,
+          message: 'Document content updated',
+        }),
+        isError: false,
+      };
     }
 
+    // Fallback if no IPC client is connected
     return {
       content: JSON.stringify({
         success: false,
-        error: 'No proxy resolver available to update document',
+        error: 'No IPC client connected to update document',
       }),
       isError: true,
     };
