@@ -99,6 +99,8 @@ class BrowserManager {
   private cdpUrl: string = 'http://localhost:9222';
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
+  private interactiveModeSessions = new Set<string>();
+  private handoffResolvers = new Map<string, () => void>();
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
@@ -389,6 +391,40 @@ class BrowserManager {
     const map = this.snapshotMaps.get(sessionId);
     if (!map) return null;
     return map.get(elementId) ?? null;
+  }
+
+  isInteractive(sessionId: string): boolean {
+    return this.interactiveModeSessions.has(sessionId);
+  }
+
+  setInteractiveMode(sessionId: string, enabled: boolean): void {
+    if (enabled) {
+      this.interactiveModeSessions.add(sessionId);
+    } else {
+      this.interactiveModeSessions.delete(sessionId);
+      const resolver = this.handoffResolvers.get(sessionId);
+      if (resolver) {
+        resolver();
+        this.handoffResolvers.delete(sessionId);
+      }
+    }
+  }
+
+  async waitForHandoffComplete(sessionId: string, timeoutMs: number = 300_000): Promise<void> {
+    if (!this.interactiveModeSessions.has(sessionId)) return;
+
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.handoffResolvers.delete(sessionId);
+        this.interactiveModeSessions.delete(sessionId);
+        resolve();
+      }, timeoutMs);
+
+      this.handoffResolvers.set(sessionId, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 
   hasContext(): boolean {

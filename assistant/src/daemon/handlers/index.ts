@@ -293,6 +293,7 @@ const handlers: DispatchMap = {
 
   browser_interactive_mode: (msg, socket, ctx) => {
     log.info({ sessionId: msg.sessionId, enabled: msg.enabled }, 'Interactive mode toggled');
+    browserManager.setInteractiveMode(msg.sessionId, msg.enabled);
     ctx.send(socket, {
       type: 'browser_interactive_mode_changed',
       sessionId: msg.sessionId,

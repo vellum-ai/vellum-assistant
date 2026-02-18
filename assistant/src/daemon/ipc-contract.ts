@@ -722,6 +722,14 @@ export interface BrowserInteractiveModeChanged {
   reason?: string;
   message?: string;
 }
+export interface BrowserHandoffRequest {
+  type: 'browser_handoff_request';
+  sessionId: string;
+  surfaceId: string;
+  reason: 'auth' | 'checkout' | 'captcha' | 'custom';
+  message: string;
+  bringToFront?: boolean;
+}
 
 export type ClientMessage =
   | AuthMessage
@@ -1829,7 +1837,8 @@ export type ServerMessage =
   | DocumentLoadResponse
   | DocumentListResponse
   | BrowserCDPRequest
-  | BrowserInteractiveModeChanged;
+  | BrowserInteractiveModeChanged
+  | BrowserHandoffRequest;
 
 // === Contract schema ===
 

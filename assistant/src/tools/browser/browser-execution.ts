@@ -231,14 +231,31 @@ export async function executeBrowserNavigate(
     try {
       const authChallenge = await detectAuthChallenge(page);
       if (authChallenge) {
-        lines.push('');
-        lines.push(formatAuthChallenge(authChallenge));
-        lines.push('');
-        lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
-        const { buildAuthForm } = await import('./jit-auth.js');
-        const formData = buildAuthForm(authChallenge);
-        lines.push(JSON.stringify(formData, null, 2));
-        lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
+        if (browserManager.browserMode === 'cdp') {
+          // In CDP mode, hand off to user for direct interaction
+          if (sender) {
+            const { startHandoff } = await import('./browser-handoff.js');
+            await startHandoff(context.sessionId, sender, {
+              reason: 'auth',
+              message: formatAuthChallenge(authChallenge),
+              bringToFront: true,
+            });
+          }
+          // After handoff completes, return updated page state
+          const newUrl = page.url();
+          const newTitle = await page.title();
+          lines.push('');
+          lines.push(`Auth handled by user. Current page: ${newTitle} (${newUrl})`);
+        } else {
+          lines.push('');
+          lines.push(formatAuthChallenge(authChallenge));
+          lines.push('');
+          lines.push('To handle this auth challenge, use ui_show with surface_type "form" and the following fields:');
+          const { buildAuthForm } = await import('./jit-auth.js');
+          const formData = buildAuthForm(authChallenge);
+          lines.push(JSON.stringify(formData, null, 2));
+          lines.push('After the user submits, use browser_type to enter the values into the corresponding page elements.');
+        }
       }
     } catch {
       // Auth detection is best-effort; don't fail navigation

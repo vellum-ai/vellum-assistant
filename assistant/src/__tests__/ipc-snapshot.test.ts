@@ -370,6 +370,34 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: 'test-session',
     success: true,
   },
+  browser_user_click: {
+    type: 'browser_user_click',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    x: 100,
+    y: 200,
+  },
+  browser_user_scroll: {
+    type: 'browser_user_scroll',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    deltaX: 0,
+    deltaY: -100,
+    x: 100,
+    y: 200,
+  },
+  browser_user_keypress: {
+    type: 'browser_user_keypress',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    key: 'Enter',
+  },
+  browser_interactive_mode: {
+    type: 'browser_interactive_mode',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    enabled: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1063,6 +1091,19 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   browser_cdp_request: {
     type: 'browser_cdp_request',
     sessionId: 'test-session',
+  },
+  browser_interactive_mode_changed: {
+    type: 'browser_interactive_mode_changed',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    enabled: true,
+  },
+  browser_handoff_request: {
+    type: 'browser_handoff_request',
+    sessionId: 'test-session',
+    surfaceId: 'test-surface',
+    reason: 'auth' as const,
+    message: 'Login required',
   },
 };
 
