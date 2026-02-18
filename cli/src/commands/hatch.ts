@@ -138,6 +138,7 @@ interface HatchArgs {
   detached: boolean;
   name: string | null;
   remote: RemoteHost;
+  host: string | null;
 }
 
 function parseArgs(): HatchArgs {
@@ -146,6 +147,7 @@ function parseArgs(): HatchArgs {
   let detached = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
+  let host: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -169,17 +171,25 @@ function parseArgs(): HatchArgs {
       }
       remote = next as RemoteHost;
       i++;
+    } else if (arg === "--host") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --host requires a value (e.g., user@hostname or hostname)");
+        process.exit(1);
+      }
+      host = next;
+      i++;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --host <user@hostname>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name, remote };
+  return { species, detached, name, remote, host };
 }
 
 interface PollResult {
@@ -624,6 +634,143 @@ async function hatchGcp(
   }
 }
 
+function buildCustomSetupScript(
+  species: Species,
+  bearerToken: string,
+  anthropicApiKey: string,
+): string {
+  const interfacesSeed = species === "vellum" ? buildInterfacesSeed() : "";
+
+  return `#!/bin/bash
+set -e
+
+export HOME="\${HOME:-$(eval echo ~"$(whoami)")}"
+
+ANTHROPIC_API_KEY=${anthropicApiKey}
+GATEWAY_RUNTIME_PROXY_ENABLED=true
+RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
+${interfacesSeed}
+mkdir -p "\$HOME/.vellum"
+cat > "\$HOME/.vellum/.env" << DOTENV_EOF
+ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
+GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
+RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
+${species === "vellum" ? "INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR" : ""}
+DOTENV_EOF
+
+mkdir -p "\$HOME/.vellum/workspace"
+cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
+{
+  "logFile": {
+    "dir": "\$HOME/.vellum/workspace/data/logs"
+  }
+}
+CONFIG_EOF
+
+source ${INSTALL_SCRIPT_REMOTE_PATH}
+`;
+}
+
+function buildSshArgs(host: string): string[] {
+  return [
+    host,
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "ConnectTimeout=10",
+    "-o", "LogLevel=ERROR",
+  ];
+}
+
+function extractHostname(host: string): string {
+  return host.includes("@") ? host.split("@")[1] : host;
+}
+
+async function hatchCustom(
+  species: Species,
+  detached: boolean,
+  name: string | null,
+  host: string,
+): Promise<void> {
+  try {
+    const hostname = extractHostname(host);
+    const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+
+    console.log(`🥚 Creating new assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Cloud: Custom`);
+    console.log(`   Host: ${host}`);
+    console.log("");
+
+    const bearerToken = randomBytes(32).toString("hex");
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      process.exit(1);
+    }
+
+    const setupScript = buildCustomSetupScript(species, bearerToken, anthropicApiKey);
+    const setupScriptPath = join(tmpdir(), `${instanceName}-setup.sh`);
+    writeFileSync(setupScriptPath, setupScript);
+
+    try {
+      console.log("📋 Uploading install script to instance...");
+      await exec("scp", [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        INSTALL_SCRIPT_PATH,
+        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+      ]);
+
+      console.log("📋 Uploading setup script to instance...");
+      const remoteSetupPath = `/tmp/${instanceName}-setup.sh`;
+      await exec("scp", [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        setupScriptPath,
+        `${host}:${remoteSetupPath}`,
+      ]);
+
+      console.log("🔨 Running setup script on instance...");
+      await exec("ssh", [
+        ...buildSshArgs(host),
+        `chmod +x ${remoteSetupPath} ${INSTALL_SCRIPT_REMOTE_PATH} && bash ${remoteSetupPath}`,
+      ]);
+    } finally {
+      try {
+        unlinkSync(setupScriptPath);
+      } catch {}
+    }
+
+    const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
+    saveAssistantEntry({
+      assistantId: instanceName,
+      runtimeUrl,
+      bearerToken,
+      species,
+      sshUser: host.includes("@") ? host.split("@")[0] : userInfo().username,
+      hatchedAt: new Date().toISOString(),
+    });
+
+    if (detached) {
+      console.log("");
+      console.log("✅ Assistant is hatching!\n");
+    } else {
+      console.log("");
+      console.log("✅ Assistant has been set up!");
+    }
+    console.log("Instance details:");
+    console.log(`  Name: ${instanceName}`);
+    console.log(`  Host: ${host}`);
+    console.log(`  Runtime URL: ${runtimeUrl}`);
+    console.log("");
+  } catch (error) {
+    console.error("❌ Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
   const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
 
@@ -672,7 +819,7 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
 }
 
 export async function hatch(): Promise<void> {
-  const { species, detached, name, remote } = parseArgs();
+  const { species, detached, name, remote, host } = parseArgs();
 
   if (remote === "local") {
     await hatchLocal(species, name);
@@ -681,6 +828,15 @@ export async function hatch(): Promise<void> {
 
   if (remote === "gcp") {
     await hatchGcp(species, detached, name);
+    return;
+  }
+
+  if (remote === "custom") {
+    if (!host) {
+      console.error("Error: --host is required when using --remote custom (e.g., --host user@hostname)");
+      process.exit(1);
+    }
+    await hatchCustom(species, detached, name, host);
     return;
   }
 
