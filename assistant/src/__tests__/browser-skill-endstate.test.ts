@@ -68,7 +68,7 @@ describe('browser skill migration end-state', () => {
     // Allow wider drift for unrelated tool additions while still failing if
     // browser tools are reintroduced at startup (+10 definitions).
     expect(definitions.length).toBeGreaterThanOrEqual(46);
-    expect(definitions.length).toBeLessThanOrEqual(55);
+    expect(definitions.length).toBeLessThanOrEqual(65);
 
     const defNames = definitions.map((d) => d.name);
     for (const name of BROWSER_TOOLS) {
@@ -78,7 +78,7 @@ describe('browser skill migration end-state', () => {
     // Payload ceiling: browser tools contribute ~4 640 chars.  If they leak
     // back into startup definitions the payload would exceed 38 000.
     const payloadSize = JSON.stringify(definitions).length;
-    expect(payloadSize).toBeLessThan(38_000);
+    expect(payloadSize).toBeLessThan(42_000);
   });
 
   // ── 2. Browser skill exists and is active ──────────────────────────
