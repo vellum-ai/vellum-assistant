@@ -16,6 +16,7 @@ struct VellumAssistantApp: App {
                 OnboardingView(isCompleted: $onboardingCompleted)
             }
         }
+        .preferredColorScheme(.dark)
     }
 }
 #else
