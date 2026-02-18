@@ -215,7 +215,8 @@ public final class ChatViewModel: ObservableObject {
         let attachments = pendingAttachments
         pendingAttachments = []
 
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide
+        let isModelCommand = text == "/model" || text == "/models" || text.hasPrefix("/model ")
+        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !isModelCommand
 
         let willBeQueued = isSending && sessionId != nil
         var queuedMessageId: UUID?
