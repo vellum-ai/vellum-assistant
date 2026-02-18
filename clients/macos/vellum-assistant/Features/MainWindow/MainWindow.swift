@@ -120,11 +120,12 @@ final class MainWindow {
         threadManager.activeViewModel
     }
 
-    init(services: AppServices) {
+    init(services: AppServices, isFirstLaunch: Bool = false) {
         self.services = services
         self.threadManager = ThreadManager(
             daemonClient: services.daemonClient,
-            activityNotificationService: services.activityNotificationService
+            activityNotificationService: services.activityNotificationService,
+            isFirstLaunch: isFirstLaunch
         )
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient

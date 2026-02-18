@@ -39,13 +39,18 @@ final class ThreadSessionRestorer {
         self.daemonClient = daemonClient
     }
 
-    func startObserving() {
+    func startObserving(skipInitialFetch: Bool = false) {
         daemonClient.onSessionListResponse = { [weak self] response in
             self?.handleSessionListResponse(response)
         }
         daemonClient.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
+
+        // On first launch after onboarding, skip the initial session list fetch
+        // so the session restorer doesn't override the wake-up conversation thread.
+        // The handlers above are still registered for later use (e.g. history loading).
+        guard !skipInitialFetch else { return }
 
         connectionCancellable = daemonClient.$isConnected
             .removeDuplicates()
