@@ -250,7 +250,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var composerActionButtons: some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.inline) {
             if isSending {
                 Button(action: onStop) {
                     ZStack {
