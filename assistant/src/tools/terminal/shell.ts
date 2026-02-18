@@ -9,6 +9,14 @@ import { redactSecrets } from '../../security/secret-scanner.js';
 import { wrapCommand } from './sandbox.js';
 import { formatShellOutput } from '../shared/shell-output.js';
 import { buildSanitizedEnv } from './safe-env.js';
+import {
+  getActiveSession,
+  createSession,
+  startSession,
+  stopSession,
+  getSessionEnv,
+} from '../network/script-proxy/index.js';
+import { getDataDir } from '../../util/platform.js';
 
 const log = getLogger('shell-tool');
 
@@ -61,7 +69,6 @@ class ShellTool implements Tool {
       return { content: 'Error: command contains null bytes', isError: true };
     }
 
-    // Parse optional network/credential fields (schema-only — no execution branching yet)
     const networkMode: 'off' | 'proxied' =
       input.network_mode === 'proxied' ? 'proxied' : 'off';
 
@@ -82,7 +89,41 @@ class ShellTool implements Tool {
 
     log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec, networkMode, credentialIds }, 'Executing shell command');
 
-    return new Promise<ToolExecutionResult>((resolve) => {
+    // Start proxy session if proxied mode is requested
+    let proxySessionId: string | null = null;
+    let proxyEnv: Record<string, string> | null = null;
+
+    if (networkMode === 'proxied') {
+      try {
+        const existing = getActiveSession(context.conversationId);
+        if (existing) {
+          proxySessionId = existing.id;
+        } else {
+          const session = createSession(
+            context.conversationId,
+            credentialIds,
+            undefined,
+            getDataDir(),
+          );
+          const started = await startSession(session.id);
+          proxySessionId = started.id;
+        }
+        proxyEnv = getSessionEnv(proxySessionId);
+      } catch (err) {
+        log.error({ err }, 'Failed to start proxy session');
+        return {
+          content: `Error: failed to start proxy session — ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        };
+      }
+    }
+
+    const env = buildSanitizedEnv();
+    if (proxyEnv) {
+      Object.assign(env, proxyEnv);
+    }
+
+    const result = await new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
@@ -93,7 +134,7 @@ class ShellTool implements Tool {
       const wrapped = wrapCommand(command, context.workingDir, sandboxConfig);
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
-        env: buildSanitizedEnv(),
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -117,12 +158,12 @@ class ShellTool implements Tool {
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
-        const result = formatShellOutput(stdout, stderr, code, timedOut, timeoutSec);
+        const fmtResult = formatShellOutput(stdout, stderr, code, timedOut, timeoutSec);
 
         resolve({
-          content: result.content,
-          isError: result.isError,
-          status: result.status,
+          content: fmtResult.content,
+          isError: fmtResult.isError,
+          status: fmtResult.status,
         });
       });
 
@@ -134,6 +175,15 @@ class ShellTool implements Tool {
         });
       });
     });
+
+    // Stop proxy session after command completes
+    if (proxySessionId) {
+      stopSession(proxySessionId).catch((err) => {
+        log.warn({ err, sessionId: proxySessionId }, 'Failed to stop proxy session');
+      });
+    }
+
+    return result;
   }
 }
 
