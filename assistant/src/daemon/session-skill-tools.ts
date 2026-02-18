@@ -17,6 +17,7 @@ import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { createSkillToolsFromManifest } from '../tools/skills/skill-tool-factory.js';
 import {
+  getTool,
   registerSkillTools,
   unregisterSkillTools,
 } from '../tools/registry.js';
@@ -178,8 +179,17 @@ export function projectSkillTools(
         log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
         unregisterSkillTools(skillId);
         registerSkillTools(tools);
+      } else {
+        // Hash unchanged — check if the bundled status drifted (e.g. a
+        // managed skill override was added/removed with identical content).
+        // Re-register so the ownerSkillBundled flag stays accurate.
+        const existing = getTool(tools[0].name);
+        if (existing && existing.ownerSkillBundled !== (skill.bundled ?? undefined)) {
+          log.info({ skillId, bundled: skill.bundled }, 'Skill bundled status changed, re-registering tools');
+          unregisterSkillTools(skillId);
+          registerSkillTools(tools);
+        }
       }
-      // If hash is unchanged, skip registration to avoid inflating the refcount
 
       successfulEntries.set(skillId, currentHash);
       for (const tool of tools) {
