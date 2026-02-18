@@ -1041,9 +1041,7 @@ private struct ChatBubble: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                if isUser {
-                    copyButton
-                }
+                copyButton
             }
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
@@ -1083,11 +1081,7 @@ private struct ChatBubble: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering in
-            if canReportMessage || isUser {
-                isHovered = hovering
-            } else if isHovered {
-                isHovered = false
-            }
+            isHovered = hovering
         }
         .task(id: mediaEmbedTaskID) {
             guard let settings = mediaEmbedSettings else {
