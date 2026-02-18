@@ -909,6 +909,18 @@ private struct ChatBubble: View {
                             InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                         }
                     }
+
+                    // Document widget for document_create tool calls
+                    if !message.toolCalls.isEmpty {
+                        print("🔍 Message has \(message.toolCalls.count) tool calls:")
+                        for tc in message.toolCalls {
+                            print("  - \(tc.toolName), complete: \(tc.isComplete)")
+                        }
+                    }
+                    if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
+                        print("✅ Showing document widget for: \(documentToolCall.toolName)")
+                        documentWidget(for: documentToolCall)
+                    }
                 }
 
                 // Media embeds rendered below the text, preserving source order
@@ -1765,6 +1777,38 @@ private struct ChatBubble: View {
         )
         .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
         .opacity(bubbleOpacity)
+    }
+
+    @ViewBuilder
+    private func documentWidget(for toolCall: ToolCallData) -> some View {
+        // Extract document title from the tool call input summary or result
+        let documentTitle = parseDocumentTitle(from: toolCall)
+
+        DocumentReopenWidget(
+            documentTitle: documentTitle,
+            onReopen: {
+                // TODO: Re-open the document by sending document_editor_show
+                print("Reopen document: \(documentTitle)")
+            },
+            onDismiss: {
+                // TODO: Hide this widget (would need state management)
+                print("Dismiss document widget")
+            }
+        )
+        .padding(.top, VSpacing.sm)
+    }
+
+    private func parseDocumentTitle(from toolCall: ToolCallData) -> String {
+        // Try to extract title from the input summary
+        // Format is typically something like "Create document: <title>"
+        let summary = toolCall.inputSummary
+        if let colonIndex = summary.firstIndex(of: ":") {
+            let afterColon = summary[summary.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
+            if !afterColon.isEmpty {
+                return String(afterColon)
+            }
+        }
+        return "Untitled Document"
     }
 
     private func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {

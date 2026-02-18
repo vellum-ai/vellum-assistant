@@ -117,6 +117,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `ui_surface_complete` message.
     public var onSurfaceComplete: ((UiSurfaceCompleteMessage) -> Void)?
 
+    /// Called when the daemon sends a `document_editor_show` message.
+    public var onDocumentEditorShow: ((DocumentEditorShowMessage) -> Void)?
+
+    /// Called when the daemon sends a `document_editor_update` message.
+    public var onDocumentEditorUpdate: ((DocumentEditorUpdateMessage) -> Void)?
+
+    /// Called when the daemon sends a `document_save_response` message.
+    public var onDocumentSaveResponse: ((DocumentSaveResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `document_list_response` message.
+    public var onDocumentListResponse: ((DocumentListResponseMessage) -> Void)?
+
     /// Called when the daemon sends an `app_files_changed` broadcast.
     public var onAppFilesChanged: ((String) -> Void)?
 
@@ -967,6 +979,33 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(LinkOpenRequestMessage(url: url, metadata: metadata))
     }
 
+    // MARK: - Document Persistence
+
+    public func sendDocumentSave(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) throws {
+        try send(DocumentSaveRequestMessage(
+            type: "document_save",
+            surfaceId: surfaceId,
+            conversationId: conversationId,
+            title: title,
+            content: content,
+            wordCount: wordCount
+        ))
+    }
+
+    public func sendDocumentLoad(surfaceId: String) throws {
+        try send(DocumentLoadRequestMessage(
+            type: "document_load",
+            surfaceId: surfaceId
+        ))
+    }
+
+    public func sendDocumentList(conversationId: String? = nil) throws {
+        try send(DocumentListRequestMessage(
+            type: "document_list",
+            conversationId: conversationId
+        ))
+    }
+
     // MARK: - Signing Identity (macOS only)
 
     #if os(macOS)
@@ -1153,6 +1192,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onSurfaceDismiss?(msg)
         case .uiSurfaceComplete(let msg):
             onSurfaceComplete?(msg)
+        case .documentEditorShow(let msg):
+            print("🔵 DaemonClient: documentEditorShow received - surfaceId=\(msg.surfaceId), title=\(msg.title)")
+            print("🔵 DaemonClient: callback exists? \(onDocumentEditorShow != nil)")
+            onDocumentEditorShow?(msg)
+            print("🔵 DaemonClient: callback invoked")
+        case .documentEditorUpdate(let msg):
+            onDocumentEditorUpdate?(msg)
+        case .documentSaveResponse(let msg):
+            onDocumentSaveResponse?(msg)
+        case .documentLoadResponse(let msg):
+            // TODO: Handle document load response
+            break
+        case .documentListResponse(let msg):
+            onDocumentListResponse?(msg)
         case .uiLayoutConfig(let msg):
             onLayoutConfig?(msg)
         case .appFilesChanged(let msg):
