@@ -10,7 +10,11 @@ extension AppDelegate {
 
     /// Handle escalation from an active text_qa session to foreground computer use.
     func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
-        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+        guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
+            log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
+            try? daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+            return
+        }
 
         let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
         let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
@@ -130,7 +134,11 @@ extension AppDelegate {
 
             switch routed.interactionType {
             case "computer_use":
-                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else { return }
+                guard ActionExecutor.checkAccessibilityPermission(prompt: true) else {
+                    log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
+                    try? self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                    return
+                }
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
                 let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
                 let session = ComputerUseSession(

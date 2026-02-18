@@ -147,6 +147,7 @@ final class ComputerUseSession: ObservableObject {
             try? daemonClient.send(obs)
         } else {
             state = .failed(reason: "No focused window and screen capture failed")
+            try? daemonClient.send(CuSessionAbortMessage(sessionId: id))
             logger.finishSession(result: "failed: no window")
             return
         }

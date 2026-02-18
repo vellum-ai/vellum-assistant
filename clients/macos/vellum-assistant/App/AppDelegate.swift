@@ -376,7 +376,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             // Only handle escalation messages (those with escalatedFrom set)
             guard routed.escalatedFrom != nil,
-                  routed.interactionType == "computer_use" else { return }
+                  routed.interactionType == "computer_use" else {
+                log.debug("Ignoring non-escalation task_routed: type=\(routed.interactionType), escalatedFrom=\(routed.escalatedFrom ?? "nil")")
+                return
+            }
             self.handleEscalationToComputerUse(routed: routed)
         }
 
