@@ -363,10 +363,22 @@ export function getSessionEnv(
   return env;
 }
 
+/** Sorted comparison so order doesn't matter. */
+function credentialIdsMatch(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
 /**
  * Atomically acquire a proxy session for a conversation — reuses an active
  * session or creates + starts a new one. Serialized per conversation so
  * concurrent callers share the same session instead of each spawning one.
+ *
+ * If the active session was created with different `credentialIds`, it is
+ * stopped and a fresh session is created so callers always get a session
+ * bound to the requested credentials.
  *
  * Returns `{ session, created }` so the caller knows whether it owns the
  * session lifecycle (and should stop it) or is borrowing a shared one.
@@ -380,7 +392,14 @@ export async function getOrStartSession(
 ): Promise<{ session: ProxySession; created: boolean }> {
   // Fast path — session already active, no lock needed.
   const existing = getActiveSession(conversationId);
-  if (existing) return { session: existing, created: false };
+  if (existing) {
+    if (credentialIdsMatch(existing.credentialIds, credentialIds)) {
+      return { session: existing, created: false };
+    }
+    // Credential mismatch — tear down the stale session so we can create
+    // one with the correct bindings.
+    await stopSession(existing.id);
+  }
 
   // Serialize: if another caller is already creating a session for this
   // conversation, wait for it rather than creating a second one.
@@ -394,16 +413,23 @@ export async function getOrStartSession(
     // Re-check after winning the lock — a session may have become active
     // between our initial check and acquiring the lock.
     const recheck = getActiveSession(conversationId);
-    if (recheck) return recheck;
+    if (recheck) {
+      if (credentialIdsMatch(recheck.credentialIds, credentialIds)) {
+        return { session: recheck, created: false };
+      }
+      await stopSession(recheck.id);
+    }
 
     const session = createSession(conversationId, credentialIds, config, dataDir, approvalCallback);
-    return startSession(session.id);
+    const started = await startSession(session.id);
+    return { session: started, created: true };
   })();
 
-  acquireLocks.set(conversationId, promise);
+  // Wrap the inner promise to extract just the session for lock waiters.
+  const sessionPromise = promise.then((r) => r.session);
+  acquireLocks.set(conversationId, sessionPromise);
   try {
-    const session = await promise;
-    return { session, created: true };
+    return await promise;
   } finally {
     acquireLocks.delete(conversationId);
   }
