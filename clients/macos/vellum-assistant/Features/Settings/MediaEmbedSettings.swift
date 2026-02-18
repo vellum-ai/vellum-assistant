@@ -49,6 +49,9 @@ public enum MediaEmbedSettings {
             if let components = URLComponents(string: value), let host = components.host, !host.isEmpty {
                 return host
             }
+            // Scheme was present but URLComponents couldn't extract a host;
+            // return the original value rather than slicing at the scheme's slashes.
+            return value
         }
 
         // No scheme — strip anything after the first `/` (path, query, fragment).
