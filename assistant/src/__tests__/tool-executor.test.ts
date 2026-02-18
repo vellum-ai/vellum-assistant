@@ -935,7 +935,6 @@ describe('isSideEffectTool', () => {
       'schedule_create',
       'schedule_update',
       'schedule_delete',
-      'credential_store',
     ];
 
     for (const toolName of sideEffectTools) {
@@ -1007,6 +1006,30 @@ describe('isSideEffectTool', () => {
 
     test('reminder without input is NOT a side-effect', () => {
       expect(isSideEffectTool('reminder')).toBe(false);
+    });
+
+    test('credential_store store is a side-effect', () => {
+      expect(isSideEffectTool('credential_store', { action: 'store' })).toBe(true);
+    });
+
+    test('credential_store delete is a side-effect', () => {
+      expect(isSideEffectTool('credential_store', { action: 'delete' })).toBe(true);
+    });
+
+    test('credential_store prompt is a side-effect', () => {
+      expect(isSideEffectTool('credential_store', { action: 'prompt' })).toBe(true);
+    });
+
+    test('credential_store oauth2_connect is a side-effect', () => {
+      expect(isSideEffectTool('credential_store', { action: 'oauth2_connect' })).toBe(true);
+    });
+
+    test('credential_store list is NOT a side-effect', () => {
+      expect(isSideEffectTool('credential_store', { action: 'list' })).toBe(false);
+    });
+
+    test('credential_store without input is NOT a side-effect', () => {
+      expect(isSideEffectTool('credential_store')).toBe(false);
     });
   });
 });
@@ -1231,7 +1254,7 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
       { name: 'document_update', input: { id: 'doc-1', content: 'updated' } },
       { name: 'account_manage', input: { action: 'create', name: 'acct' } },
       { name: 'reminder', input: { action: 'create', message: 'remind me' } },
-      { name: 'credential_store', input: { name: 'api-key', value: 'secret' } },
+      { name: 'credential_store', input: { action: 'store', name: 'api-key', value: 'secret' } },
     ];
 
     for (const { name, input } of sideEffectTools) {
@@ -1428,20 +1451,63 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     expect(promptCalled).toBe(true);
   });
 
-  // ── Credential store (PR fix8) ──────────
+  // ── Credential store action-aware (PR fix9) ──────────
 
-  test('credential_store forces prompt in private thread', async () => {
+  test('credential_store store forces prompt in private thread', async () => {
     checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
     const result = await executor.execute(
       'credential_store',
-      { name: 'api-key', value: 'sk-secret-123' },
+      { action: 'store', name: 'api-key', value: 'sk-secret-123' },
       makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
     expect(promptCalled).toBe(true);
+  });
+
+  test('credential_store delete forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'credential_store',
+      { action: 'delete', name: 'api-key' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('credential_store oauth2_connect forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'credential_store',
+      { action: 'oauth2_connect', provider: 'google' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('credential_store list does NOT force prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'credential_store',
+      { action: 'list' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // list is read-only — must NOT trigger forced prompting
+    expect(promptCalled).toBe(false);
   });
 
   // ── Action-aware mixed-action tools (PR fix5) ──────────
