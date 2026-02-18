@@ -35,6 +35,11 @@ export const eagerModules: string[] = [
   './schedule/list.js',
   './schedule/update.js',
   './schedule/delete.js',
+  './watcher/create.js',
+  './watcher/list.js',
+  './watcher/update.js',
+  './watcher/delete.js',
+  './watcher/digest.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -55,6 +60,11 @@ export const eagerModuleToolNames: string[] = [
   'schedule_list',
   'schedule_update',
   'schedule_delete',
+  'watcher_create',
+  'watcher_list',
+  'watcher_update',
+  'watcher_delete',
+  'watcher_digest',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────

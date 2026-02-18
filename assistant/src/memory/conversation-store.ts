@@ -23,7 +23,7 @@ function monotonicNow(): number {
   return lastTimestamp;
 }
 
-export function createConversation(titleOrOpts?: string | { title?: string; threadType?: 'standard' | 'private' }) {
+export function createConversation(titleOrOpts?: string | { title?: string; threadType?: 'standard' | 'private' | 'background' }) {
   const db = getDb();
   const now = Date.now();
   const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : (titleOrOpts ?? {});
@@ -83,11 +83,13 @@ export function deleteConversation(id: string): void {
   });
 }
 
-export function listConversations(limit?: number) {
+export function listConversations(limit?: number, includeBackground = false) {
   const db = getDb();
+  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
   const query = db
     .select()
     .from(conversations)
+    .where(where)
     .orderBy(desc(conversations.updatedAt))
     .limit(limit ?? 100);
   return query.all();
@@ -98,6 +100,7 @@ export function getLatestConversation() {
   const result = db
     .select()
     .from(conversations)
+    .where(sql`${conversations.threadType} != 'background'`)
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();

@@ -362,6 +362,46 @@ export function initializeDb(): void {
     )
   `);
 
+  // ── Watchers ─────────────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS watchers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      poll_interval_ms INTEGER NOT NULL DEFAULT 60000,
+      action_prompt TEXT NOT NULL,
+      watermark TEXT,
+      conversation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'idle',
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_poll_at INTEGER,
+      next_poll_at INTEGER NOT NULL,
+      config_json TEXT,
+      credential_service TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS watcher_events (
+      id TEXT PRIMARY KEY,
+      watcher_id TEXT NOT NULL REFERENCES watchers(id) ON DELETE CASCADE,
+      external_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      disposition TEXT NOT NULL DEFAULT 'pending',
+      llm_action TEXT,
+      processed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE (watcher_id, external_id)
+    )
+  `);
+
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
@@ -563,6 +603,11 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_html_hash ON published_pages(html_hash)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_published_pages_status ON published_pages(status)`);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_watchers_enabled_next_poll ON watchers(enabled, next_poll_at)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_watchers_status ON watchers(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_watcher_events_watcher_id ON watcher_events(watcher_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_watcher_events_disposition ON watcher_events(disposition)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_name ON memory_entities(name)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(type)`);

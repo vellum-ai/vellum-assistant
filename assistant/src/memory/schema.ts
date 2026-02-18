@@ -349,6 +349,43 @@ export const publishedPages = sqliteTable('published_pages', {
   projectSlug: text('project_slug'),
 });
 
+// ── Watchers (event-driven polling) ──────────────────────────────────
+
+export const watchers = sqliteTable('watchers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  providerId: text('provider_id').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  pollIntervalMs: integer('poll_interval_ms').notNull().default(60000),
+  actionPrompt: text('action_prompt').notNull(),
+  watermark: text('watermark'),
+  conversationId: text('conversation_id'),
+  status: text('status').notNull().default('idle'),         // idle | polling | error | disabled
+  consecutiveErrors: integer('consecutive_errors').notNull().default(0),
+  lastError: text('last_error'),
+  lastPollAt: integer('last_poll_at'),
+  nextPollAt: integer('next_poll_at').notNull(),
+  configJson: text('config_json'),
+  credentialService: text('credential_service').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const watcherEvents = sqliteTable('watcher_events', {
+  id: text('id').primaryKey(),
+  watcherId: text('watcher_id')
+    .notNull()
+    .references(() => watchers.id, { onDelete: 'cascade' }),
+  externalId: text('external_id').notNull(),
+  eventType: text('event_type').notNull(),
+  summary: text('summary').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  disposition: text('disposition').notNull().default('pending'),  // pending | silent | notify | escalate | error
+  llmAction: text('llm_action'),
+  processedAt: integer('processed_at'),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   createdAt: integer('created_at').notNull(),
