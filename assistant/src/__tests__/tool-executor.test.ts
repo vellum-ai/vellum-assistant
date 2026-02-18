@@ -89,7 +89,7 @@ mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed: false }),
 }));
 
-import { ToolExecutor } from '../tools/executor.js';
+import { ToolExecutor, isSideEffectTool } from '../tools/executor.js';
 import type { ToolContext } from '../tools/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import * as trustStore from '../permissions/trust-store.js';
@@ -899,6 +899,57 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(options.principalId).toBe('admin-skill');
     expect(options.principalVersion).toBe('sha256-admin-v2');
     expect(options.executionTarget).toBe('host');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSideEffectTool classifier
+// ---------------------------------------------------------------------------
+
+describe('isSideEffectTool', () => {
+  describe('returns true for side-effect tools', () => {
+    const sideEffectTools = [
+      'file_write',
+      'file_edit',
+      'host_file_write',
+      'host_file_edit',
+      'bash',
+      'host_bash',
+      'web_fetch',
+      'browser_navigate',
+    ];
+
+    for (const toolName of sideEffectTools) {
+      test(toolName, () => {
+        expect(isSideEffectTool(toolName)).toBe(true);
+      });
+    }
+  });
+
+  describe('returns false for non-side-effect tools', () => {
+    const readOnlyTools = [
+      'file_read',
+      'memory_search',
+      'memory_save',
+      'web_search',
+      'browser_snapshot',
+      'browser_screenshot',
+      'browser_close',
+      'skill_load',
+      'schedule_list',
+      'evaluate_typescript_code',
+    ];
+
+    for (const toolName of readOnlyTools) {
+      test(toolName, () => {
+        expect(isSideEffectTool(toolName)).toBe(false);
+      });
+    }
+  });
+
+  test('returns false for unknown tool names', () => {
+    expect(isSideEffectTool('nonexistent_tool')).toBe(false);
+    expect(isSideEffectTool('')).toBe(false);
   });
 });
 
