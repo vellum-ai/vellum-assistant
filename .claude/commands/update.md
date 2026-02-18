@@ -27,9 +27,9 @@ Pull the latest changes from main, restart the backend daemon, and rebuild/launc
    cd assistant && bun run src/index.ts daemon start && cd ..
    ```
 
-5. Build and launch the macOS app (run in background so it doesn't block):
+5. Build and launch the macOS app. Run this in the background since `build.sh run` enters a watch loop:
    ```bash
-   cd clients/macos && ./build.sh run
+   cd clients/macos && ./build.sh run &
    ```
 
 Report what was pulled (new commits) and confirm both the daemon and app are running.
