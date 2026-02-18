@@ -94,7 +94,6 @@ export function generateEditorHTML(title: string, initialContent: string): strin
     .editor-container {
       flex: 1;
       overflow: hidden;
-      padding: 24px;
     }
 
     #editor {
