@@ -228,6 +228,7 @@ struct ChatContentView: View {
         case .providerNetwork: return "wifi.exclamationmark"
         case .rateLimit: return "clock.badge.exclamationmark"
         case .providerApi: return "exclamationmark.icloud.fill"
+        case .contextTooLarge: return "doc.text.fill"
         case .queueFull: return "tray.full.fill"
         case .sessionAborted: return "stop.circle.fill"
         case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"

@@ -7,5 +7,6 @@ enum UserDefaultsKeys {
     static let daemonPort = "daemon_port"
     static let daemonTLSEnabled = "daemon_tls_enabled"
     static let appearanceMode = "appearance_mode"
+    static let apnsPushId = "apns_push_id"
 }
 #endif
