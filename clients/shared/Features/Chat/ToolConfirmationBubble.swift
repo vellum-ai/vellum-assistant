@@ -11,6 +11,7 @@ public struct ToolConfirmationBubble: View {
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
+    @State private var showTechnicalDetails = false
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
@@ -144,14 +145,46 @@ public struct ToolConfirmationBubble: View {
     @ViewBuilder
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            headerRow
-            if let preview = inlinePreviewText {
-                inlinePreview(preview)
+            // Bold non-technical question
+            Text(confirmation.humanDescription)
+                .font(VFont.bodyBold)
+                .foregroundColor(VColor.textPrimary)
+
+            // Technical details accordion (collapsed by default)
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        showTechnicalDetails.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
+                        Text("Technical details")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if showTechnicalDetails {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        headerRow
+                        if let preview = inlinePreviewText {
+                            inlinePreview(preview)
+                        }
+                        if confirmation.hasDiff {
+                            diffDisclosure
+                        }
+                    }
+                    .padding(.top, VSpacing.xs)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
-            descriptionText
-            if confirmation.hasDiff {
-                diffDisclosure
-            }
+            .clipped()
+
             buttonRow
         }
     }
@@ -267,17 +300,15 @@ public struct ToolConfirmationBubble: View {
     @ViewBuilder
     private var buttonRow: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Allow", style: .primary) {
-                onAllow()
-            }
-
             VButton(label: "Don\u{2019}t Allow", style: .danger) {
                 onDeny()
             }
 
-            if hasRuleOptions {
-                alwaysAllowInlineButton
+            VButton(label: "Allow", style: .primary) {
+                onAllow()
             }
+
+            alwaysAllowInlineButton
 
             Spacer()
         }
@@ -287,7 +318,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowInlineButton: some View {
-        if confirmation.allowlistOptions.count > 2 {
+        if hasRuleOptions && confirmation.allowlistOptions.count > 2 {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
