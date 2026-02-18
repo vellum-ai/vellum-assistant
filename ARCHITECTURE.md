@@ -148,6 +148,22 @@ graph TB
             GMAIL_TOOLS["Gmail Tools<br/>(bundled skill: gmail)"]
         end
 
+        subgraph "Script Proxy"
+            PROXY_SESSION["SessionManager<br/>per-conversation proxy sessions"]
+            PROXY_SERVER["ProxyServer<br/>HTTP forward + CONNECT"]
+            PROXY_ROUTER["Router<br/>MITM vs tunnel decision"]
+            PROXY_POLICY["PolicyEngine<br/>credential template matching"]
+            PROXY_MITM["MITM Handler<br/>TLS termination + rewrite"]
+            PROXY_CERTS["Cert Manager<br/>local CA + leaf certs"]
+            PROXY_APPROVAL["ApprovalCallback<br/>→ PermissionPrompter"]
+        end
+
+        subgraph "Asset Tools"
+            ASSET_SEARCH["asset_search<br/>cross-thread metadata query"]
+            ASSET_MATERIALIZE["asset_materialize<br/>decode + write to sandbox"]
+            VISIBILITY_POLICY["MediaVisibilityPolicy<br/>private thread gate"]
+        end
+
         HTTP_SERVER["RuntimeHttpServer<br/>(optional, RUNTIME_HTTP_PORT)"]
     end
 
@@ -328,6 +344,24 @@ graph TB
     SKILL_FACTORY -->|"register/unregister"| HANDLERS
     SKILL_FACTORY -->|"host tools"| SKILL_HOST_RUNNER
     SKILL_FACTORY -->|"sandbox tools"| SKILL_SANDBOX_RUNNER
+
+    %% Script proxy data flow
+    SESSION_MGR -->|"proxied bash<br/>network_mode"| PROXY_SESSION
+    PROXY_SESSION --> PROXY_SERVER
+    PROXY_SERVER --> PROXY_ROUTER
+    PROXY_ROUTER -->|"mitm: credential_injection"| PROXY_MITM
+    PROXY_MITM --> PROXY_CERTS
+    PROXY_SERVER --> PROXY_POLICY
+    PROXY_POLICY -->|"ask_*"| PROXY_APPROVAL
+    PROXY_APPROVAL --> HANDLERS
+
+    %% Asset tools data flow
+    SESSION_MGR -->|"tool_use"| ASSET_SEARCH
+    SESSION_MGR -->|"tool_use"| ASSET_MATERIALIZE
+    ASSET_SEARCH --> DB_ATTACH
+    ASSET_SEARCH --> VISIBILITY_POLICY
+    ASSET_MATERIALIZE --> DB_ATTACH
+    ASSET_MATERIALIZE --> VISIBILITY_POLICY
 
     %% Local storage
     APP_SUPPORT --- SESSION_LOGS
@@ -2307,6 +2341,299 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ---
 
+## Script Proxy — Proxied Bash Execution and Credential Injection
+
+Scripts executed via the `bash` tool can optionally run through a per-session HTTP proxy that intercepts outbound requests, injects stored credentials into matching hosts, and prompts the user for approval on unknown or uncredentialed targets. The proxy subsystem extends the existing credential storage and permission systems rather than introducing parallel mechanisms.
+
+### Proxied Bash Execution Path
+
+When a bash command requires network access with credential injection, the sandbox backend switches from `network=none` to `network=bridge` and injects proxy environment variables so all HTTP/HTTPS traffic routes through the session proxy.
+
+```mermaid
+graph TB
+    subgraph "Tool Invocation"
+        BASH_CALL["bash tool call<br/>network_mode: 'proxied'"]
+    end
+
+    subgraph "Permission Check"
+        EXECUTOR["ToolExecutor"]
+        PERM["PermissionChecker<br/>classifyRisk → Medium<br/>(proxied bash)"]
+        PROMPT["Prompt user<br/>persistentDecisionsAllowed: false<br/>(no trust rule saving for proxied bash)"]
+    end
+
+    subgraph "Sandbox"
+        DOCKER["DockerBackend.wrap()<br/>networkMode: 'proxied'<br/>→ --network=bridge"]
+        ENV_INJECT["Inject env vars:<br/>HTTP_PROXY, HTTPS_PROXY,<br/>NO_PROXY, NODE_EXTRA_CA_CERTS"]
+        CONTAINER["Container<br/>all traffic → proxy"]
+    end
+
+    subgraph "Proxy Server (on host)"
+        SERVER["ProxyServer<br/>127.0.0.1:ephemeral"]
+        HTTP_FWD["HTTP Forwarder<br/>(plain HTTP proxy)"]
+        CONNECT["CONNECT Handler"]
+        ROUTER["Hybrid Router<br/>shouldIntercept()"]
+    end
+
+    BASH_CALL --> EXECUTOR
+    EXECUTOR --> PERM
+    PERM --> PROMPT
+    PROMPT -->|"allowed"| DOCKER
+    DOCKER --> ENV_INJECT
+    ENV_INJECT --> CONTAINER
+    CONTAINER -->|"HTTP"| HTTP_FWD
+    CONTAINER -->|"HTTPS CONNECT"| CONNECT
+    CONNECT --> ROUTER
+```
+
+### Hybrid MITM + Tunnel Routing
+
+The proxy uses a two-mode routing strategy for HTTPS CONNECT requests. Only connections to hosts that match a credential injection template are MITM-intercepted; all other HTTPS traffic passes through a plain TCP tunnel with no TLS termination.
+
+```mermaid
+graph TB
+    CONNECT["CONNECT host:port"] --> ROUTE["routeConnection()"]
+    ROUTE --> CRED_CHECK{"Session has<br/>credential IDs?"}
+
+    CRED_CHECK -->|"none"| TUNNEL_NC["TUNNEL<br/>reason: no_credentials"]
+
+    CRED_CHECK -->|"yes"| HOST_MATCH{"Any template<br/>hostPattern matches?"}
+    HOST_MATCH -->|"yes"| MITM["MITM<br/>reason: credential_injection"]
+    HOST_MATCH -->|"no"| TUNNEL_NR["TUNNEL<br/>reason: no_rewrite"]
+
+    subgraph "MITM Path"
+        ISSUE_CERT["issueLeafCert(hostname)<br/>cached per-hostname"]
+        TLS_TERM["Loopback TLS server<br/>on ephemeral port"]
+        DECRYPT["Decrypt request"]
+        REWRITE["RewriteCallback<br/>inject credential headers"]
+        UPSTREAM["New TLS connection<br/>to real host"]
+    end
+
+    subgraph "Tunnel Path"
+        TCP["Raw TCP tunnel<br/>bidirectional pipe<br/>no TLS termination"]
+    end
+
+    MITM --> ISSUE_CERT
+    ISSUE_CERT --> TLS_TERM
+    TLS_TERM --> DECRYPT
+    DECRYPT --> REWRITE
+    REWRITE --> UPSTREAM
+
+    TUNNEL_NC --> TCP
+    TUNNEL_NR --> TCP
+```
+
+**MITM path**: The proxy issues a leaf certificate signed by a local CA (`proxy-ca/ca.pem`), terminates TLS on a loopback ephemeral port, reads the decrypted HTTP request, calls the `RewriteCallback` to inject credential headers, and forwards the rewritten request over a fresh TLS connection to the real upstream. The local CA cert is injected into the container via `NODE_EXTRA_CA_CERTS`.
+
+**Tunnel path**: For hosts that do not require credential injection, the proxy establishes a raw TCP tunnel (bidirectional pipe) and never sees the plaintext traffic. This avoids the overhead and security exposure of unnecessary TLS termination.
+
+### Proxy Policy Engine and Approval Loop
+
+The policy engine evaluates each outbound request against credential injection templates and determines whether credentials should be injected, whether the user should be prompted, or whether the request should pass through unauthenticated.
+
+```mermaid
+sequenceDiagram
+    participant Script as Script (in container)
+    participant Proxy as Proxy Server
+    participant Policy as Policy Engine
+    participant Approval as ProxyApprovalCallback
+    participant Prompter as PermissionPrompter
+    participant Trust as Trust Store
+    participant User as User
+
+    Script->>Proxy: outbound request to api.example.com
+    Proxy->>Policy: evaluateRequestWithApproval(hostname, port, path, ...)
+
+    alt Credential template matches host
+        Policy-->>Proxy: matched (credentialId, template)
+        Proxy->>Proxy: inject credential headers
+        Proxy->>Script: proxied response
+    else Known host pattern but no bound credential
+        Policy-->>Proxy: ask_missing_credential
+        Proxy->>Approval: request approval
+        Approval->>Trust: check existing rule (proxy:hostname)
+        alt Rule exists
+            Trust-->>Approval: allow / deny
+        else No rule
+            Approval->>Prompter: prompt user
+            Prompter->>User: confirmation dialog
+            User-->>Prompter: decision
+            Prompter-->>Approval: allow / deny / always_allow / always_deny
+            Note over Approval: Save trust rule if always_*
+        end
+        Approval-->>Proxy: approved (true) / denied (false)
+    else Unknown host, no credentials
+        Policy-->>Proxy: ask_unauthenticated
+        Proxy->>Approval: request approval
+        Note over Approval: Same trust store + prompt flow
+        Approval-->>Proxy: approved / denied
+    end
+```
+
+**Policy decisions** are deterministic and structured:
+
+| Decision | Meaning |
+|---|---|
+| `matched` | Exactly one credential template matches the host — inject it |
+| `ambiguous` | Multiple credential templates match — caller must disambiguate |
+| `missing` | Credentials exist but none match this host — no rewrite |
+| `unauthenticated` | No credentials configured for the session |
+| `ask_missing_credential` | A known template pattern matches but no credential is bound to the session |
+| `ask_unauthenticated` | Completely unknown host — prompt for unauthenticated access |
+
+**Trust rule persistence**: The `createProxyApprovalCallback` in `session-tool-setup.ts` wires the policy "ask" decisions through the existing `PermissionPrompter` UI. Trust rules are saved under tool names `proxy:missing_credential` and `proxy:unauthenticated` with scope patterns like `proxy:api.example.com` or `proxy:*`.
+
+**Proxied bash permission restriction**: The `ToolExecutor` sets `persistentDecisionsAllowed = false` when the bash tool is invoked with `network_mode: 'proxied'`. This prevents users from saving permanent trust rules for proxied bash commands, since the proxy session's credential scope can change between invocations.
+
+### Session Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Starting : createSession(conversationId, credentialIds)
+    Starting --> Active : startSession() → ephemeral port assigned
+    Active --> Active : resetIdleTimer() on getSessionEnv()
+    Active --> Stopping : stopSession() or idle timeout (5min)
+    Stopping --> Stopped : server closed, timer cleared
+```
+
+Each proxy session is bound to a conversation and tracks authorized credential IDs. The `SessionManager` enforces a per-conversation limit (default 3 concurrent sessions). Sessions auto-stop after 5 minutes of inactivity. `stopAllSessions()` is called on daemon shutdown.
+
+### Local CA and Certificate Management
+
+The proxy generates and manages a local Certificate Authority for MITM interception:
+
+| Component | Location | Purpose |
+|---|---|---|
+| CA cert | `{dataDir}/proxy-ca/ca.pem` | Self-signed root cert (valid 10 years, permissions 0644) |
+| CA key | `{dataDir}/proxy-ca/ca-key.pem` | CA private key (permissions 0600) |
+| Leaf certs | `{dataDir}/proxy-ca/issued/{hostname}.pem` | Per-hostname certs (cached, verified against current CA) |
+
+`ensureLocalCA()` is idempotent — it only generates the CA if the files do not already exist. Leaf certificates are cached and revalidated via `X509Certificate.checkIssued()` to detect stale certs from a previous CA.
+
+### Log Sanitization
+
+All proxy logging passes through sanitization helpers (`logging.ts`) that redact credential values before they reach logs or lifecycle events:
+
+- `sanitizeHeaders()` — replaces values of sensitive header keys (e.g. `Authorization`) with `[REDACTED]`
+- `sanitizeUrl()` — redacts query parameter values for sensitive param names (e.g. `api_key`)
+- `createSafeLogEntry()` — combines both into a log-safe request snapshot
+
+### Security Invariants
+
+1. **Credential values never reach the LLM** — The proxy injects credentials at the network layer; the model only sees tool results, never the injected headers or query parameters.
+2. **Minimal MITM surface** — Only hosts matching a credential injection template are MITM-intercepted. All other HTTPS traffic passes through an opaque TCP tunnel.
+3. **CA key isolation** — The CA private key has 0600 permissions and never leaves the host filesystem. Container processes only receive the CA cert via `NODE_EXTRA_CA_CERTS`.
+4. **No persistent trust rules for proxied bash** — `persistentDecisionsAllowed: false` prevents saving trust rules that could auto-allow proxied commands across sessions with different credential scopes.
+5. **Auditable routing** — Every CONNECT routing decision carries a deterministic `RouteReason` code (`mitm:credential_injection`, `tunnel:no_rewrite`, `tunnel:no_credentials`) for audit and testing.
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/tools/network/script-proxy/server.ts` | Proxy server factory — HTTP forwarding, CONNECT handling, MITM dispatch |
+| `assistant/src/tools/network/script-proxy/router.ts` | Hybrid router — decides MITM vs tunnel per CONNECT target |
+| `assistant/src/tools/network/script-proxy/policy.ts` | Policy engine — evaluates requests against credential templates |
+| `assistant/src/tools/network/script-proxy/mitm-handler.ts` | MITM TLS interception — loopback TLS server, request rewrite, upstream forwarding |
+| `assistant/src/tools/network/script-proxy/connect-tunnel.ts` | Plain CONNECT tunnel — raw TCP bidirectional pipe |
+| `assistant/src/tools/network/script-proxy/http-forwarder.ts` | HTTP proxy forwarder — absolute-URL form forwarding with policy callback |
+| `assistant/src/tools/network/script-proxy/session-manager.ts` | Session lifecycle — create, start, stop, idle timeout, env var generation |
+| `assistant/src/tools/network/script-proxy/certs.ts` | Local CA management — ensureLocalCA, issueLeafCert, getCAPath |
+| `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization — header/URL redaction for credential values |
+| `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
+| `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
+| `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
+| `assistant/src/daemon/session-tool-setup.ts` | `createProxyApprovalCallback` — wires policy decisions to permission prompter |
+| `assistant/src/permissions/checker.ts` | `network_request` trust rule matching and risk classification (Medium) |
+
+---
+
+## Asset Search and Materialize — Cross-Thread Media Reuse
+
+The `asset_search` and `asset_materialize` tools enable the assistant to discover and use previously uploaded media assets (images, documents, audio) across conversations. Assets are stored as base64-encoded blobs in the `attachments` table and linked to messages via the `message_attachments` join table.
+
+### Asset Discovery and Materialization Flow
+
+```mermaid
+sequenceDiagram
+    participant Model as LLM
+    participant Search as asset_search tool
+    participant DB as SQLite (attachments)
+    participant Visibility as media-visibility-policy
+    participant Materialize as asset_materialize tool
+    participant Sandbox as Sandbox filesystem
+
+    Model->>Search: search(mime_type: "image/*", recency: "last_7_days")
+    Search->>DB: query attachments (filters)
+    DB-->>Search: matching rows (metadata only, no base64)
+    Search->>Visibility: filterVisibleAttachments(results, currentContext)
+    Note over Visibility: Private-thread attachments filtered out<br/>unless viewer is in the same thread
+    Visibility-->>Search: visible results
+    Search-->>Model: metadata list (IDs, filenames, types, sizes)
+
+    Model->>Materialize: materialize(attachment_id, destination_path)
+    Materialize->>Materialize: sandboxPolicy(destination_path)
+    Materialize->>DB: load attachment (including base64 data)
+    Materialize->>Visibility: isAttachmentVisible(attachmentCtx, currentCtx)
+    Note over Visibility: Second visibility check at materialize time<br/>prevents TOCTOU between search and materialize
+    Materialize->>Materialize: size check (max 50 MB)
+    Materialize->>Sandbox: write decoded bytes to destination
+    Materialize-->>Model: "Materialized 'photo.jpg' to /workspace/media/photo.jpg"
+```
+
+### Private Thread Visibility Gate
+
+Attachments from private threads are only visible to the same private thread. Standard-thread attachments are visible everywhere. The policy is enforced at both the search and materialize stages to prevent cross-thread data leakage.
+
+```mermaid
+graph TB
+    subgraph "Visibility Rules"
+        ATT_STD["Attachment from<br/>standard thread"]
+        ATT_PVT["Attachment from<br/>private thread"]
+
+        VIEWER_ANY["Any thread<br/>(standard or private)"]
+        VIEWER_SAME["Same private thread<br/>(matching conversationId)"]
+        VIEWER_OTHER["Different private thread<br/>or standard thread"]
+    end
+
+    ATT_STD -->|"always visible"| VIEWER_ANY
+    ATT_PVT -->|"visible"| VIEWER_SAME
+    ATT_PVT -->|"hidden"| VIEWER_OTHER
+```
+
+**Source conversation lookup**: The `getAttachmentSourceConversations()` function traces an attachment's lineage through `message_attachments` -> `messages` -> `conversations` to determine which threads it belongs to and whether any of them are private.
+
+**Mixed-source attachments**: If an attachment is linked to messages in both standard and private conversations (e.g., the user shared the same file in two threads), the attachment is treated as globally visible because at least one source is non-private.
+
+**Orphan attachments**: Attachments with no message linkage (orphans) are treated as universally visible rather than hidden, since they have no private-thread provenance.
+
+### Search Capabilities
+
+| Parameter | Type | Description |
+|---|---|---|
+| `mime_type` | string | MIME type filter with wildcard support (`image/*`, `application/pdf`) |
+| `filename` | string | Case-insensitive substring match on original filename |
+| `recency` | enum | Time-based filter: `last_hour`, `last_24_hours`, `last_7_days`, `last_30_days`, `last_90_days` |
+| `conversation_id` | string | Scope results to attachments in a specific conversation |
+| `limit` | number | Maximum results (default 20, max 100) |
+
+### Materialize Safeguards
+
+- **Sandbox path enforcement**: Destination path must resolve inside the sandbox working directory
+- **Size limit**: 50 MB ceiling prevents materializing excessively large attachments
+- **Double visibility check**: Both `asset_search` and `asset_materialize` independently verify visibility, preventing TOCTOU races between search and use
+- **Risk level**: Both tools are `RiskLevel.Low` since they read existing data and write only within the sandbox
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/tools/assets/search.ts` | `asset_search` tool — cross-thread attachment metadata search with visibility filtering |
+| `assistant/src/tools/assets/materialize.ts` | `asset_materialize` tool — decode and write attachment to sandbox path |
+| `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()` |
+| `assistant/src/memory/schema.ts` | `attachments` and `message_attachments` table schemas |
+| `assistant/src/memory/conversation-store.ts` | `getConversationThreadType()` — thread type lookup for visibility context |
+
+---
+
 ## Inline Media Embeds — URL Detection and Rendering Pipeline
 
 Chat messages containing image or video URLs are rendered inline with a click-to-play card (videos) or lazy-loaded preview (images). The pipeline runs entirely on the macOS client with no daemon involvement; settings are persisted to the workspace config file via `WorkspaceConfigIO`.
@@ -2485,4 +2812,7 @@ graph TD
 | Media embed MIME cache | In-memory (`ImageMIMEProbe`) | `NSCache` (500 entries) | HTTP HEAD | Ephemeral; cleared on app restart |
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
+| Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
+| Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
+| Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
