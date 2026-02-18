@@ -149,6 +149,13 @@ if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     fi
 fi
 
+# Also rebuild if CLI binary changed or newly added
+if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-cli" ] || [ "$SCRIPT_DIR/cli-bin/vellum-cli" -nt "$MACOS_DIR/vellum-cli" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Ensure .app bundle structure exists
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
@@ -168,6 +175,16 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-daemon"
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled CLI binary (if available — built by CI or locally)
+    CLI_BIN="$SCRIPT_DIR/cli-bin/vellum-cli"
+    if [ -f "$CLI_BIN" ]; then
+        echo "Bundling CLI binary..."
+        cp "$CLI_BIN" "$MACOS_DIR/vellum-cli"
+        chmod +x "$MACOS_DIR/vellum-cli"
+    else
+        echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
     fi
 else
     echo "Binaries unchanged, skipping binary repackaging"
@@ -345,6 +362,16 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     # Sign the outer framework last
     codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     echo "Sparkle.framework signed (including nested binaries)"
+fi
+
+# Sign CLI binary
+if [ -f "$MACOS_DIR/vellum-cli" ]; then
+    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        CLI_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
+    echo "CLI binary signed"
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)

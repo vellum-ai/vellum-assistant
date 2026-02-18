@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct CloudCredentialsStepView: View {
     @Bindable var state: OnboardingState
 
+    @State private var cliLauncher = CLILauncher()
     @State private var showTitle = false
     @State private var showContent = false
 
@@ -408,6 +409,11 @@ struct CloudCredentialsStepView: View {
     private func saveAndContinue() {
         guard !continueDisabled else { return }
         saveCredentialsToConfig()
+        if state.cloudProvider == "gcp" {
+            Task {
+                try? await cliLauncher.runHatch()
+            }
+        }
         state.advance()
     }
 

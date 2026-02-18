@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
-import { tmpdir, userInfo } from "os";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
@@ -387,10 +387,51 @@ async function watchHatching(
   });
 }
 
+interface CloudCredentials {
+  provider: string;
+  projectId?: string;
+  serviceAccountKey?: string;
+}
+
+interface WorkspaceConfig {
+  cloudCredentials?: CloudCredentials;
+}
+
+async function activateGcpCredentialsFromConfig(): Promise<void> {
+  const configPath = join(homedir(), ".vellum", "workspace", "config.json");
+  let config: WorkspaceConfig;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf8")) as WorkspaceConfig;
+  } catch {
+    return;
+  }
+
+  const creds = config.cloudCredentials;
+  if (!creds || creds.provider !== "gcp" || !creds.serviceAccountKey || !creds.projectId) {
+    return;
+  }
+
+  const keyPath = join(tmpdir(), `vellum-sa-key-${Date.now()}.json`);
+  writeFileSync(keyPath, creds.serviceAccountKey);
+  try {
+    await exec("gcloud", [
+      "auth",
+      "activate-service-account",
+      `--key-file=${keyPath}`,
+    ]);
+    await exec("gcloud", ["config", "set", "project", creds.projectId]);
+  } finally {
+    try {
+      unlinkSync(keyPath);
+    } catch {}
+  }
+}
+
 export async function hatch(): Promise<void> {
   const startTime = Date.now();
   const { species, detached, name } = parseArgs();
   try {
+    await activateGcpCredentialsFromConfig();
     const project = await getActiveProject();
     let instanceName: string;
 
