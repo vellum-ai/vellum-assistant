@@ -2837,9 +2837,9 @@ describe('Permission Checker', () => {
       clearCache();
     }
 
-    // ── skill_load: version-specific rule allows v1 but prompts for v2 ──
+    // ── skill_load: version-specific rule allows v1; v2 falls through to default allow rule ──
 
-    test('skill_load: version-specific rule allows v1 but prompts for v2 (strict mode)', async () => {
+    test('skill_load: version-specific rule allows v1; v2 falls through to default allow rule (strict mode)', async () => {
       ensureSkillsDir();
       writeSkill('pr35-hash-skill', 'PR35 Hash Change Skill');
       testConfig.permissions.mode = 'strict';
