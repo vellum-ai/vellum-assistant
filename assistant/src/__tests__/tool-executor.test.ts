@@ -932,6 +932,9 @@ describe('isSideEffectTool', () => {
       'browser_fill_credential',
       'document_create',
       'document_update',
+      'schedule_create',
+      'schedule_update',
+      'schedule_delete',
     ];
 
     for (const toolName of sideEffectTools) {
@@ -1372,6 +1375,50 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     const result = await executor.execute(
       'document_update',
       { id: 'doc-1', content: 'updated' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  // ── Always-mutating schedule tools (PR fix7) ──────────
+
+  test('schedule_create forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'schedule_create',
+      { name: 'Morning standup', cron: '0 9 * * 1-5' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('schedule_update forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'schedule_update',
+      { id: 'sched-1', cron: '0 10 * * 1-5' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
+
+  test('schedule_delete forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'schedule_delete',
+      { id: 'sched-1' },
       makeContext({ forcePromptSideEffects: true }),
     );
 

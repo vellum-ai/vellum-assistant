@@ -538,6 +538,9 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'browser_fill_credential',
   'document_create',
   'document_update',
+  'schedule_create',
+  'schedule_update',
+  'schedule_delete',
 ]);
 
 /**
