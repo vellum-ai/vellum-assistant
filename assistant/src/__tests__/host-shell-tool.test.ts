@@ -151,3 +151,82 @@ describe('host_bash tool', () => {
     expect(spawnCalls[0].args).toEqual(['-c', '--', 'echo hello']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Baseline: host_bash bypasses all sandbox wrappers
+// ---------------------------------------------------------------------------
+
+describe('host_bash — baseline: no sandbox isolation', () => {
+  test('does not use Docker wrapper (no "docker" as spawn command)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-no-docker-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+
+    const result = await hostShellTool.execute({
+      command: 'echo baseline',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    // The spawn command must be 'bash', never 'docker'
+    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].command).not.toBe('docker');
+  });
+
+  test('does not use sandbox-exec or bwrap wrapper', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-no-native-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+
+    const result = await hostShellTool.execute({
+      command: 'echo no-native-sandbox',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spawnCalls[0].command).not.toBe('sandbox-exec');
+    expect(spawnCalls[0].command).not.toBe('bwrap');
+  });
+
+  test('runs directly with bash -c -- <command> args format', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-args-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+
+    await hostShellTool.execute({
+      command: 'ls -la /tmp',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(spawnCalls[0].command).toBe('bash');
+    expect(spawnCalls[0].args[0]).toBe('-c');
+    expect(spawnCalls[0].args[1]).toBe('--');
+    expect(spawnCalls[0].args[2]).toBe('ls -la /tmp');
+  });
+
+  test('sandbox config being enabled does not affect host_bash', async () => {
+    // The mock config has sandbox.enabled = true
+    expect(mockConfig.sandbox.enabled).toBe(true);
+
+    const dir = mkdtempSync(join(tmpdir(), 'host-shell-sandbox-cfg-'));
+    testDirs.push(dir);
+
+    spawnCalls.length = 0;
+    wrapCommandCallCount = 0;
+
+    const result = await hostShellTool.execute({
+      command: 'echo sandbox-enabled-irrelevant',
+      working_dir: dir,
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    // Must never call wrapCommand regardless of config
+    expect(wrapCommandCallCount).toBe(0);
+    // Must still spawn plain bash
+    expect(spawnCalls[0].command).toBe('bash');
+  });
+});

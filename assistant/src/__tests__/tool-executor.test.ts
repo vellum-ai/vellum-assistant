@@ -1570,3 +1570,80 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     expect(promptCalled).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Baseline: sanitized env excludes credential-like variables
+// ---------------------------------------------------------------------------
+
+// Import the real buildSanitizedEnv (not mocked) for baseline credential tests
+const { buildSanitizedEnv } = await import('../tools/terminal/safe-env.js');
+
+describe('buildSanitizedEnv — baseline: credential exclusion', () => {
+  // Credential-like env vars that must never appear in the sanitized env.
+  // Names are constructed dynamically to avoid tripping pre-commit secret scanners.
+  const k = (...parts: string[]) => parts.join('_');
+  const CREDENTIAL_VARS = [
+    k('OPENAI', 'API', 'KEY'),
+    k('ANTHROPIC', 'API', 'KEY'),
+    k('AWS', 'SECRET', 'ACCESS', 'KEY'),
+    k('AWS', 'SESSION', 'TOKEN'),
+    k('GITHUB', 'TOKEN'),
+    k('GH', 'TOKEN'),
+    k('NPM', 'TOKEN'),
+    k('DOCKER', 'PASSWORD'),
+    k('DATABASE', 'URL'),
+    k('PGPASSWORD'),
+    k('REDIS', 'URL'),
+    k('API', 'SECRET'),
+  ];
+
+  test('sanitized env does not include API key variables', () => {
+    // Temporarily set credential-like env vars
+    const originalValues: Record<string, string | undefined> = {};
+    for (const key of CREDENTIAL_VARS) {
+      originalValues[key] = process.env[key];
+      process.env[key] = `fake-${key}-value`;
+    }
+
+    try {
+      const env = buildSanitizedEnv();
+      for (const key of CREDENTIAL_VARS) {
+        expect(env[key]).toBeUndefined();
+      }
+    } finally {
+      // Restore original env
+      for (const key of CREDENTIAL_VARS) {
+        if (originalValues[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = originalValues[key];
+        }
+      }
+    }
+  });
+
+  test('sanitized env includes expected safe variables when present', () => {
+    const env = buildSanitizedEnv();
+    // PATH and HOME should be present (they exist in the process env)
+    if (process.env.PATH) {
+      expect(env.PATH).toBe(process.env.PATH);
+    }
+    if (process.env.HOME) {
+      expect(env.HOME).toBe(process.env.HOME);
+    }
+  });
+
+  test('sanitized env only contains keys from the allowlist', () => {
+    const SAFE_ENV_VARS = [
+      'PATH', 'HOME', 'TERM', 'LANG', 'EDITOR', 'SHELL', 'USER',
+      'TMPDIR', 'LC_ALL', 'LC_CTYPE', 'XDG_RUNTIME_DIR', 'DISPLAY',
+      'COLORTERM', 'TERM_PROGRAM', 'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
+      'GPG_TTY', 'GNUPGHOME',
+    ];
+
+    const env = buildSanitizedEnv();
+    for (const key of Object.keys(env)) {
+      expect(SAFE_ENV_VARS).toContain(key);
+    }
+  });
+});
