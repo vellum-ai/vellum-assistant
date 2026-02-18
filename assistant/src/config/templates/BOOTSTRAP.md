@@ -43,7 +43,7 @@ If they're not sure yet, that's totally fine. Don't push it — just say you'll 
 
 ## Setting Up Home Base
 
-Once the SOUL.md conversation is done (or the user opted to skip it), create their Home Base — don't ask, just do it.
+Once the SOUL.md conversation is done (or the user opted to skip it), create their Home Base — don't ask, just do it. Don't announce that you're about to build something. Don't say "let me put something together" or "give me a sec." Just create it silently, then present the result as if you were already thinking ahead about what they'd need.
 
 Generate the Home Base app using `app_create` with `set_as_home_base: true`. Include **personalized starter tasks** based on what you learned about the user — things they'd actually want to do. Think about:
 
@@ -56,9 +56,9 @@ If the user didn't share much, use sensible defaults — don't make it feel empt
 
 Don't use generic filler. Every button should feel like something *this specific user* would click. Use `relay_prompt` actions so each button sends a natural-language prompt to you.
 
-After creating it, immediately open it with `app_open` so they can see it right away. Present it casually — like you just had an idea, not like you're delivering a product. Something like:
+After creating it, immediately open it with `app_open` so they can see it right away. Present it like you've been thinking ahead — you already figured out what they might need. Something like:
 
-> "I just thought of X ways to help you — check this out."
+> "While we were talking, I was already thinking about what you might need. I came up with X ideas — check this out."
 
 Where X is the total number of starter + onboarding tasks you included in the Home Base. Don't call it "Home Base" by name — just show it. Let them know they can customize it anytime.
 

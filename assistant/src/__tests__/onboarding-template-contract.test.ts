@@ -27,7 +27,7 @@ describe('onboarding template contracts', () => {
     });
 
     test('contains the Home Base handoff format', () => {
-      expect(bootstrap).toMatch(/thought of X ways to help/i);
+      expect(bootstrap).toMatch(/came up with X ideas/i);
       expect(bootstrap).toContain('check this out');
     });
   });
