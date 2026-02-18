@@ -1,0 +1,29 @@
+const ADJECTIVES = [
+  'brave', 'calm', 'eager', 'fair', 'glad', 'keen', 'bold', 'cool',
+  'fast', 'warm', 'wise', 'kind', 'pure', 'safe', 'true', 'wild',
+  'free', 'deep', 'firm', 'soft', 'rich', 'rare', 'slim', 'vast',
+  'neat', 'pale', 'dark', 'lean', 'raw', 'dry', 'bright', 'crisp',
+  'deft', 'faint', 'grand', 'hale', 'just', 'lush', 'mild', 'prime',
+  'quick', 'sharp', 'stark', 'swift', 'tame', 'tight', 'vivid', 'plush',
+  'dense', 'lucid', 'fresh', 'fleet', 'stout', 'brisk', 'clear', 'quiet',
+  'noble', 'sleek', 'agile', 'spry',
+];
+
+const NOUNS = [
+  'fox', 'owl', 'elk', 'ant', 'bee', 'ram', 'eel', 'cod',
+  'jay', 'yak', 'bat', 'cub', 'doe', 'hen', 'kit', 'pup',
+  'ray', 'tern', 'wren', 'lark', 'hawk', 'dove', 'lynx', 'hare',
+  'frog', 'newt', 'crab', 'moth', 'seal', 'toad', 'wolf', 'bear',
+  'deer', 'swan', 'crane', 'finch', 'robin', 'otter', 'mink', 'vole',
+  'shrew', 'pike', 'bass', 'trout', 'perch', 'stork', 'egret', 'heron',
+  'snipe', 'quail', 'raven', 'swift', 'grouse', 'ibis', 'mole', 'asp',
+  'koi', 'gnu', 'dace', 'skua',
+];
+
+function randomElement<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+export function generateRandomSuffix(): string {
+  return `${randomElement(ADJECTIVES)}-${randomElement(NOUNS)}`;
+}
