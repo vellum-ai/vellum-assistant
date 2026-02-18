@@ -1,10 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import * as appStore from '../../memory/app-store.js';
 import { randomUUID } from 'node:crypto';
-import { generateEditorHTML } from './editor-template.js';
-import { openAppViaSurface } from '../apps/open-proxy.js';
 
 // ── document_create ──────────────────────────────────────────────────
 
