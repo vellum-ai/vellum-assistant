@@ -25,6 +25,7 @@ import { DaemonServer } from './server.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
 import { initSentry } from '../instrument.js';
+import { initLogfire } from '../logfire.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
@@ -220,6 +221,7 @@ function loadDotEnv(): void {
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
   initSentry();
+  await initLogfire();
 
   // Migration order matters: first move legacy flat files into the data dir
   // structure, then relocate the data dir into the active workspace, and

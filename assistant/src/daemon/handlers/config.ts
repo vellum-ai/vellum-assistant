@@ -386,3 +386,10 @@ export function handleVercelApiConfig(
   }
 }
 
+export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
+  const vars: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) vars[key] = value;
+  }
+  ctx.send(socket, { type: 'env_vars_response', vars });
+}

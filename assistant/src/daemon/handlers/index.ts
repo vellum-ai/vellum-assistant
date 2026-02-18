@@ -65,6 +65,7 @@ import {
   handleShareToSlack,
   handleSlackWebhookConfig,
   handleVercelApiConfig,
+  handleEnvVarsRequest,
 } from './config.js';
 
 import {
@@ -224,6 +225,7 @@ const handlers: DispatchMap = {
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
   },
   diagnostics_export_request: handleDiagnosticsExport,
+  env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
 };
 
 export function handleMessage(

@@ -13,6 +13,11 @@ public struct SettingsView: View {
     @State private var showingSkills = false
     @State private var showingTrustRules = false
     @State private var newAllowlistDomain = ""
+    #if DEBUG
+    @State private var showingEnvVars = false
+    @State private var appEnvVars: [(String, String)] = []
+    @State private var daemonEnvVars: [(String, String)] = []
+    #endif
     @State private var skillsViewModel: SkillsSettingsViewModel?
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var activationKey: ActivationKey = {
@@ -334,6 +339,28 @@ public struct SettingsView: View {
                 }
                 .font(.caption)
             }
+
+            #if DEBUG
+            if let daemonClient {
+                Section("Developer") {
+                    Button("View Environment Variables") {
+                        appEnvVars = ProcessInfo.processInfo.environment
+                            .sorted(by: { $0.key < $1.key })
+                            .map { ($0.key, $0.value) }
+                        daemonEnvVars = []
+                        daemonClient.onEnvVarsResponse = { response in
+                            Task { @MainActor in
+                                self.daemonEnvVars = response.vars
+                                    .sorted(by: { $0.key < $1.key })
+                                    .map { ($0.key, $0.value) }
+                            }
+                        }
+                        try? daemonClient.sendEnvVarsRequest()
+                        showingEnvVars = true
+                    }
+                }
+            }
+            #endif
         }
         .formStyle(.grouped)
         .frame(width: 450, height: 700)
@@ -356,6 +383,9 @@ public struct SettingsView: View {
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
+            #if DEBUG
+            daemonClient?.onEnvVarsResponse = nil
+            #endif
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
@@ -375,6 +405,11 @@ public struct SettingsView: View {
         .sheet(isPresented: $showingPrivacy) {
             PrivacyDetailView()
         }
+        #if DEBUG
+        .sheet(isPresented: $showingEnvVars) {
+            EnvVarsSheetView(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
+        }
+        #endif
     }
 
     private func checkPermissions() {
@@ -601,6 +636,66 @@ private struct KnowledgeEntriesView: View {
         .frame(width: 500, height: 400)
     }
 }
+
+// MARK: - Environment Variables Sheet (Debug Only)
+
+#if DEBUG
+private struct EnvVarsSheetView: View {
+    let appEnvVars: [(String, String)]
+    let daemonEnvVars: [(String, String)]
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Environment Variables")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    envVarsSection(title: "App Process", vars: appEnvVars)
+                    envVarsSection(title: "Daemon Process", vars: daemonEnvVars)
+                }
+                .padding()
+            }
+        }
+        .frame(width: 600, height: 500)
+    }
+
+    private func envVarsSection(title: String, vars: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            if vars.isEmpty {
+                Text("Loading...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(vars, id: \.0) { key, value in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(key)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .frame(width: 200, alignment: .trailing)
+                        Text(value)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
 
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
