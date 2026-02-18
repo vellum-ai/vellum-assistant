@@ -21,6 +21,7 @@ import type {
   VercelApiConfigRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
+import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -43,6 +44,8 @@ export function handleModelSet(
     // Use raw config to avoid persisting env-var API keys to disk
     const raw = loadRawConfig();
     raw.model = msg.model;
+    // Infer provider from model ID to keep provider and model in sync
+    raw.provider = MODEL_TO_PROVIDER[msg.model] ?? raw.provider;
 
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload

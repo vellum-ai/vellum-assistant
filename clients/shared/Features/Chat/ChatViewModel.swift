@@ -199,8 +199,9 @@ public final class ChatViewModel: ObservableObject {
             try? daemonClient.send(ModelGetRequestMessage())
         }
 
-        // Fire auto-title callback on the first user message
-        if !text.isEmpty, let callback = onFirstUserMessage {
+        // Fire auto-title callback on the first user message (skip slash commands
+        // like /model so the thread title isn't set to a command string)
+        if !text.isEmpty, !text.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
             callback(text)
         }
