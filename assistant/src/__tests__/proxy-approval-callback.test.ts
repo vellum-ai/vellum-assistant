@@ -61,7 +61,7 @@ function makeAskMissingCredentialRequest(
   return {
     decision: {
       kind: 'ask_missing_credential',
-      target: { hostname: 'api.fal.ai', port: 443, path: '/v1/run' },
+      target: { hostname: 'api.fal.ai', port: 443, path: '/v1/run', scheme: 'https' },
       matchingPatterns: ['*.fal.ai'],
     },
     sessionId: 'session-1',
@@ -75,7 +75,7 @@ function makeAskUnauthenticatedRequest(
   return {
     decision: {
       kind: 'ask_unauthenticated',
-      target: { hostname: 'example.com', port: null, path: '/data' },
+      target: { hostname: 'example.com', port: null, path: '/data', scheme: 'https' },
     },
     sessionId: 'session-2',
     ...overrides,

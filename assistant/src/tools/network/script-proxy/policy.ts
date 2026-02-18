@@ -90,6 +90,7 @@ export function evaluateRequestWithApproval(
   credentialIds: string[],
   sessionTemplates: Map<string, CredentialInjectionTemplate[]>,
   allKnownTemplates: CredentialInjectionTemplate[],
+  scheme: 'http' | 'https' = 'https',
 ): PolicyDecision {
   const base = evaluateRequest(hostname, path, credentialIds, sessionTemplates);
 
@@ -97,7 +98,7 @@ export function evaluateRequestWithApproval(
     return base;
   }
 
-  const target: RequestTargetContext = { hostname, port, path };
+  const target: RequestTargetContext = { hostname, port, path, scheme };
 
   // Check whether any template in the full registry covers this host.
   const matchingPatterns: string[] = [];
