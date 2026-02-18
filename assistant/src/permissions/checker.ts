@@ -338,6 +338,13 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
+  // Proxied network mode bypasses all trust rules — every invocation
+  // requires explicit user approval because the command will route
+  // through an authenticated proxy with injected credentials.
+  if ((toolName === 'bash' || toolName === 'host_bash') && input.network_mode === 'proxied') {
+    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+  }
+
   const risk = await classifyRisk(toolName, input, workingDir);
 
   // Build command string candidates for rule matching

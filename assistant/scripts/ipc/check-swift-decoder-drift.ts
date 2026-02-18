@@ -44,6 +44,9 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Page publishing — not yet consumed by the macOS client
   'publish_page_response',
   'unpublish_page_response',
+  // Daemon-internal watcher events not surfaced to macOS client
+  'watcher_escalation',
+  'watcher_notification',
 ]);
 
 /**
@@ -65,6 +68,12 @@ const INVENTORY_UNEXTRACTABLE = new Set<string>([
 const SWIFT_AHEAD_ALLOWLIST = new Set<string>([
   // Defined in Swift LayoutConfig.swift ahead of daemon implementation
   'ui_layout_config',
+  // Document editor types defined in Swift ahead of daemon implementation
+  'document_editor_show',
+  'document_editor_update',
+  'document_save_response',
+  'document_load_response',
+  'document_list_response',
 ]);
 
 // --- Extract Swift decode cases ---

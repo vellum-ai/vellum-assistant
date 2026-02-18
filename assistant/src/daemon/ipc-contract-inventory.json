@@ -158,7 +158,9 @@
     "UserMessageEcho",
     "VercelApiConfigResponse",
     "WatchCompleteRequest",
-    "WatchStarted"
+    "WatchStarted",
+    "WatcherEscalation",
+    "WatcherNotification"
   ],
   "clientWireTypes": [
     "accept_starter_bundle",
