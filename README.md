@@ -232,7 +232,7 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 ### Permissions
 
-All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. Users can remove or override these default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval.
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will always prompt for approval regardless of trust rules. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
 
 ## Permission Modes and Trust Rules
 
