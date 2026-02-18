@@ -3875,8 +3875,11 @@ describe('Memory regressions', () => {
     expect(privRecall.injectedText.toLowerCase()).toContain('zephyr');
 
     // 5. Standard thread recall — must NOT find the Zephyr fact (no leak)
+    // Mirror the production call in session-memory.ts: for standard threads
+    // (scopeId === 'default'), scopePolicyOverride is undefined.
     const stdRecall = await buildMemoryRecall('Zephyr framework microservices', stdConv.id, recallConfig, {
-      scopeId: 'default',
+      scopeId: stdScope,
+      scopePolicyOverride: undefined,
     });
     const stdCandidateKeys = stdRecall.topCandidates.map((c) => c.key);
     const hasZephyrInStandard = privateItemKeys.some((k) => stdCandidateKeys.includes(k));
