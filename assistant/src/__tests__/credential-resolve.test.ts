@@ -253,5 +253,17 @@ describe('credential resolver', () => {
       expect(resolveForDomain('api.exact.com')).toHaveLength(1);
       expect(resolveForDomain('other.exact.com')).toHaveLength(0);
     });
+
+    test('matches hostnames case-insensitively', () => {
+      upsertCredentialMetadata('casefold', 'key', {
+        injectionTemplates: [
+          { hostPattern: '*.Example.COM', injectionType: 'header', headerName: 'Authorization' },
+        ],
+      });
+
+      expect(resolveForDomain('api.example.com')).toHaveLength(1);
+      expect(resolveForDomain('API.EXAMPLE.COM')).toHaveLength(1);
+      expect(resolveForDomain('Api.Example.Com')).toHaveLength(1);
+    });
   });
 });
