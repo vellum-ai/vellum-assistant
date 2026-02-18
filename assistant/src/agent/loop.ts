@@ -203,11 +203,14 @@ export class AgentLoop {
             block.type === 'tool_use',
         );
 
+        // Check if the assistant turn contained any visible text (used for
+        // both the empty-response nudge and the anti-repetition notice).
+        const hasTextBlock = response.content.some(
+          (block) => block.type === 'text' && block.text.trim().length > 0,
+        );
+
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           // Check if the LLM returned no text after tool results — nudge it to respond
-          const hasTextBlock = response.content.some(
-            (block) => block.type === 'text' && block.text.trim().length > 0,
-          );
           const lastUserMsg = history.length >= 2 ? history[history.length - 2] : undefined;
           const lastWasToolResult =
             lastUserMsg?.role === 'user' &&
@@ -365,6 +368,14 @@ export class AgentLoop {
           resultBlocks.push({
             type: 'text',
             text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,
+          });
+        }
+
+        // Remind the LLM not to repeat text it already streamed
+        if (hasTextBlock) {
+          resultBlocks.push({
+            type: 'text',
+            text: '<system_notice>Your previous text was already displayed to the user in real-time as you generated it. Continue naturally from where you left off — do not repeat or rephrase what you already said above.</system_notice>',
           });
         }
 
