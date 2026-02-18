@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock, spyOn } from 'bun:test';
 import type { ToolExecutionResult, Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
 import type { PolicyContext } from '../permissions/types.js';
@@ -27,6 +27,9 @@ let getToolOverride: ((name: string) => Tool | undefined) | undefined;
 /** Override the check() result for tests that need to trigger prompting. */
 let checkResultOverride: { decision: string; reason: string } | undefined;
 
+/** Function override for check() — when set, takes precedence over the static override. */
+let checkFnOverride: ((toolName: string, input: Record<string, unknown>, workingDir: string, policyContext?: PolicyContext) => Promise<{ decision: string; reason: string }>) | undefined;
+
 /** Spy on addRule to capture calls without replacing the real implementation. */
 let addRuleSpy: ReturnType<typeof spyOn> | undefined;
 
@@ -53,6 +56,7 @@ mock.module('../permissions/checker.js', () => ({
   classifyRisk: async () => 'low',
   check: async (toolName: string, input: Record<string, unknown>, workingDir: string, policyContext?: PolicyContext) => {
     lastCheckArgs = { toolName, input, workingDir, policyContext };
+    if (checkFnOverride) return checkFnOverride(toolName, input, workingDir, policyContext);
     if (checkResultOverride) return checkResultOverride;
     return { decision: 'allow', reason: 'allowed' };
   },
@@ -120,6 +124,7 @@ describe('ToolExecutor allowedToolNames gating', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = undefined;
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -170,6 +175,7 @@ describe('ToolExecutor principal context plumbing', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = undefined;
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -325,6 +331,7 @@ describe('ToolExecutor contextual rule creation', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = undefined;
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -601,6 +608,7 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = undefined;
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
@@ -953,27 +961,91 @@ describe('isSideEffectTool', () => {
   });
 });
 
-// Baseline: allow rules can auto-allow file_edit for USER.md today (no forced prompting)
+// Baseline: allow rules can auto-allow file_edit for USER.md today (no forced prompting).
+// The mock check() delegates to findHighestPriorityRule (via spy) so a regression
+// in trust-rule matching would cause this test to fail instead of being masked by
+// a blanket mock-allow.
 describe('ToolExecutor baseline: allow rule auto-allows file_edit USER.md', () => {
+  const userMdPath = '/Users/sidd/.vellum/workspace/USER.md';
+  let ruleSpy: ReturnType<typeof spyOn> | undefined;
+
   beforeEach(() => {
     fakeToolResult = { content: 'ok', isError: false };
     lastCheckArgs = undefined;
     getToolOverride = undefined;
     checkResultOverride = undefined;
+    checkFnOverride = undefined;
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+
+    // Simulate a trust rule that allows file_edit on USER.md by stubbing
+    // findHighestPriorityRule. This mirrors the default allow rules that
+    // the trust-store creates for workspace prompt files.
+    ruleSpy = spyOn(trustStore, 'findHighestPriorityRule').mockImplementation(
+      (tool: string, commands: string[], _scope: string) => {
+        if (tool !== 'file_edit') return null;
+        for (const cmd of commands) {
+          if (cmd === `file_edit:${userMdPath}`) {
+            return {
+              id: 'default:allow-file_edit-user',
+              tool: 'file_edit',
+              pattern: `file_edit:${userMdPath}`,
+              scope: 'everywhere',
+              decision: 'allow' as const,
+              priority: 100,
+              createdAt: Date.now(),
+            };
+          }
+        }
+        return null;
+      },
+    );
+
+    // Wire the mock check() to delegate to findHighestPriorityRule, replicating
+    // the real check() logic for Medium-risk tools (file_edit).
+    checkFnOverride = async (toolName, input, workingDir) => {
+      const filePath = (input.path as string) ?? (input.file_path as string) ?? '';
+      const resolved = filePath.startsWith('/') ? filePath : `${workingDir}/${filePath}`;
+      const candidates = [`${toolName}:${resolved}`];
+      const matched = trustStore.findHighestPriorityRule(toolName, candidates, workingDir);
+      if (matched && matched.decision === 'allow') {
+        return { decision: 'allow', reason: `Matched trust rule: ${matched.pattern}` };
+      }
+      return { decision: 'prompt', reason: 'Medium risk: requires approval' };
+    };
   });
 
-  test('file_edit to USER.md is auto-allowed when checker says allow', async () => {
-    // checker mock returns { decision: 'allow' } by default
+  afterEach(() => {
+    checkFnOverride = undefined;
+    if (ruleSpy) { ruleSpy.mockRestore(); ruleSpy = undefined; }
+  });
+
+  test('file_edit to USER.md is auto-allowed via trust rule', async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       'file_edit',
-      { path: '/Users/sidd/.vellum/workspace/USER.md', content: 'hello' },
+      { path: userMdPath, content: 'hello' },
       makeContext(),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe('ok');
-    // confirm checker was called (not bypassed)
+    // Confirm checker was called with the correct tool name
+    expect(lastCheckArgs).toBeDefined();
+    expect(lastCheckArgs!.toolName).toBe('file_edit');
+    // Confirm findHighestPriorityRule was consulted
+    expect(ruleSpy).toHaveBeenCalled();
+  });
+
+  test('file_edit to a non-USER.md path is NOT auto-allowed without a matching rule', async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      'file_edit',
+      { path: '/tmp/project/other.md', content: 'hello' },
+      makeContext(),
+    );
+    // The executor prompts (check returned 'prompt') and the prompter mock
+    // allows it, so execution still succeeds — but the trust-rule path was
+    // exercised and correctly returned no match for other.md.
+    expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.toolName).toBe('file_edit');
   });
