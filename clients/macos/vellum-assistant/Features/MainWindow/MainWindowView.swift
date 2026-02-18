@@ -649,16 +649,7 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected: Bool = {
-            switch windowState.selection {
-            case .app(let id): return id == app.id
-            case .appEditing(let appId, _): return appId == app.id
-            default:
-                return windowState.isDynamicExpanded
-                    && windowState.activeDynamicSurface?.surfaceId != nil
-                    && isAppSurfaceActive(appId: app.id)
-            }
-        }()
+        let isSelected = false
         Button(action: {
             // Clicking a different app exits edit mode; same app stays in .app mode
             windowState.selection = .app(app.id)
@@ -992,17 +983,17 @@ struct MainWindowView: View {
                 )
             }
         case .appEditing:
-            // VSplitView: workspace + ChatView
+            // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 VSplitView(
                     panelWidth: $sidePanelWidth,
                     showPanel: true,
                     main: {
-                        dynamicWorkspaceView(surface: surface, data: dpData)
+                        chatView
                     },
                     panel: {
-                        chatView
+                        dynamicWorkspaceView(surface: surface, data: dpData)
                     }
                 )
             } else {
@@ -1542,8 +1533,6 @@ private struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    Spacer()
-
                     Button(action: {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
@@ -1567,6 +1556,8 @@ private struct DynamicWorkspaceWrapper: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(isChatDockOpen ? "Close editor" : "Edit app")
+
+                    Spacer()
 
                     if viewModel.surfaceUndoCount > 0 {
                         Button(action: {
