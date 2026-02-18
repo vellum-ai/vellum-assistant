@@ -2011,4 +2011,132 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isThinking, "Thinking should clear on message complete")
         XCTAssertFalse(viewModel.isSending)
     }
+
+    // MARK: - createSessionIfNeeded (Message-less Session Create)
+
+    func testCreateSessionIfNeededSetsBootstrapping() {
+        viewModel.createSessionIfNeeded(threadType: "private")
+        XCTAssertTrue(viewModel.isSending, "Should enter sending state during bootstrap")
+        XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
+        XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
+        XCTAssertEqual(viewModel.threadType, "private")
+        XCTAssertTrue(viewModel.isBootstrapping)
+    }
+
+    func testCreateSessionIfNeededNoOpWhenSessionExists() {
+        viewModel.sessionId = "existing-session"
+        viewModel.createSessionIfNeeded(threadType: "private")
+        XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when session already exists")
+    }
+
+    func testCreateSessionIfNeededNoOpWhenAlreadyBootstrapping() {
+        // Start a normal send which bootstraps
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isSending)
+        let originalCorrelationId = viewModel.bootstrapCorrelationId
+
+        // Calling createSessionIfNeeded should be a no-op
+        viewModel.createSessionIfNeeded(threadType: "private")
+        XCTAssertEqual(viewModel.bootstrapCorrelationId, originalCorrelationId, "Should not overwrite existing bootstrap")
+    }
+
+    func testCreateSessionIfNeededSessionInfoResetsState() {
+        viewModel.createSessionIfNeeded(threadType: "private")
+        let correlationId = viewModel.bootstrapCorrelationId!
+
+        // Simulate daemon responding with session_info
+        let info = SessionInfoMessage(sessionId: "new-session-123", title: "Test", correlationId: correlationId)
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        XCTAssertEqual(viewModel.sessionId, "new-session-123")
+        XCTAssertFalse(viewModel.isSending, "Should reset isSending for message-less create")
+        XCTAssertFalse(viewModel.isThinking, "Should reset isThinking for message-less create")
+        XCTAssertNil(viewModel.bootstrapCorrelationId, "Should clear correlation ID")
+        XCTAssertFalse(viewModel.isBootstrapping)
+    }
+
+    func testCreateSessionIfNeededOnSessionCreatedCallback() {
+        var callbackSessionId: String?
+        viewModel.onSessionCreated = { sessionId in
+            callbackSessionId = sessionId
+        }
+
+        viewModel.createSessionIfNeeded(threadType: "private")
+        let correlationId = viewModel.bootstrapCorrelationId!
+
+        let info = SessionInfoMessage(sessionId: "callback-session", title: "Test", correlationId: correlationId)
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        XCTAssertEqual(callbackSessionId, "callback-session", "Should fire onSessionCreated callback")
+    }
+
+    func testCreateSessionIfNeededSendsThreadTypeInIPC() {
+        var capturedMessages: [Any] = []
+        daemonClient.sendOverride = { msg in
+            capturedMessages.append(msg)
+        }
+
+        viewModel.createSessionIfNeeded(threadType: "private")
+
+        // Allow the async Task in bootstrapSession to execute
+        let expectation = XCTestExpectation(description: "session_create sent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
+        XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
+        XCTAssertEqual(sessionCreates.first?.threadType, "private", "session_create should include threadType")
+        XCTAssertNotNil(sessionCreates.first?.correlationId, "session_create should include correlationId")
+    }
+
+    func testCreateSessionIfNeededWithoutThreadType() {
+        viewModel.createSessionIfNeeded()
+        XCTAssertTrue(viewModel.isSending)
+        XCTAssertNil(viewModel.threadType, "threadType should remain nil when not specified")
+    }
+
+    func testThreadTypePassedThroughNormalSend() {
+        var capturedMessages: [Any] = []
+        daemonClient.sendOverride = { msg in
+            capturedMessages.append(msg)
+        }
+
+        // Set threadType before sending
+        viewModel.threadType = "private"
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        // Allow the async Task in bootstrapSession to execute
+        let expectation = XCTestExpectation(description: "session_create sent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        let sessionCreates = capturedMessages.compactMap { $0 as? SessionCreateMessage }
+        XCTAssertEqual(sessionCreates.count, 1)
+        XCTAssertEqual(sessionCreates.first?.threadType, "private", "Normal send should also pass threadType")
+    }
+
+    func testCreateSessionThenSendMessageUsesClaimedSession() {
+        // Create session without message
+        viewModel.createSessionIfNeeded(threadType: "private")
+        let correlationId = viewModel.bootstrapCorrelationId!
+
+        // Daemon responds with session_info
+        let info = SessionInfoMessage(sessionId: "pre-created-session", title: "Test", correlationId: correlationId)
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        // Now send a message — should go directly via sendUserMessage, not bootstrapSession
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.sessionId, "pre-created-session", "Should use the pre-created session")
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello")
+    }
 }

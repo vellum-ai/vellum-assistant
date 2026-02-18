@@ -73,6 +73,10 @@ public final class ChatViewModel: ObservableObject {
     /// Nonce sent with `session_create` and echoed back in `session_info`.
     /// Used to ensure this ChatViewModel only claims its own session.
     var bootstrapCorrelationId: String?
+    /// Thread type sent with `session_create` (e.g. "private").
+    /// Set by `createSessionIfNeeded(threadType:)` and included in the IPC
+    /// message so the daemon can persist the correct thread kind.
+    public var threadType: String?
     /// Whether this view model is currently bootstrapping a new session
     /// (session_create sent, awaiting session_info). Used by ThreadManager
     /// to decide whether it's safe to release the VM on archive.
@@ -253,9 +257,13 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func bootstrapSession(userMessage: String, attachments: [IPCAttachment]?) {
+    private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
         isSending = true
-        isThinking = true
+        // Only show thinking indicator when there's an actual user message
+        // to process; message-less session creates are silent.
+        if userMessage != nil {
+            isThinking = true
+        }
         pendingUserMessage = userMessage
         pendingUserAttachments = attachments
 
@@ -287,9 +295,9 @@ public final class ChatViewModel: ObservableObject {
             // Subscribe to daemon stream
             self.startMessageLoop()
 
-            // Send session_create with correlation ID
+            // Send session_create with correlation ID and thread type
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId))
+                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType))
             } catch {
                 log.error("Failed to send session_create: \(error.localizedDescription)")
                 self.isThinking = false
@@ -417,6 +425,18 @@ public final class ChatViewModel: ObservableObject {
             sendUserMessage(text)
         }
         return true
+    }
+
+    /// Create a daemon session immediately, without a user message.
+    /// Used by private threads that need a persistent session ID right away
+    /// (e.g. to store the thread in the database before the user types anything).
+    /// No-op if a session already exists or a bootstrap is already in flight.
+    public func createSessionIfNeeded(threadType: String? = nil) {
+        guard sessionId == nil, !isSending else { return }
+        if let threadType {
+            self.threadType = threadType
+        }
+        bootstrapSession(userMessage: nil, attachments: nil)
     }
 
     // MARK: - Actions
