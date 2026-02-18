@@ -1,11 +1,19 @@
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { homedir } from "os";
+import { randomBytes } from "crypto";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
+import { buildStartupScript, watchHatching } from "../commands/hatch";
+import type { PollResult } from "../commands/hatch";
+import { GATEWAY_PORT } from "./constants";
+import type { Species } from "./constants";
+import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 const KEY_PAIR_NAME = "vellum-assistant";
 const DEFAULT_SSH_USER = "admin";
+const AWS_INSTANCE_TYPE = "t3.xlarge";
+const AWS_DEFAULT_REGION = "us-east-1";
 
 export async function getActiveRegion(): Promise<string> {
   try {
@@ -293,9 +301,7 @@ export async function getInstancePublicIp(
   return ip && ip !== "None" ? ip : null;
 }
 
-export { DEFAULT_SSH_USER as AWS_SSH_USER };
-
-export async function awsSshExec(
+async function awsSshExec(
   ip: string,
   keyPath: string,
   command: string,
@@ -314,4 +320,203 @@ export async function awsSshExec(
     `${DEFAULT_SSH_USER}@${ip}`,
     command,
   ]);
+}
+
+async function pollAwsInstance(
+  ip: string,
+  keyPath: string,
+): Promise<PollResult> {
+  try {
+    const remoteCmd =
+      "L=$(tail -1 /var/log/startup-script.log 2>/dev/null || true); " +
+      "S=$(cloud-init status 2>/dev/null | awk '/status:/{print $2}' || echo unknown); " +
+      "E=$(cat /var/log/startup-error 2>/dev/null || true); " +
+      'printf "%s\\n===HATCH_SEP===\\n%s\\n===HATCH_ERR===\\n%s" "$L" "$S" "$E"';
+    const output = await awsSshExec(ip, keyPath, remoteCmd);
+    const sepIdx = output.indexOf("===HATCH_SEP===");
+    if (sepIdx === -1) {
+      return { lastLine: output.trim() || null, done: false, failed: false };
+    }
+    const errIdx = output.indexOf("===HATCH_ERR===");
+    const lastLine = output.substring(0, sepIdx).trim() || null;
+    const statusEnd = errIdx === -1 ? undefined : errIdx;
+    const status = output.substring(sepIdx + "===HATCH_SEP===".length, statusEnd).trim();
+    const errorContent =
+      errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
+    const done = lastLine !== null && status !== "running" && status !== "pending";
+    const failed = errorContent.length > 0 || status === "error";
+    return { lastLine, done, failed };
+  } catch {
+    return { lastLine: null, done: false, failed: false };
+  }
+}
+
+export async function hatchAws(
+  species: Species,
+  detached: boolean,
+  name: string | null,
+): Promise<void> {
+  const startTime = Date.now();
+  try {
+    const region =
+      process.env.AWS_REGION ??
+      process.env.AWS_DEFAULT_REGION ??
+      (await getActiveRegion().catch(() => AWS_DEFAULT_REGION));
+    let instanceName: string;
+
+    if (name) {
+      instanceName = name;
+    } else {
+      const suffix = generateRandomSuffix();
+      instanceName = `${species}-${suffix}`;
+    }
+
+    console.log(`\u{1F95A} Creating new assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Cloud: AWS`);
+    console.log(`   Region: ${region}`);
+    console.log(`   Instance type: ${AWS_INSTANCE_TYPE}`);
+    console.log("");
+
+    if (name) {
+      if (await instanceExistsByName(name, region)) {
+        console.error(
+          `Error: Instance name '${name}' is already taken. Please choose a different name.`,
+        );
+        process.exit(1);
+      }
+    } else {
+      while (await instanceExistsByName(instanceName, region)) {
+        console.log(`\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`);
+        const suffix = generateRandomSuffix();
+        instanceName = `${species}-${suffix}`;
+      }
+    }
+
+    const sshUser = userInfo().username;
+    const bearerToken = randomBytes(32).toString("hex");
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      process.exit(1);
+    }
+
+    const vpcId = await getDefaultVpcId(region);
+
+    console.log("\u{1F512} Ensuring security group...");
+    const securityGroupId = await ensureSecurityGroup(
+      "vellum-assistant",
+      vpcId,
+      GATEWAY_PORT,
+      region,
+    );
+
+    console.log("\u{1F511} Ensuring SSH key pair...");
+    const keyPath = await ensureKeyPair(region);
+
+    console.log("\u{1F50D} Finding latest Debian AMI...");
+    const amiId = await getLatestDebianAmi(region);
+
+    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
+    writeFileSync(startupScriptPath, startupScript);
+
+    console.log("\u{1F528} Launching instance...");
+    let instanceId: string;
+    try {
+      instanceId = await launchInstance(
+        instanceName,
+        amiId,
+        AWS_INSTANCE_TYPE,
+        securityGroupId,
+        startupScriptPath,
+        species,
+        region,
+      );
+    } finally {
+      try {
+        unlinkSync(startupScriptPath);
+      } catch {}
+    }
+
+    console.log(`\u2705 Instance ${instanceName} (${instanceId}) launched\n`);
+
+    console.log("\u23f3 Waiting for instance to be running...");
+    await waitForInstanceRunning(instanceId, region);
+
+    let externalIp: string | null = null;
+    try {
+      externalIp = await getInstancePublicIp(instanceId, region);
+    } catch {
+      console.log("\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)");
+    }
+
+    const runtimeUrl = externalIp
+      ? `http://${externalIp}:${GATEWAY_PORT}`
+      : `http://${instanceName}:${GATEWAY_PORT}`;
+    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+    if (entryFilePath) {
+      writeFileSync(
+        entryFilePath,
+        JSON.stringify({
+          assistantId: instanceName,
+          runtimeUrl,
+          bearerToken,
+          cloud: "aws",
+          instanceId,
+          region,
+          species,
+          sshUser,
+          hatchedAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    if (detached) {
+      console.log("\u{1F680} Startup script is running on the instance...");
+      console.log("");
+      console.log("\u2705 Assistant is hatching!\n");
+      console.log("Instance details:");
+      console.log(`  Name: ${instanceName}`);
+      console.log(`  Instance ID: ${instanceId}`);
+      console.log(`  Region: ${region}`);
+      if (externalIp) {
+        console.log(`  External IP: ${externalIp}`);
+      }
+      console.log("");
+    } else {
+      console.log("   Press Ctrl+C to detach (instance will keep running)");
+      console.log("");
+
+      if (externalIp) {
+        const ip = externalIp;
+        const success = await watchHatching(
+          () => pollAwsInstance(ip, keyPath),
+          instanceName,
+          startTime,
+          species,
+        );
+
+        if (!success) {
+          console.log("");
+          process.exit(1);
+        }
+      } else {
+        console.log("\u26a0\ufe0f  No external IP available for monitoring. Instance is still running.");
+        console.log(`   Monitor with: vel logs ${instanceName}`);
+        console.log("");
+      }
+
+      console.log("Instance details:");
+      console.log(`  Name: ${instanceName}`);
+      console.log(`  Instance ID: ${instanceId}`);
+      console.log(`  Region: ${region}`);
+      if (externalIp) {
+        console.log(`  External IP: ${externalIp}`);
+      }
+    }
+  } catch (error) {
+    console.error("\u274c Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }
