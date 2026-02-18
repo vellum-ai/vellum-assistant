@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
