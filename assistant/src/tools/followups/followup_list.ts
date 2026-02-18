@@ -72,8 +72,10 @@ class FollowUpListTool implements Tool {
     try {
       let results: FollowUp[];
 
-      if (overdueOnly) {
+      if (overdueOnly || status === 'overdue') {
         results = getOverdueFollowUps();
+        if (channel) results = results.filter((f) => f.channel === channel);
+        if (contactId) results = results.filter((f) => f.contactId === contactId);
       } else {
         results = listFollowUps({ status, channel, contactId });
       }

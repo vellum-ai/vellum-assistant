@@ -61,24 +61,26 @@ class FollowUpResolveTool implements Tool {
     }
 
     try {
-      let followUp: FollowUp | null;
-
       if (id) {
-        followUp = resolveFollowUp(id);
+        const followUp = resolveFollowUp(id);
+        return {
+          content: `Resolved follow-up:\n${formatFollowUp(followUp)}`,
+          isError: false,
+        };
       } else {
-        followUp = resolveByThread(channel!, threadId!);
-        if (!followUp) {
+        const resolved = resolveByThread(channel!, threadId!);
+        if (resolved.length === 0) {
           return {
             content: `No pending follow-up found for channel="${channel}" thread="${threadId}"`,
             isError: false,
           };
         }
+        const summaries = resolved.map(formatFollowUp).join('\n\n');
+        return {
+          content: `Resolved ${resolved.length} follow-up(s):\n${summaries}`,
+          isError: false,
+        };
       }
-
-      return {
-        content: `Resolved follow-up:\n${formatFollowUp(followUp)}`,
-        isError: false,
-      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error: ${msg}`, isError: true };
