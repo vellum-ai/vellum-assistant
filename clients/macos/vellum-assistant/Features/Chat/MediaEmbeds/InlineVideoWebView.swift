@@ -10,6 +10,11 @@ struct InlineVideoWebView: NSViewRepresentable {
     let url: URL
     let provider: String
 
+    /// Called when the webview finishes loading successfully.
+    var onLoadSuccess: (() -> Void)?
+    /// Called when the webview fails to load, with a human-readable error message.
+    var onLoadFailure: ((String) -> Void)?
+
     /// Host patterns allowed for programmatic navigations, keyed by provider.
     /// Exact strings match literally; entries starting with `*.` match any
     /// subdomain via `hasSuffix` (e.g. `*.googlevideo.com` matches
@@ -45,13 +50,23 @@ struct InlineVideoWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        let request = URLRequest(url: url)
-        webView.load(request)
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            provider: provider,
+            onLoadSuccess: onLoadSuccess,
+            onLoadFailure: onLoadFailure
+        )
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(provider: provider)
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        // Keep coordinator callbacks in sync with the latest SwiftUI closures,
+        // since SwiftUI may recreate the struct (and its closures) without
+        // recreating the coordinator.
+        context.coordinator.onLoadSuccess = onLoadSuccess
+        context.coordinator.onLoadFailure = onLoadFailure
+
+        let request = URLRequest(url: url)
+        webView.load(request)
     }
 
     /// Build a WKWebView with the privacy-hardened configuration used for embeds.
@@ -86,11 +101,19 @@ struct InlineVideoWebView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let provider: String
+        var onLoadSuccess: (() -> Void)?
+        var onLoadFailure: ((String) -> Void)?
         /// The first programmatic navigation is the embed URL we control — always allow it.
         private var hasLoadedInitial = false
 
-        init(provider: String) {
+        init(
+            provider: String,
+            onLoadSuccess: (() -> Void)? = nil,
+            onLoadFailure: ((String) -> Void)? = nil
+        ) {
             self.provider = provider
+            self.onLoadSuccess = onLoadSuccess
+            self.onLoadFailure = onLoadFailure
             super.init()
         }
 
@@ -132,6 +155,22 @@ struct InlineVideoWebView: NSViewRepresentable {
                 }
                 decisionHandler(.cancel)
             }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            onLoadSuccess?()
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onLoadFailure?(error.localizedDescription)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            onLoadFailure?(error.localizedDescription)
         }
 
         // MARK: - WKUIDelegate

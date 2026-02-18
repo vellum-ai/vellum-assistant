@@ -85,18 +85,22 @@ struct InlineVideoEmbedCard: View {
     }
 
     private var initializingView: some View {
-        // The webview loads asynchronously, so we transition straight to
-        // .playing and let the embedded player handle its own loading UI.
-        InlineVideoWebView(url: playerURL, provider: provider)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .onAppear {
-                stateManager.didStartPlaying()
-            }
+        InlineVideoWebView(
+            url: playerURL,
+            provider: provider,
+            onLoadSuccess: { stateManager.didStartPlaying() },
+            onLoadFailure: { msg in stateManager.didFail(msg) }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     private var playingView: some View {
-        InlineVideoWebView(url: playerURL, provider: provider)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        InlineVideoWebView(
+            url: playerURL,
+            provider: provider,
+            onLoadFailure: { msg in stateManager.didFail(msg) }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     private func failedView(_ message: String) -> some View {
