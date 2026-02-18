@@ -63,7 +63,7 @@ private struct VButtonStyle: ButtonStyle {
             .foregroundColor(foregroundColor)
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.buttonV)
-            .frame(height: 32)
+            .frame(height: 28)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))

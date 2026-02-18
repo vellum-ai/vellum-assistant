@@ -271,50 +271,47 @@ struct MainWindowView: View {
     private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
-                // Sidebar + main content
-                HStack(spacing: 0) {
-                    // Left: Full-height sidebar (always rendered, width collapses to 0)
-                    sidebarView
-                        .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
-                        .clipped()
-                        .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
-                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
-                        .animation(nil, value: threadDrawerWidth)
-
-                    if sidebarOpen && windowState.layoutConfig.left.visible {
-                        drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                VStack(spacing: 0) {
+                    // Top bar — full-width, darkest background
+                    HStack(spacing: 0) {
+                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                sidebarOpen.toggle()
+                            }
+                        }
+                        Spacer()
+                        if !isGeneratedWorkspaceOpen {
+                            TemporaryChatToggle(
+                                isActive: threadManager.activeThread?.kind == .private,
+                                onToggle: { toggleTemporaryChat() }
+                            )
+                        }
                     }
+                    .padding(.leading, trafficLightPadding)
+                    .padding(.trailing, VSpacing.lg)
+                    .frame(height: 36)
+                    .background(VColor.background)
 
-                    // Right: Main content
-                    chatContentView(geometry: geometry)
-                        .padding(.top, !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen ? 36 : 0)
-                        .overlay(alignment: .topLeading) {
-                            // Toggle button when sidebar is hidden
-                            if !sidebarOpen && windowState.layoutConfig.left.visible && !isGeneratedWorkspaceOpen {
-                                HStack(spacing: 0) {
-                                    VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: false, iconOnly: true) {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            sidebarOpen = true
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.leading, trafficLightPadding)
-                                .padding(.trailing, VSpacing.lg)
-                                .frame(height: 36)
-                                .transition(.opacity)
-                            }
+                    // Sidebar + main content
+                    HStack(spacing: 0) {
+                        // Left: Full-height sidebar (always rendered, width collapses to 0)
+                        sidebarView
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
+                            .clipped()
+                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
+                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
+                            .animation(nil, value: threadDrawerWidth)
+
+                        if sidebarOpen && windowState.layoutConfig.left.visible {
+                            drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                         }
-                        .overlay(alignment: .topTrailing) {
-                            if !isGeneratedWorkspaceOpen {
-                                TemporaryChatToggle(
-                                    isActive: threadManager.activeThread?.kind == .private,
-                                    onToggle: { toggleTemporaryChat() }
-                                )
-                                .padding(.trailing, VSpacing.lg)
-                                .frame(height: 36)
-                            }
-                        }
+
+                        // Right: Main content
+                        chatContentView(geometry: geometry)
+                    }
+                    .padding(.leading, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
                 }
                 .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 .overlay {
@@ -641,18 +638,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private var sidebarView: some View {
         VStack(spacing: 0) {
-            // Header with toggle (sits alongside traffic lights)
-            HStack(spacing: 0) {
-                Spacer()
-                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: true, iconOnly: true) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        sidebarOpen = false
-                    }
-                }
-            }
-            .padding(.trailing, VSpacing.sm)
-            .frame(height: 36)
-
             ScrollView {
                 VStack(spacing: 0) {
                     // MARK: Threads Section
@@ -687,26 +672,16 @@ struct MainWindowView: View {
                     }
                     .padding(.bottom, VSpacing.md)
 
-                    Divider()
+                    VColor.background.frame(height: 1)
                         .padding(.horizontal, VSpacing.sm)
 
                     // MARK: Apps Section
                     VStack(spacing: VSpacing.xs) {
                         SidebarSectionHeader(title: "Apps") {
-                            Button {
+                            VButton(label: "Directory", style: .ghost) {
                                 windowState.togglePanel(.directory)
-                            } label: {
-                                Text("Directory")
-                                    .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                                    )
                             }
-                            .buttonStyle(.plain)
+                            .controlSize(.small)
                         }
 
                         if !appListManager.apps.isEmpty {
@@ -736,11 +711,11 @@ struct MainWindowView: View {
                     }
                     .padding(.top, VSpacing.md)
                 }
-                .padding(VSpacing.sm)
+                .padding(VSpacing.xs)
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.top, VSpacing.sm)
+                .padding(.horizontal, VSpacing.xs)
+                .padding(.top, VSpacing.xs)
             }
             .scrollClipDisabled()
             .clipped()
@@ -748,20 +723,16 @@ struct MainWindowView: View {
             Spacer(minLength: 0)
 
             // Control Center pill button
-            VStack(spacing: 0) {
-                VColor.surfaceBorder.frame(height: 1)
-
-                ControlCenterMenuButton(
-                    isOpen: showControlCenterDrawer,
-                    onToggle: {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                            showControlCenterDrawer.toggle()
-                        }
+            ControlCenterMenuButton(
+                isOpen: showControlCenterDrawer,
+                onToggle: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        showControlCenterDrawer.toggle()
                     }
-                )
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.md)
-            }
+                }
+            )
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.md)
             .zIndex(1)
         }
         .frame(width: threadDrawerWidth)
@@ -777,8 +748,6 @@ struct MainWindowView: View {
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
-                Text(app.icon ?? "📱")
-                    .font(.system(size: 14))
                 Text(app.name)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -1078,10 +1047,13 @@ struct MainWindowView: View {
             // Show chat for this thread (threadManager.activeViewModel is synced)
             defaultChatLayout
         case .app:
-            // App workspace: full width (no chat dock)
+            // App workspace: full width (no chat dock), wrapped in rounded container
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
                 dynamicWorkspaceView(surface: surface, data: dpData)
+                    .background(VColor.backgroundSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .padding(VSpacing.sm)
             } else {
                 // Gallery mode fallback
                 GeneratedPanel(
@@ -1388,20 +1360,8 @@ private struct NewConversationButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .bold))
-                Text("New")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.accent)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        VButton(label: "New", icon: "plus", style: .primary, action: action)
+            .controlSize(.small)
     }
 }
 
@@ -1741,12 +1701,13 @@ private struct DynamicWorkspaceWrapper: View {
                         }
                         .controlSize(.small)
                     } else {
-                        GhostButton("Edit", icon: "pencil") {
+                        VButton(label: "Edit", icon: "pencil", style: .ghost) {
                             if !isChatDockOpen {
                                 windowState.workspaceComposerExpanded = false
                             }
                             onToggleChatDock()
                         }
+                        .controlSize(.small)
                         .accessibilityLabel("Edit app")
                     }
 
@@ -1765,17 +1726,18 @@ private struct DynamicWorkspaceWrapper: View {
 
                     // Right: Share + Close ghost buttons
                     HStack(spacing: VSpacing.sm) {
-                        GhostButton("Share") {
+                        VButton(label: "Share", style: .ghost) {
                             // Placeholder – no-op for now
                         }
-                        .accessibilityLabel("Share")
+                        .controlSize(.small)
 
-                        GhostButton("", icon: "xmark") {
+                        VButton(label: "X", style: .ghost) {
                             showSharePicker = false
                             windowState.activeDynamicSurface = nil
                             windowState.activeDynamicParsedSurface = nil
                             windowState.dismissOverlay()
                         }
+                        .controlSize(.small)
                         .accessibilityLabel("Close workspace")
                     }
                 }
