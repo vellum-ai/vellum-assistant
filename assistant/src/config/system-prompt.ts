@@ -119,6 +119,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildChannelAwarenessSection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());
+  parts.push(buildBrowserInteractionSection());
   parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildPostToolResponseSection());
@@ -611,6 +612,30 @@ function buildAccessPreferenceSection(): string {
     '- Can I get the data via web_fetch?',
     '',
     'If yes to any of these, use that path instead of the browser.',
+  ].join('\n');
+}
+
+function buildBrowserInteractionSection(): string {
+  return [
+    '## Browser Interaction Best Practices',
+    '',
+    'When using `browser_*` tools to interact with web pages:',
+    '',
+    '### Always use element_id from browser_snapshot',
+    '- Before clicking, typing, or interacting with any element, run `browser_snapshot` to get the current page state.',
+    '- ALWAYS use `element_id` (e.g. "e5") to target elements. Never fabricate CSS selectors or use Playwright-specific pseudo-selectors like `:has-text()`.',
+    '- If a click fails or the page changes, take a fresh `browser_snapshot` before retrying — element IDs go stale after navigation or DOM updates.',
+    '',
+    '### Dropdown and autocomplete menus',
+    '- For autocomplete dropdowns, address pickers, search suggestion lists, and typeahead menus: type your query into the input field, then use `browser_press_key` with `ArrowDown`/`ArrowUp` to navigate the options list and `Enter` to select.',
+    '- Do NOT try to click individual dropdown items — they are dynamically rendered overlays and clicks are unreliable.',
+    '- For native `<select>` elements, clicking to open + arrow keys + Enter also works reliably.',
+    '',
+    '### Interaction workflow',
+    '1. `browser_navigate` → load the page',
+    '2. `browser_snapshot` → get interactive elements with IDs',
+    '3. Use `browser_click` / `browser_type` / `browser_press_key` with `element_id` from the snapshot',
+    '4. After any action that changes the page (click, navigation, form submit), take a new `browser_snapshot` before the next interaction',
   ].join('\n');
 }
 

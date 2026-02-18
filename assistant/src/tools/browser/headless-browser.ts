@@ -56,7 +56,7 @@ registerTool(new BrowserNavigateTool());
 
 class BrowserSnapshotTool implements Tool {
   name = 'browser_snapshot';
-  description = 'List interactive elements on the current page. Returns elements with unique IDs that can be used with browser_click and browser_type.';
+  description = 'List interactive elements on the current page. Returns elements with unique IDs (e.g. "e1", "e5") that MUST be used with browser_click, browser_type, and browser_press_key. Always run this before interacting with elements — never guess or fabricate selectors.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -144,7 +144,7 @@ registerTool(new BrowserCloseTool());
 
 class BrowserClickTool implements Tool {
   name = 'browser_click';
-  description = 'Click an element on the page. Target the element by element_id (from browser_snapshot) or a CSS selector. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer using browser_press_key with ArrowDown/ArrowUp to navigate options and Enter to select — clicking dynamic dropdown items is unreliable.';
+  description = 'Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer browser_press_key with ArrowDown/ArrowUp + Enter instead of clicking dropdown items.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
