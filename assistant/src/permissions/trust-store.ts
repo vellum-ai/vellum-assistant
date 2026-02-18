@@ -418,8 +418,20 @@ function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
  * those constraints act as wildcards and match any context.
  */
 export function findHighestPriorityRule(tool: string, commands: string[], scope: string, ctx?: PolicyContext): TrustRule | null {
-  const rules = getRules();
-  for (const rule of rules) {
+  // Check ephemeral (task-scoped) rules first — they take precedence over
+  // file-based rules at the same priority because they are evaluated earlier.
+  // The ruleOrder sort (highest priority first, deny wins ties) still applies
+  // across the combined set because ephemeral rules use a lower default
+  // priority (50) than user rules (100), so user deny rules still win.
+  const ephemeral = ctx?.ephemeralRules ?? [];
+  const fileRules = getRules();
+
+  // Concatenate and re-sort so priority ordering is respected across both sets.
+  const allRules = ephemeral.length > 0
+    ? [...ephemeral, ...fileRules].sort(ruleOrder)
+    : fileRules;
+
+  for (const rule of allRules) {
     if (rule.tool !== tool) continue;
     if (!matchesScope(rule.scope, scope)) continue;
     if (!matchesPrincipal(rule, ctx)) continue;

@@ -57,4 +57,6 @@ export interface ToolPrincipal {
 export interface PolicyContext {
   principal?: ToolPrincipal;
   executionTarget?: string;
+  /** Ephemeral rules for task-scoped permissions — checked before persistent trust.json rules. */
+  ephemeralRules?: TrustRule[];
 }
