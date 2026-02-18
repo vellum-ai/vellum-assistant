@@ -14,7 +14,7 @@ export interface CompiledTask {
 }
 
 /**
- * Extract a reusable task definition from a conversation's message history.
+ * Extract a task template (reusable definition) from a conversation's message history.
  *
  * Pattern-based extraction (v1) that:
  * 1. Reads the conversation messages

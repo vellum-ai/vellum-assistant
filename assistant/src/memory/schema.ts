@@ -425,7 +425,7 @@ export const taskCandidates = sqliteTable('task_candidates', {
   promotedTaskId: text('promoted_task_id'),             // set when candidate is promoted to a real task
 });
 
-// ── Work Items (Task Queue) ──────────────────────────────────────────
+// ── Work Items (Tasks) ───────────────────────────────────────────────
 
 export const workItems = sqliteTable('work_items', {
   id: text('id').primaryKey(),

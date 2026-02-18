@@ -5,7 +5,7 @@ import { listTasks } from '../../tasks/task-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_list',
-  description: 'List all saved tasks. Shows each task\'s ID, title, required tools, and creation date.',
+  description: 'List all task templates. Shows each template\'s ID, title, required tools, and creation date. These are reusable definitions that can be run to create Tasks (work items).',
   input_schema: {
     type: 'object',
     properties: {},
@@ -27,10 +27,10 @@ class TaskListTool implements Tool {
       const tasks = listTasks();
 
       if (tasks.length === 0) {
-        return { content: 'No saved tasks found. Use task_save to create one from a conversation.', isError: false };
+        return { content: 'No task templates found. Use task_save to create one from a conversation.', isError: false };
       }
 
-      const lines = [`Found ${tasks.length} saved task(s):`, ''];
+      const lines = [`Found ${tasks.length} task template(s):`, ''];
 
       for (const task of tasks) {
         const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];

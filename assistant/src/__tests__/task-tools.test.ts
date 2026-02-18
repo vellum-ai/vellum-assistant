@@ -206,7 +206,7 @@ describe('task_run tool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No task matching "nonexistent" found');
+    expect(result.content).toContain('No task template matching "nonexistent" found');
     expect(result.content).toContain('Existing Task');
   });
 
@@ -278,7 +278,7 @@ describe('task_run tool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No saved tasks found');
+    expect(result.content).toContain('No task templates found');
   });
 
   test('includes required tools in output', async () => {
@@ -328,7 +328,7 @@ describe('task_list tool', () => {
     const result = await taskListTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Found 2 saved task(s)');
+    expect(result.content).toContain('Found 2 task template(s)');
     expect(result.content).toContain('Task Alpha');
     expect(result.content).toContain('Task Beta');
     expect(result.content).toContain('file_read');
@@ -340,7 +340,7 @@ describe('task_list tool', () => {
     const result = await taskListTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No saved tasks found');
+    expect(result.content).toContain('No task templates found');
   });
 
   test('shows task status and creation date', async () => {

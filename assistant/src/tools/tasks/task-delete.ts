@@ -5,7 +5,7 @@ import { deleteTask, deleteTasks, getTask } from '../../tasks/task-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_delete',
-  description: 'Delete one or more saved tasks by ID. Also removes associated task runs and work items.',
+  description: 'Delete one or more task templates by ID. Also removes associated task runs and work items (Tasks).',
   input_schema: {
     type: 'object',
     properties: {

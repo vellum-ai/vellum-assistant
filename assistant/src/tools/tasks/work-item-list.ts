@@ -12,7 +12,7 @@ const PRIORITY_LABELS: Record<number, string> = {
 
 const definition: ToolDefinition = {
   name: 'work_item_list',
-  description: 'List all items in the Task Queue with their status, priority, and last run info.',
+  description: 'List all Tasks (work items) with their status, priority, and last run info.',
   input_schema: {
     type: 'object',
     properties: {
@@ -56,7 +56,7 @@ class WorkItemListTool implements Tool {
       }
 
       if (items.length === 0) {
-        return { content: 'No work items found in the Task Queue.', isError: false };
+        return { content: 'No Tasks found.', isError: false };
       }
 
       const lines = [`Found ${items.length} work item(s):`, ''];

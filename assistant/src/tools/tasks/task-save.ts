@@ -6,13 +6,13 @@ import { compileTaskFromConversation, saveCompiledTask } from '../../tasks/task-
 const definition: ToolDefinition = {
   name: 'task_save',
   description:
-    'Save the current conversation as a reusable task. Extracts the conversation pattern into a template with placeholders that can be re-run later with different inputs.',
+    'Save the current conversation as a task template. Extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs to create Tasks (work items).',
   input_schema: {
     type: 'object',
     properties: {
       conversation_id: {
         type: 'string',
-        description: 'The conversation to capture as a reusable task. If omitted, uses the current conversation.',
+        description: 'The conversation to capture as a task template. If omitted, uses the current conversation.',
       },
       title: {
         type: 'string',

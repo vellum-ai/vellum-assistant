@@ -742,7 +742,7 @@ export interface BrowserHandoffRequest {
   bringToFront?: boolean;
 }
 
-// ── Work Items (Task Queue) ──────────────────────────────────────────
+// ── Work Items (Tasks) ───────────────────────────────────────────────
 
 export interface WorkItemsListRequest {
   type: 'work_items_list';
@@ -1804,7 +1804,7 @@ export interface DocumentListResponse {
   }>;
 }
 
-// ── Work Items (Task Queue) — Server Responses ──────────────────────
+// ── Work Items (Tasks) — Server Responses ───────────────────────────
 
 export interface WorkItemsListResponse {
   type: 'work_items_list_response';

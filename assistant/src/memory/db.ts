@@ -741,7 +741,7 @@ export function initializeDb(): void {
     )
   `);
 
-  // ── Work Items (Task Queue) ─────────────────────────────────────────
+  // ── Work Items (Tasks) ──────────────────────────────────────────────
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS work_items (

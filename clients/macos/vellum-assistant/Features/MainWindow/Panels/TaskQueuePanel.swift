@@ -22,7 +22,7 @@ struct TaskQueuePanel: View {
             } else if items.isEmpty {
                 VEmptyState(
                     title: "No tasks",
-                    subtitle: "Queued work items will appear here",
+                    subtitle: "Your tasks will appear here",
                     icon: "list.bullet.clipboard"
                 )
             } else {
