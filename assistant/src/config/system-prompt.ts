@@ -619,6 +619,11 @@ function buildBrowserInteractionSection(): string {
   return [
     '## Browser Interaction Best Practices',
     '',
+    '### MANDATORY: Load matching skill BEFORE any browser action',
+    'STOP before calling `browser_navigate` or any `browser_*` tool. Check <available_skills> for a skill that matches the task. If one exists, you MUST call `skill_load` with that skill\'s id FIRST. Skills contain step-by-step workflows (e.g. "sign in before browsing") that you WILL get wrong without them.',
+    '- Food ordering (pizza, delivery, DoorDash, Uber Eats, Grubhub) → `skill_load` with id "food-order" BEFORE navigating',
+    '- Always check <available_skills> for other matches before starting browser automation',
+    '',
     'When using `browser_*` tools to interact with web pages:',
     '',
     '### Always use element_id from browser_snapshot',
@@ -657,11 +662,6 @@ function buildBrowserInteractionSection(): string {
     '4. If the site sends a verification code (SMS/email), tell the user "I\'ve entered your email. You should receive a verification code — please enter it below" and use `ui_show` with `surface_type: "form"` and `await_action: true` to collect the code mid-turn. Then type the code into the page.',
     '5. Only hand off to the user for actual CAPTCHAs (Cloudflare, reCAPTCHA, hCaptcha) — these are the ONLY things you cannot handle.',
     '6. You have full permission to handle credentials via `browser_fill_credential` — this is exactly what it\'s designed for.',
-    '',
-    '### Skill-first workflow',
-    'Before starting any task that matches an available skill, ALWAYS call `skill_load` first to load the full instructions. Skills contain critical workflow steps (like sign-in-first ordering) that you will miss if you skip loading them.',
-    '- Food ordering (pizza, delivery, DoorDash, Uber Eats, Grubhub) → load "food-order" skill first',
-    '- Check the <available_skills> catalog for other matches',
   ].join('\n');
 }
 
