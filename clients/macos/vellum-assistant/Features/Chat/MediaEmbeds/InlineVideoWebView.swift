@@ -12,6 +12,7 @@ struct InlineVideoWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let webView = Self.makeConfiguredWebView()
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         return webView
     }
 
@@ -36,7 +37,42 @@ struct InlineVideoWebView: NSViewRepresentable {
         return webView
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate {
-        // Navigation policy will be added in a later PR
+    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+
+        // MARK: - WKNavigationDelegate
+
+        /// Only allow programmatic/iframe loads (navigationType == .other) which cover the
+        /// initial embed load and any in-player iframe navigations. All user-initiated
+        /// navigations (link clicks, form submissions, etc.) are blocked and opened
+        /// externally so the webview stays locked to the video player.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            switch navigationAction.navigationType {
+            case .other:
+                // Programmatic loads — initial embed request + iframe navigations
+                decisionHandler(.allow)
+            default:
+                // User-initiated navigation — open in the default browser instead
+                if let url = navigationAction.request.url {
+                    NSWorkspace.shared.open(url)
+                }
+                decisionHandler(.cancel)
+            }
+        }
+
+        // MARK: - WKUIDelegate
+
+        /// Block all popup windows by returning nil.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            nil
+        }
     }
 }
