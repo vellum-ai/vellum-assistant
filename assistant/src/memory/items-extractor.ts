@@ -254,6 +254,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
   // Determine verification state from message role
   const verificationState = message.role === 'user' ? 'user_reported' : 'assistant_inferred';
 
+  const effectiveScopeId = scopeId ?? 'default';
   let upserted = 0;
   for (const item of extracted) {
     const now = Date.now();
@@ -261,7 +262,10 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
     const existing = db
       .select()
       .from(memoryItems)
-      .where(eq(memoryItems.fingerprint, item.fingerprint))
+      .where(and(
+        eq(memoryItems.fingerprint, item.fingerprint),
+        eq(memoryItems.scopeId, effectiveScopeId),
+      ))
       .get();
 
     let memoryItemId: string;
@@ -299,6 +303,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
         importance: item.importance,
         fingerprint: item.fingerprint,
         verificationState,
+        scopeId: effectiveScopeId,
         firstSeenAt: message.createdAt,
         lastSeenAt: seenAt,
         lastUsedAt: null,
@@ -317,6 +322,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
           eq(memoryItems.kind, item.kind),
           eq(memoryItems.subject, item.subject),
           eq(memoryItems.status, 'active'),
+          eq(memoryItems.scopeId, effectiveScopeId),
           sql`${memoryItems.id} <> ${memoryItemId}`,
         ))
         .run();

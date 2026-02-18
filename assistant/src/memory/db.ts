@@ -91,7 +91,7 @@ export function initializeDb(): void {
       statement TEXT NOT NULL,
       status TEXT NOT NULL,
       confidence REAL NOT NULL,
-      fingerprint TEXT NOT NULL UNIQUE,
+      fingerprint TEXT NOT NULL,
       first_seen_at INTEGER NOT NULL,
       last_seen_at INTEGER NOT NULL,
       last_used_at INTEGER
@@ -479,6 +479,7 @@ export function initializeDb(): void {
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
   migrateMemoryEntityRelationDedup(database);
+  migrateMemoryItemsFingerprintScopeUnique(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
@@ -497,6 +498,7 @@ export function initializeDb(): void {
     ON memory_item_conflicts(scope_id, existing_item_id, candidate_item_id)
     WHERE status = 'pending_clarification'
   `);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_fingerprint_scope ON memory_items(fingerprint, scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_status_kind ON memory_items(scope_id, status, kind)`);
@@ -738,5 +740,83 @@ function migrateMemoryEntityRelationDedup(database: ReturnType<typeof drizzle<ty
   } catch (e) {
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
+  }
+}
+
+/**
+ * Migrate from a column-level UNIQUE on fingerprint to a compound unique
+ * index on (fingerprint, scope_id) so that the same item can exist in
+ * different scopes independently.
+ */
+function migrateMemoryItemsFingerprintScopeUnique(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_memory_items_fingerprint_scope_unique_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  // Check if the old column-level UNIQUE constraint still exists — indicated
+  // by the sqlite_autoindex on fingerprint alone.
+  const autoIdx = raw.query(
+    `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'memory_items' AND name LIKE 'sqlite_autoindex_%'`,
+  ).get() as { name: string } | null;
+  if (!autoIdx) {
+    // No auto-index — either fresh DB (no UNIQUE in CREATE TABLE) or already migrated.
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
+  // Rebuild the table without the column-level UNIQUE constraint.
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec('BEGIN');
+
+    // Create new table without UNIQUE on fingerprint — all other columns
+    // match the latest schema (including migration-added columns).
+    raw.exec(/*sql*/ `
+      CREATE TABLE memory_items_new (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        statement TEXT NOT NULL,
+        status TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        fingerprint TEXT NOT NULL,
+        first_seen_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        importance REAL,
+        access_count INTEGER NOT NULL DEFAULT 0,
+        valid_from INTEGER,
+        invalid_at INTEGER,
+        verification_state TEXT NOT NULL DEFAULT 'assistant_inferred',
+        scope_id TEXT NOT NULL DEFAULT 'default'
+      )
+    `);
+
+    raw.exec(/*sql*/ `
+      INSERT INTO memory_items_new
+      SELECT id, kind, subject, statement, status, confidence, fingerprint,
+             first_seen_at, last_seen_at, last_used_at, importance, access_count,
+             valid_from, invalid_at, verification_state, scope_id
+      FROM memory_items
+    `);
+
+    raw.exec(/*sql*/ `DROP TABLE memory_items`);
+    raw.exec(/*sql*/ `ALTER TABLE memory_items_new RENAME TO memory_items`);
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
   }
 }

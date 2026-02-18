@@ -3403,4 +3403,114 @@ describe('Memory regressions', () => {
     const withScope = await extractAndUpsertMemoryItemsForMessage('msg-scope-pass-2', 'private:thread-42');
     expect(withScope).toBeGreaterThan(0);
   });
+
+  // PR-20: same statement in different scopes produces separate active items
+  test('same statement in different scopes produces separate active memory items', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(conversations).values({
+      id: 'conv-scope-separate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      threadType: 'standard',
+      memoryScopeId: 'default',
+    }).run();
+
+    // Insert two messages with identical content
+    db.insert(messages).values({
+      id: 'msg-scope-default',
+      conversationId: 'conv-scope-separate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I prefer dark mode for all my editors and terminals.' }]),
+      createdAt: now,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-scope-private',
+      conversationId: 'conv-scope-separate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'I prefer dark mode for all my editors and terminals.' }]),
+      createdAt: now + 1,
+    }).run();
+
+    // Extract into default scope
+    const defaultCount = await extractAndUpsertMemoryItemsForMessage('msg-scope-default');
+    expect(defaultCount).toBeGreaterThan(0);
+
+    // Extract identical statement into a private scope
+    const privateCount = await extractAndUpsertMemoryItemsForMessage('msg-scope-private', 'private:thread-99');
+    expect(privateCount).toBeGreaterThan(0);
+
+    // Both scopes should have separate active items
+    const defaultItems = db.select().from(memoryItems)
+      .where(and(eq(memoryItems.scopeId, 'default'), eq(memoryItems.status, 'active')))
+      .all();
+    const privateItems = db.select().from(memoryItems)
+      .where(and(eq(memoryItems.scopeId, 'private:thread-99'), eq(memoryItems.status, 'active')))
+      .all();
+
+    expect(defaultItems.length).toBeGreaterThan(0);
+    expect(privateItems.length).toBeGreaterThan(0);
+
+    // The items should have the same fingerprint but different IDs
+    const defaultFingerprints = new Set(defaultItems.map(i => i.fingerprint));
+    const matchingPrivate = privateItems.filter(i => defaultFingerprints.has(i.fingerprint));
+    expect(matchingPrivate.length).toBeGreaterThan(0);
+    for (const pi of matchingPrivate) {
+      const di = defaultItems.find(i => i.fingerprint === pi.fingerprint);
+      expect(di).toBeDefined();
+      expect(pi.id).not.toBe(di!.id);
+    }
+  });
+
+  // PR-20: default scope items are not affected by private scope operations
+  test('default scope items are not superseded by private scope operations', async () => {
+    const db = getDb();
+    const now = Date.now();
+
+    db.insert(conversations).values({
+      id: 'conv-scope-isolate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      threadType: 'standard',
+      memoryScopeId: 'default',
+    }).run();
+
+    // Insert a decision in the default scope
+    db.insert(messages).values({
+      id: 'msg-decision-default',
+      conversationId: 'conv-scope-isolate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'We decided to use PostgreSQL for the production database.' }]),
+      createdAt: now,
+    }).run();
+    await extractAndUpsertMemoryItemsForMessage('msg-decision-default');
+
+    const defaultBefore = db.select().from(memoryItems)
+      .where(and(eq(memoryItems.scopeId, 'default'), eq(memoryItems.status, 'active')))
+      .all();
+    expect(defaultBefore.length).toBeGreaterThan(0);
+
+    // Now insert a superseding decision in a private scope
+    db.insert(messages).values({
+      id: 'msg-decision-private',
+      conversationId: 'conv-scope-isolate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'We decided to use SQLite for the production database instead.' }]),
+      createdAt: now + 1,
+    }).run();
+    await extractAndUpsertMemoryItemsForMessage('msg-decision-private', 'private:thread-55');
+
+    // The default scope items should still be active — private scope supersede must not affect them
+    const defaultAfter = db.select().from(memoryItems)
+      .where(and(eq(memoryItems.scopeId, 'default'), eq(memoryItems.status, 'active')))
+      .all();
+
+    expect(defaultAfter.length).toBe(defaultBefore.length);
+    for (const item of defaultAfter) {
+      expect(item.status).toBe('active');
+    }
+  });
 });
