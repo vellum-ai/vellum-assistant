@@ -725,7 +725,51 @@ export type ClientMessage =
   | PublishPageRequest
   | UnpublishPageRequest
   | DiagnosticsExportRequest
-  | EnvVarsRequest;
+  | EnvVarsRequest
+  | IntegrationListRequest
+  | IntegrationConnectRequest
+  | IntegrationDisconnectRequest;
+
+// ── Legacy integration IPC stubs ────────────────────────────────────
+// The macOS Settings panel still sends these messages. Stub types keep
+// the dispatch map happy until the client-side migration lands.
+
+export interface IntegrationListRequest {
+  type: 'integration_list';
+}
+
+export interface IntegrationConnectRequest {
+  type: 'integration_connect';
+  integrationId: string;
+}
+
+export interface IntegrationDisconnectRequest {
+  type: 'integration_disconnect';
+  integrationId: string;
+}
+
+export interface IntegrationListResponse {
+  type: 'integration_list_response';
+  integrations: Array<{
+    id: string;
+    connected: boolean;
+    accountInfo?: string | null;
+    connectedAt?: number | null;
+    lastUsed?: number | null;
+    error?: string | null;
+  }>;
+}
+
+export interface IntegrationConnectResult {
+  type: 'integration_connect_result';
+  integrationId: string;
+  success: boolean;
+  accountInfo?: string | null;
+  error?: string | null;
+  setupRequired?: boolean;
+  setupSkillId?: string;
+  setupHint?: string;
+}
 
 // === Server → Client messages ===
 
@@ -1619,7 +1663,9 @@ export type ServerMessage =
   | DiagnosticsExportResponse
   | AppFilesChanged
   | BrowserFrame
-  | EnvVarsResponse;
+  | EnvVarsResponse
+  | IntegrationListResponse
+  | IntegrationConnectResult;
 
 // === Contract schema ===
 

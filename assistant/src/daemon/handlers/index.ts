@@ -226,6 +226,22 @@ const handlers: DispatchMap = {
   },
   diagnostics_export_request: handleDiagnosticsExport,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
+
+  // Stub handlers: the integration registry was removed but the Swift client
+  // still sends these messages. Return safe no-op responses so the client
+  // doesn't hang waiting for a reply.
+  integration_list: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'integration_list_response', integrations: [] });
+  },
+  integration_connect: (msg, socket, ctx) => {
+    ctx.send(socket, {
+      type: 'integration_connect_result',
+      integrationId: msg.integrationId,
+      success: false,
+      error: 'Please use chat to connect integrations.',
+    });
+  },
+  integration_disconnect: () => { /* no-op — integration registry removed */ },
 };
 
 export function handleMessage(

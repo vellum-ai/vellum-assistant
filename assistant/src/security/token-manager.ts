@@ -50,21 +50,32 @@ async function doRefresh(service: string): Promise<string> {
   const tokenUrl = meta?.oauth2TokenUrl;
   const clientId = meta?.oauth2ClientId;
 
-  if (!tokenUrl || !clientId) {
+  // Legacy fallback: credentials created by the old integration flow don't
+  // store oauth2TokenUrl/oauth2ClientId in metadata. Use the known Google
+  // token URL for Gmail so existing connections survive the migration.
+  const resolvedTokenUrl = tokenUrl ?? (service === 'integration:gmail'
+    ? 'https://oauth2.googleapis.com/token'
+    : undefined);
+
+  if (!resolvedTokenUrl || !clientId) {
     throw new TokenExpiredError(
       service,
-      `Missing OAuth2 refresh config (oauth2TokenUrl/oauth2ClientId) for "${service}". Re-authorization required.`,
+      `Missing OAuth2 refresh config for "${service}". Please reconnect via chat to re-authorize.`,
     );
   }
 
   log.info({ service }, 'Refreshing OAuth2 access token');
 
-  const result = await refreshOAuth2Token(tokenUrl, clientId, refreshToken);
+  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken);
 
-  setSecureKey(`credential:${service}:access_token`, result.accessToken);
+  if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
+    throw new Error(`Failed to store refreshed access token for "${service}"`);
+  }
 
   if (result.refreshToken) {
-    setSecureKey(`credential:${service}:refresh_token`, result.refreshToken);
+    if (!setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)) {
+      throw new Error(`Failed to store refreshed refresh token for "${service}"`);
+    }
   }
 
   // Update metadata with new expiry.

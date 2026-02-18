@@ -135,25 +135,23 @@ Use `browser_snapshot` or `browser_extract` to read the **Client ID** value from
 
 **Important:** You only need the Client ID, not the client secret (PKCE flow is used).
 
-Use the `integration_manage` tool to save the client ID:
-
-```
-action: "set_client_id"
-integration_id: "gmail"
-client_id: "<the extracted client ID>"
-```
-
-Tell the user: "Credentials created and stored! Now let's connect your Gmail account."
+Tell the user: "Credentials created! Now let's connect your Gmail account using the client ID."
 
 ## Step 7: Connect Gmail
 
 Tell the user: "Opening Google sign-in so you can authorize Vellum to access your Gmail. You'll see a Google consent page — just click 'Allow'."
 
-Use the `integration_manage` tool to trigger the OAuth flow:
+Use the `credential_store` tool to connect Gmail via OAuth2:
 
 ```
-action: "connect"
-integration_id: "gmail"
+action: "oauth2_connect"
+service: "integration:gmail"
+client_id: "<the extracted client ID>"
+auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
+token_url: "https://oauth2.googleapis.com/token"
+scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/userinfo.email"]
+userinfo_url: "https://www.googleapis.com/oauth2/v2/userinfo"
+extra_params: {"access_type": "offline", "prompt": "consent"}
 ```
 
 This will open the Google authorization page in the user's browser. Wait for the flow to complete.
