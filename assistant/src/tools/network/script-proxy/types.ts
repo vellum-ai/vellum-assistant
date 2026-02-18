@@ -58,7 +58,6 @@ export interface PolicyDecisionUnauthenticated {
 
 // ---------------------------------------------------------------------------
 // Approval hook outcomes — structured data for triggering permission prompts.
-// The actual prompt UI wiring happens in a later PR.
 // ---------------------------------------------------------------------------
 
 /** Context about the outbound request target, used to build permission prompts. */
@@ -97,3 +96,26 @@ export type PolicyDecision =
   | PolicyDecisionUnauthenticated
   | PolicyDecisionAskMissingCredential
   | PolicyDecisionAskUnauthenticated;
+
+// ---------------------------------------------------------------------------
+// Proxy approval callback — wires policy "ask" decisions to the UI prompter.
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload passed to the approval callback when the policy engine emits an
+ * `ask_missing_credential` or `ask_unauthenticated` decision. Contains
+ * enough context for the prompter to build a meaningful confirmation dialog.
+ */
+export interface ProxyApprovalRequest {
+  /** The policy decision that triggered the approval prompt. */
+  decision: PolicyDecisionAskMissingCredential | PolicyDecisionAskUnauthenticated;
+  /** The proxy session ID that originated the request. */
+  sessionId: ProxySessionId;
+}
+
+/**
+ * Callback signature for proxy approval prompts. The proxy service calls
+ * this when an outbound request requires user confirmation. Returns `true`
+ * if the user approves, `false` if denied.
+ */
+export type ProxyApprovalCallback = (request: ProxyApprovalRequest) => Promise<boolean>;

@@ -4,6 +4,8 @@ export type {
   ProxySessionConfig,
   ProxySessionStatus,
   ProxyEnvVars,
+  ProxyApprovalRequest,
+  ProxyApprovalCallback,
 } from './types.js';
 
 export {
