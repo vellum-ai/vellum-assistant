@@ -491,6 +491,10 @@ extension ChatViewModel {
             isThinking = false
             let wasCancelling = isCancelling
             isCancelling = false
+            // Snapshot turn-specific state before reset so the secret_blocked
+            // handler below can reference the actual blocked text/attachments
+            // rather than falling back to a potentially-wrong transcript lookup.
+            let savedTurnUserText = currentTurnUserText
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -508,10 +512,10 @@ extension ChatViewModel {
                 // stash the full send context so "Send Anyway" can reconstruct
                 // the original UserMessageMessage with attachments and surface metadata.
                 if err.category == "secret_blocked" {
-                    // Prefer currentTurnUserText (the text that was actually sent)
+                    // Prefer the snapshotted turn text (the text that was actually sent)
                     // over the transcript lookup, which can miss workspace refinements
                     // that don't append a user chat message.
-                    if let sendText = currentTurnUserText {
+                    if let sendText = savedTurnUserText {
                         secretBlockedMessageText = sendText
                     } else if let lastUserMsg = messages.last(where: { $0.role == .user }) {
                         secretBlockedMessageText = lastUserMsg.text
