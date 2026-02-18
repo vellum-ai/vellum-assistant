@@ -18,10 +18,10 @@ struct AvatarCustomizationPanel: View {
     ]
 
     /// Available outfit options per field.
-    private let hatOptions = ["none", "tophat", "party_hat", "headband", "crown", "beret", "cap"]
-    private let shirtOptions = ["none", "hoodie", "tshirt", "vest", "suit", "sweater"]
-    private let accessoryOptions = ["none", "sunglasses", "monocle", "scarf", "bowtie", "glasses"]
-    private let heldItemOptions = ["none", "balloon", "briefcase", "wand", "sword", "coffee", "book"]
+    private let hatOptions = ["none", "top_hat", "crown", "cap", "beanie", "wizard_hat", "cowboy_hat"]
+    private let shirtOptions = ["none", "tshirt", "suit", "hoodie", "tank_top", "sweater"]
+    private let accessoryOptions = ["none", "sunglasses", "monocle", "bowtie", "necklace", "scarf", "cape"]
+    private let heldItemOptions = ["none", "sword", "staff", "shield", "balloon"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
