@@ -455,24 +455,6 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.xs) {
-                Button {
-                    if thread.isPinned {
-                        threadManager.unpinThread(id: thread.id)
-                    } else {
-                        threadManager.pinThread(id: thread.id)
-                    }
-                } label: {
-                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(thread.isPinned || isHovered ? 1 : 0)
-                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
-
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -519,18 +501,44 @@ struct MainWindowView: View {
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
             } else if isHovered {
-                Button {
-                    threadPendingDeletion = thread.id
-                } label: {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                HStack(spacing: VSpacing.xs) {
+                    Button {
+                        if thread.isPinned {
+                            threadManager.unpinThread(id: thread.id)
+                        } else {
+                            threadManager.pinThread(id: thread.id)
+                        }
+                    } label: {
+                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+
+                    Button {
+                        threadPendingDeletion = thread.id
+                    } label: {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Archive \(thread.title)")
                 }
-                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Archive \(thread.title)")
+            } else if thread.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                    .rotationEffect(.degrees(-45))
+                    .frame(width: 20, height: 20)
+                    .padding(.trailing, VSpacing.xs)
             }
         }
         .padding(.horizontal, VSpacing.sm)
@@ -697,12 +705,6 @@ struct MainWindowView: View {
             openAppInWorkspace(app: app)
         }) {
             HStack(spacing: VSpacing.sm) {
-                if app.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(-45))
-                }
                 Text(app.name)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -719,33 +721,44 @@ struct MainWindowView: View {
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
             if isHoveredApp == app.id {
-                Menu {
-                    Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                HStack(spacing: VSpacing.xs) {
+                    Button {
                         if app.isPinned {
                             appListManager.unpinApp(id: app.id)
                         } else {
                             appListManager.pinApp(id: app.id)
                         }
+                    } label: {
+                        Image(systemName: app.isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(app.isPinned ? VColor.textMuted : VColor.textSecondary)
+                            .rotationEffect(.degrees(-45))
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
                     }
-                    Button("Open") {
-                        openAppInWorkspace(app: app)
-                    }
-                    Divider()
-                    Button("Remove from Recents", role: .destructive) {
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(app.isPinned ? "Unpin \(app.name)" : "Pin \(app.name)")
+
+                    Button {
                         appListManager.removeApp(id: app.id)
+                    } label: {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                        .rotationEffect(.degrees(90))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(app.name)")
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 24)
                 .padding(.trailing, VSpacing.xs)
+            } else if app.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+                    .rotationEffect(.degrees(-45))
+                    .frame(width: 20, height: 20)
+                    .padding(.trailing, VSpacing.xs)
             }
         }
         .padding(.horizontal, VSpacing.sm)
