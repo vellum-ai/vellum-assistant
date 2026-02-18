@@ -274,15 +274,23 @@ class WebSearchTool implements Tool {
       return { content: 'Error: query is required and must be a string', isError: true };
     }
 
-    const provider = getWebSearchProvider();
-    const apiKey = getApiKey(provider);
+    let provider = getWebSearchProvider();
+    let apiKey = getApiKey(provider);
+
+    // Fallback: if the configured provider has no key, try the other provider
     if (!apiKey) {
-      const envVar = provider === 'brave' ? 'BRAVE_API_KEY' : 'PERPLEXITY_API_KEY';
-      const configKey = provider === 'brave' ? 'apiKeys.brave' : 'apiKeys.perplexity';
-      return {
-        content: `Error: ${provider === 'brave' ? 'Brave Search' : 'Perplexity'} API key not configured. Set ${envVar} environment variable or run: vellum config set ${configKey} <your-key>`,
-        isError: true,
-      };
+      const fallback: WebSearchProvider = provider === 'perplexity' ? 'brave' : 'perplexity';
+      const fallbackKey = getApiKey(fallback);
+      if (fallbackKey) {
+        log.info({ from: provider, to: fallback }, 'Configured web search provider has no API key, falling back');
+        provider = fallback;
+        apiKey = fallbackKey;
+      } else {
+        return {
+          content: 'Error: No web search API key configured. Set PERPLEXITY_API_KEY or BRAVE_API_KEY environment variable, or configure a key in settings.',
+          isError: true,
+        };
+      }
     }
 
     try {

@@ -27,14 +27,14 @@ describe('WebSearchTool', () => {
       delete process.env.BRAVE_API_KEY;
       const result = await executeWebSearch({ query: 'test' }, undefined, 'brave');
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('API key not configured');
+      expect(result.content).toContain('No web search API key configured');
     });
 
     test('returns error when no API key is configured (perplexity)', async () => {
       delete process.env.PERPLEXITY_API_KEY;
       const result = await executeWebSearch({ query: 'test' }, undefined, 'perplexity');
       expect(result.isError).toBe(true);
-      expect(result.content).toContain('API key not configured');
+      expect(result.content).toContain('No web search API key configured');
     });
   });
 
@@ -413,11 +413,8 @@ async function executeWebSearch(
   }
 
   if (!apiKey) {
-    const envVar = provider === 'brave' ? 'BRAVE_API_KEY' : 'PERPLEXITY_API_KEY';
-    const configKey = provider === 'brave' ? 'apiKeys.brave' : 'apiKeys.perplexity';
-    const providerName = provider === 'brave' ? 'Brave Search' : 'Perplexity';
     return {
-      content: `Error: ${providerName} API key not configured. Set ${envVar} environment variable or run: vellum config set ${configKey} <your-key>`,
+      content: 'Error: No web search API key configured. Set PERPLEXITY_API_KEY or BRAVE_API_KEY environment variable, or configure a key in settings.',
       isError: true,
     };
   }
