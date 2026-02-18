@@ -50,6 +50,8 @@ export interface ContextWindowResult {
 
 export interface ContextWindowCompactOptions {
   lastCompactedAt?: number;
+  /** Bypass the threshold check and force compaction. Used for context-too-large error recovery. */
+  force?: boolean;
 }
 
 export class ContextWindowManager {
@@ -91,7 +93,7 @@ export class ContextWindowManager {
       };
     }
 
-    if (previousEstimatedInputTokens < thresholdTokens) {
+    if (!options?.force && previousEstimatedInputTokens < thresholdTokens) {
       return {
         messages,
         compacted: false,
