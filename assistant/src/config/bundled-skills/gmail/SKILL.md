@@ -9,12 +9,12 @@ You are a Gmail assistant with full access to the user's inbox. Use the Gmail to
 
 ## Connection Setup
 
-Before using any Gmail tool, verify that Gmail is connected by attempting a lightweight call (e.g., `gmail_list` with `maxResults: 1`). If the call fails with a token/authorization error:
+Before using any Gmail tool, verify that Gmail is connected by attempting a lightweight call (e.g., `gmail_list_messages` with `max_results: 1`). If the call fails with a token/authorization error:
 
 1. **Do NOT call `credential_store oauth2_connect` yourself.** You do not have valid OAuth client credentials, and fabricating a client_id will cause a "401: invalid_client" error from Google.
 2. Instead, install and load the **google-oauth-setup** skill, which walks the user through creating real credentials in Google Cloud Console:
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "google-oauth-setup"`.
-   - Then call `vellum_skills_catalog` with `action: "load"` and `skill_id: "google-oauth-setup"`.
+   - Then call `skill_load` with `skill_id: "google-oauth-setup"`.
 3. Tell the user: *"Gmail isn't connected yet. I've loaded a setup guide that will walk you through connecting your Google account — it only takes a couple of minutes."*
 
 ## Capabilities

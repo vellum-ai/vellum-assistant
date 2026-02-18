@@ -108,7 +108,7 @@ export async function withValidToken<T>(
 ): Promise<T> {
   let token = getSecureKey(`credential:${service}:access_token`);
   if (!token) {
-    const isGoogle = service === 'integration:gmail' || service === 'integration:google-calendar';
+    const isGoogle = service === 'integration:gmail';
     const googleHint = isGoogle
       ? ' Do NOT fabricate credentials. Install and load the "google-oauth-setup" skill to set up OAuth credentials properly.'
       : '';
