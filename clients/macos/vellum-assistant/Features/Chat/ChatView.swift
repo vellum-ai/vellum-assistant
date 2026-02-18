@@ -881,9 +881,9 @@ private struct ChatBubble: View {
         return hasText || !message.attachments.isEmpty
     }
 
-    /// Image embed intents resolved for assistant messages when the feature is enabled.
+    /// Image embed intents resolved for the message when the feature is enabled.
     private var imageEmbedIntents: [MediaEmbedIntent] {
-        guard !isUser, let settings = mediaEmbedSettings else { return [] }
+        guard let settings = mediaEmbedSettings else { return [] }
         return MediaEmbedResolver.resolve(message: message, settings: settings)
             .filter { if case .image = $0 { return true } else { return false } }
     }
@@ -908,7 +908,7 @@ private struct ChatBubble: View {
                     }
                 }
 
-                // Image embeds rendered below the text for assistant messages
+                // Image embeds rendered below the text
                 ForEach(imageEmbedIntents.indices, id: \.self) { idx in
                     if case .image(let url) = imageEmbedIntents[idx] {
                         InlineImageEmbedView(url: url)
