@@ -16,6 +16,7 @@ const log = getLogger('memory-tools');
 export async function handleMemorySearch(
   args: Record<string, unknown>,
   config: AssistantConfig,
+  scopeId?: string,
 ): Promise<ToolExecutionResult> {
   const query = args.query;
   if (typeof query !== 'string' || query.trim().length === 0) {
@@ -27,7 +28,7 @@ export async function handleMemorySearch(
     : 5;
 
   try {
-    const results = await searchMemoryItems(query, limit, config);
+    const results = await searchMemoryItems(query, limit, config, scopeId);
 
     if (results.length === 0) {
       return { content: 'No matching memories found.', isError: false };

@@ -17,9 +17,9 @@ class MemorySearchTool implements Tool {
     return memorySearchDefinition;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemorySearch(input, config);
+    return handleMemorySearch(input, config, context.memoryScopeId);
   }
 }
 
