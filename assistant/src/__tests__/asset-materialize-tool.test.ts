@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { RiskLevel } from '../permissions/types.js';
 
 const testDir = mkdtempSync(join(tmpdir(), 'asset-materialize-test-'));
 const sandboxDir = join(testDir, 'sandbox');
@@ -274,17 +275,17 @@ describe('AssetMaterializeTool metadata', () => {
 
   test('tool definition has required params', () => {
     const def = assetMaterializeTool.getDefinition();
-    expect(def.input_schema.required).toEqual(['attachment_id', 'destination_path']);
+    expect((def.input_schema as any).required).toEqual(['attachment_id', 'destination_path']);
   });
 
   test('tool definition has attachment_id and destination_path properties', () => {
     const def = assetMaterializeTool.getDefinition();
-    expect(def.input_schema.properties).toHaveProperty('attachment_id');
-    expect(def.input_schema.properties).toHaveProperty('destination_path');
+    expect((def.input_schema as any).properties).toHaveProperty('attachment_id');
+    expect((def.input_schema as any).properties).toHaveProperty('destination_path');
   });
 
   test('tool has LOW risk level', () => {
-    expect(assetMaterializeTool.defaultRiskLevel).toBe('low');
+    expect(assetMaterializeTool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
   test('tool category is assets', () => {

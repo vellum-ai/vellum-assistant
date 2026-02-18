@@ -91,7 +91,6 @@ export function createToolExecutor(
       conversationId: ctx.conversationId,
       requestId: ctx.currentRequestId,
       onOutput,
-      sendToClient: (msg) => ctx.sendToClient(msg as ServerMessage),
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
       allowedToolNames: ctx.allowedToolNames,

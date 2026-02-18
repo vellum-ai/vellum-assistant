@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { RiskLevel } from '../permissions/types.js';
 
 const testDir = mkdtempSync(join(tmpdir(), 'asset-search-test-'));
 
@@ -201,7 +202,7 @@ describe('searchAttachments', () => {
 
   test('does not return base64 data in results', () => {
     seedAttachments();
-    const results = searchAttachments({}) as Array<Record<string, unknown>>;
+    const results = searchAttachments({}) as unknown as Array<Record<string, unknown>>;
     for (const r of results) {
       expect(r.dataBase64).toBeUndefined();
     }
@@ -336,16 +337,16 @@ describe('AssetSearchTool.execute', () => {
   test('tool definition has correct name and schema', () => {
     const def = tool.getDefinition();
     expect(def.name).toBe('asset_search');
-    expect(def.input_schema.properties).toHaveProperty('mime_type');
-    expect(def.input_schema.properties).toHaveProperty('filename');
-    expect(def.input_schema.properties).toHaveProperty('recency');
-    expect(def.input_schema.properties).toHaveProperty('conversation_id');
-    expect(def.input_schema.properties).toHaveProperty('limit');
-    expect(def.input_schema.required).toEqual([]);
+    expect((def.input_schema as any).properties).toHaveProperty('mime_type');
+    expect((def.input_schema as any).properties).toHaveProperty('filename');
+    expect((def.input_schema as any).properties).toHaveProperty('recency');
+    expect((def.input_schema as any).properties).toHaveProperty('conversation_id');
+    expect((def.input_schema as any).properties).toHaveProperty('limit');
+    expect((def.input_schema as any).required).toEqual([]);
   });
 
   test('tool has LOW risk level', () => {
-    expect(tool.defaultRiskLevel).toBe('low');
+    expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 
   test('tool category is assets', () => {

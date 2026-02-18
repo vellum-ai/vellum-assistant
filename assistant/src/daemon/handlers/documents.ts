@@ -1,9 +1,28 @@
-import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from '../ipc-contract.js';
 import type { HandlerContext } from './shared.js';
 import type * as net from 'node:net';
 import { getDb } from '../../memory/db.js';
 
 import { writeFileSync } from 'node:fs';
+
+// These request types are not yet part of the IPC contract union — define locally.
+export interface DocumentSaveRequest {
+  type: 'document_save';
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  wordCount: number;
+}
+
+export interface DocumentLoadRequest {
+  type: 'document_load';
+  surfaceId: string;
+}
+
+export interface DocumentListRequest {
+  type: 'document_list';
+  conversationId?: string;
+}
 
 export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket, ctx: HandlerContext): void {
   const logMsg = `[${new Date().toISOString()}] handleDocumentSave called: ${JSON.stringify({
@@ -53,7 +72,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: true,
-    });
+    } as any);
 
     writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Response sent successfully\n`, { flag: 'a' });
 
@@ -65,19 +84,20 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       surfaceId: msg.surfaceId,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    } as any);
   }
 }
 
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as any).$client;
 
-    const result = db.get(/*sql*/ `
+    const result = sqlite.prepare(/*sql*/ `
       SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
       FROM documents
       WHERE surface_id = ?
-    `, [msg.surfaceId]) as {
+    `).get(msg.surfaceId) as {
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -98,7 +118,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         createdAt: result.created_at,
         updatedAt: result.updated_at,
         success: true,
-      });
+      } as any);
       console.log(`[documents] Loaded document: ${msg.surfaceId}`);
     } else {
       ctx.send(socket, {
@@ -112,7 +132,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         updatedAt: 0,
         success: false,
         error: 'Document not found',
-      });
+      } as any);
       console.log(`[documents] Document not found: ${msg.surfaceId}`);
     }
   } catch (error) {
@@ -128,13 +148,14 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
       updatedAt: 0,
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    } as any);
   }
 }
 
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
     const db = getDb();
+    const sqlite = (db as any).$client;
 
     let query = /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
@@ -149,7 +170,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
 
     query += ' ORDER BY updated_at DESC';
 
-    const results = db.all(query, params) as Array<{
+    const results = sqlite.prepare(query).all(...params) as Array<{
       surface_id: string;
       conversation_id: string;
       title: string;
@@ -168,7 +189,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
-    });
+    } as any);
 
     console.log(`[documents] Listed ${results.length} documents`);
   } catch (error) {
@@ -176,6 +197,6 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
     ctx.send(socket, {
       type: 'document_list_response',
       documents: [],
-    });
+    } as any);
   }
 }

@@ -91,7 +91,7 @@ class ShellTool implements Tool {
 
     // Start proxy session if proxied mode is requested
     let proxySessionId: string | null = null;
-    let proxyEnv: Record<string, string> | null = null;
+    let proxyEnv: import('../network/script-proxy/types.js').ProxyEnvVars | null = null;
 
     if (networkMode === 'proxied') {
       try {

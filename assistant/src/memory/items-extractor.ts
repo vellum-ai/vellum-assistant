@@ -352,7 +352,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
 
 // ── Pattern-based extraction (fallback) ────────────────────────────────
 
-function extractItemsPatternBased(text: string, scopeId: string): ExtractedItem[] {
+function extractItemsPatternBased(text: string, scopeId: string = 'default'): ExtractedItem[] {
   const sentences = text
     .split(/[\n\r]+|(?<=[.!?])\s+/)
     .map((s) => s.trim())
