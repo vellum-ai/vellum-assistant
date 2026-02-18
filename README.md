@@ -298,7 +298,7 @@ Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/wor
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Global toggle for all inline media embeds |
-| `videoDomainAllowlist` | `["youtube.com", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
+| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
 | `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
 
 ### Security and Privacy
