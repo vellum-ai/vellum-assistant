@@ -17,8 +17,6 @@ Tell the user:
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
 - "No sensitive credentials will be shown in the conversation."
 
-Use `ui_show` with `surface_type: "browser_view"` to activate the live browser preview panel so the user can watch in real-time.
-
 ## Step 1: Navigate to Google Cloud Console
 
 Tell the user: "First, let me open Google Cloud Console."
@@ -128,8 +126,6 @@ Take a `browser_snapshot` and fill in:
 2. **Name:** "Vellum Assistant Desktop"
 
 Use `browser_click` on the "Create" button.
-
-Take a `browser_screenshot` to show the credential creation result.
 
 ## Step 6: Extract and Store the Client ID
 
