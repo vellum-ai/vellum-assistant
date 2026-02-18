@@ -2,8 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Standalone window view that displays the task queue.
-/// Reuses the same data-fetching and row rendering as TaskQueuePanel
-/// but presented as a full window rather than a side panel.
 struct TasksWindowView: View {
     @ObservedObject var daemonClient: DaemonClient
 
@@ -142,8 +140,7 @@ struct TasksWindowView: View {
 
 // MARK: - Row View
 
-/// Row view for the standalone Tasks window. Mirrors the side-panel
-/// TaskQueueRow but lives in the Tasks feature module.
+/// Row view for the standalone Tasks window.
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
     let onRun: () -> Void

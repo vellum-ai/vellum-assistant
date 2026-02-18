@@ -1037,11 +1037,6 @@ struct MainWindowView: View {
             sidebarView
         case .identity:
             IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
-        case .taskQueue:
-            TaskQueuePanel(
-                daemonClient: daemonClient,
-                onClose: { windowState.selection = nil }
-            )
         }
     }
 
