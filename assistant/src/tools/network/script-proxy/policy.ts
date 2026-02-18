@@ -37,7 +37,7 @@ export function evaluateRequest(
     if (!tpls) continue;
 
     for (const tpl of tpls) {
-      if (minimatch(hostname, tpl.hostPattern)) {
+      if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
         candidates.push({ credentialId: id, template: tpl });
       }
     }
@@ -102,7 +102,7 @@ export function evaluateRequestWithApproval(
   // Check whether any template in the full registry covers this host.
   const matchingPatterns: string[] = [];
   for (const tpl of allKnownTemplates) {
-    if (minimatch(hostname, tpl.hostPattern)) {
+    if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
       matchingPatterns.push(tpl.hostPattern);
     }
   }

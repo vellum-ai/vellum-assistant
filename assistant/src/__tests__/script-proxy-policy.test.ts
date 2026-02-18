@@ -113,6 +113,15 @@ describe('evaluateRequest', () => {
     expect(result).toEqual({ kind: 'matched', credentialId: 'cred-gcp', template: tpl });
   });
 
+  test('matches hostnames case-insensitively', () => {
+    const tpl = headerTemplate('*.fal.ai');
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-fal', [tpl]],
+    ]);
+    const result = evaluateRequest('API.FAL.AI', '/v1/run', ['cred-fal'], templates);
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-fal', template: tpl });
+  });
+
   test('non-matching hostname with glob returns missing', () => {
     const templates = new Map<string, CredentialInjectionTemplate[]>([
       ['cred-1', [headerTemplate('*.fal.ai')]],
