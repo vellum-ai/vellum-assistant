@@ -144,7 +144,7 @@ describe('policy runtime enforcement', () => {
     const session = createSession(CONV_ID, ['cred-a']);
     const started = await startSession(session.id);
 
-    const response = await proxyGet(started.port!, `http://127.0.0.1:${upstream.port}/test`);
+    const _response = await proxyGet(started.port!, `http://127.0.0.1:${upstream.port}/test`);
     // evaluateRequestWithApproval returns ask_missing_credential or ask_unauthenticated
     // depending on registry; with no approval callback and known pattern not matching,
     // the result is ask_unauthenticated (no pattern match in allKnown for 127.0.0.1),
