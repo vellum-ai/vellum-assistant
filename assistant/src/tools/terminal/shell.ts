@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
@@ -16,6 +16,28 @@ import {
 import { getDataDir } from '../../util/platform.js';
 
 const log = getLogger('shell-tool');
+
+/**
+ * Resolve the Docker bridge gateway IP so the proxy can bind to only that
+ * interface instead of 0.0.0.0. Containers on the bridge network reach
+ * the host via this address (mapped by --add-host=host.docker.internal:host-gateway).
+ * Falls back to 127.0.0.1 if the bridge IP cannot be determined.
+ */
+function getDockerBridgeGateway(): string {
+  try {
+    const out = execFileSync(
+      'docker',
+      ['network', 'inspect', 'bridge', '--format', '{{(index .IPAM.Config 0).Gateway}}'],
+      { timeout: 5000, encoding: 'utf-8' },
+    );
+    const ip = out.trim();
+    // Basic validation: must look like an IPv4 address.
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+  } catch {
+    // Docker CLI unavailable or bridge network not found — fall back.
+  }
+  return '127.0.0.1';
+}
 
 class ShellTool implements Tool {
   name = 'bash';
@@ -107,7 +129,7 @@ class ShellTool implements Tool {
           undefined,
           getDataDir(),
           context.proxyApprovalCallback,
-          isDockerSandbox ? { listenHost: '0.0.0.0' } : undefined,
+          isDockerSandbox ? { listenHost: getDockerBridgeGateway() } : undefined,
         );
         proxyEnv = getSessionEnv(session.id, { dockerMode: isDockerSandbox });
       } catch (err) {
