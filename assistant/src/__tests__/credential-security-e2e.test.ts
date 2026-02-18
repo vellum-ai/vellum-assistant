@@ -39,6 +39,7 @@ mock.module('../security/secure-keys.js', () => ({
   deleteSecureKey: (key: string) => storedKeys.delete(key),
   listSecureKeys: () => [...storedKeys.keys()],
   getBackendType: () => 'encrypted',
+  isDowngradedFromKeychain: () => false,
 }));
 
 // In-memory metadata store that mirrors storedKeys for list/get operations
