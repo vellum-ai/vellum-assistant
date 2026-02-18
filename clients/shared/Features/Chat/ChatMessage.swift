@@ -112,12 +112,22 @@ public struct ToolConfirmationData: Equatable {
     /// User-facing tool category label (e.g. "Run Command", "Write File").
     public var toolCategory: String {
         switch toolName {
-        case "bash", "host_bash":          return "Run Command"
-        case "file_write", "host_file_write": return "Write File"
-        case "file_edit", "host_file_edit":   return "Edit File"
-        case "file_read", "host_file_read":   return "Read File"
-        case "web_fetch":                     return "Fetch URL"
-        case "browser_navigate":              return "Open Page"
+        case "bash", "host_bash":                    return "Run Command"
+        case "file_write", "host_file_write":        return "Write File"
+        case "file_edit", "host_file_edit":           return "Edit File"
+        case "file_read", "host_file_read":           return "Read File"
+        case "web_fetch":                             return "Fetch URL"
+        case "web_search":                            return "Web Search"
+        case "credential_store":                      return "Secure Storage"
+        case "account_manage":                        return "Account"
+        case _ where toolName.hasPrefix("browser_"):  return "Browser"
+        case _ where toolName.hasPrefix("schedule_"): return "Scheduling"
+        case _ where toolName.hasPrefix("watcher_"):  return "Watcher"
+        case _ where toolName.hasPrefix("memory_"):   return "Memory"
+        case "skill_load":                            return "Skill"
+        case "evaluate_typescript_code":              return "Code Sandbox"
+        case "reminder":                              return "Reminder"
+        case "document_create", "document_update":    return "Document"
         default:
             return toolName
                 .replacingOccurrences(of: "_", with: " ")
@@ -130,13 +140,23 @@ public struct ToolConfirmationData: Equatable {
     /// SF Symbol name for the tool category.
     public var toolCategoryIcon: String {
         switch toolName {
-        case "bash", "host_bash":              return "terminal"
-        case "file_write", "host_file_write":  return "doc.badge.plus"
-        case "file_edit", "host_file_edit":    return "pencil.line"
-        case "file_read", "host_file_read":    return "doc.text"
-        case "web_fetch":                      return "arrow.down.circle"
-        case "browser_navigate":               return "globe"
-        default:                               return "puzzlepiece.extension"
+        case "bash", "host_bash":                    return "terminal"
+        case "file_write", "host_file_write":        return "doc.badge.plus"
+        case "file_edit", "host_file_edit":           return "pencil.line"
+        case "file_read", "host_file_read":           return "doc.text"
+        case "web_fetch":                             return "arrow.down.circle"
+        case "web_search":                            return "magnifyingglass"
+        case "credential_store":                      return "lock.shield"
+        case "account_manage":                        return "person.crop.circle"
+        case _ where toolName.hasPrefix("browser_"):  return "globe"
+        case _ where toolName.hasPrefix("schedule_"): return "calendar"
+        case _ where toolName.hasPrefix("watcher_"):  return "eye"
+        case _ where toolName.hasPrefix("memory_"):   return "brain"
+        case "skill_load":                            return "puzzlepiece.extension"
+        case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
+        case "reminder":                              return "bell"
+        case "document_create", "document_update":    return "doc.richtext"
+        default:                                      return "puzzlepiece.extension"
         }
     }
 
@@ -244,6 +264,29 @@ public struct ToolConfirmationData: Equatable {
                 return "I would like to open \(host)."
             }
             return "I would like to open a page."
+        case "credential_store":
+            let action = (input["action"]?.value as? String) ?? ""
+            let service = (input["service"]?.value as? String) ?? ""
+            switch action {
+            case "oauth2_connect":
+                return service.isEmpty
+                    ? "I would like to connect an account."
+                    : "I would like to connect your \(service.capitalized) account."
+            case "store":
+                return service.isEmpty
+                    ? "I would like to save a credential securely."
+                    : "I would like to save a \(service) credential securely."
+            case "delete":
+                return service.isEmpty
+                    ? "I would like to remove a stored credential."
+                    : "I would like to remove a \(service) credential."
+            case "prompt":
+                return service.isEmpty
+                    ? "I would like to ask you for a credential."
+                    : "I would like to ask you for a \(service) credential."
+            default:
+                return "I would like to access secure storage."
+            }
         default:
             return "I would like to use \(toolCategory)."
         }
