@@ -68,12 +68,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    /// UserDefaults identifier for persisting the APNS push registration.
-    static let pushRegistrationUD = "apns_push_id"
-
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        UserDefaults.standard.set(tokenString, forKey: Self.pushRegistrationUD)
+        UserDefaults.standard.set(tokenString, forKey: UserDefaultsKeys.apnsPushId)
         // Send token to daemon when connected
         Task { try? await sendDeviceTokenToDaemon(tokenString) }
     }
