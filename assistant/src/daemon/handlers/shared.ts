@@ -86,6 +86,9 @@ export interface SessionCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
   transport?: SessionTransportMetadata;
+  memoryScopeId?: string;
+  isPrivateThread?: boolean;
+  strictPrivateSideEffects?: boolean;
 }
 
 /**
