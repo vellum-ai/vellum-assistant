@@ -54,7 +54,10 @@ public struct DaemonConfig {
         guard let legacy = UserDefaults.standard.string(forKey: "daemon_auth_token"), !legacy.isEmpty else {
             return nil
         }
-        _ = APIKeyManager.shared.setAPIKey(legacy, provider: "daemon-token")
+        guard APIKeyManager.shared.setAPIKey(legacy, provider: "daemon-token") else {
+            // Keychain write failed — keep the legacy key so the next launch can retry migration.
+            return legacy
+        }
         UserDefaults.standard.removeObject(forKey: "daemon_auth_token")
         return legacy
     }
