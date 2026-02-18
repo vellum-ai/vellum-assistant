@@ -31,7 +31,7 @@ export const NAVIGATE_TIMEOUT_MS = 15_000;
 
 export const ACTION_TIMEOUT_MS = 10_000;
 
-export const MAX_SNAPSHOT_ELEMENTS = 500;
+export const MAX_SNAPSHOT_ELEMENTS = 150;
 
 export const INTERACTIVE_SELECTOR = [
   'a[href]',
