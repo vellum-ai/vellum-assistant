@@ -1,6 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import { registerTool } from '../registry.js';
 import { mergeContacts, getContact } from '../../contacts/contact-store.js';
 
 const definition: ToolDefinition = {
@@ -83,4 +84,4 @@ class ContactMergeTool implements Tool {
   }
 }
 
-export const contactMergeTool = new ContactMergeTool();
+registerTool(new ContactMergeTool());

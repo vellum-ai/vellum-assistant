@@ -17,7 +17,6 @@ import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import { contactUpsertTool, contactSearchTool, contactMergeTool } from './contacts/index.js';
 import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
@@ -46,6 +45,9 @@ export const eagerModules: string[] = [
   './playbooks/playbook-list.js',
   './playbooks/playbook-update.js',
   './playbooks/playbook-delete.js',
+  './contacts/contact-upsert.js',
+  './contacts/contact-search.js',
+  './contacts/contact-merge.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -75,6 +77,9 @@ export const eagerModuleToolNames: string[] = [
   'playbook_list',
   'playbook_update',
   'playbook_delete',
+  'contact_upsert',
+  'contact_search',
+  'contact_merge',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
@@ -93,9 +98,6 @@ export const explicitTools: Tool[] = [
   documentCreateTool,
   documentUpdateTool,
   cliDiscoverTool,
-  contactUpsertTool,
-  contactSearchTool,
-  contactMergeTool,
   followupCreateTool,
   followupListTool,
   followupResolveTool,

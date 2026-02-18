@@ -1,10 +1,15 @@
-import { and, eq, like, or, desc, asc } from 'drizzle-orm';
+import { and, eq, like, desc, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { contacts, contactChannels } from '../memory/schema.js';
 import type { Contact, ContactChannel, ContactWithChannels } from './types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+/** Escape LIKE metacharacters so user input is matched literally. */
+function escapeLike(value: string): string {
+  return value.replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
 
 function parseContact(row: typeof contacts.$inferSelect): Contact {
   return {
@@ -77,10 +82,10 @@ export function upsertContact(params: {
       db.update(contacts)
         .set({
           displayName: params.displayName,
-          relationship: params.relationship ?? existing.relationship,
-          importance: params.importance ?? existing.importance,
-          responseExpectation: params.responseExpectation ?? existing.responseExpectation,
-          preferredTone: params.preferredTone ?? existing.preferredTone,
+          relationship: params.relationship !== undefined ? params.relationship : existing.relationship,
+          importance: params.importance !== undefined ? params.importance : existing.importance,
+          responseExpectation: params.responseExpectation !== undefined ? params.responseExpectation : existing.responseExpectation,
+          preferredTone: params.preferredTone !== undefined ? params.preferredTone : existing.preferredTone,
           updatedAt: now,
         })
         .where(eq(contacts.id, contactId))
@@ -220,11 +225,11 @@ export function searchContacts(params: {
   limit?: number;
 }): ContactWithChannels[] {
   const db = getDb();
-  const limit = Math.min(params.limit ?? 20, 100);
+  const limit = Math.max(1, Math.min(params.limit ?? 20, 100));
 
   // Search by channel address first (exact or partial match)
   if (params.channelAddress) {
-    const normalizedAddress = params.channelAddress.toLowerCase();
+    const normalizedAddress = escapeLike(params.channelAddress.toLowerCase());
     const channelRows = db
       .select()
       .from(contactChannels)
@@ -252,7 +257,7 @@ export function searchContacts(params: {
   // Search by display name and/or relationship
   const conditions = [];
   if (params.query) {
-    conditions.push(like(contacts.displayName, `%${params.query}%`));
+    conditions.push(like(contacts.displayName, `%${escapeLike(params.query)}%`));
   }
   if (params.relationship) {
     conditions.push(eq(contacts.relationship, params.relationship));
@@ -293,65 +298,68 @@ export function listContacts(limit = 50): ContactWithChannels[] {
  */
 export function mergeContacts(keepId: string, mergeId: string): ContactWithChannels {
   const db = getDb();
-  const now = Date.now();
-
-  const keep = db.select().from(contacts).where(eq(contacts.id, keepId)).get();
-  if (!keep) throw new Error(`Contact "${keepId}" not found`);
-
-  const merge = db.select().from(contacts).where(eq(contacts.id, mergeId)).get();
-  if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
   if (keepId === mergeId) throw new Error('Cannot merge a contact with itself');
 
-  // Resolve merged field values — pick the better/more recent value
-  const mergedImportance = Math.max(keep.importance, merge.importance);
-  const mergedInteractionCount = keep.interactionCount + merge.interactionCount;
-  const mergedLastInteraction = Math.max(keep.lastInteraction ?? 0, merge.lastInteraction ?? 0) || null;
+  db.transaction((tx) => {
+    const now = Date.now();
 
-  db.update(contacts)
-    .set({
-      importance: mergedImportance,
-      interactionCount: mergedInteractionCount,
-      lastInteraction: mergedLastInteraction,
-      // Prefer keep's values, fall back to merge's
-      relationship: keep.relationship ?? merge.relationship,
-      responseExpectation: keep.responseExpectation ?? merge.responseExpectation,
-      preferredTone: keep.preferredTone ?? merge.preferredTone,
-      updatedAt: now,
-    })
-    .where(eq(contacts.id, keepId))
-    .run();
+    const keep = tx.select().from(contacts).where(eq(contacts.id, keepId)).get();
+    if (!keep) throw new Error(`Contact "${keepId}" not found`);
 
-  // Move channels from donor to survivor, skipping duplicates
-  const donorChannels = db
-    .select()
-    .from(contactChannels)
-    .where(eq(contactChannels.contactId, mergeId))
-    .all();
+    const merge = tx.select().from(contacts).where(eq(contacts.id, mergeId)).get();
+    if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
-  for (const ch of donorChannels) {
-    const exists = db
+    // Resolve merged field values — pick the better/more recent value
+    const mergedImportance = Math.max(keep.importance, merge.importance);
+    const mergedInteractionCount = keep.interactionCount + merge.interactionCount;
+    const mergedLastInteraction = Math.max(keep.lastInteraction ?? 0, merge.lastInteraction ?? 0) || null;
+
+    tx.update(contacts)
+      .set({
+        importance: mergedImportance,
+        interactionCount: mergedInteractionCount,
+        lastInteraction: mergedLastInteraction,
+        // Prefer keep's values, fall back to merge's
+        relationship: keep.relationship ?? merge.relationship,
+        responseExpectation: keep.responseExpectation ?? merge.responseExpectation,
+        preferredTone: keep.preferredTone ?? merge.preferredTone,
+        updatedAt: now,
+      })
+      .where(eq(contacts.id, keepId))
+      .run();
+
+    // Move channels from donor to survivor, skipping duplicates
+    const donorChannels = tx
       .select()
       .from(contactChannels)
-      .where(
-        and(
-          eq(contactChannels.contactId, keepId),
-          eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, ch.address),
-        ),
-      )
-      .get();
+      .where(eq(contactChannels.contactId, mergeId))
+      .all();
 
-    if (!exists) {
-      db.update(contactChannels)
-        .set({ contactId: keepId })
-        .where(eq(contactChannels.id, ch.id))
-        .run();
+    for (const ch of donorChannels) {
+      const exists = tx
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, keepId),
+            eq(contactChannels.type, ch.type),
+            eq(contactChannels.address, ch.address),
+          ),
+        )
+        .get();
+
+      if (!exists) {
+        tx.update(contactChannels)
+          .set({ contactId: keepId })
+          .where(eq(contactChannels.id, ch.id))
+          .run();
+      }
     }
-  }
 
-  // Delete the donor contact (cascading deletes remaining channels)
-  db.delete(contacts).where(eq(contacts.id, mergeId)).run();
+    // Delete the donor contact (cascading deletes remaining channels)
+    tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
+  });
 
   return getContact(keepId)!;
 }

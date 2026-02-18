@@ -1,3 +1,4 @@
-export { contactUpsertTool } from './contact-upsert.js';
-export { contactSearchTool } from './contact-search.js';
-export { contactMergeTool } from './contact-merge.js';
+// Side-effect imports — each module calls registerTool() at the top level.
+import './contact-upsert.js';
+import './contact-search.js';
+import './contact-merge.js';

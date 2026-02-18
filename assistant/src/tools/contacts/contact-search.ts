@@ -1,6 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import { registerTool } from '../registry.js';
 import { searchContacts } from '../../contacts/contact-store.js';
 import type { ContactWithChannels } from '../../contacts/types.js';
 
@@ -98,4 +99,4 @@ class ContactSearchTool implements Tool {
   }
 }
 
-export const contactSearchTool = new ContactSearchTool();
+registerTool(new ContactSearchTool());
