@@ -1,5 +1,6 @@
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createProxyServer } from './server.js';
 import type {
   ProxySession,
   ProxySessionId,
@@ -97,11 +98,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
     throw new Error(`Session ${sessionId} is ${managed.session.status}, expected starting`);
   }
 
-  const server = createServer((_req, res) => {
-    // Placeholder — no traffic routing in this PR
-    res.writeHead(502, { 'Content-Type': 'text/plain' });
-    res.end('Proxy not yet implemented');
-  });
+  const server = createProxyServer();
 
   return new Promise<ProxySession>((resolve, reject) => {
     server.listen(0, '127.0.0.1', () => {
