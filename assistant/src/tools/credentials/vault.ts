@@ -7,6 +7,7 @@ import {
   deleteSecureKey,
   getBackendType,
   listSecureKeys,
+  isDowngradedFromKeychain,
 } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
@@ -333,14 +334,15 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend (including downgraded mode where keychain
-        // failed at runtime), verify secrets still exist by reading all key
-        // names once via listSecureKeys(). This avoids per-entry getSecureKey
-        // calls that would fall back to keychain probes (execFileSync with 5s
-        // timeout each), which hangs the list operation in downgraded mode.
-        // On keychain we trust metadata since the OS keychain has no batch
-        // list API.
-        const verifySecrets = getBackendType() === 'encrypted';
+        // On the encrypted backend we can verify secrets still exist by reading
+        // all key names once (instead of per-entry getSecureKey calls that each
+        // re-read/re-derive the store). On keychain we trust metadata since the
+        // OS keychain has no batch list API.
+        // In downgraded mode (keychain failed, switched to encrypted), skip
+        // batch verification because listSecureKeys() only returns keys from
+        // the encrypted store — keychain-only credentials would be hidden.
+        const downgraded = isDowngradedFromKeychain();
+        const verifySecrets = getBackendType() === 'encrypted' && !downgraded;
         let secureKeySet: Set<string> | undefined;
         if (verifySecrets) {
           try {
