@@ -35,6 +35,7 @@ function mockPage(url: string, evaluateResult: unknown = null): Page {
     unroute: async () => {},
     screenshot: async () => Buffer.from(''),
     keyboard: { press: async () => {} },
+    mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
   };
 }
 
