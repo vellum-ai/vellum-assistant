@@ -828,6 +828,13 @@ private struct ChatBubble: View {
         !isUser && onReportMessage != nil
     }
 
+    /// Composite identity for the `.task` modifier so it re-runs when either
+    /// the message text or the embed settings change.
+    private var mediaEmbedTaskID: String {
+        let s = mediaEmbedSettings
+        return "\(message.text)|\(s?.enabled ?? false)|\(s?.enabledSince?.timeIntervalSince1970 ?? 0)|\(s?.allowedDomains ?? [])"
+    }
+
     private var statusLabel: String? {
         switch message.status {
         case .queued(let position):
@@ -983,12 +990,14 @@ private struct ChatBubble: View {
                 isHovered = false
             }
         }
-        .task(id: message.text) {
+        .task(id: mediaEmbedTaskID) {
             guard let settings = mediaEmbedSettings else {
                 mediaEmbedIntents = []
                 return
             }
-            mediaEmbedIntents = await MediaEmbedResolver.resolve(message: message, settings: settings)
+            let resolved = await MediaEmbedResolver.resolve(message: message, settings: settings)
+            guard !Task.isCancelled else { return }
+            mediaEmbedIntents = resolved
         }
     }
 
