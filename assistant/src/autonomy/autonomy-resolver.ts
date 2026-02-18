@@ -37,17 +37,17 @@ export function resolveAutonomyTier(
   const config = getAutonomyConfig();
 
   // 2. Contact-specific override
-  if (contactId && contactId in config.contactOverrides) {
+  if (contactId && Object.hasOwn(config.contactOverrides, contactId)) {
     return config.contactOverrides[contactId];
   }
 
   // 3. Category override
-  if (triageResult.category in config.categoryOverrides) {
+  if (Object.hasOwn(config.categoryOverrides, triageResult.category)) {
     return config.categoryOverrides[triageResult.category];
   }
 
   // 4. Channel default
-  if (channel in config.channelDefaults) {
+  if (Object.hasOwn(config.channelDefaults, channel)) {
     return config.channelDefaults[channel];
   }
 

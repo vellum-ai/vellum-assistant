@@ -7,8 +7,8 @@
  * preferences), so it belongs on disk rather than in the SQLite database.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { getWorkspaceDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import type { AutonomyConfig, AutonomyTier } from './types.js';
@@ -27,7 +27,7 @@ function getAutonomyConfigPath(): string {
 export function getAutonomyConfig(): AutonomyConfig {
   const configPath = getAutonomyConfigPath();
   if (!existsSync(configPath)) {
-    return { ...DEFAULT_AUTONOMY_CONFIG };
+    return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 
   try {
@@ -35,7 +35,7 @@ export function getAutonomyConfig(): AutonomyConfig {
     return validateAutonomyConfig(raw);
   } catch (err) {
     log.warn({ err }, 'Failed to parse autonomy config; using defaults');
-    return { ...DEFAULT_AUTONOMY_CONFIG };
+    return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 }
 
@@ -87,6 +87,7 @@ export function setChannelDefault(channel: string, tier: AutonomyTier): void {
 
 function persistConfig(config: AutonomyConfig): void {
   const configPath = getAutonomyConfigPath();
+  mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
 }
 
@@ -107,7 +108,7 @@ function validateTierRecord(raw: unknown): Record<string, AutonomyTier> {
 
 function validateAutonomyConfig(raw: unknown): AutonomyConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ...DEFAULT_AUTONOMY_CONFIG };
+    return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 
   const obj = raw as Record<string, unknown>;
