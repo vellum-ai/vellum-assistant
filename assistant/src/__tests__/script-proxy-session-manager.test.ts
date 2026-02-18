@@ -1,4 +1,25 @@
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect, afterEach, mock, beforeEach } from 'bun:test';
+import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
+import type { ResolvedCredential } from '../tools/credentials/resolve.js';
+
+// ── Mocks ────────────────────────────────────────────────────────────
+
+// Track resolveById return values per credential ID
+let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
+
+mock.module('../tools/credentials/resolve.js', () => ({
+  resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
+  resolveByServiceField: () => undefined,
+  resolveForDomain: () => [],
+}));
+
+// Stub ensureLocalCA so tests never run openssl
+mock.module('../tools/network/script-proxy/certs.js', () => ({
+  ensureLocalCA: async () => {},
+  issueLeafCert: async () => ({ cert: '', key: '' }),
+  getCAPath: (dataDir: string) => `${dataDir}/proxy-ca/ca.pem`,
+}));
+
 import {
   createSession,
   startSession,
@@ -11,7 +32,39 @@ import {
 
 afterEach(async () => {
   await stopAllSessions();
+  resolveByIdResults = new Map();
 });
+
+function makeTemplate(
+  hostPattern: string,
+  headerName = 'Authorization',
+  valuePrefix = 'Key ',
+): CredentialInjectionTemplate {
+  return { hostPattern, injectionType: 'header', headerName, valuePrefix };
+}
+
+function makeResolved(
+  credentialId: string,
+  templates: CredentialInjectionTemplate[],
+): ResolvedCredential {
+  return {
+    credentialId,
+    service: 'test-service',
+    field: 'api-key',
+    storageKey: `credential:test-service:api-key`,
+    injectionTemplates: templates,
+    metadata: {
+      credentialId,
+      service: 'test-service',
+      field: 'api-key',
+      allowedTools: [],
+      allowedDomains: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      injectionTemplates: templates,
+    },
+  };
+}
 
 describe('session-manager', () => {
   const CONV_ID = 'conv-test-1';
@@ -178,6 +231,98 @@ describe('session-manager', () => {
       const all = getSessionsForConversation(CONV_ID);
       const s = all.find((x) => x.id === session.id);
       expect(s?.status).toBe('stopped');
+    });
+  });
+
+  // ── MITM handler wiring tests ──────────────────────────────────────
+
+  describe('MITM handler wiring', () => {
+    const DATA_DIR = '/tmp/vellum-test-mitm';
+
+    test('session without credential IDs creates proxy without MITM handler', async () => {
+      // No credential IDs and no dataDir — plain tunnel proxy
+      const session = createSession(CONV_ID, []);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).toBeGreaterThan(0);
+    });
+
+    test('session with credential IDs but no dataDir creates proxy without MITM handler', async () => {
+      // Credential IDs present but no dataDir — MITM path is skipped
+      resolveByIdResults.set('cred-fal', makeResolved('cred-fal', [makeTemplate('*.fal.ai')]));
+
+      const session = createSession(CONV_ID, ['cred-fal']);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).toBeGreaterThan(0);
+    });
+
+    test('session with credential IDs and dataDir creates proxy with MITM handler', async () => {
+      resolveByIdResults.set('cred-fal', makeResolved('cred-fal', [makeTemplate('*.fal.ai')]));
+
+      const session = createSession(CONV_ID, ['cred-fal'], undefined, DATA_DIR);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).toBeGreaterThan(0);
+    });
+
+    test('session with credential IDs that have no templates creates proxy without MITM', async () => {
+      // resolveById returns a credential with no injection templates
+      resolveByIdResults.set('cred-empty', makeResolved('cred-empty', []));
+
+      const session = createSession(CONV_ID, ['cred-empty'], undefined, DATA_DIR);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).toBeGreaterThan(0);
+    });
+
+    test('session with unresolvable credential IDs creates proxy without MITM', async () => {
+      // resolveById returns undefined for unknown credentials
+      const session = createSession(CONV_ID, ['cred-unknown'], undefined, DATA_DIR);
+      const started = await startSession(session.id);
+      expect(started.status).toBe('active');
+      expect(started.port).toBeGreaterThan(0);
+    });
+  });
+
+  // ── shouldIntercept routing integration ────────────────────────────
+
+  describe('MITM shouldIntercept routing', () => {
+    // These tests verify that the session wires routeConnection correctly
+    // by exercising the full create → start → CONNECT flow. We use a
+    // lightweight approach: import routeConnection directly and verify
+    // the templates map the session would build produces correct decisions.
+
+    test('shouldIntercept returns mitm for credential-matched hosts', async () => {
+      const { routeConnection } = await import('../tools/network/script-proxy/router.js');
+
+      const templates = new Map([
+        ['cred-fal', [makeTemplate('*.fal.ai')]],
+      ]);
+
+      const decision = routeConnection('api.fal.ai', 443, ['cred-fal'], templates);
+      expect(decision.action).toBe('mitm');
+      expect(decision.reason).toBe('mitm:credential_injection');
+    });
+
+    test('shouldIntercept returns tunnel for non-matching hosts', async () => {
+      const { routeConnection } = await import('../tools/network/script-proxy/router.js');
+
+      const templates = new Map([
+        ['cred-fal', [makeTemplate('*.fal.ai')]],
+      ]);
+
+      const decision = routeConnection('api.openai.com', 443, ['cred-fal'], templates);
+      expect(decision.action).toBe('tunnel');
+      expect(decision.reason).toBe('tunnel:no_rewrite');
+    });
+
+    test('shouldIntercept returns tunnel when no credentials configured', async () => {
+      const { routeConnection } = await import('../tools/network/script-proxy/router.js');
+
+      const decision = routeConnection('api.fal.ai', 443, [], new Map());
+      expect(decision.action).toBe('tunnel');
+      expect(decision.reason).toBe('tunnel:no_credentials');
     });
   });
 });

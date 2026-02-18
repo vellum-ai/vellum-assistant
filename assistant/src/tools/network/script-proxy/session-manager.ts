@@ -1,13 +1,18 @@
 import type { Server } from 'node:http';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createProxyServer } from './server.js';
+import type { ProxyServerConfig } from './server.js';
+import { routeConnection } from './router.js';
 import type {
   ProxySession,
   ProxySessionId,
   ProxySessionConfig,
   ProxyEnvVars,
 } from './types.js';
-import { getCAPath } from './certs.js';
+import { getCAPath, ensureLocalCA } from './certs.js';
+import { resolveById } from '../../credentials/resolve.js';
+import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
   idleTimeoutMs: 5 * 60 * 1000, // 5 minutes
@@ -89,7 +94,9 @@ export function createSession(
 
 /**
  * Start the proxy session — opens an HTTP server on an ephemeral port.
- * Resolves once the server is listening.
+ * When the session has credential IDs with injection templates, the proxy
+ * is configured with a MITM handler that selectively intercepts HTTPS
+ * connections to credential-matched hosts.
  */
 export async function startSession(sessionId: ProxySessionId): Promise<ProxySession> {
   const managed = sessions.get(sessionId);
@@ -98,7 +105,38 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
     throw new Error(`Session ${sessionId} is ${managed.session.status}, expected starting`);
   }
 
-  const server = createProxyServer();
+  const config: ProxyServerConfig = {};
+
+  if (managed.dataDir && managed.session.credentialIds.length > 0) {
+    const caDir = join(managed.dataDir, 'proxy-ca');
+
+    // Build a templates map from credential metadata so the router can
+    // match CONNECT targets against injection host patterns.
+    const templates = new Map<string, CredentialInjectionTemplate[]>();
+    for (const credId of managed.session.credentialIds) {
+      const resolved = resolveById(credId);
+      if (resolved?.injectionTemplates?.length) {
+        templates.set(credId, resolved.injectionTemplates);
+      }
+    }
+
+    if (templates.size > 0) {
+      // Ensure the CA directory and cert/key exist before starting MITM
+      await ensureLocalCA(managed.dataDir);
+
+      config.mitmHandler = {
+        caDir,
+        shouldIntercept: (hostname: string, port: number) =>
+          routeConnection(hostname, port, managed.session.credentialIds, templates),
+        rewriteCallback: async (req) => {
+          // Pass-through — credential injection wiring comes in a later PR
+          return req.headers;
+        },
+      };
+    }
+  }
+
+  const server = createProxyServer(config);
 
   return new Promise<ProxySession>((resolve, reject) => {
     server.listen(0, '127.0.0.1', () => {
