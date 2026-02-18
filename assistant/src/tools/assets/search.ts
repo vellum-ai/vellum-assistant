@@ -17,7 +17,7 @@ import { attachments, messageAttachments, messages, conversations, conversationK
 import type { StoredAttachment } from '../../memory/attachments-store.js';
 import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../memory/conversation-store.js';
-import { escapeSqlLike } from '../../memory/search/lexical.js';
+import { escapeLikeWildcards } from '../../memory/search/lexical.js';
 
 // ---------------------------------------------------------------------------
 // Recency presets — map human-readable labels to epoch-ms cutoff offsets
@@ -151,7 +151,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 
   // Filename filter — case-insensitive substring match (escape LIKE wildcards)
   if (params.filename) {
-    conditions.push(like(attachments.originalFilename, `%${escapeSqlLike(params.filename)}%`));
+    conditions.push(like(attachments.originalFilename, `%${escapeLikeWildcards(params.filename)}%`));
   }
 
   // Recency filter — computed cutoff timestamp
@@ -198,7 +198,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     }
     if (params.filename) {
       whereParts.push(`a.original_filename LIKE ?`);
-      bindValues.push(`%${escapeSqlLike(params.filename)}%`);
+      bindValues.push(`%${escapeLikeWildcards(params.filename)}%`);
     }
     if (params.recency) {
       const offsetMs = RECENCY_MS[params.recency];
