@@ -1,22 +1,55 @@
 /**
  * Proxy server factory — creates an HTTP server configured to handle
- * plain HTTP proxy requests via the forwarder.
+ * plain HTTP proxy requests via the forwarder, plain CONNECT tunnelling,
+ * and optional MITM interception for credential-injected HTTPS requests.
  */
 
 import { createServer, type Server } from 'node:http';
+import type { ConnectionOptions } from 'node:tls';
+import type { Socket } from 'node:net';
 import { forwardHttpRequest, type PolicyCallback } from './http-forwarder.js';
 import { handleConnect } from './connect-tunnel.js';
+import { handleMitm, type RewriteCallback } from './mitm-handler.js';
+
+export interface MitmHandlerConfig {
+  /** Path to the local CA directory containing ca.pem / ca-key.pem. */
+  caDir: string;
+  /** Return true if the CONNECT target should be MITM-intercepted. */
+  shouldIntercept: (hostname: string, port: number) => boolean;
+  /** Called with the decrypted request; returns headers to merge or null to reject. */
+  rewriteCallback: RewriteCallback;
+  /** Extra TLS options for the upstream connection (e.g. custom CA for testing). */
+  upstreamTlsOptions?: Pick<ConnectionOptions, 'ca' | 'rejectUnauthorized'>;
+}
 
 export interface ProxyServerConfig {
   /** Optional policy callback for credential injection / access control. */
   policyCallback?: PolicyCallback;
   /** Called on every forwarded request for logging. */
   onRequest?: (method: string, url: string) => void;
+  /** When provided, CONNECT requests matching shouldIntercept are MITM-handled. */
+  mitmHandler?: MitmHandlerConfig;
+}
+
+/**
+ * Parse a CONNECT target of the form `host:port`.
+ */
+function parseConnectTarget(url: string | undefined): { host: string; port: number } | null {
+  if (!url) return null;
+  const colonIdx = url.lastIndexOf(':');
+  if (colonIdx <= 0) return null;
+  const host = url.slice(0, colonIdx);
+  const portStr = url.slice(colonIdx + 1);
+  if (!host || !portStr) return null;
+  const port = Number(portStr);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host, port };
 }
 
 /**
  * Create an HTTP server that acts as a forward proxy for plain HTTP
- * requests (absolute-URL form) and CONNECT tunnelling for HTTPS pass-through.
+ * requests (absolute-URL form), CONNECT tunnelling for HTTPS pass-through,
+ * and optional MITM interception for credential-injected HTTPS requests.
  */
 export function createProxyServer(config: ProxyServerConfig = {}): Server {
   const server = createServer((req, res) => {
@@ -27,7 +60,28 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
     forwardHttpRequest(req, res, config.policyCallback);
   });
 
-  server.on('connect', (req, clientSocket, head) => {
+  server.on('connect', (req, clientSocket: Socket, head: Buffer) => {
+    if (config.mitmHandler) {
+      const target = parseConnectTarget(req.url);
+      if (target && config.mitmHandler.shouldIntercept(target.host, target.port)) {
+        handleMitm(
+          clientSocket,
+          head,
+          target.host,
+          target.port,
+          config.mitmHandler.caDir,
+          config.mitmHandler.rewriteCallback,
+          config.mitmHandler.upstreamTlsOptions,
+        ).catch(() => {
+          if (clientSocket.writable) {
+            clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+          }
+          clientSocket.destroy();
+        });
+        return;
+      }
+    }
+
     handleConnect(req, clientSocket, head);
   });
 
