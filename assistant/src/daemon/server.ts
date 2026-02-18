@@ -693,10 +693,14 @@ export class DaemonServer {
   }
 
   private async sendInitialSession(socket: net.Socket): Promise<void> {
-    // Get or create a session
-    let conversation = conversationStore.getLatestConversation();
+    // Only send session info for an existing conversation. Don't create one —
+    // the client will create its own session via session_create when the user
+    // sends a message. Creating one here would produce an orphaned session
+    // that the macOS client rejects (correlation ID mismatch) but that still
+    // appears in session_list on subsequent launches.
+    const conversation = conversationStore.getLatestConversation();
     if (!conversation) {
-      conversation = conversationStore.createConversation('New Conversation');
+      return;
     }
 
     // Warm session state for commands like undo/usage after reconnect without
