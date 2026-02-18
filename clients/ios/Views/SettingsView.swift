@@ -96,19 +96,13 @@ struct SettingsView: View {
                         Toggle("Use TLS", isOn: $tlsEnabled)
 
                         Button("Update") {
-                            guard let port = Int(daemonPort), port > 0, port <= 65535 else {
-                                daemonAlertMessage = "Port must be a valid number between 1 and 65535"
+                            switch DaemonSettingsManager.validatePort(daemonPort) {
+                            case .invalid(let message):
+                                daemonAlertMessage = message
                                 showingDaemonAlert = true
                                 return
-                            }
-                            UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
-                            UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
-                            if sessionToken.isEmpty {
-                                _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                                // Also clear legacy UserDefaults key so migrateAuthToken() can't resurrect it
-                                UserDefaults.standard.removeObject(forKey: "daemon_auth_token")
-                            } else {
-                                _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
+                            case .valid(let portInt):
+                                DaemonSettingsManager.saveDaemonSettings(hostname: daemonHostname, port: portInt, sessionToken: sessionToken)
                             }
                             daemonAlertMessage = "Daemon connection settings updated"
                             showingDaemonAlert = true
@@ -161,10 +155,10 @@ struct SettingsView: View {
 
     private func loadSettings() {
         apiKey = APIKeyManager.shared.getAPIKey() ?? ""
-        daemonHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
-        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        daemonPort = portValue > 0 ? String(portValue) : "8765"
-        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
+        let settings = DaemonSettingsManager.loadDaemonSettings()
+        daemonHostname = settings.hostname
+        daemonPort = settings.port
+        sessionToken = settings.sessionToken
     }
 }
 
