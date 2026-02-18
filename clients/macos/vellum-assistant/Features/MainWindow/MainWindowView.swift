@@ -24,6 +24,10 @@ struct MainWindowView: View {
     @State private var showAllApps: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
+    /// Stores the thread ID the user was on before entering temporary chat,
+    /// so we can restore it when they exit instead of jumping to visibleThreads.first
+    /// (which may be a pinned thread unrelated to what they were doing).
+    @State private var preTemporaryChatThreadId: UUID?
 
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -131,13 +135,19 @@ struct MainWindowView: View {
 
     private func toggleTemporaryChat() {
         if threadManager.activeThread?.kind == .private {
-            // Switch back to the most recent visible standard thread, or create one
-            if let recent = threadManager.visibleThreads.first {
+            // Restore the thread the user was on before entering temporary chat.
+            // Fall back to visibleThreads.first only if the stored thread no longer exists.
+            if let savedId = preTemporaryChatThreadId,
+               threadManager.visibleThreads.contains(where: { $0.id == savedId }) {
+                threadManager.selectThread(id: savedId)
+            } else if let recent = threadManager.visibleThreads.first {
                 threadManager.selectThread(id: recent.id)
             } else {
                 threadManager.createThread()
             }
+            preTemporaryChatThreadId = nil
         } else {
+            preTemporaryChatThreadId = threadManager.activeThreadId
             threadManager.createPrivateThread()
         }
     }
