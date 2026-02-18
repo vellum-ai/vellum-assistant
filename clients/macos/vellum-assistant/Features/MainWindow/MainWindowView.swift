@@ -1779,7 +1779,7 @@ private struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Close workspace")
                     }
                 }
-                .padding(.leading, isSidebarOpen ? VSpacing.lg : trafficLightPadding)
+                .padding(.leading, (isSidebarOpen || isChatDockOpen) ? VSpacing.lg : trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.md)
 
