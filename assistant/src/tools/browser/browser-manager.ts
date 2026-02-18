@@ -405,8 +405,8 @@ class BrowserManager {
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: 60,
-      maxWidth: 800,
-      maxHeight: 600,
+      maxWidth: 1280,
+      maxHeight: 960,
       everyNthFrame: 1,
     });
   }

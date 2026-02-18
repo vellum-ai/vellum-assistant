@@ -639,7 +639,7 @@ export async function executeBrowserScroll(
       if (bounds) {
         // Convert screencast coords back to page coords for mouse.move
         const result = await page.evaluate(`(() => ({ vw: window.innerWidth, vh: window.innerHeight }))()`) as { vw: number; vh: number };
-        const scale = Math.min(800 / result.vw, 600 / result.vh);
+        const scale = Math.min(1280 / result.vw, 960 / result.vh);
         const pageX = (bounds.x + bounds.w / 2) / scale;
         const pageY = (bounds.y + bounds.h / 2) / scale;
         await page.mouse.move(pageX, pageY);

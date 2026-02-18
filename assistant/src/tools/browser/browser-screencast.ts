@@ -160,7 +160,7 @@ export async function getElementBounds(
       })()
     `) as { x: number; y: number; w: number; h: number; vw: number; vh: number } | null;
     if (!result) return null;
-    const scale = Math.min(800 / result.vw, 600 / result.vh);
+    const scale = Math.min(1280 / result.vw, 960 / result.vh);
     return {
       x: result.x * scale,
       y: result.y * scale,
