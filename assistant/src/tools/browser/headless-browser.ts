@@ -165,7 +165,7 @@ class BrowserClickTool implements Tool {
           },
           timeout: {
             type: 'number',
-            description: 'Max time in ms to wait for the element to be clickable (default: 60000).',
+            description: 'Max time in ms to wait for the element to be clickable (default: 10000).',
           },
         },
       },

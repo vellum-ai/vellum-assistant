@@ -29,7 +29,7 @@ const log = getLogger('headless-browser');
 
 export const NAVIGATE_TIMEOUT_MS = 30_000;
 
-export const ACTION_TIMEOUT_MS = 60_000;
+export const ACTION_TIMEOUT_MS = 10_000;
 
 export const MAX_SNAPSHOT_ELEMENTS = 500;
 
