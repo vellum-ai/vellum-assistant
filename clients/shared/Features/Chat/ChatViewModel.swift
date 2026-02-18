@@ -77,6 +77,9 @@ public final class ChatViewModel: ObservableObject {
     /// Set by `createSessionIfNeeded(threadType:)` and included in the IPC
     /// message so the daemon can persist the correct thread kind.
     public var threadType: String?
+    /// Skill IDs to pre-activate in the session. Included in the
+    /// `session_create` request for deterministic skill activation.
+    public var preactivatedSkillIds: [String]?
     /// Whether this view model is currently bootstrapping a new session
     /// (session_create sent, awaiting session_info). Used by ThreadManager
     /// to decide whether it's safe to release the VM on archive.
@@ -297,7 +300,7 @@ public final class ChatViewModel: ObservableObject {
 
             // Send session_create with correlation ID and thread type
             do {
-                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType))
+                try daemonClient.send(SessionCreateMessage(title: nil, correlationId: correlationId, threadType: self.threadType, preactivatedSkillIds: self.preactivatedSkillIds))
             } catch {
                 log.error("Failed to send session_create: \(error.localizedDescription)")
                 self.isThinking = false

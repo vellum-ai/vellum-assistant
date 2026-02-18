@@ -680,7 +680,7 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    VButton(label: "Set Up Google Cloud", style: .primary) {
+                    VButton(label: "Set Up \(integrationDisplayName(integration.id))", style: .primary) {
                         startIntegrationSetup(skillId: setup.skillId, integrationName: integrationDisplayName(integration.id))
                     }
                 }
@@ -744,10 +744,13 @@ struct SettingsPanel: View {
 
         guard let activeVM = threadManager.activeViewModel else { return }
 
+        // Pre-activate the setup skill so the daemon deterministically
+        // activates it instead of relying on model inference.
+        activeVM.preactivatedSkillIds = [skillId]
+
         // Set the input text and send via ChatViewModel so it properly
         // bootstraps (claims session_info, sets up message loop, shows the
-        // message in chat, etc.). The system prompt already instructs the
-        // agent to use the setup skill when asked about integration setup.
+        // message in chat, etc.).
         activeVM.inputText = "Please set up \(integrationName) for me."
         activeVM.sendMessage()
 

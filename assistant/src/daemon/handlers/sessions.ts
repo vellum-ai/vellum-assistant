@@ -244,6 +244,7 @@ export async function handleSessionCreate(
 
   // Auto-send the initial message if provided, kick-starting the skill.
   if (msg.initialMessage) {
+    ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
     session.processMessage(msg.initialMessage, [], sendEvent, requestId).catch((err) => {
