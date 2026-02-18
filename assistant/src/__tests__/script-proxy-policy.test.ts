@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { evaluateRequest } from '../tools/network/script-proxy/policy.js';
+import { evaluateRequest, evaluateRequestWithApproval } from '../tools/network/script-proxy/policy.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 
 function headerTemplate(
@@ -120,5 +120,146 @@ describe('evaluateRequest', () => {
     const result = evaluateRequest('fal.ai', '/', ['cred-1'], templates);
     // "*.fal.ai" does not match bare "fal.ai" with minimatch
     expect(result).toEqual({ kind: 'missing' });
+  });
+});
+
+describe('evaluateRequestWithApproval', () => {
+  test('passes through matched decisions unchanged', () => {
+    const tpl = headerTemplate('*.fal.ai');
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-fal', [tpl]],
+    ]);
+    const result = evaluateRequestWithApproval(
+      'api.fal.ai', 443, '/v1/run',
+      ['cred-fal'], sessionTemplates, [tpl],
+    );
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-fal', template: tpl });
+  });
+
+  test('passes through ambiguous decisions unchanged', () => {
+    const tpl1 = headerTemplate('*.fal.ai', 'Authorization', 'Key ');
+    const tpl2 = headerTemplate('*.fal.ai', 'X-Api-Key');
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-a', [tpl1]],
+      ['cred-b', [tpl2]],
+    ]);
+    const result = evaluateRequestWithApproval(
+      'api.fal.ai', null, '/',
+      ['cred-a', 'cred-b'], sessionTemplates, [tpl1, tpl2],
+    );
+    expect(result.kind).toBe('ambiguous');
+  });
+
+  test('returns ask_missing_credential when host matches a known template but session has no matching credential', () => {
+    // Session has a credential for openai, but the request is to fal.ai.
+    // The full registry knows about fal.ai, so this is a "missing credential" case.
+    const sessionTpl = headerTemplate('*.openai.com');
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-openai', [sessionTpl]],
+    ]);
+    const knownFalTpl = headerTemplate('*.fal.ai');
+    const allKnown = [sessionTpl, knownFalTpl];
+
+    const result = evaluateRequestWithApproval(
+      'api.fal.ai', 443, '/v1/run',
+      ['cred-openai'], sessionTemplates, allKnown,
+    );
+    expect(result).toEqual({
+      kind: 'ask_missing_credential',
+      target: { hostname: 'api.fal.ai', port: 443, path: '/v1/run' },
+      matchingPatterns: ['*.fal.ai'],
+    });
+  });
+
+  test('returns ask_missing_credential with deduplicated patterns', () => {
+    // Two credentials in the full registry share the same host pattern.
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-openai', [headerTemplate('*.openai.com')]],
+    ]);
+    const allKnown = [
+      headerTemplate('*.fal.ai', 'Authorization', 'Key '),
+      headerTemplate('*.fal.ai', 'X-Api-Key'),
+    ];
+
+    const result = evaluateRequestWithApproval(
+      'api.fal.ai', null, '/',
+      ['cred-openai'], sessionTemplates, allKnown,
+    );
+    expect(result.kind).toBe('ask_missing_credential');
+    if (result.kind === 'ask_missing_credential') {
+      // Should be deduplicated to a single pattern
+      expect(result.matchingPatterns).toEqual(['*.fal.ai']);
+    }
+  });
+
+  test('returns ask_missing_credential when session has credentials but none have templates', () => {
+    // Session references a credential ID that has no templates at all.
+    // The full registry knows about fal.ai though.
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>();
+    const allKnown = [headerTemplate('*.fal.ai')];
+
+    const result = evaluateRequestWithApproval(
+      'api.fal.ai', 8080, '/generate',
+      ['cred-unknown'], sessionTemplates, allKnown,
+    );
+    expect(result).toEqual({
+      kind: 'ask_missing_credential',
+      target: { hostname: 'api.fal.ai', port: 8080, path: '/generate' },
+      matchingPatterns: ['*.fal.ai'],
+    });
+  });
+
+  test('returns ask_unauthenticated when no credentials and host is unknown', () => {
+    const result = evaluateRequestWithApproval(
+      'example.com', null, '/data',
+      [], new Map(), [],
+    );
+    expect(result).toEqual({
+      kind: 'ask_unauthenticated',
+      target: { hostname: 'example.com', port: null, path: '/data' },
+    });
+  });
+
+  test('returns ask_unauthenticated when no credentials and registry has templates for other hosts', () => {
+    // The full registry knows about fal.ai, but the request is to example.com.
+    const allKnown = [headerTemplate('*.fal.ai')];
+
+    const result = evaluateRequestWithApproval(
+      'example.com', 443, '/',
+      [], new Map(), allKnown,
+    );
+    expect(result).toEqual({
+      kind: 'ask_unauthenticated',
+      target: { hostname: 'example.com', port: 443, path: '/' },
+    });
+  });
+
+  test('returns ask_unauthenticated when session has credentials but host is completely unknown', () => {
+    // Session has openai credentials, request is to unknown host,
+    // and the full registry also has no template for this host.
+    const sessionTpl = headerTemplate('*.openai.com');
+    const sessionTemplates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-openai', [sessionTpl]],
+    ]);
+
+    const result = evaluateRequestWithApproval(
+      'unknown-service.internal', null, '/api',
+      ['cred-openai'], sessionTemplates, [sessionTpl],
+    );
+    expect(result).toEqual({
+      kind: 'ask_unauthenticated',
+      target: { hostname: 'unknown-service.internal', port: null, path: '/api' },
+    });
+  });
+
+  test('includes port in target context', () => {
+    const result = evaluateRequestWithApproval(
+      'localhost', 3000, '/webhook',
+      [], new Map(), [],
+    );
+    expect(result.kind).toBe('ask_unauthenticated');
+    if (result.kind === 'ask_unauthenticated') {
+      expect(result.target).toEqual({ hostname: 'localhost', port: 3000, path: '/webhook' });
+    }
   });
 });

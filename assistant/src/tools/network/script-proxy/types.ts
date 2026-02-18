@@ -56,8 +56,44 @@ export interface PolicyDecisionUnauthenticated {
   kind: 'unauthenticated';
 }
 
+// ---------------------------------------------------------------------------
+// Approval hook outcomes — structured data for triggering permission prompts.
+// The actual prompt UI wiring happens in a later PR.
+// ---------------------------------------------------------------------------
+
+/** Context about the outbound request target, used to build permission prompts. */
+export interface RequestTargetContext {
+  hostname: string;
+  port: number | null;
+  path: string;
+}
+
+/**
+ * The target host matches a known credential template pattern, but the
+ * session has no credential bound for it. The UI should prompt the user
+ * to bind or create a credential.
+ */
+export interface PolicyDecisionAskMissingCredential {
+  kind: 'ask_missing_credential';
+  target: RequestTargetContext;
+  /** Host patterns from the known registry that matched the target. */
+  matchingPatterns: string[];
+}
+
+/**
+ * The request doesn't match any known credential template and the session
+ * has no credentials. The UI should prompt the user to allow or deny the
+ * unauthenticated request.
+ */
+export interface PolicyDecisionAskUnauthenticated {
+  kind: 'ask_unauthenticated';
+  target: RequestTargetContext;
+}
+
 export type PolicyDecision =
   | PolicyDecisionMatched
   | PolicyDecisionAmbiguous
   | PolicyDecisionMissing
-  | PolicyDecisionUnauthenticated;
+  | PolicyDecisionUnauthenticated
+  | PolicyDecisionAskMissingCredential
+  | PolicyDecisionAskUnauthenticated;
