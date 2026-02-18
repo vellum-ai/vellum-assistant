@@ -16,21 +16,24 @@ Order food from delivery services (DoorDash, Uber Eats, Grubhub, etc.) using bro
 
 This is the most important step. Delivery sites block browsing and ordering without being signed in.
 
-1. Navigate to the delivery site homepage (e.g. `browser_navigate` to `https://www.doordash.com`).
-2. Take a `browser_snapshot` once the page loads. **Dismiss any modals first** (see below).
-3. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 3.
-4. **Click the "Sign In" button** on the homepage — this redirects to the identity/auth page with the correct OAuth parameters. Do NOT navigate directly to identity.doordash.com (it returns 404 without OAuth params).
-5. On the sign-in page, fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` — NEVER type into the browser URL bar.
+1. **Navigate directly to the OAuth sign-in page.** For DoorDash, use this URL:
+   `https://identity.doordash.com/auth?client_id=1666519390426295040&layout=consumer_web&redirect_uri=https%3A%2F%2Fwww.doordash.com%2Fpost-login%2F&response_type=code&scope=%2A&state=%2Fhome`
+2. Take a `browser_snapshot`. If you see a sign-in form (email input), continue to step 5.
+3. **If the direct URL fails** (404, "State cannot be null or empty", or any error): fall back to the homepage approach — navigate to `https://www.doordash.com`, dismiss non-login modals, and click the "Sign In" button. **On DoorDash, clicking "Sign In" opens a sign-in MODAL — this modal IS the sign-in form, do NOT dismiss it.** Look for an email input inside the modal.
+4. If already signed in (you see "Welcome back", account menu, or the user's name), skip to Step 3.
+5. Fill the email using `browser_fill_credential` (e.g. service: "doordash", field: "email"). Target the element by its `element_id` — NEVER type into the browser URL bar.
 6. Click "Continue" or equivalent submit button.
-7. The site will send a verification code via SMS. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. Then type the code into the verification input on the page.
+7. The site will send a verification code via SMS/email. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. **Wait for the user to submit the form before proceeding** — do NOT use any previously collected code. Verification codes expire quickly; only the code from the most recent form submission is valid. Type the freshly submitted code into the verification input on the page.
+8. If the code is rejected, prompt the user again with a fresh `ui_show` form — never retry an old code.
 
 ### EVERY snapshot: Dismiss modals FIRST
 
-**Before every other action**, scan the snapshot for modal overlays and dismiss them. Modals block all interactions — clicking behind a modal silently fails. DoorDash shows modals repeatedly (login, regulatory notices, promos).
-- Look for: "Got It", "Accept", "Close", "OK", "Dismiss", "X" buttons inside modal/overlay containers
-- Click the dismiss button by `element_id` immediately
-- Take a fresh snapshot after dismissing to confirm the modal is gone
-- Common DoorDash modals: "NYC & NY law update" (click "Got It"), cookie banners, promotional popups, login modals when already signed in (click X or Escape)
+**Before every other action**, scan the snapshot for **non-functional** modal overlays and dismiss them. Modals block all interactions — clicking behind a modal silently fails.
+- **DO NOT dismiss sign-in/login modals** — if you see an email input or sign-in form inside a modal, that IS the sign-in flow. Fill it in, don't close it.
+- Dismiss only blocker modals: cookie banners, regulatory notices, promotional popups.
+- Look for: "Got It", "Accept", "Close", "OK", "Dismiss" buttons on non-login modals.
+- Take a fresh snapshot after dismissing to confirm the modal is gone.
+- Common DoorDash blocker modals: "NYC & NY law update" (click "Got It"), cookie banners, promotional popups.
 
 ### Step 3: Set Delivery Address
 
