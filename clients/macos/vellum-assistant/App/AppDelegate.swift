@@ -701,8 +701,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
                let viewModel = mainWindow.activeViewModel {
                 viewModel.inputText = text
-                viewModel.pendingVoiceMessage = true
-                viewModel.sendMessage()
                 return
             }
 
