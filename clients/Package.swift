@@ -89,7 +89,8 @@ let package = Package(
             path: "ios",
             exclude: ["Resources/Info.plist", "README.md"],
             resources: [
-                .process("Resources/Assets.xcassets")
+                .process("Resources/Assets.xcassets"),
+                .process("Resources/background.png"),
             ],
             linkerSettings: [
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),

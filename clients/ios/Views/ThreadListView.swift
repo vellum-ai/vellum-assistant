@@ -219,10 +219,25 @@ struct ThreadListView: View {
 struct ThreadChatView: View {
     @ObservedObject var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var emptyStateVisible = false
+    @State private var greeting: String = {
+        let choices = [
+            "What are we working on?",
+            "I'm here whenever you need me.",
+            "What's on your mind?",
+            "Let's make something happen.",
+            "Ready when you are.",
+        ]
+        return choices.randomElement()!
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list
+            // Messages area — empty state when no messages, otherwise scrollable list
+            if viewModel.messages.isEmpty && !viewModel.isSending && !viewModel.isThinking {
+                emptyStateView
+            } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
@@ -280,6 +295,7 @@ struct ThreadChatView: View {
                     }
                 }
             }
+            } // end else (messages non-empty)
 
             // Error banners
             if let sessionError = viewModel.sessionError {
@@ -303,11 +319,19 @@ struct ThreadChatView: View {
                 viewModel: viewModel
             )
         }
-        .background(VColor.background)
+        .background(alignment: .bottom) { chatBackground }
+        .background(VColor.chatBackground)
         .navigationTitle("Chat")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.2), value: viewModel.sessionError != nil)
         .animation(.easeInOut(duration: 0.2), value: viewModel.errorText)
+        .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
+            if isEmpty {
+                greeting = ["What are we working on?", "I'm here whenever you need me.",
+                            "What's on your mind?", "Let's make something happen.",
+                            "Ready when you are."].randomElement()!
+            }
+        }
     }
 
     // MARK: - Error Banners
@@ -416,6 +440,67 @@ struct ThreadChatView: View {
         case .providerNetwork: return .orange
         case .sessionAborted: return VColor.textSecondary
         default: return VColor.error
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+            Spacer()
+            Image(systemName: "sparkles")
+                .font(.system(size: 48, weight: .thin))
+                .foregroundColor(VColor.accent)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .scaleEffect(emptyStateVisible ? 1 : 0.8)
+            Text(greeting)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .opacity(emptyStateVisible ? 1 : 0)
+                .offset(y: emptyStateVisible ? 0 : 8)
+                .padding(.horizontal, VSpacing.xl)
+            Spacer()
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    VColor.accent.opacity(0.07),
+                    VColor.accent.opacity(0.02),
+                    Color.clear,
+                ]),
+                center: .center,
+                startRadius: 20,
+                endRadius: 350
+            )
+            .offset(y: -40)
+            .opacity(emptyStateVisible ? 1 : 0)
+        )
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5)) {
+                emptyStateVisible = true
+            }
+        }
+        .onDisappear {
+            emptyStateVisible = false
+        }
+    }
+
+    // MARK: - Chat Background
+
+    @ViewBuilder
+    private var chatBackground: some View {
+        if colorScheme == .dark,
+           let url = Bundle.main.url(forResource: "background", withExtension: "png"),
+           let uiImage = UIImage(contentsOfFile: url.path) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFit()
+                .allowsHitTesting(false)
         }
     }
 
