@@ -53,15 +53,24 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
 
 8. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
 
-9. Start the daemon fresh from the repo root:
+9. Start the daemon fresh from the repo root (in background):
    ```bash
-   cd assistant && bun run src/index.ts daemon start && cd ..
+   cd assistant && bun run src/index.ts daemon start > ~/.vellum/daemon-stdout.log 2>&1 & cd ..
+   ```
+   Wait a moment for the daemon to initialize:
+   ```bash
+   sleep 3
    ```
 
 10. Build and launch the macOS app (from the repo root):
     ```bash
-    cd clients/macos && ./build.sh run
+    cd clients/macos && ./build.sh run &
     ```
-    Run this in the background so it doesn't block.
 
-Report what was cleaned up and confirm both the daemon and app are running.
+11. Wait for the app to launch and verify both processes are running:
+    ```bash
+    sleep 5
+    ps aux | grep -E "(Vellum|bun.*daemon)" | grep -v grep
+    ```
+
+Report what was cleaned up and confirm both the daemon and app are running. The app should show the onboarding flow since all UserDefaults and data were reset.
