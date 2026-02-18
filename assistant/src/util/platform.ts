@@ -117,13 +117,20 @@ export function getTCPPort(): number {
 
 /**
  * Returns whether the daemon TCP listener should be enabled.
- * Reads VELLUM_DAEMON_TCP_ENABLED env var; defaults to false.
- * Set VELLUM_DAEMON_TCP_ENABLED=1 (or =true) to enable for iOS device connectivity.
+ * Resolution order (first match wins):
+ *   1. VELLUM_DAEMON_TCP_ENABLED env var ('true'/'1' → on, 'false'/'0' → off)
+ *   2. Presence of the flag file ~/.vellum/tcp-enabled (exists → on)
+ *   3. Default: false
+ *
+ * The flag-file check makes it easy to enable TCP in dev without restarting
+ * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
+ * The macOS DaemonLauncher also sets the env var for bundled-binary deployments.
  */
 export function isTCPEnabled(): boolean {
   const override = process.env.VELLUM_DAEMON_TCP_ENABLED?.trim();
   if (override === 'true' || override === '1') return true;
-  return false;
+  if (override === 'false' || override === '0') return false;
+  return existsSync(join(getRootDir(), 'tcp-enabled'));
 }
 
 /**
