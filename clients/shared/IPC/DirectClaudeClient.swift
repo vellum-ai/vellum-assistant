@@ -79,10 +79,11 @@ public final class DirectClaudeClient: ObservableObject, DaemonClientProtocol {
         guard let key = apiKey else {
             // No API key — emit an error message so the user sees actionable feedback
             let sessionId = msg.sessionId
-            let errMsg = ServerMessage.error(ErrorMessage(
+            let errMsg = ServerMessage.sessionError(SessionErrorMessage(
                 sessionId: sessionId,
-                message: "No API key configured. Go to Settings → Anthropic API Key to add your key.",
-                details: nil
+                code: .providerApi,
+                userMessage: "No API key configured. Go to Settings → Anthropic API Key to add your key.",
+                retryable: false
             ))
             broadcast(errMsg)
             return
