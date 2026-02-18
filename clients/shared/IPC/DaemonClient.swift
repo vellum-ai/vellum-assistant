@@ -395,12 +395,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             port = self.config.port
         }
 
-        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(self.config.tlsEnabled))")
+        // Also re-read TLS setting from UserDefaults on each connect to match hostname/port behaviour
+        let tlsEnabled: Bool
+        if UserDefaults.standard.object(forKey: "daemon_tls_enabled") != nil {
+            tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
+        } else {
+            tlsEnabled = self.config.tlsEnabled
+        }
+
+        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(tlsEnabled))")
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
-        let parameters: NWParameters = self.config.tlsEnabled ? .tls : .tcp
+        let parameters: NWParameters = tlsEnabled ? .tls : .tcp
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
@@ -550,7 +558,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// allowing the connection to be marked as ready.
     /// If no token is configured, marks the connection as authenticated immediately.
     private func authenticateIfNeeded() async throws {
-        guard let token = config.authToken else {
+        // Re-read from UserDefaults on each call to pick up runtime changes (mirrors hostname/port pattern)
+        let tokenFromDefaults = UserDefaults.standard.string(forKey: "daemon_auth_token").flatMap { $0.isEmpty ? nil : $0 }
+        guard let token = tokenFromDefaults ?? config.authToken else {
             // No token configured — treat as unauthenticated (plain TCP, no handshake).
             isAuthenticated = true
             return
@@ -638,12 +648,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             throw SendError.notConnected
         }
 
-        #if os(macOS)
         if !isAuthenticated, !(message is AuthMessage) {
             log.warning("Cannot send: authentication not complete")
             throw SendError.notAuthenticated
         }
-        #endif
 
         var data = try encoder.encode(message)
         data.append(contentsOf: [0x0A]) // newline byte
