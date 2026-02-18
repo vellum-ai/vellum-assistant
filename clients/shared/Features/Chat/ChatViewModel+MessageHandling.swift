@@ -348,12 +348,17 @@ extension ChatViewModel {
                     completedToolCalls = toolCalls
                 }
             }
-            // Tag assistant message with modelList if it follows a "/models" user message
-            // so the client renders the table UI instead of plain markdown.
-            if let lastUserMsg = messages.last(where: { $0.role == .user }),
-               lastUserMsg.text.trimmingCharacters(in: .whitespacesAndNewlines) == "/models",
-               let assistantIndex = messages.lastIndex(where: { $0.role == .assistant }) {
-                messages[assistantIndex].modelList = ModelListData()
+            // Tag assistant message with modelList if the preceding user message is "/models".
+            // Use currentAssistantMessageId to find the correct assistant message and look
+            // backwards for the user message that triggered it, avoiding false matches when
+            // a newer message is queued.
+            if let assistantId = currentAssistantMessageId,
+               let assistantIdx = messages.firstIndex(where: { $0.id == assistantId }) {
+                let precedingUser = messages[..<assistantIdx].last(where: { $0.role == .user })
+                let userText = precedingUser?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if userText == "/models" {
+                    messages[assistantIdx].modelList = ModelListData()
+                }
             }
             currentAssistantMessageId = nil
             currentAssistantHasText = false
