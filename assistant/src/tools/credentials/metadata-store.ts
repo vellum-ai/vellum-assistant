@@ -117,8 +117,8 @@ function loadFile(): LoadResult {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === 'number' ? data.version : 1;
-    if (fileVersion > CURRENT_VERSION) {
-      // Newer version we don't understand — refuse to touch it
+    if (fileVersion !== 1 && fileVersion !== 2) {
+      // Unrecognized version (future, fractional, negative, zero) — refuse to touch it
       return { unknownVersion: true };
     }
     const rawCredentials: unknown[] = Array.isArray(data.credentials) ? data.credentials : [];
