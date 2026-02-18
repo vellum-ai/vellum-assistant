@@ -423,6 +423,7 @@ struct MainWindowView: View {
             default: return thread.id == threadManager.activeThreadId && windowState.selection == nil
             }
         }()
+        let isHovered = isHoveredThread == thread.id
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -435,12 +436,6 @@ struct MainWindowView: View {
             }
         }) {
             HStack(spacing: VSpacing.sm) {
-                if thread.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(-45))
-                }
                 if thread.kind == .private {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
@@ -456,7 +451,7 @@ struct MainWindowView: View {
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
-                if isSelected || isHoveredThread == thread.id {
+                if isSelected || isHovered {
                     VColor.hoverOverlay.opacity(0.08)
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
@@ -468,6 +463,27 @@ struct MainWindowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if thread.isPinned || isHovered {
+                Button {
+                    if thread.isPinned {
+                        threadManager.unpinThread(id: thread.id)
+                    } else {
+                        threadManager.pinThread(id: thread.id)
+                    }
+                } label: {
+                    Image(systemName: thread.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, VSpacing.xs)
+                .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
+            }
+        }
         .overlay(alignment: .trailing) {
             if threadPendingDeletion == thread.id {
                 Button {
@@ -485,31 +501,19 @@ struct MainWindowView: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("Confirm archive \(thread.title)")
-            } else if isHoveredThread == thread.id {
-                Menu {
-                    Button(thread.isPinned ? "Unpin" : "Pin to Top") {
-                        if thread.isPinned {
-                            threadManager.unpinThread(id: thread.id)
-                        } else {
-                            threadManager.pinThread(id: thread.id)
-                        }
-                    }
-                    Divider()
-                    Button("Archive", role: .destructive) {
-                        threadPendingDeletion = thread.id
-                    }
+            } else if isHovered {
+                Button {
+                    threadPendingDeletion = thread.id
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textSecondary)
-                        .rotationEffect(.degrees(90))
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 24)
+                .buttonStyle(.plain)
                 .padding(.trailing, VSpacing.xs)
+                .accessibilityLabel("Archive \(thread.title)")
             }
         }
         .padding(.horizontal, VSpacing.sm)
@@ -522,19 +526,6 @@ struct MainWindowView: View {
                     isHoveredThread = nil
                 }
                 NSCursor.pop()
-            }
-        }
-        .contextMenu {
-            Button(thread.isPinned ? "Unpin" : "Pin to Top") {
-                if thread.isPinned {
-                    threadManager.unpinThread(id: thread.id)
-                } else {
-                    threadManager.pinThread(id: thread.id)
-                }
-            }
-            Divider()
-            Button("Archive", role: .destructive) {
-                threadPendingDeletion = thread.id
             }
         }
         .draggable(thread.id.uuidString)
