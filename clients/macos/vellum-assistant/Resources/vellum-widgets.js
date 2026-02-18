@@ -757,8 +757,10 @@
       }
     });
 
-    // Expose helper to get selected IDs from action button click handlers
+    // Expose helpers for removeItems to access action bar state
     container._getSelectedIds = getSelectedIds;
+    container._countEl = countEl;
+    container._actionBar = actionBar;
   };
 
   /**
@@ -776,7 +778,8 @@
 
     var elements = [];
     ids.forEach(function (id) {
-      var el = container.querySelector('[data-id="' + id + '"]');
+      var escapedId = CSS.escape ? CSS.escape(id) : id.replace(/(["\\])/g, '\\$1');
+      var el = container.querySelector('[data-id="' + escapedId + '"]');
       if (el) elements.push(el);
     });
 
@@ -817,12 +820,14 @@
 
       // Update action bar if groupedSelect was wired
       if (container._getSelectedIds) {
-        var actionBar = container.closest('body') ?
-          document.querySelector('.v-action-bar') : null;
+        var actionBar = container._actionBar || (container.closest('body') ?
+          document.querySelector('.v-action-bar') : null);
         if (actionBar) {
           var remaining = container._getSelectedIds();
           if (remaining.length === 0) {
             actionBar.classList.remove('visible');
+          } else if (container._countEl) {
+            container._countEl.textContent = remaining.length + ' selected';
           }
         }
       }
