@@ -146,7 +146,7 @@ export class RuntimeHttpServer {
     }
 
     // Require bearer token when configured
-    if (this.bearerToken) {
+    if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
