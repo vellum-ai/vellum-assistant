@@ -1,0 +1,164 @@
+import { and, eq, lte, or } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+import { getDb } from '../memory/db.js';
+import { followups } from '../memory/schema.js';
+import type { FollowUp, FollowUpCreateInput, FollowUpStatus } from './types.js';
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
+  return {
+    id: row.id,
+    channel: row.channel,
+    threadId: row.threadId,
+    contactId: row.contactId,
+    sentAt: row.sentAt,
+    expectedResponseBy: row.expectedResponseBy,
+    status: row.status as FollowUpStatus,
+    reminderCronId: row.reminderCronId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// ── CRUD ─────────────────────────────────────────────────────────────
+
+export function createFollowUp(input: FollowUpCreateInput): FollowUp {
+  const db = getDb();
+  const now = Date.now();
+  const id = uuid();
+
+  db.insert(followups).values({
+    id,
+    channel: input.channel,
+    threadId: input.threadId,
+    contactId: input.contactId ?? null,
+    sentAt: input.sentAt ?? now,
+    expectedResponseBy: input.expectedResponseBy ?? null,
+    status: 'pending',
+    reminderCronId: input.reminderCronId ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+
+  return getFollowUp(id)!;
+}
+
+export function getFollowUp(id: string): FollowUp | null {
+  const db = getDb();
+  const row = db.select().from(followups).where(eq(followups.id, id)).get();
+  if (!row) return null;
+  return parseFollowUp(row);
+}
+
+export function listFollowUps(filter?: {
+  status?: FollowUpStatus;
+  channel?: string;
+  contactId?: string;
+}): FollowUp[] {
+  const db = getDb();
+  const conditions = [];
+
+  if (filter?.status) {
+    conditions.push(eq(followups.status, filter.status));
+  }
+  if (filter?.channel) {
+    conditions.push(eq(followups.channel, filter.channel));
+  }
+  if (filter?.contactId) {
+    conditions.push(eq(followups.contactId, filter.contactId));
+  }
+
+  const whereClause = conditions.length > 0
+    ? conditions.length === 1
+      ? conditions[0]
+      : and(...conditions)
+    : undefined;
+
+  const rows = db
+    .select()
+    .from(followups)
+    .where(whereClause)
+    .all();
+
+  return rows.map(parseFollowUp);
+}
+
+export function resolveFollowUp(id: string): FollowUp {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = db.select().from(followups).where(eq(followups.id, id)).get();
+  if (!existing) throw new Error(`Follow-up "${id}" not found`);
+
+  db.update(followups)
+    .set({ status: 'resolved', updatedAt: now })
+    .where(eq(followups.id, id))
+    .run();
+
+  return getFollowUp(id)!;
+}
+
+export function resolveByThread(channel: string, threadId: string): FollowUp | null {
+  const db = getDb();
+  const now = Date.now();
+
+  // Find a pending or overdue follow-up matching this thread
+  const row = db
+    .select()
+    .from(followups)
+    .where(
+      and(
+        eq(followups.channel, channel),
+        eq(followups.threadId, threadId),
+        or(
+          eq(followups.status, 'pending'),
+          eq(followups.status, 'overdue'),
+          eq(followups.status, 'nudged'),
+        ),
+      ),
+    )
+    .get();
+
+  if (!row) return null;
+
+  db.update(followups)
+    .set({ status: 'resolved', updatedAt: now })
+    .where(eq(followups.id, row.id))
+    .run();
+
+  return getFollowUp(row.id)!;
+}
+
+export function getOverdueFollowUps(): FollowUp[] {
+  const db = getDb();
+  const now = Date.now();
+
+  const rows = db
+    .select()
+    .from(followups)
+    .where(
+      and(
+        eq(followups.status, 'pending'),
+        lte(followups.expectedResponseBy, now),
+      ),
+    )
+    .all();
+
+  return rows.map(parseFollowUp);
+}
+
+export function markNudged(id: string): FollowUp {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = db.select().from(followups).where(eq(followups.id, id)).get();
+  if (!existing) throw new Error(`Follow-up "${id}" not found`);
+
+  db.update(followups)
+    .set({ status: 'nudged', updatedAt: now })
+    .where(eq(followups.id, id))
+    .run();
+
+  return getFollowUp(id)!;
+}
