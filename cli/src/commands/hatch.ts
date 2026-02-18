@@ -5,7 +5,6 @@ import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
-import { saveAssistantEntry } from "../lib/assistant-config";
 import {
   FIREWALL_TAG,
   GATEWAY_PORT,
@@ -555,16 +554,22 @@ async function hatchGcp(
     const runtimeUrl = externalIp
       ? `http://${externalIp}:${GATEWAY_PORT}`
       : `http://${instanceName}:${GATEWAY_PORT}`;
-    saveAssistantEntry({
-      assistantId: instanceName,
-      runtimeUrl,
-      bearerToken,
-      project,
-      zone: DEFAULT_ZONE,
-      species,
-      sshUser,
-      hatchedAt: new Date().toISOString(),
-    });
+    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+    if (entryFilePath) {
+      writeFileSync(
+        entryFilePath,
+        JSON.stringify({
+          assistantId: instanceName,
+          runtimeUrl,
+          bearerToken,
+          project,
+          zone: DEFAULT_ZONE,
+          species,
+          sshUser,
+          hatchedAt: new Date().toISOString(),
+        }),
+      );
+    }
 
     if (detached) {
       console.log("🚀 Startup script is running on the instance...");
@@ -644,12 +649,18 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   });
 
   const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
-  saveAssistantEntry({
-    assistantId: instanceName,
-    runtimeUrl,
-    species,
-    hatchedAt: new Date().toISOString(),
-  });
+  const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+  if (entryFilePath) {
+    writeFileSync(
+      entryFilePath,
+      JSON.stringify({
+        assistantId: instanceName,
+        runtimeUrl,
+        species,
+        hatchedAt: new Date().toISOString(),
+      }),
+    );
+  }
 
   console.log("");
   console.log(`✅ Local assistant hatched!`);
