@@ -198,10 +198,14 @@ export async function executeBrowserNavigate(
     }
 
     // In headed mode, page.goto() may bring Chrome to the foreground on macOS.
-    // Push it back offscreen unless a handoff is active.
+    // Push it back offscreen unless a handoff is active. Use a short timeout
+    // so this never delays navigation — it's purely cosmetic.
     if (browserManager.browserMode === 'cdp' && !browserManager.isInteractive(context.sessionId)) {
       try {
-        await page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+        await Promise.race([
+          page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); }),
+          new Promise(r => setTimeout(r, 2000)),
+        ]);
       } catch { /* ignore */ }
     }
 

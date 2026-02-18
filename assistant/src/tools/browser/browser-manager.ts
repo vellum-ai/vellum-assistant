@@ -243,7 +243,10 @@ class BrowserManager {
           const pages = ctx.pages?.() ?? [];
           for (const p of pages) {
             try {
-              await p.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+              await Promise.race([
+                p.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); }),
+                new Promise(r => setTimeout(r, 2000)),
+              ]);
             } catch { /* blank page may not support evaluate */ }
           }
           log.info('Launched headed Chromium (minimized) for interactive handoff support');
@@ -352,7 +355,10 @@ class BrowserManager {
     // Push it back offscreen unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
       try {
-        await page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); });
+        await Promise.race([
+          page.evaluate(() => { window.moveTo(-9999, -9999); window.resizeTo(1, 1); }),
+          new Promise(r => setTimeout(r, 2000)),
+        ]);
       } catch { /* ignore if page isn't ready yet */ }
     }
 
