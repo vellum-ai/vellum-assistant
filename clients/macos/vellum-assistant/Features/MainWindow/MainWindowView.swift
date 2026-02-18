@@ -627,17 +627,26 @@ struct MainWindowView: View {
 
             Spacer(minLength: 0)
 
+            // Top-level sidebar items above control center
+            VStack(spacing: 0) {
+                VColor.surfaceBorder.frame(height: 1)
+
+                SidebarBottomItem(icon: "person.crop.circle", label: "Identity") {
+                    windowState.togglePanel(.identity)
+                }
+                SidebarBottomItem(icon: "wand.and.stars", label: "Skills") {
+                    windowState.togglePanel(.agent)
+                }
+            }
+
             // Control Center
             VStack(spacing: 0) {
                 VColor.surfaceBorder.frame(height: 1)
 
                 ControlCenterMenuButton(
                     onSettings: { windowState.togglePanel(.settings) },
-                    onSkills: { windowState.togglePanel(.agent) },
-                    onDirectory: { windowState.togglePanel(.directory) },
                     onDebug: { windowState.togglePanel(.debug) },
-                    onDoctor: { windowState.togglePanel(.doctor) },
-                    onIdentity: { windowState.togglePanel(.identity) }
+                    onDoctor: { windowState.togglePanel(.doctor) }
                 )
             }
             .background(VColor.backgroundSubtle)
@@ -1228,19 +1237,46 @@ private struct NewConversationButton: View {
     }
 }
 
+private struct SidebarBottomItem: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 20, height: 20)
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.05) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
 private struct ControlCenterMenuButton: View {
     let onSettings: () -> Void
-    let onSkills: () -> Void
-    let onDirectory: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
-    let onIdentity: () -> Void
     @State private var isHovered = false
     @State private var showDrawer = false
 
     var body: some View {
         Button {
-            withAnimation(VAnimation.fast) {
+            withAnimation(VAnimation.standard) {
                 showDrawer.toggle()
             }
         } label: {
@@ -1274,14 +1310,11 @@ private struct ControlCenterMenuButton: View {
             if showDrawer {
                 DrawerMenuView(
                     onSettings: { showDrawer = false; onSettings() },
-                    onSkills: { showDrawer = false; onSkills() },
-                    onDirectory: { showDrawer = false; onDirectory() },
-                    onIdentity: { showDrawer = false; onIdentity() },
                     onDebug: { showDrawer = false; onDebug() },
                     onDoctor: { showDrawer = false; onDoctor() }
                 )
-                .offset(y: -68)
-                .transition(.opacity)
+                .offset(y: -140)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
     }
@@ -1289,18 +1322,12 @@ private struct ControlCenterMenuButton: View {
 
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
-    let onSkills: () -> Void
-    let onDirectory: () -> Void
-    let onIdentity: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
-            DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
-            DrawerMenuItem(icon: "doc.text", label: "Directory", action: onDirectory)
-            DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
