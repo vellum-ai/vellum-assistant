@@ -133,13 +133,15 @@ class IntegrationManageTool implements Tool {
           return { content: `Error: no clientId configured for "${integrationId}". Run set_client_id first.`, isError: true };
         }
 
+        if (!context.sendToClient) {
+          return { content: 'Error: connect action requires an interactive client session', isError: true };
+        }
+
         try {
           const oauthConfig = { ...def.oauth2Config, clientId };
           const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
             openUrl: (url) => {
-              if (context.sendToClient) {
-                context.sendToClient({ type: 'open_url', url, title: `Connect ${def.name}` });
-              }
+              context.sendToClient!({ type: 'open_url', url, title: `Connect ${def.name}` });
             },
           });
 
