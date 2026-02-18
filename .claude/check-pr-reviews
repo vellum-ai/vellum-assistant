@@ -188,11 +188,24 @@ check_pr() {
     }' > "$pr_dir/result.json"
 }
 
-# Process all PRs in parallel
+# Process all PRs in parallel, tracking PIDs to surface failures
+WORKER_PIDS=()
 for pr in "${PR_NUMBERS[@]}"; do
   check_pr "$pr" &
+  WORKER_PIDS+=($!)
 done
-wait
+
+# Wait on each worker individually so non-zero exits fail the command
+FAILED=0
+for pid in "${WORKER_PIDS[@]}"; do
+  if ! wait "$pid"; then
+    FAILED=1
+  fi
+done
+if [ "$FAILED" -ne 0 ]; then
+  echo "error: one or more PR checks failed" >&2
+  exit 1
+fi
 
 # Collect results in argument order
 RESULTS=()
