@@ -41,6 +41,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Media Embed Settings
+
+    @Published var mediaEmbedsEnabled: Bool
+    @Published var mediaEmbedsEnabledSince: Date?
+    @Published var mediaEmbedVideoAllowlistDomains: [String]
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -57,7 +63,7 @@ public final class SettingsStore: ObservableObject {
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
 
-    init(daemonClient: DaemonClient? = nil) {
+    init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
         self.daemonClient = daemonClient
 
         // Seed from UserDefaults / Keychain
@@ -73,6 +79,12 @@ public final class SettingsStore: ObservableObject {
 
         // Default to enabled for notifications
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
+
+        // Load media embed settings from workspace config
+        let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
+        self.mediaEmbedsEnabled = mediaSettings.enabled
+        self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
+        self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
 
         // React to Keychain changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
@@ -185,5 +197,49 @@ public final class SettingsStore: ObservableObject {
         } catch {
             // Send failed — don't update lastDaemonModel so the next attempt isn't suppressed
         }
+    }
+
+    // MARK: - Media Embed Loading
+
+    private struct MediaEmbedLoadResult {
+        let enabled: Bool
+        let enabledSince: Date?
+        let domains: [String]
+    }
+
+    /// Reads `ui.mediaEmbeds` from the workspace config and falls back to
+    /// `MediaEmbedSettings` defaults for any missing or invalid values.
+    private static func loadMediaEmbedSettings(from configPath: String? = nil) -> MediaEmbedLoadResult {
+        let config = WorkspaceConfigIO.read(from: configPath)
+
+        guard let ui = config["ui"] as? [String: Any],
+              let mediaEmbeds = ui["mediaEmbeds"] as? [String: Any] else {
+            return MediaEmbedLoadResult(
+                enabled: MediaEmbedSettings.defaultEnabled,
+                enabledSince: nil,
+                domains: MediaEmbedSettings.defaultDomains
+            )
+        }
+
+        let enabled = mediaEmbeds["enabled"] as? Bool ?? MediaEmbedSettings.defaultEnabled
+
+        var enabledSince: Date?
+        if let isoString = mediaEmbeds["enabledSince"] as? String {
+            let formatter = ISO8601DateFormatter()
+            enabledSince = formatter.date(from: isoString)
+        }
+
+        let domains: [String]
+        if let rawDomains = mediaEmbeds["videoAllowlistDomains"] as? [String] {
+            domains = MediaEmbedSettings.normalizeDomains(rawDomains)
+        } else {
+            domains = MediaEmbedSettings.defaultDomains
+        }
+
+        return MediaEmbedLoadResult(
+            enabled: enabled,
+            enabledSince: enabledSince,
+            domains: domains
+        )
     }
 }
