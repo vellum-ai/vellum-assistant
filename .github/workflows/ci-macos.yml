@@ -117,6 +117,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
+          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
           PR_NUMBER="${{ github.event.pull_request.number }}"
-          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [View artifacts]($ARTIFACT_URL)"
+          gh pr comment "$PR_NUMBER" --body "📦 **macOS DMG artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)"
