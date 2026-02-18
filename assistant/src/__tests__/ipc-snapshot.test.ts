@@ -343,17 +343,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'unpublish_page',
     deploymentId: 'dpl-001',
   },
-  integration_list: {
-    type: 'integration_list',
-  },
-  integration_connect: {
-    type: 'integration_connect',
-    integrationId: 'gmail',
-  },
-  integration_disconnect: {
-    type: 'integration_disconnect',
-    integrationId: 'gmail',
-  },
   diagnostics_export_request: {
     type: 'diagnostics_export_request',
     conversationId: 'conv-001',
@@ -1004,24 +993,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   unpublish_page_response: {
     type: 'unpublish_page_response',
     success: true,
-  },
-  integration_list_response: {
-    type: 'integration_list_response',
-    integrations: [
-      {
-        id: 'gmail',
-        connected: true,
-        accountInfo: 'user@gmail.com',
-        connectedAt: 1700000000,
-        lastUsed: 1700001000,
-      },
-    ],
-  },
-  integration_connect_result: {
-    type: 'integration_connect_result',
-    integrationId: 'gmail',
-    success: true,
-    accountInfo: 'user@gmail.com',
   },
   app_files_changed: {
     type: 'app_files_changed',

@@ -1,6 +1,5 @@
 import * as net from 'node:net';
 import type { ClientMessage } from '../ipc-protocol.js';
-import type { IntegrationConnectRequest, IntegrationDisconnectRequest } from '../ipc-contract.js';
 import { handleRideShotgunStart } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
@@ -66,9 +65,6 @@ import {
   handleShareToSlack,
   handleSlackWebhookConfig,
   handleVercelApiConfig,
-  handleIntegrationList,
-  handleIntegrationConnect,
-  handleIntegrationDisconnect,
 } from './config.js';
 
 import {
@@ -226,15 +222,6 @@ const handlers: DispatchMap = {
       return;
     }
     log.warn({ sessionId: msg.sessionId, surfaceId: msg.surfaceId }, 'No session found for surface undo');
-  },
-  integration_list: (_msg, socket, ctx) => {
-    handleIntegrationList(socket, ctx);
-  },
-  integration_connect: (msg, socket, ctx) => {
-    handleIntegrationConnect(msg as IntegrationConnectRequest, socket, ctx);
-  },
-  integration_disconnect: (msg, socket, ctx) => {
-    handleIntegrationDisconnect(msg as IntegrationDisconnectRequest, socket, ctx);
   },
   diagnostics_export_request: handleDiagnosticsExport,
 };

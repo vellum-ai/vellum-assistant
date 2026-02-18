@@ -181,8 +181,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'tools/network/web-search.ts',   // web search API key lookup
       'daemon/handlers.ts',            // Vercel API token + integration OAuth
       'daemon/handlers/config.ts',     // Vercel API token + integration OAuth (split handler)
-      'integrations/registry.ts',      // integration connection status check
-      'integrations/token-manager.ts', // OAuth token refresh flow
+      'security/token-manager.ts',     // OAuth token refresh flow
       'email/providers/index.ts',      // email provider API key lookup
     ]);
 

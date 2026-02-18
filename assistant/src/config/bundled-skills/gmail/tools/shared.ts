@@ -1,13 +1,6 @@
 import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
-import { withValidToken } from '../../../../integrations/token-manager.js';
-import { getIntegration } from '../../../../integrations/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolExecutionResult } from '../../../../tools/types.js';
-
-export function getGmailDef() {
-  const def = getIntegration('gmail');
-  if (!def) throw new Error('Gmail integration not registered');
-  return def;
-}
 
 export function ok(content: string): ToolExecutionResult {
   return { content, isError: false };
@@ -18,8 +11,7 @@ export function err(message: string): ToolExecutionResult {
 }
 
 export async function withGmailToken<T>(fn: (token: string) => Promise<T>): Promise<T> {
-  const def = getGmailDef();
-  return withValidToken('gmail', def, fn);
+  return withValidToken('integration:gmail', fn);
 }
 
 /** Make an HTTPS request pinned to a specific resolved IP to prevent DNS rebinding. */

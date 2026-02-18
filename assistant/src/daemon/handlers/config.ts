@@ -8,8 +8,6 @@ import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secu
 import { upsertCredentialMetadata, deleteCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
-import { listStatuses, getIntegration, disconnect as disconnectIntegration } from '../../integrations/registry.js';
-import { startOAuth2Flow } from '../../integrations/oauth2.js';
 import type {
   ModelSetRequest,
   AddTrustRule,
@@ -22,7 +20,6 @@ import type {
   SlackWebhookConfigRequest,
   VercelApiConfigRequest,
 } from '../ipc-protocol.js';
-import type { IntegrationConnectRequest, IntegrationDisconnectRequest } from '../ipc-contract.js';
 import { log, type HandlerContext } from './shared.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -389,150 +386,3 @@ export function handleVercelApiConfig(
   }
 }
 
-export function handleIntegrationList(
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const statuses = listStatuses();
-  ctx.send(socket, {
-    type: 'integration_list_response',
-    integrations: statuses.map((s) => ({
-      id: s.id,
-      connected: s.connected,
-      accountInfo: s.accountInfo,
-      connectedAt: s.connectedAt,
-      lastUsed: s.lastUsed,
-      error: s.error,
-    })),
-  });
-}
-
-export async function handleIntegrationConnect(
-  msg: IntegrationConnectRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): Promise<void> {
-  const def = getIntegration(msg.integrationId);
-  if (!def) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `Integration "${msg.integrationId}" not found`,
-    });
-    return;
-  }
-
-  if (def.authType !== 'oauth2' || !def.oauth2Config) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `Integration "${msg.integrationId}" does not support OAuth2`,
-    });
-    return;
-  }
-
-  // Load clientId from config
-  const config = getConfig();
-  const integrationConfig = config.integrations[msg.integrationId];
-  const clientId = integrationConfig?.clientId || def.oauth2Config.clientId;
-
-  if (!clientId) {
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: `No clientId configured for "${msg.integrationId}".`,
-      setupRequired: true,
-      setupSkillId: def.setupSkillId,
-      setupHint: def.setupHint,
-    });
-    return;
-  }
-
-  try {
-    const oauthConfig = { ...def.oauth2Config, clientId };
-    const { tokens, grantedScopes } = await startOAuth2Flow(oauthConfig, {
-      openUrl: (url) => ctx.send(socket, { type: 'open_url', url, title: `Connect ${def.name}` }),
-    });
-
-    // Store tokens in vault
-    const tokenStored = setSecureKey(`integration:${def.id}:access_token`, tokens.accessToken);
-    if (!tokenStored) {
-      ctx.send(socket, {
-        type: 'integration_connect_result',
-        integrationId: msg.integrationId,
-        success: false,
-        error: 'Failed to store access token in secure storage',
-      });
-      return;
-    }
-
-    const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
-
-    // Fetch account info (email) if the integration has a userinfo endpoint
-    let accountInfo: string | undefined;
-    const userinfoUrl = def.oauth2Config.userinfoUrl;
-    if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
-      try {
-        const resp = await fetch(userinfoUrl, {
-          headers: { Authorization: `Bearer ${tokens.accessToken}` },
-        });
-        if (resp.ok) {
-          const info = await resp.json() as { email?: string };
-          accountInfo = info.email;
-        }
-      } catch {
-        // Non-fatal — account info is optional
-      }
-    }
-
-    upsertCredentialMetadata(`integration:${def.id}`, 'access_token', {
-      allowedTools: def.allowedTools,
-      expiresAt,
-      grantedScopes,
-      accountInfo: accountInfo ?? null,
-    });
-
-    if (tokens.refreshToken) {
-      const refreshStored = setSecureKey(`integration:${def.id}:refresh_token`, tokens.refreshToken);
-      if (!refreshStored) {
-        log.warn({ integrationId: def.id }, 'Failed to store refresh token in secure storage');
-      } else {
-        upsertCredentialMetadata(`integration:${def.id}`, 'refresh_token', {});
-      }
-    }
-
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: def.id,
-      success: true,
-      accountInfo,
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
-    log.error({ err, integrationId: msg.integrationId }, 'Integration connect failed');
-    ctx.send(socket, {
-      type: 'integration_connect_result',
-      integrationId: msg.integrationId,
-      success: false,
-      error: message,
-    });
-  }
-}
-
-export function handleIntegrationDisconnect(
-  msg: IntegrationDisconnectRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const success = disconnectIntegration(msg.integrationId);
-  if (!success) {
-    log.warn({ integrationId: msg.integrationId }, 'Integration not found for disconnect');
-  } else {
-    log.info({ integrationId: msg.integrationId }, 'Integration disconnected');
-  }
-  // Send updated list so the client refreshes
-  handleIntegrationList(socket, ctx);
-}

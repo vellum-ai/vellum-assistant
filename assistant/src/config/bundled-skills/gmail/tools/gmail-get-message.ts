@@ -1,6 +1,6 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import * as gmail from '../../../../integrations/gmail/client.js';
-import type { GmailMessageFormat } from '../../../../integrations/gmail/types.js';
+import * as gmail from '../client.js';
+import type { GmailMessageFormat } from '../types.js';
 import { withGmailToken, ok } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {

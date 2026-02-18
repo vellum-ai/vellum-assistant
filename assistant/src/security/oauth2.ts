@@ -1,19 +1,33 @@
 /**
- * OAuth2 PKCE loopback flow for desktop integrations.
+ * General-purpose OAuth2 Authorization Code flow with PKCE.
  *
- * 1. Generate code_verifier + code_challenge (S256)
- * 2. Start a temporary HTTP server on a random port
- * 3. Open the browser to the authorization URL
- * 4. Wait for the callback with the auth code
- * 5. Exchange the code for tokens (PKCE, no secret required)
- * 6. Return the token result
+ * Moved from integrations/oauth2.ts. Types that were in integrations/types.ts
+ * are now inlined here since the integration framework is removed.
  */
 
 import { randomBytes, createHash } from 'node:crypto';
-import type { OAuth2Config, OAuth2TokenResult } from './types.js';
 
-/** How long to wait for the user to complete the OAuth consent flow. */
-const FLOW_TIMEOUT_MS = 120_000;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface OAuth2Config {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  clientId: string;
+  extraParams?: Record<string, string>;
+  /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
+  userinfoUrl?: string;
+}
+
+export interface OAuth2TokenResult {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  scope?: string;
+  tokenType?: string;
+}
 
 export interface OAuth2FlowCallbacks {
   /** Open a URL in the user's browser (e.g. via IPC `open_url`). */
@@ -25,8 +39,11 @@ export interface OAuth2FlowResult {
   grantedScopes: string[];
 }
 
+// ---------------------------------------------------------------------------
+// PKCE helpers
+// ---------------------------------------------------------------------------
+
 function generateCodeVerifier(): string {
-  // RFC 7636: 43-128 unreserved characters
   return randomBytes(32).toString('base64url');
 }
 
@@ -38,12 +55,12 @@ function generateState(): string {
   return randomBytes(16).toString('hex');
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
  * Run a full OAuth2 PKCE authorization code flow using a loopback redirect.
- *
- * Starts a temporary HTTP server on 127.0.0.1 (required by Google for desktop
- * apps), opens the authorization URL in the browser, waits for the callback,
- * exchanges the code for tokens, and returns the result.
  */
 export async function startOAuth2Flow(
   config: OAuth2Config,
@@ -61,14 +78,16 @@ export async function startOAuth2Flow(
     rejectCode = reject;
   });
 
+  /** How long to wait for the user to complete the OAuth consent flow. */
+  const FLOW_TIMEOUT_MS = 120_000;
+
   const timeout = setTimeout(() => {
     rejectCode(new Error('OAuth2 flow timed out waiting for user authorization'));
   }, FLOW_TIMEOUT_MS);
 
-  // Start temporary HTTP server on a random port
   const server = Bun.serve({
     hostname: '127.0.0.1',
-    port: 0, // random available port
+    port: 0,
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname !== '/callback') {
@@ -108,7 +127,6 @@ export async function startOAuth2Flow(
   const redirectUri = `http://127.0.0.1:${server.port}/callback`;
 
   try {
-    // Build authorization URL
     const authParams = new URLSearchParams({
       ...config.extraParams,
       client_id: config.clientId,
@@ -123,14 +141,12 @@ export async function startOAuth2Flow(
     const authUrl = `${config.authUrl}?${authParams}`;
     callbacks.openUrl(authUrl);
 
-    // Wait for the callback
     const { code, returnedState } = await codePromise;
 
     if (returnedState !== state) {
       throw new Error('OAuth2 state mismatch — possible CSRF attack');
     }
 
-    // Exchange code for tokens (PKCE — no secret required)
     const tokenResp = await fetch(config.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -158,10 +174,9 @@ export async function startOAuth2Flow(
       tokenType: tokenData.token_type as string | undefined,
     };
 
-    // Parse granted scopes from the response
     const grantedScopes = typeof tokens.scope === 'string'
       ? tokens.scope.split(' ').filter(Boolean)
-      : [...config.scopes]; // assume all requested if not returned
+      : [...config.scopes];
 
     return { tokens, grantedScopes };
   } finally {

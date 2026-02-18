@@ -11,6 +11,7 @@ import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetada
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput } from './policy-types.js';
 import { credentialBroker } from './broker.js';
+import { startOAuth2Flow } from '../../security/oauth2.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -31,8 +32,8 @@ class CredentialStoreTool implements Tool {
         properties: {
           action: {
             type: 'string',
-            enum: ['store', 'list', 'delete', 'prompt'],
-            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation.',
+            enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
+            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization.',
           },
           service: {
             type: 'string',
@@ -71,6 +72,31 @@ class CredentialStoreTool implements Tool {
           usage_description: {
             type: 'string',
             description: 'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
+          },
+          auth_url: {
+            type: 'string',
+            description: 'OAuth2 authorization endpoint (only for oauth2_connect action)',
+          },
+          token_url: {
+            type: 'string',
+            description: 'OAuth2 token endpoint (only for oauth2_connect action)',
+          },
+          scopes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'OAuth2 scopes to request (only for oauth2_connect action)',
+          },
+          client_id: {
+            type: 'string',
+            description: 'OAuth2 client ID (only for oauth2_connect action)',
+          },
+          extra_params: {
+            type: 'object',
+            description: 'Extra query params for OAuth2 auth URL (only for oauth2_connect action)',
+          },
+          userinfo_url: {
+            type: 'string',
+            description: 'Endpoint to fetch account info after OAuth2 auth (only for oauth2_connect action)',
           },
         },
         required: ['action'],
@@ -286,6 +312,91 @@ class CredentialStoreTool implements Tool {
           log.warn({ service, field, err }, 'metadata write failed after storing credential');
         }
         return { content: `Credential stored for ${service}/${field}.`, isError: false };
+      }
+
+      case 'oauth2_connect': {
+        const service = input.service as string | undefined;
+        const authUrl = input.auth_url as string | undefined;
+        const tokenUrl = input.token_url as string | undefined;
+        const scopes = input.scopes as string[] | undefined;
+        const clientId = input.client_id as string | undefined;
+        const extraParams = input.extra_params as Record<string, string> | undefined;
+        const userinfoUrl = input.userinfo_url as string | undefined;
+
+        if (!service) return { content: 'Error: service is required for oauth2_connect action', isError: true };
+        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action', isError: true };
+        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action', isError: true };
+        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action', isError: true };
+        if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action', isError: true };
+
+        if (!context.isInteractive) {
+          return { content: 'Error: oauth2_connect action requires an interactive client session', isError: true };
+        }
+
+        try {
+          assertMetadataWritable();
+        } catch {
+          return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
+        }
+
+        try {
+          const allowedTools = input.allowed_tools as string[] | undefined;
+
+          const { tokens, grantedScopes } = await startOAuth2Flow(
+            { authUrl, tokenUrl, scopes, clientId, extraParams, userinfoUrl },
+            {
+              openUrl: (url) => {
+                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` } as any);
+              },
+            },
+          );
+
+          const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
+          if (!tokenStored) {
+            return { content: 'Error: failed to store access token in secure storage', isError: true };
+          }
+
+          const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
+
+          let accountInfo: string | undefined;
+          if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
+            try {
+              const resp = await fetch(userinfoUrl, {
+                headers: { Authorization: `Bearer ${tokens.accessToken}` },
+              });
+              if (resp.ok) {
+                const info = await resp.json() as { email?: string };
+                accountInfo = info.email;
+              }
+            } catch {
+              // Non-fatal
+            }
+          }
+
+          upsertCredentialMetadata(service, 'access_token', {
+            allowedTools: allowedTools ?? [],
+            expiresAt,
+            grantedScopes,
+            accountInfo: accountInfo ?? null,
+            oauth2TokenUrl: tokenUrl,
+            oauth2ClientId: clientId,
+          });
+
+          if (tokens.refreshToken) {
+            const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
+            if (refreshStored) {
+              upsertCredentialMetadata(service, 'refresh_token', {});
+            }
+          }
+
+          return {
+            content: `Successfully connected "${service}"${accountInfo ? ` as ${accountInfo}` : ''}. The service is now ready to use.`,
+            isError: false,
+          };
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
+          return { content: `Error connecting "${service}": ${message}`, isError: true };
+        }
       }
 
       default:

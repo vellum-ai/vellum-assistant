@@ -36,7 +36,6 @@ export const eagerModules: string[] = [
   './schedule/list.js',
   './schedule/update.js',
   './schedule/delete.js',
-  './integrations/manage.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -67,7 +66,6 @@ export const eagerModuleToolNames: string[] = [
   'schedule_list',
   'schedule_update',
   'schedule_delete',
-  'integration_manage',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────

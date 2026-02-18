@@ -4,7 +4,7 @@ import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { getConfig } from './loader.js';
-import { listIntegrations, listStatuses, isConfigured } from '../integrations/registry.js';
+import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
 
 const log = getLogger('system-prompt');
 
@@ -549,32 +549,17 @@ function buildAccessPreferenceSection(): string {
 }
 
 function buildIntegrationSection(): string {
-  const defs = listIntegrations();
-  if (defs.length === 0) return '';
+  const allCreds = listCredentialMetadata();
+  // Show OAuth2-connected services (those with oauth2TokenUrl in metadata)
+  const oauthCreds = allCreds.filter((c) => c.oauth2TokenUrl && c.field === 'access_token');
+  if (oauthCreds.length === 0) return '';
 
-  const statuses = listStatuses();
-  const statusMap = new Map(statuses.map((s) => [s.id, s]));
-
-  const lines = ['## Integration Status', ''];
-  for (const def of defs) {
-    const status = statusMap.get(def.id);
-    const connected = status?.connected ?? false;
-    const configured = isConfigured(def.id);
-
-    let state: string;
-    if (connected) {
-      state = `Connected${status?.accountInfo ? ` (${status.accountInfo})` : ''}`;
-    } else if (configured) {
-      state = 'Configured (not connected)';
-    } else {
-      state = 'Not configured';
-    }
-
-    let line = `- **${def.name}**: ${state}`;
-    if (!configured && def.setupSkillId) {
-      line += `. Use \`integration_manage\` to check status. To set it up, first install the skill via \`vellum_skills_catalog\` (install with skill_id "${def.setupSkillId}"), then load it with \`skill_load\`.`;
-    }
-    lines.push(line);
+  const lines = ['## Connected Services', ''];
+  for (const cred of oauthCreds) {
+    const state = cred.accountInfo
+      ? `Connected (${cred.accountInfo})`
+      : 'Connected';
+    lines.push(`- **${cred.service}**: ${state}`);
   }
 
   return lines.join('\n');

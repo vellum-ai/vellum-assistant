@@ -42,3 +42,21 @@ Whenever you merge a PR, you MUST append its URL to `.private/UNREVIEWED_PRS.md`
 
 ## Implementing new functionality
 Before implementing new functionality do a quick check to see if the new feature has already been implemented
+
+## Extensibility Principle
+
+Vellum is a **general-purpose assistant**, not a single-purpose tool. When adding a new capability (e.g., personalized email responses, context-aware summarization, smart scheduling), build it as a **reusable, extensible primitive** that works across contexts — not a narrow solution wired to one specific use case.
+
+Concretely:
+- Extract the underlying capability (e.g., "personalize text using user context") into a composable building block (skill, tool, or utility) that other features can reuse.
+- Parameterize inputs and outputs rather than hardcoding them to a single workflow.
+- If a capability already exists in a general form, extend it rather than building a parallel special-purpose version.
+- Ask: "If someone wanted this same capability in a different context, would they be able to use what I'm building?" If not, generalize it.
+
+## Code Review Checklist
+
+When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag these in addition to standard code quality:
+
+- **Narrow capability:** A new feature is hardcoded to a single use case when the underlying capability could be made reusable. Suggest generalizing it per the Extensibility Principle above.
+- **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
+- **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.

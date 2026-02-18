@@ -1,5 +1,5 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import * as gmail from '../../../../integrations/gmail/client.js';
+import * as gmail from '../client.js';
 import { isPrivateOrLocalHost, resolveHostAddresses, resolveRequestAddress } from '../../../../tools/network/url-safety.js';
 import { withGmailToken, ok, err, pinnedHttpsRequest } from './shared.js';
 

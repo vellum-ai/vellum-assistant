@@ -21,6 +21,10 @@ export interface CredentialMetadata {
   expiresAt?: number;
   grantedScopes?: string[];
   accountInfo?: string;
+  /** OAuth2 token endpoint — enables autonomous token refresh without an IntegrationDefinition. */
+  oauth2TokenUrl?: string;
+  /** OAuth2 client ID — paired with oauth2TokenUrl for refresh. */
+  oauth2ClientId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -115,6 +119,8 @@ export function upsertCredentialMetadata(
     grantedScopes?: string[];
     /** Pass `null` to explicitly clear a previously-set account info. */
     accountInfo?: string | null;
+    oauth2TokenUrl?: string;
+    oauth2ClientId?: string;
   },
 ): CredentialMetadata {
   const result = loadFile();
@@ -147,6 +153,8 @@ export function upsertCredentialMetadata(
         existing.accountInfo = policy.accountInfo;
       }
     }
+    if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
+    if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
     existing.updatedAt = now;
     saveFile(data);
     return existing;
@@ -162,6 +170,8 @@ export function upsertCredentialMetadata(
     expiresAt: policy?.expiresAt ?? undefined,
     grantedScopes: policy?.grantedScopes,
     accountInfo: policy?.accountInfo ?? undefined,
+    oauth2TokenUrl: policy?.oauth2TokenUrl,
+    oauth2ClientId: policy?.oauth2ClientId,
     createdAt: now,
     updatedAt: now,
   };
