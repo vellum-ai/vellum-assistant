@@ -2330,7 +2330,7 @@ graph TD
 The video webview applies three hardening layers:
 
 1. **Ephemeral storage** -- `WKWebViewConfiguration.websiteDataStore = .nonPersistent()` so no cookies, local storage, or cache survive the session.
-2. **Navigation blocking** -- Only `navigationType == .other` (programmatic/iframe loads) is allowed. User-initiated link clicks are cancelled and opened in the system browser via `NSWorkspace`.
+2. **Navigation policy** -- The first programmatic load (the embed URL we control) is always allowed. Subsequent `navigationType == .other` loads are checked against a per-provider host allowlist (e.g. `*.googlevideo.com`, `*.ytimg.com` for YouTube; `*.vimeocdn.com` for Vimeo; `*.loomcdn.com` for Loom). Unrecognised hosts and all user-initiated navigations (link clicks, form submissions) are cancelled and opened in the system browser via `NSWorkspace`.
 3. **Popup blocking** -- `createWebViewWith` returns `nil`, preventing embedded players from opening new windows.
 
 ### Settings Persistence
