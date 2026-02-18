@@ -447,23 +447,32 @@ function summarizeMessage(msg: Message): { role: string; blockTypes: string[] } 
 
 /**
  * Strip image contentBlocks from all tool_result blocks except those in the
- * last user message. This prevents screenshots from accumulating in the
- * context window — each image is seen once by the LLM on the turn it was
- * captured, then replaced with a text placeholder on subsequent turns.
+ * most recent user message that contains tool_result blocks. This prevents
+ * screenshots from accumulating in the context window — each image is seen
+ * once by the LLM on the turn it was captured, then replaced with a text
+ * placeholder on subsequent turns.
+ *
+ * We look for the last user message with tool_results (not just the last user
+ * message) because the empty-response nudge path appends a text-only user
+ * message after the tool results. Preserving images in that case ensures
+ * the model still sees the screenshot on the retry.
  */
 function stripOldImageBlocks(history: Message[]): Message[] {
-  // Find the index of the last user message (current turn's tool results)
-  let lastUserIdx = -1;
+  // Find the last user message that contains tool_result blocks.
+  let lastToolResultUserIdx = -1;
   for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].role === 'user') {
-      lastUserIdx = i;
+    if (
+      history[i].role === 'user' &&
+      history[i].content.some((b) => b.type === 'tool_result')
+    ) {
+      lastToolResultUserIdx = i;
       break;
     }
   }
 
   return history.map((msg, idx) => {
-    // Keep the most recent user message intact (current turn)
-    if (idx === lastUserIdx || msg.role !== 'user') return msg;
+    // Keep the most recent tool-result user message intact (current turn)
+    if (idx === lastToolResultUserIdx || msg.role !== 'user') return msg;
 
     // Check if any tool_result blocks have image contentBlocks
     const hasImages = msg.content.some(
