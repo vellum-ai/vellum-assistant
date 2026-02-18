@@ -277,6 +277,9 @@ struct MainWindowView: View {
                         VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 sidebarOpen.toggle()
+                                if sidebarOpen {
+                                    windowState.layoutConfig.left.visible = true
+                                }
                             }
                         }
                         Spacer()
