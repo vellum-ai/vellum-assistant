@@ -287,3 +287,13 @@ export function __resetRegistryForTesting(): void {
     }
   }
 }
+
+/**
+ * Completely empty the registry (no snapshot restore). Exposed
+ * exclusively for tests that need to verify a registration function
+ * actually adds tools to an empty registry (i.e. non-vacuous assertions).
+ */
+export function __clearRegistryForTesting(): void {
+  tools.clear();
+  skillRefCount.clear();
+}
