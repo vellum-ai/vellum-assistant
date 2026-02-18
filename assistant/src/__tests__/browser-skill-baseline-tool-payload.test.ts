@@ -10,21 +10,9 @@ import {
   getAllToolDefinitions,
   __resetRegistryForTesting,
 } from '../tools/registry.js';
+import { BROWSER_TOOL_NAMES } from './test-support/browser-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
-
-const BROWSER_TOOL_NAMES = [
-  'browser_navigate',
-  'browser_snapshot',
-  'browser_screenshot',
-  'browser_close',
-  'browser_click',
-  'browser_type',
-  'browser_press_key',
-  'browser_wait_for',
-  'browser_extract',
-  'browser_fill_credential',
-] as const;
 
 beforeAll(async () => {
   // Reset first to clear any browser tools registered via ESM side-effect
