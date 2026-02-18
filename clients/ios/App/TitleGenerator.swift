@@ -18,6 +18,7 @@ actor TitleGenerator {
 
         guard let apiKey = APIKeyManager.shared.getAPIKey(provider: "anthropic")
                 ?? ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] else {
+            titledThreads.remove(threadId)
             return nil
         }
 
@@ -35,7 +36,10 @@ actor TitleGenerator {
             "messages": [["role": "user", "content": prompt]]
         ]
 
-        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
+            titledThreads.remove(threadId)
+            return nil
+        }
         request.httpBody = httpBody
 
         do {
@@ -44,11 +48,13 @@ actor TitleGenerator {
                   let content = json["content"] as? [[String: Any]],
                   let firstBlock = content.first,
                   let text = firstBlock["text"] as? String else {
+                titledThreads.remove(threadId)
                 return nil
             }
             let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return title.isEmpty ? nil : title
         } catch {
+            titledThreads.remove(threadId)
             return nil
         }
     }
