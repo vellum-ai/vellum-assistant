@@ -35,7 +35,7 @@ enum VimeoParser {
         guard let id = videoID, !id.isEmpty else { return nil }
 
         // Vimeo video IDs are strictly numeric
-        guard id.allSatisfy(\.isNumber) else { return nil }
+        guard id.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
 
         guard let embedURL = URL(string: "https://player.vimeo.com/video/\(id)") else {
             return nil
