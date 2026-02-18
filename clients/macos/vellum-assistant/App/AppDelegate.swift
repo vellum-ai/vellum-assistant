@@ -161,7 +161,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasSetupApp = false
     private var hasSetupDaemon = false
 
-    private func proceedToApp() {
+    private func proceedToApp(isFirstLaunch: Bool = false) {
         authWindow?.close()
         authWindow = nil
 
@@ -184,7 +184,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow(initialMessage: "Wake up, my friend")
+        showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil)
     }
 
     private func showAuthWindow() {
@@ -803,7 +803,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // By this point the user has either entered an API key (steps 0→1→2)
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
-            self?.proceedToApp()
+            self?.proceedToApp(isFirstLaunch: true)
         }
         onboarding.show()
         onboardingWindow = onboarding
