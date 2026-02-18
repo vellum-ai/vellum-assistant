@@ -127,18 +127,20 @@ export interface HandlerContext {
  */
 export function getScreenDimensions(): { width: number; height: number } {
   if (cachedScreenDims) return cachedScreenDims;
-  try {
-    const out = execSync(
-      `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
-      { timeout: 10_000, encoding: 'utf-8' },
-    ).trim();
-    const [w, h] = out.split('x').map(Number);
-    if (w > 0 && h > 0) {
-      cachedScreenDims = { width: w, height: h };
-      return cachedScreenDims;
+  if (process.platform === 'darwin') {
+    try {
+      const out = execSync(
+        `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
+        { timeout: 10_000, encoding: 'utf-8' },
+      ).trim();
+      const [w, h] = out.split('x').map(Number);
+      if (w > 0 && h > 0) {
+        cachedScreenDims = { width: w, height: h };
+        return cachedScreenDims;
+      }
+    } catch (err) {
+      log.debug({ err }, 'Failed to query screen dimensions, using fallback');
     }
-  } catch (err) {
-    log.debug({ err }, 'Failed to query screen dimensions, using fallback');
   }
   cachedScreenDims = FALLBACK_SCREEN;
   return cachedScreenDims;
