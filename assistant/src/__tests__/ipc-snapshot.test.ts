@@ -398,22 +398,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     surfaceId: 'test-surface',
     enabled: true,
   },
-  document_save: {
-    type: 'document_save',
-    surfaceId: 'doc-001',
-    conversationId: 'conv-001',
-    title: 'Test Document',
-    content: 'Hello world',
-    wordCount: 2,
-  },
-  document_load: {
-    type: 'document_load',
-    surfaceId: 'doc-001',
-  },
-  document_list: {
-    type: 'document_list',
-    conversationId: 'conv-001',
-  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1120,49 +1104,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     surfaceId: 'test-surface',
     reason: 'auth' as const,
     message: 'Login required',
-  },
-  document_editor_show: {
-    type: 'document_editor_show',
-    sessionId: 'sess-001',
-    surfaceId: 'doc-001',
-    title: 'Test Document',
-    initialContent: 'Hello world',
-  },
-  document_editor_update: {
-    type: 'document_editor_update',
-    sessionId: 'sess-001',
-    surfaceId: 'doc-001',
-    markdown: '# Updated content',
-    mode: 'replace',
-  },
-  document_save_response: {
-    type: 'document_save_response',
-    surfaceId: 'doc-001',
-    success: true,
-  },
-  document_load_response: {
-    type: 'document_load_response',
-    surfaceId: 'doc-001',
-    conversationId: 'conv-001',
-    title: 'Test Document',
-    content: 'Hello world',
-    wordCount: 2,
-    createdAt: 1700000000000,
-    updatedAt: 1700000000000,
-    success: true,
-  },
-  document_list_response: {
-    type: 'document_list_response',
-    documents: [
-      {
-        surfaceId: 'doc-001',
-        conversationId: 'conv-001',
-        title: 'Test Document',
-        wordCount: 2,
-        createdAt: 1700000000000,
-        updatedAt: 1700000000000,
-      },
-    ],
   },
 };
 
