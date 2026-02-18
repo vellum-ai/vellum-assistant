@@ -190,8 +190,19 @@ struct MainWindowView: View {
             .onChange(of: windowState.selection) { oldSelection, newSelection in
                 // When selection transitions to .thread, ensure ThreadManager is synced
                 // so chat content targets the correct thread (e.g. after dismissOverlay).
+                // Guard against archived threads: if the thread was archived while an
+                // overlay was open, persistentThreadId may still point to the stale ID.
                 if case .thread(let id) = newSelection {
-                    threadManager.selectThread(id: id)
+                    if threadManager.visibleThreads.contains(where: { $0.id == id }) {
+                        threadManager.selectThread(id: id)
+                    } else {
+                        // Thread was archived — fall back to the first visible thread
+                        if let fallback = threadManager.visibleThreads.first {
+                            windowState.selection = .thread(fallback.id)
+                        } else {
+                            windowState.selection = nil
+                        }
+                    }
                 }
 
                 // Sync surface and chat dock state when selection changes
