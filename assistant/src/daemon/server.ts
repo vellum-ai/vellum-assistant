@@ -16,7 +16,7 @@ import { IngressBlockedError } from '../util/errors.js';
 import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
-import { Session } from './session.js';
+import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -69,6 +69,24 @@ export class DaemonServer {
   private authenticatedSockets = new Set<net.Socket>();
   private authTimeouts = new Map<net.Socket, ReturnType<typeof setTimeout>>();
   private evictor: SessionEvictor;
+
+  /**
+   * Derive a SessionMemoryPolicy from the conversation's thread type and
+   * memory scope. Private conversations get an isolated scope with strict
+   * side-effect controls and default-fallback recall; standard conversations
+   * use the shared default scope with no restrictions.
+   */
+  private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
+    const threadType = conversationStore.getConversationThreadType(conversationId);
+    if (threadType === 'private') {
+      return {
+        scopeId: conversationStore.getConversationMemoryScopeId(conversationId),
+        includeDefaultFallback: true,
+        strictSideEffects: true,
+      };
+    }
+    return DEFAULT_MEMORY_POLICY;
+  }
 
   private applyTransportMetadata(_session: Session, options: SessionCreateOptions | undefined): void {
     const transport = options?.transport;
@@ -728,6 +746,7 @@ export class DaemonServer {
         const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
+        const memoryPolicy = this.deriveMemoryPolicy(conversationId);
         const newSession = new Session(
           conversationId,
           provider,
@@ -736,6 +755,7 @@ export class DaemonServer {
           rebindClient ? sendToClient : () => {},
           workingDir,
           (msg) => this.broadcast(msg, socket),
+          memoryPolicy,
         );
         // When created without a socket (HTTP path), mark the session
         // so interactive prompts (e.g. host attachment reads) can fail
