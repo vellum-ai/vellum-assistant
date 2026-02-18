@@ -1,10 +1,5 @@
-export const DOCTOR_PORT = 7829;
 export const FIREWALL_TAG = "vellum-assistant";
 export const GATEWAY_PORT = 7830;
-export const GCP_PROJECT = "vellum-nonprod";
-export const NATIVE_SERVICES = ["doctor", "assistant", "macos", "web"] as const;
-export const VALID_SERVICES = [...NATIVE_SERVICES, "postgres"] as const;
-export type ServiceName = (typeof VALID_SERVICES)[number];
 export const VALID_SPECIES = ["openclaw", "velly"] as const;
 export type Species = (typeof VALID_SPECIES)[number];
 

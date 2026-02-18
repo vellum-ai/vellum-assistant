@@ -1,28 +1,27 @@
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
+import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import { saveAssistantEntry } from "../lib/assistant-config";
 import {
   FIREWALL_TAG,
   GATEWAY_PORT,
-  GCP_PROJECT,
   SPECIES_CONFIG,
   VALID_SPECIES,
 } from "../lib/constants";
 import type { Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { instanceExists, syncFirewallRules } from "../lib/gcp";
+import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
-import { buildOpenclawRuntimeServer } from "../lib/openclaw-runtime-server";
 import { generateRandomSuffix } from "../lib/random-name";
 import { ensureAnthropicKey } from "../lib/secrets";
 import { exec, execOutput } from "../lib/step-runner";
 
 const DEFAULT_ZONE = "us-central1-a";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
-const INSTALL_SCRIPT_REPO_PATH = join("web", "public", "install.sh");
+const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
 const DEFAULT_SPECIES: Species = "velly";
 
@@ -82,111 +81,14 @@ function buildStartupScript(
   const ownershipFixup = buildOwnershipFixup();
 
   if (species === "openclaw") {
-    const runtimeServer = buildOpenclawRuntimeServer();
-    return `#!/bin/bash
-set -e
-
-${timestampRedirect}
-
-trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE" > /var/log/startup-error; fi' EXIT
-${userSetup}
-
-export OPENCLAW_NPM_LOGLEVEL=verbose
-export OPENCLAW_NO_ONBOARD=1
-export OPENCLAW_NO_PROMPT=1
-
-echo "=== Pre-install diagnostics ==="
-echo "Date: $(date -u)"
-echo "Disk:" && df -h / 2>&1 || true
-echo "Memory:" && free -m 2>&1 || true
-echo "DNS:" && nslookup registry.npmjs.org 2>&1 || true
-echo "Registry ping:" && curl -sSf --max-time 10 https://registry.npmjs.org/-/ping 2>&1 || echo "WARN: npm registry unreachable"
-echo "=== End pre-install diagnostics ==="
-
-echo "=== Installing build dependencies ==="
-apt-get update -y
-apt-get install -y build-essential python3 python3-pip git
-pip3 install cmake
-echo "cmake version: $(cmake --version | head -1)"
-echo "=== Build dependencies installed ==="
-
-curl -fsSL https://openclaw.ai/install.sh -o /tmp/openclaw-install.sh
-chmod +x /tmp/openclaw-install.sh
-
-set +e
-bash /tmp/openclaw-install.sh
-INSTALL_EXIT_CODE=\$?
-set -e
-
-if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
-  echo "=== OpenClaw install failed (exit code: \$INSTALL_EXIT_CODE) ==="
-  echo "=== npm debug logs ==="
-  find \$HOME/.npm/_logs -name '*.log' -type f 2>/dev/null | sort | while read -r logfile; do
-    echo "--- \$logfile ---"
-    tail -n 200 "\$logfile" 2>/dev/null || true
-  done
-  echo "=== Post-failure diagnostics ==="
-  echo "Disk:" && df -h / 2>&1 || true
-  echo "Memory:" && free -m 2>&1 || true
-  echo "node version:" && node --version 2>&1 || echo "node not found"
-  echo "npm version:" && npm --version 2>&1 || echo "npm not found"
-  echo "npm config:" && npm config list 2>&1 || true
-  echo "cmake version:" && cmake --version 2>&1 || echo "cmake not found"
-  echo "PATH: \$PATH"
-  echo "=== End diagnostics ==="
-  exit \$INSTALL_EXIT_CODE
-fi
-
-export PATH="\$HOME/.npm-global/bin:\$HOME/.local/bin:/usr/local/bin:\$PATH"
-
-if ! command -v openclaw >/dev/null 2>&1; then
-  echo "ERROR: openclaw CLI installation failed. The 'openclaw' command is not available."
-  echo "PATH: \$PATH"
-  echo "which openclaw:" && which openclaw 2>&1 || true
-  echo "npm global bin:" && npm bin -g 2>&1 || true
-  echo "npm global list:" && npm list -g --depth=0 2>&1 || true
-  exit 1
-fi
-
-export XDG_RUNTIME_DIR="/run/user/\$(id -u)"
-export DBUS_SESSION_BUS_ADDRESS="unix:path=\$XDG_RUNTIME_DIR/bus"
-mkdir -p "\$XDG_RUNTIME_DIR"
-loginctl enable-linger root 2>/dev/null || true
-systemctl --user daemon-reexec 2>/dev/null || true
-
-if ! command -v bun >/dev/null 2>&1; then
-  echo "=== Installing bun ==="
-  if ! command -v unzip >/dev/null 2>&1; then
-    echo "Installing unzip (required by bun)..."
-    apt-get install -y unzip
-  fi
-  curl -fsSL https://bun.sh/install | bash
-  export BUN_INSTALL="\$HOME/.bun"
-  export PATH="\$BUN_INSTALL/bin:\$PATH"
-  echo "bun version: $(bun --version)"
-  echo "=== Bun installed ==="
-else
-  echo "bun already installed: $(bun --version)"
-fi
-
-openclaw gateway install --token ${bearerToken}
-
-mkdir -p /root/.openclaw
-openclaw config set env.ANTHROPIC_API_KEY "${anthropicApiKey}"
-openclaw config set agents.defaults.model.primary "anthropic/claude-opus-4-6"
-openclaw config set gateway.auth.token "${bearerToken}"
-
-echo "=== Starting openclaw gateway at user level ==="
-systemctl --user daemon-reload
-systemctl --user enable --now openclaw-gateway.service
-
-export PORT=${GATEWAY_PORT}
-
-echo "=== Starting OpenClaw runtime server ==="
-${runtimeServer}
-echo "=== OpenClaw runtime server started ==="
-${ownershipFixup}
-`;
+    return buildOpenclawStartupScript(
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      timestampRedirect,
+      userSetup,
+      ownershipFixup,
+    );
   }
 
   const interfacesSeed = buildInterfacesSeed();
@@ -363,17 +265,15 @@ async function recoverFromCurlFailure(
   zone: string,
   sshUser: string,
 ): Promise<void> {
-  const repoRoot = join(import.meta.dir, "..", "..", "..");
-  const installScriptPath = join(repoRoot, INSTALL_SCRIPT_REPO_PATH);
-  if (!existsSync(installScriptPath)) {
-    throw new Error(`Install script not found at ${installScriptPath}`);
+  if (!existsSync(INSTALL_SCRIPT_PATH)) {
+    throw new Error(`Install script not found at ${INSTALL_SCRIPT_PATH}`);
   }
 
   console.log("📋 Uploading install script to instance...");
   await exec("gcloud", [
     "compute",
     "scp",
-    installScriptPath,
+    INSTALL_SCRIPT_PATH,
     `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
     `--zone=${zone}`,
     `--project=${project}`,
@@ -492,6 +392,7 @@ export async function hatch(): Promise<void> {
   const startTime = Date.now();
   const { species, detached, name } = parseArgs();
   try {
+    const project = await getActiveProject();
     let instanceName: string;
 
     if (name) {
@@ -504,20 +405,20 @@ export async function hatch(): Promise<void> {
     console.log(`🥚 Creating new assistant: ${instanceName}`);
     console.log(`   Species: ${species}`);
     console.log(`   Cloud: GCP`);
-    console.log(`   Project: ${GCP_PROJECT}`);
+    console.log(`   Project: ${project}`);
     console.log(`   Zone: ${DEFAULT_ZONE}`);
     console.log(`   Machine type: ${MACHINE_TYPE}`);
     console.log("");
 
     if (name) {
-      if (await instanceExists(name, GCP_PROJECT, DEFAULT_ZONE)) {
+      if (await instanceExists(name, project, DEFAULT_ZONE)) {
         console.error(
           `Error: Instance name '${name}' is already taken. Please choose a different name.`,
         );
         process.exit(1);
       }
     } else {
-      while (await instanceExists(instanceName, GCP_PROJECT, DEFAULT_ZONE)) {
+      while (await instanceExists(instanceName, project, DEFAULT_ZONE)) {
         console.log(`⚠️  Instance name ${instanceName} already exists, generating a new name...`);
         const suffix = generateRandomSuffix();
         instanceName = `${species}-${suffix}`;
@@ -526,7 +427,7 @@ export async function hatch(): Promise<void> {
 
     const sshUser = userInfo().username;
     const bearerToken = randomBytes(32).toString("hex");
-    await ensureAnthropicKey();
+    await ensureAnthropicKey(project);
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
       console.error(
@@ -546,7 +447,7 @@ export async function hatch(): Promise<void> {
         "instances",
         "create",
         instanceName,
-        `--project=${GCP_PROJECT}`,
+        `--project=${project}`,
         `--zone=${DEFAULT_ZONE}`,
         `--machine-type=${MACHINE_TYPE}`,
         "--image-family=debian-11",
@@ -564,7 +465,7 @@ export async function hatch(): Promise<void> {
     }
 
     console.log("🔒 Syncing firewall rules...");
-    await syncFirewallRules(DESIRED_FIREWALL_RULES, GCP_PROJECT, FIREWALL_TAG);
+    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG);
 
     console.log(`✅ Instance ${instanceName} created successfully\n`);
 
@@ -575,7 +476,7 @@ export async function hatch(): Promise<void> {
         "instances",
         "describe",
         instanceName,
-        `--project=${GCP_PROJECT}`,
+        `--project=${project}`,
         `--zone=${DEFAULT_ZONE}`,
         "--format=get(networkInterfaces[0].accessConfigs[0].natIP)",
       ]);
@@ -591,7 +492,7 @@ export async function hatch(): Promise<void> {
       assistantId: instanceName,
       runtimeUrl,
       bearerToken,
-      project: GCP_PROJECT,
+      project,
       zone: DEFAULT_ZONE,
       species,
       sshUser,
@@ -604,23 +505,11 @@ export async function hatch(): Promise<void> {
       console.log("✅ Assistant is hatching!\n");
       console.log("Instance details:");
       console.log(`  Name: ${instanceName}`);
-      console.log(`  Project: ${GCP_PROJECT}`);
+      console.log(`  Project: ${project}`);
       console.log(`  Zone: ${DEFAULT_ZONE}`);
       if (externalIp) {
         console.log(`  External IP: ${externalIp}`);
       }
-      console.log("");
-      console.log("The startup script is running. To monitor progress:");
-      console.log(`  vel logs ${instanceName}`);
-      console.log("");
-      console.log("To chat with the assistant once ready:");
-      console.log(`  vel client ${instanceName}`);
-      console.log("");
-      console.log("To connect to the instance:");
-      console.log(`  vel ssh ${instanceName}`);
-      console.log("");
-      console.log("To delete the instance when done:");
-      console.log(`  vel retire ${instanceName}`);
       console.log("");
     } else {
       console.log("   Press Ctrl+C to detach (instance will keep running)");
@@ -628,7 +517,7 @@ export async function hatch(): Promise<void> {
 
       const success = await watchHatching(
         instanceName,
-        GCP_PROJECT,
+        project,
         DEFAULT_ZONE,
         startTime,
         species,
@@ -637,19 +526,13 @@ export async function hatch(): Promise<void> {
       if (!success) {
         if (
           species === "velly" &&
-          (await checkCurlFailure(instanceName, GCP_PROJECT, DEFAULT_ZONE))
+          (await checkCurlFailure(instanceName, project, DEFAULT_ZONE))
         ) {
           console.log("");
           console.log("🔄 Detected install script curl failure, attempting recovery...");
-          await recoverFromCurlFailure(instanceName, GCP_PROJECT, DEFAULT_ZONE, sshUser);
+          await recoverFromCurlFailure(instanceName, project, DEFAULT_ZONE, sshUser);
           console.log("✅ Recovery successful!");
         } else {
-          console.log("");
-          console.log("To view startup logs:");
-          console.log(`  vel logs ${instanceName}`);
-          console.log("");
-          console.log("To delete the instance:");
-          console.log(`  vel retire ${instanceName}`);
           console.log("");
           process.exit(1);
         }
@@ -657,21 +540,11 @@ export async function hatch(): Promise<void> {
 
       console.log("Instance details:");
       console.log(`  Name: ${instanceName}`);
-      console.log(`  Project: ${GCP_PROJECT}`);
+      console.log(`  Project: ${project}`);
       console.log(`  Zone: ${DEFAULT_ZONE}`);
       if (externalIp) {
         console.log(`  External IP: ${externalIp}`);
       }
-      console.log("");
-      console.log("To chat with the assistant:");
-      console.log(`  vel client ${instanceName}`);
-      console.log("");
-      console.log("To connect to the instance:");
-      console.log(`  vel ssh ${instanceName}`);
-      console.log("");
-      console.log("To delete the instance when done:");
-      console.log(`  vel retire ${instanceName}`);
-      console.log("");
     }
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);

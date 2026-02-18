@@ -1,5 +1,19 @@
-import { FIREWALL_TAG, GCP_PROJECT } from "./constants";
 import { exec, execOutput } from "./step-runner";
+
+export async function getActiveProject(): Promise<string> {
+  const output = await execOutput("gcloud", [
+    "config",
+    "get-value",
+    "project",
+  ]);
+  const project = output.trim();
+  if (!project || project === "(unset)") {
+    throw new Error(
+      "No active GCP project. Run `gcloud config set project <project>` first.",
+    );
+  }
+  return project;
+}
 
 export interface FirewallRuleSpec {
   name: string;
@@ -156,13 +170,16 @@ export async function syncFirewallRules(
   }
 }
 
-export async function fetchFirewallRules(): Promise<string> {
+export async function fetchFirewallRules(
+  project: string,
+  tag: string,
+): Promise<string> {
   const output = await execOutput("gcloud", [
     "compute",
     "firewall-rules",
     "list",
-    `--project=${GCP_PROJECT}`,
-    `--filter=targetTags:${FIREWALL_TAG}`,
+    `--project=${project}`,
+    `--filter=targetTags:${tag}`,
     "--format=json",
   ]);
   return output;
