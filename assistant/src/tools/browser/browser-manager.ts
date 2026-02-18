@@ -160,7 +160,7 @@ class BrowserManager {
           this.cdpRequestResolvers.delete(sessionId);
         }
         resolve(false);
-      }, 60_000);
+      }, 15_000);
 
       this.cdpRequestResolvers.set(sessionId, resolver);
       sendToClient({ type: 'browser_cdp_request', sessionId });
@@ -233,6 +233,7 @@ class BrowserManager {
             channel: 'chrome',
             headless: false,
             args: [
+              '--window-position=-32000,-32000',
               '--disable-blink-features=AutomationControlled',
             ],
           });
