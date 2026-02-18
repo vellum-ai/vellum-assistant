@@ -27,7 +27,7 @@ _overrideDeps({
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
 });
 
-import { _resetBackend, _setBackend, getBackendType } from '../security/secure-keys.js';
+import { _resetBackend, _setBackend } from '../security/secure-keys.js';
 import { _setStorePath } from '../security/encrypted-store.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credvault-test-${randomBytes(4).toString('hex')}`);
@@ -51,7 +51,6 @@ import type { ToolContext } from '../tools/types.js';
 import {
   setSecureKey,
   getSecureKey,
-  listSecureKeys,
   deleteSecureKey,
 } from '../security/secure-keys.js';
 import { getCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
@@ -104,27 +103,8 @@ async function executeVault(input: Record<string, unknown>): Promise<{ content: 
       return { content: `Stored credential for ${service}/${field}.`, isError: false };
     }
 
-    case 'list': {
-      const backend = getBackendType();
-      if (backend === 'keychain') {
-        return {
-          content:
-            'Listing credentials is not supported when using the OS keychain backend. ' +
-            'Use get operations with specific service/field names instead.',
-          isError: false,
-        };
-      }
-      const allKeys = listSecureKeys();
-      const credentialKeys = allKeys.filter((k) => k.startsWith('credential:'));
-      const entries = credentialKeys.map((k) => {
-        const rest = k.slice('credential:'.length);
-        const colonIdx = rest.indexOf(':');
-        const service = colonIdx >= 0 ? rest.slice(0, colonIdx) : rest;
-        const field = colonIdx >= 0 ? rest.slice(colonIdx + 1) : '';
-        return { service, field };
-      });
-      return { content: JSON.stringify(entries, null, 2), isError: false };
-    }
+    case 'list':
+      return credentialStoreTool.execute({ action: 'list' }, _ctx);
 
     case 'delete': {
       const service = input.service as string | undefined;
@@ -237,11 +217,17 @@ describe('credential_store tool', () => {
   // List
   // -----------------------------------------------------------------------
   describe('list action', () => {
-    test('lists stored credentials metadata without values', async () => {
-      setSecureKey('credential:gmail:password', 'secret1');
-      setSecureKey('credential:github:token', 'secret2');
+    test('lists stored credentials with credential_id, service, field', async () => {
+      await credentialStoreTool.execute({
+        action: 'store', service: 'gmail', field: 'password',
+        value: 'secret1',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store', service: 'github', field: 'token',
+        value: 'secret2',
+      }, _ctx);
 
-      const result = await executeVault({ action: 'list' });
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
       expect(result.isError).toBe(false);
 
       const entries = JSON.parse(result.content);
@@ -250,45 +236,126 @@ describe('credential_store tool', () => {
       const services = entries.map((e: { service: string }) => e.service).sort();
       expect(services).toEqual(['github', 'gmail']);
 
+      // Each entry must have credential_id, service, field
+      for (const entry of entries) {
+        expect(typeof entry.credential_id).toBe('string');
+        expect(entry.credential_id.length).toBeGreaterThan(0);
+        expect(typeof entry.service).toBe('string');
+        expect(typeof entry.field).toBe('string');
+      }
+
       // Values must NOT appear in the output
       expect(result.content).not.toContain('secret1');
       expect(result.content).not.toContain('secret2');
     });
 
+    test('list output includes alias when set', async () => {
+      await credentialStoreTool.execute({
+        action: 'store', service: 'fal', field: 'api_key',
+        value: 'fal-secret', alias: 'fal-primary',
+      }, _ctx);
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      const entries = JSON.parse(result.content);
+      const entry = entries.find((e: { service: string }) => e.service === 'fal');
+      expect(entry).toBeDefined();
+      expect(entry.alias).toBe('fal-primary');
+    });
+
+    test('list output includes template summary with host patterns', async () => {
+      await credentialStoreTool.execute({
+        action: 'store', service: 'fal', field: 'api_key',
+        value: 'fal-secret',
+        injection_templates: [
+          { hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization', valuePrefix: 'Key ' },
+          { hostPattern: 'gateway.fal.ai', injectionType: 'header', headerName: 'X-Key' },
+        ],
+      }, _ctx);
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      const entries = JSON.parse(result.content);
+      const entry = entries.find((e: { service: string }) => e.service === 'fal');
+      expect(entry).toBeDefined();
+      expect(entry.injection_templates).toBeDefined();
+      expect(entry.injection_templates.count).toBe(2);
+      expect(entry.injection_templates.host_patterns).toEqual(['*.fal.ai', 'gateway.fal.ai']);
+    });
+
+    test('list does not include credential values', async () => {
+      const testValue = 'test-dummy-value-for-list';
+      await credentialStoreTool.execute({
+        action: 'store', service: 'test', field: 'key',
+        value: testValue,
+      }, _ctx);
+
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(result.content).not.toContain(testValue);
+      // Also verify no allowedTools/allowedDomains leak into list output
+      const entries = JSON.parse(result.content);
+      for (const entry of entries) {
+        expect(entry.allowedTools).toBeUndefined();
+        expect(entry.allowedDomains).toBeUndefined();
+        expect(entry.usageDescription).toBeUndefined();
+        expect(entry.value).toBeUndefined();
+      }
+    });
+
     test('returns empty array when no credentials exist', async () => {
-      const result = await executeVault({ action: 'list' });
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
       expect(result.isError).toBe(false);
       expect(JSON.parse(result.content)).toEqual([]);
     });
 
-    test('only lists credential-prefixed keys', async () => {
-      setSecureKey('credential:gmail:password', 'secret');
-      setSecureKey('anthropic', 'api-key');
+    test('lists multiple credentials', async () => {
+      await credentialStoreTool.execute({
+        action: 'store', service: 'gmail', field: 'password', value: 's1',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store', service: 'github', field: 'token', value: 's2',
+        alias: 'gh-main',
+      }, _ctx);
+      await credentialStoreTool.execute({
+        action: 'store', service: 'fal', field: 'api_key', value: 's3',
+        alias: 'fal-primary',
+        injection_templates: [
+          { hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization' },
+        ],
+      }, _ctx);
 
-      const result = await executeVault({ action: 'list' });
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
       const entries = JSON.parse(result.content);
-      expect(entries).toHaveLength(1);
-      expect(entries[0].service).toBe('gmail');
+      expect(entries).toHaveLength(3);
+
+      const fal = entries.find((e: { service: string }) => e.service === 'fal');
+      expect(fal.alias).toBe('fal-primary');
+      expect(fal.injection_templates.count).toBe(1);
+
+      const gh = entries.find((e: { service: string }) => e.service === 'github');
+      expect(gh.alias).toBe('gh-main');
+      expect(gh.injection_templates).toBeUndefined();
+
+      const gmail = entries.find((e: { service: string }) => e.service === 'gmail');
+      expect(gmail.alias).toBeUndefined();
+      expect(gmail.injection_templates).toBeUndefined();
     });
 
-    test('correctly parses service names containing colons', async () => {
-      setSecureKey('credential:oauth:google:password', 'secret');
+    test('works with keychain backend (reads from metadata store)', async () => {
+      // Store a credential first (on encrypted backend)
+      await credentialStoreTool.execute({
+        action: 'store', service: 'keychain-test', field: 'token',
+        value: 'kc-secret',
+      }, _ctx);
 
-      const result = await executeVault({ action: 'list' });
-      const entries = JSON.parse(result.content);
-      expect(entries).toHaveLength(1);
-      // Service should be the first segment after "credential:", field is the rest
-      expect(entries[0].service).toBe('oauth');
-      expect(entries[0].field).toBe('google:password');
-    });
-
-    test('returns warning when using keychain backend', async () => {
+      // Switch to keychain backend — list should still work via metadata
       _setBackend('keychain');
 
-      const result = await executeVault({ action: 'list' });
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
       expect(result.isError).toBe(false);
-      expect(result.content).toContain('not supported');
-      expect(result.content).toContain('keychain');
+      const entries = JSON.parse(result.content);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].service).toBe('keychain-test');
+      expect(entries[0].field).toBe('token');
+      expect(typeof entries[0].credential_id).toBe('string');
     });
   });
 
@@ -407,20 +474,28 @@ describe('credential_store tool', () => {
       expect(result.content).toContain('allowed_tools must be an array');
     });
 
-    test('list action entries contain only service and field (no policy metadata)', () => {
-      setSecureKey('credential:myservice:myfield', 'secret-val');
+    test('list action entries do not expose policy metadata', async () => {
+      await credentialStoreTool.execute({
+        action: 'store', service: 'myservice', field: 'myfield',
+        value: 'secret-val',
+        allowed_tools: ['browser_fill_credential'],
+        allowed_domains: ['example.com'],
+        usage_description: 'Test usage',
+      }, _ctx);
 
-      return executeVault({ action: 'list' }).then((result) => {
-        const entries = JSON.parse(result.content);
-        const entry = entries.find(
-          (e: { service: string; field: string }) => e.service === 'myservice' && e.field === 'myfield',
-        );
-        expect(entry).toBeDefined();
-        // Current list entries expose exactly {service, field} — no policy
-        // metadata like allowedDomains, createdAt, or accessPolicy.
-        const keys = Object.keys(entry!).sort();
-        expect(keys).toEqual(['field', 'service']);
-      });
+      const result = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      const entries = JSON.parse(result.content);
+      const entry = entries.find(
+        (e: { service: string; field: string }) => e.service === 'myservice' && e.field === 'myfield',
+      );
+      expect(entry).toBeDefined();
+      // List entries expose credential_id, service, field (and optionally alias,
+      // injection_templates) — never policy details.
+      expect(entry.allowedTools).toBeUndefined();
+      expect(entry.allowedDomains).toBeUndefined();
+      expect(entry.usageDescription).toBeUndefined();
+      expect(entry.createdAt).toBeUndefined();
+      expect(entry.updatedAt).toBeUndefined();
     });
   });
 
