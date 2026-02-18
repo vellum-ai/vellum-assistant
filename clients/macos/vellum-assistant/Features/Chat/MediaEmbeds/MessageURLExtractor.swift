@@ -9,7 +9,7 @@ enum MessageURLExtractor {
 
     // Characters that commonly trail a URL in natural prose but aren't
     // part of the URL itself.
-    private static let trailingPunctuationToTrim: CharacterSet = CharacterSet(charactersIn: ".,;:!?)>\"'")
+    private static let trailingPunctuationToTrim: CharacterSet = CharacterSet(charactersIn: ".,;!>\"')")
 
     /// Extracts all distinct `http(s)://` URLs from `text`, returned in
     /// first-occurrence order. Duplicates are suppressed (first wins).

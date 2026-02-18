@@ -142,6 +142,26 @@ final class MessageURLExtractorPlainTests: XCTestCase {
         XCTAssertEqual(urls.first?.absoluteString, "https://example.com/docs/api/v2/users")
     }
 
+    // MARK: - URL-valid characters not stripped
+
+    func testURLWithPortIsPreserved() {
+        let urls = MessageURLExtractor.extractPlainURLs(from: "Connect to https://example.com:8080/api")
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://example.com:8080/api")
+    }
+
+    func testURLWithQueryParamQuestionMarkPreserved() {
+        let urls = MessageURLExtractor.extractPlainURLs(from: "Open https://example.com/search?q=test now")
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://example.com/search?q=test")
+    }
+
+    func testWikipediaURLWithParensPreserved() {
+        let urls = MessageURLExtractor.extractPlainURLs(from: "See https://en.wikipedia.org/wiki/Swift_(programming_language) for info")
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.absoluteString, "https://en.wikipedia.org/wiki/Swift_(programming_language)")
+    }
+
     // MARK: - Non-HTTP schemes are excluded
 
     func testFTPSchemeIsExcluded() {
