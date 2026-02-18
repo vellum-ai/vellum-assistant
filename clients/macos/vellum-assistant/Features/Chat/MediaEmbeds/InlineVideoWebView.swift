@@ -47,6 +47,8 @@ struct InlineVideoWebView: NSViewRepresentable {
         let webView = Self.makeConfiguredWebView()
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        let request = URLRequest(url: url)
+        webView.load(request)
         return webView
     }
 
@@ -64,9 +66,6 @@ struct InlineVideoWebView: NSViewRepresentable {
         // recreating the coordinator.
         context.coordinator.onLoadSuccess = onLoadSuccess
         context.coordinator.onLoadFailure = onLoadFailure
-
-        let request = URLRequest(url: url)
-        webView.load(request)
     }
 
     /// Build a WKWebView with the privacy-hardened configuration used for embeds.
