@@ -103,82 +103,88 @@ struct AppDirectoryView: View {
     private func appCard(_ item: DirectoryAppItem) -> some View {
         let isHovered = hoveredAppId == item.id
 
-        return VStack(alignment: .leading, spacing: 0) {
-            // Preview thumbnail or placeholder
-            Group {
-                if let preview = item.preview,
-                   let data = Data(base64Encoded: preview),
-                   let nsImage = NSImage(data: data) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 160)
-                        .clipped()
-                } else {
-                    ZStack {
-                        VColor.backgroundSubtle
+        return Button {
+            openApp(item)
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                // Preview thumbnail or placeholder
+                Group {
+                    if let preview = item.preview,
+                       let data = Data(base64Encoded: preview),
+                       let nsImage = NSImage(data: data) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 160)
+                            .clipped()
+                    } else {
+                        ZStack {
+                            VColor.backgroundSubtle
 
-                        Text(item.icon ?? "\u{1F4F1}")
-                            .font(.system(size: 40))
-                    }
-                    .frame(height: 160)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .clipShape(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: VRadius.lg,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: VRadius.lg
-                )
-            )
-
-            // Info section
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(item.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-
-                    if item.appType == "site" {
-                        Text("Site")
-                            .font(VFont.small)
-                            .foregroundColor(Emerald._400)
-                            .padding(.horizontal, VSpacing.xs)
-                            .padding(.vertical, 1)
-                            .background(Emerald._900.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
-                    }
-
-                    if item.isShared {
-                        HStack(spacing: 2) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 8))
-                            Text("Shared")
-                                .font(VFont.small)
+                            Text(item.icon ?? "\u{1F4F1}")
+                                .font(.system(size: 40))
                         }
-                        .foregroundColor(Violet._400)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Violet._900.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .frame(height: 160)
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: VRadius.lg,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: VRadius.lg
+                    )
+                )
 
-                Text(item.dateLabel)
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
+                // Info section
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(item.name)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+
+                        if item.appType == "site" {
+                            Text("Site")
+                                .font(VFont.small)
+                                .foregroundColor(Emerald._400)
+                                .padding(.horizontal, VSpacing.xs)
+                                .padding(.vertical, 1)
+                                .background(Emerald._900.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                        }
+
+                        if item.isShared {
+                            HStack(spacing: 2) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 8))
+                                Text("Shared")
+                                    .font(VFont.small)
+                            }
+                            .foregroundColor(Violet._400)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Violet._900.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        }
+                    }
+
+                    Text(item.dateLabel)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(VSpacing.md)
             }
-            .padding(VSpacing.md)
+            .background(isHovered ? VColor.ghostHover : VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
         }
-        .background(isHovered ? VColor.ghostHover : VColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
+        .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
         .overlay(alignment: .topTrailing) {
             if isHovered, let localId = item.localAppId, onPinApp != nil {
@@ -202,8 +208,6 @@ struct AppDirectoryView: View {
         }
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .animation(VAnimation.fast, value: isHovered)
-        .contentShape(Rectangle())
-        .onTapGesture { MainActor.assumeIsolated { openApp(item) } }
         .onHover { hovering in
             withAnimation(VAnimation.fast) {
                 hoveredAppId = hovering ? item.id : nil
