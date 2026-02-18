@@ -44,12 +44,18 @@ struct DocumentEditorView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
 
-        // Register coordinator with DocumentManager
+        // Load document content first (existing doc or empty placeholder).
+        // contentForEditorView() also clears pendingInitialContent so the coordinator
+        // didSet won't trigger a redundant second loadHTMLString.
+        if let doc = documentManager.contentForEditorView() {
+            loadEditorHTML(webView: webView, title: doc.title, content: doc.content)
+        } else {
+            loadEditorHTML(webView: webView, title: "Untitled Document", content: "")
+        }
+
+        // Register coordinator with DocumentManager (after loading so no double-load)
         documentManager.editorCoordinator = context.coordinator
         print("🔧 Coordinator registered with DocumentManager")
-
-        // Load initial empty document
-        loadEditorHTML(webView: webView, title: "Untitled Document", content: "")
 
         log.info("DocumentEditorView created")
         print("📄 DocumentEditorView created, loading HTML...")

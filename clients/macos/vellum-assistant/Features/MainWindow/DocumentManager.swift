@@ -16,8 +16,11 @@ final class DocumentManager: ObservableObject {
     @Published var lastSaveError: String?
 
     /// Current document content and metadata
-    private var currentContent: String = ""
+    private(set) var currentContent: String = ""
     private var currentWordCount: Int = 0
+
+    /// Initial content from daemon — persisted for panel reopen after the coordinator consumes pendingInitialContent
+    private(set) var initialContent: String = ""
 
     /// Pending initial content to be set when coordinator becomes ready
     private var pendingInitialContent: String?
@@ -42,6 +45,7 @@ final class DocumentManager: ObservableObject {
         self.surfaceId = surfaceId
         self.sessionId = sessionId
         self.title = title
+        self.initialContent = initialContent
         self.hasActiveDocument = true
 
         // Initialize editor with content (or store as pending if coordinator not ready)
@@ -52,6 +56,15 @@ final class DocumentManager: ObservableObject {
             pendingInitialContent = initialContent
             log.info("Document created (pending): surfaceId=\(surfaceId), title=\(title), waiting for coordinator")
         }
+    }
+
+    /// Returns the content the editor WebView should load when (re)created.
+    /// Clears pendingInitialContent so the coordinator didSet won't double-load.
+    func contentForEditorView() -> (title: String, content: String)? {
+        guard hasActiveDocument else { return nil }
+        let content = currentContent.isEmpty ? initialContent : currentContent
+        pendingInitialContent = nil
+        return (title: title, content: content)
     }
 
     func updateDocument(markdown: String, mode: String) {
@@ -79,6 +92,7 @@ final class DocumentManager: ObservableObject {
         title = "Untitled Document"
         currentContent = ""
         currentWordCount = 0
+        initialContent = ""
         pendingInitialContent = nil
         log.info("Document closed")
     }
