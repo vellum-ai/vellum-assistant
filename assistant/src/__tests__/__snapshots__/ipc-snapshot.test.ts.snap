@@ -705,6 +705,29 @@ exports[`IPC message snapshots ClientMessage types document_list serializes to e
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types subagent_abort serializes to expected JSON 1`] = `
+{
+  "subagentId": "sub-001",
+  "type": "subagent_abort",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types subagent_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "subagentId": "sub-001",
+  "type": "subagent_status",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types subagent_message serializes to expected JSON 1`] = `
+{
+  "content": "Hello subagent",
+  "subagentId": "sub-001",
+  "type": "subagent_message",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1993,5 +2016,36 @@ exports[`IPC message snapshots ServerMessage types work_item_status_changed seri
     "updatedAt": 1700001000,
   },
   "type": "work_item_status_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types subagent_spawned serializes to expected JSON 1`] = `
+{
+  "label": "Research Agent",
+  "objective": "Find relevant documentation",
+  "parentSessionId": "sess-001",
+  "subagentId": "sub-001",
+  "type": "subagent_spawned",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types subagent_status_changed serializes to expected JSON 1`] = `
+{
+  "status": "completed",
+  "subagentId": "sub-001",
+  "summary": "Found 3 relevant documents",
+  "type": "subagent_status_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types subagent_event serializes to expected JSON 1`] = `
+{
+  "event": {
+    "sessionId": "sub-sess-001",
+    "text": "Searching for docs...",
+    "type": "assistant_text_delta",
+  },
+  "subagentId": "sub-001",
+  "type": "subagent_event",
 }
 `;

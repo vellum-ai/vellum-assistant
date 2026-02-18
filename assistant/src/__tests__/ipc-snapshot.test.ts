@@ -448,6 +448,20 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'document_list',
     conversationId: 'conv-001',
   },
+  subagent_abort: {
+    type: 'subagent_abort',
+    subagentId: 'sub-001',
+  },
+  subagent_status: {
+    type: 'subagent_status',
+    subagentId: 'sub-001',
+    sessionId: 'sess-001',
+  },
+  subagent_message: {
+    type: 'subagent_message',
+    subagentId: 'sub-001',
+    content: 'Hello subagent',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1298,6 +1312,28 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       lastRunConversationId: 'conv-001',
       lastRunStatus: 'completed',
       updatedAt: 1700001000,
+    },
+  },
+  subagent_spawned: {
+    type: 'subagent_spawned',
+    subagentId: 'sub-001',
+    parentSessionId: 'sess-001',
+    label: 'Research Agent',
+    objective: 'Find relevant documentation',
+  },
+  subagent_status_changed: {
+    type: 'subagent_status_changed',
+    subagentId: 'sub-001',
+    status: 'completed',
+    summary: 'Found 3 relevant documents',
+  },
+  subagent_event: {
+    type: 'subagent_event',
+    subagentId: 'sub-001',
+    event: {
+      type: 'assistant_text_delta',
+      text: 'Searching for docs...',
+      sessionId: 'sub-sess-001',
     },
   },
 };
