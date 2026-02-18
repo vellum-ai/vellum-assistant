@@ -17,6 +17,15 @@ struct BrowserPiPView: View {
                     .truncationMode(.middle)
                     .foregroundColor(.secondary)
                 Spacer()
+
+                // Interactive mode toggle
+                Button(action: { manager.toggleInteractiveMode() }) {
+                    Image(systemName: manager.isInteractive ? "hand.raised.fill" : "eye.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(manager.isInteractive ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(manager.isInteractive ? "Switch to observe mode" : "Switch to interactive mode")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -42,9 +51,33 @@ struct BrowserPiPView: View {
             // Frame
             ZStack {
                 if let frame = manager.currentFrame {
-                    Image(nsImage: frame)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    GeometryReader { geometry in
+                        Image(nsImage: frame)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+
+                        // Highlight overlays
+                        if !manager.highlights.isEmpty {
+                            ForEach(manager.highlights) { highlight in
+                                let scaled = scaleHighlight(highlight, viewSize: geometry.size, frameSize: manager.frameSize)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .stroke(Color.blue, lineWidth: 2)
+                                    .background(RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.1)))
+                                    .frame(width: scaled.width, height: scaled.height)
+                                    .position(x: scaled.midX, y: scaled.midY)
+                            }
+                        }
+
+                        // Interactive click handler
+                        if manager.isInteractive {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { location in
+                                    manager.sendUserClick(viewX: location.x, viewY: location.y, viewSize: geometry.size)
+                                }
+                        }
+                    }
                 } else {
                     Color(NSColor.controlBackgroundColor)
                     Text("Waiting for browser...")
@@ -52,17 +85,24 @@ struct BrowserPiPView: View {
                         .foregroundColor(.secondary)
                 }
 
-                // Highlight overlays
-                if !manager.highlights.isEmpty, let _ = manager.currentFrame {
-                    GeometryReader { geometry in
-                        ForEach(manager.highlights) { highlight in
-                            let scaled = scaleHighlight(highlight, viewSize: geometry.size, frameSize: manager.frameSize)
-                            RoundedRectangle(cornerRadius: 2)
-                                .stroke(Color.blue, lineWidth: 2)
-                                .background(RoundedRectangle(cornerRadius: 2).fill(Color.blue.opacity(0.1)))
-                                .frame(width: scaled.width, height: scaled.height)
-                                .position(x: scaled.midX, y: scaled.midY)
+                // Handoff banner
+                if let handoffMsg = manager.handoffMessage {
+                    VStack {
+                        HStack {
+                            Text(handoffMsg)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white)
+                            Spacer()
+                            Button("Hand back") {
+                                manager.toggleInteractiveMode()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.9))
+                        Spacer()
                     }
                 }
 
@@ -88,6 +128,10 @@ struct BrowserPiPView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: manager.actionText)
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(manager.isInteractive ? Color.green : Color.clear, lineWidth: 2)
+        )
     }
 
     private func scaleHighlight(_ highlight: BrowserHighlight, viewSize: CGSize, frameSize: CGSize) -> CGRect {

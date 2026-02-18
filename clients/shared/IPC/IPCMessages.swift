@@ -1454,6 +1454,88 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
     }
 }
 
+
+// MARK: - Browser Interactive Mode Messages
+
+/// Sent when user clicks in the interactive PiP browser view.
+public struct BrowserUserClickMessage: Encodable, Sendable {
+    public let type: String = "browser_user_click"
+    public let sessionId: String
+    public let surfaceId: String
+    public let x: Double
+    public let y: Double
+    public let button: String?
+    public let doubleClick: Bool?
+
+    public init(sessionId: String, surfaceId: String, x: Double, y: Double, button: String? = nil, doubleClick: Bool? = nil) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.x = x
+        self.y = y
+        self.button = button
+        self.doubleClick = doubleClick
+    }
+}
+
+/// Sent when user scrolls in the interactive PiP browser view.
+public struct BrowserUserScrollMessage: Encodable, Sendable {
+    public let type: String = "browser_user_scroll"
+    public let sessionId: String
+    public let surfaceId: String
+    public let deltaX: Double
+    public let deltaY: Double
+    public let x: Double
+    public let y: Double
+
+    public init(sessionId: String, surfaceId: String, deltaX: Double, deltaY: Double, x: Double, y: Double) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.deltaX = deltaX
+        self.deltaY = deltaY
+        self.x = x
+        self.y = y
+    }
+}
+
+/// Sent when user presses a key in the interactive PiP browser view.
+public struct BrowserUserKeypressMessage: Encodable, Sendable {
+    public let type: String = "browser_user_keypress"
+    public let sessionId: String
+    public let surfaceId: String
+    public let key: String
+    public let modifiers: [String]?
+
+    public init(sessionId: String, surfaceId: String, key: String, modifiers: [String]? = nil) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.key = key
+        self.modifiers = modifiers
+    }
+}
+
+/// Sent to toggle interactive mode on the browser PiP.
+public struct BrowserInteractiveModeMessage: Encodable, Sendable {
+    public let type: String = "browser_interactive_mode"
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+
+    public init(sessionId: String, surfaceId: String, enabled: Bool) {
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.enabled = enabled
+    }
+}
+
+/// Received when interactive mode state changes (confirmation or agent-initiated).
+public struct BrowserInteractiveModeChangedMessage: Decodable, Sendable {
+    public let sessionId: String
+    public let surfaceId: String
+    public let enabled: Bool
+    public let reason: String?
+    public let message: String?
+}
+
 // MARK: - Slack Webhook Messages (Manual)
 
 public struct ShareToSlackRequestMessage: Encodable, Sendable {
@@ -1665,6 +1747,7 @@ public enum ServerMessage: Decodable, Sendable {
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
     case browserFrame(BrowserFrameMessage)
+    case browserInteractiveModeChanged(BrowserInteractiveModeChangedMessage)
     case envVarsResponse(EnvVarsResponseMessage)
     case pong
     case unknown(String)
@@ -1912,6 +1995,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "browser_frame":
             let message = try BrowserFrameMessage(from: decoder)
             self = .browserFrame(message)
+        case "browser_interactive_mode_changed":
+            let message = try BrowserInteractiveModeChangedMessage(from: decoder)
+            self = .browserInteractiveModeChanged(message)
         case "env_vars_response":
             let message = try EnvVarsResponseMessage(from: decoder)
             self = .envVarsResponse(message)

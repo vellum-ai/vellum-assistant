@@ -14,6 +14,8 @@ final class BrowserPiPManager: ObservableObject {
     @Published var currentFrame: NSImage?
     @Published var pages: [BrowserPage] = []
     @Published var highlights: [BrowserHighlight] = []
+    @Published var isInteractive: Bool = false
+    var handoffMessage: String?
     var frameSize: CGSize = CGSize(width: 800, height: 600)
 
     var activePage: BrowserPage? {
@@ -28,6 +30,7 @@ final class BrowserPiPManager: ObservableObject {
     private var moveObserver: Any?
     private var resizeObserver: Any?
     private let decodeQueue = DispatchQueue(label: "browser-pip-frame-decode")
+    weak var daemonClient: DaemonClient?
 
     // Saved position
     private static let positionXKey = "BrowserPiP.positionX"
@@ -107,6 +110,49 @@ final class BrowserPiPManager: ObservableObject {
         decodeFrame(message.frame)
     }
 
+
+    func toggleInteractiveMode() {
+        guard let sessionId, let surfaceId else { return }
+        isInteractive.toggle()
+        try? daemonClient?.send(BrowserInteractiveModeMessage(sessionId: sessionId, surfaceId: surfaceId, enabled: isInteractive))
+    }
+
+    func sendUserClick(viewX: CGFloat, viewY: CGFloat, viewSize: CGSize, button: String? = nil, doubleClick: Bool? = nil) {
+        guard let sessionId, let surfaceId, isInteractive else { return }
+        let (scX, scY) = viewToScreencast(viewX: viewX, viewY: viewY, viewSize: viewSize)
+        try? daemonClient?.send(BrowserUserClickMessage(sessionId: sessionId, surfaceId: surfaceId, x: scX, y: scY, button: button, doubleClick: doubleClick))
+    }
+
+    func sendUserScroll(deltaX: CGFloat, deltaY: CGFloat, viewX: CGFloat, viewY: CGFloat, viewSize: CGSize) {
+        guard let sessionId, let surfaceId, isInteractive else { return }
+        let (scX, scY) = viewToScreencast(viewX: viewX, viewY: viewY, viewSize: viewSize)
+        try? daemonClient?.send(BrowserUserScrollMessage(sessionId: sessionId, surfaceId: surfaceId, deltaX: Double(deltaX), deltaY: Double(deltaY), x: scX, y: scY))
+    }
+
+    func sendUserKeypress(key: String, modifiers: [String]? = nil) {
+        guard let sessionId, let surfaceId, isInteractive else { return }
+        try? daemonClient?.send(BrowserUserKeypressMessage(sessionId: sessionId, surfaceId: surfaceId, key: key, modifiers: modifiers))
+    }
+
+    func handleInteractiveModeChanged(_ message: BrowserInteractiveModeChangedMessage) {
+        guard message.surfaceId == surfaceId else { return }
+        isInteractive = message.enabled
+        handoffMessage = message.enabled ? message.message : nil
+    }
+
+    /// Convert PiP view coordinates to screencast coordinates.
+    /// This is the inverse of `scaleHighlight()` in BrowserPiPView.
+    private func viewToScreencast(viewX: CGFloat, viewY: CGFloat, viewSize: CGSize) -> (Double, Double) {
+        let scaleX = viewSize.width / frameSize.width
+        let scaleY = viewSize.height / frameSize.height
+        let scale = min(scaleX, scaleY)
+        let offsetX = (viewSize.width - frameSize.width * scale) / 2
+        let offsetY = (viewSize.height - frameSize.height * scale) / 2
+        let scX = (viewX - offsetX) / scale
+        let scY = (viewY - offsetY) / scale
+        return (Double(scX), Double(scY))
+    }
+
     func dismissIfMatching(surfaceId: String) {
         guard surfaceId == self.surfaceId else { return }
         dismissPanel()
@@ -127,6 +173,8 @@ final class BrowserPiPManager: ObservableObject {
         surfaceId = nil
         sessionId = nil
         currentFrame = nil
+        isInteractive = false
+        handoffMessage = nil
 
         log.info("Dismissed browser PiP panel")
     }

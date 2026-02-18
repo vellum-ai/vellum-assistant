@@ -45,7 +45,7 @@ export type Page = {
   screenshot(options?: { type?: string; quality?: number; fullPage?: boolean }): Promise<Buffer>;
   keyboard: { press(key: string): Promise<void> };
   mouse: {
-    click(x: number, y: number, options?: { button?: string }): Promise<void>;
+    click(x: number, y: number, options?: { button?: string; clickCount?: number }): Promise<void>;
     move(x: number, y: number): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };

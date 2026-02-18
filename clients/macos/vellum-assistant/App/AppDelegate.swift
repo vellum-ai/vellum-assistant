@@ -476,6 +476,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.browserPiPManager.updateFrame(msg)
         }
 
+        // Wire browser interactive mode changes to BrowserPiPManager
+        daemonClient.onBrowserInteractiveModeChanged = { [weak self] msg in
+            self?.browserPiPManager.handleInteractiveModeChanged(msg)
+        }
+
+        // Give BrowserPiPManager a reference to DaemonClient for sending interactive input
+        browserPiPManager.daemonClient = daemonClient
+
         // Reload webviews for surfaces whose app files changed (cross-session broadcast)
         daemonClient.onAppFilesChanged = { [weak self] appId in
             guard let self else { return }

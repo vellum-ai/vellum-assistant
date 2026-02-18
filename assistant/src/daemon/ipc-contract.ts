@@ -679,6 +679,50 @@ export interface BrowserCDPResponse {
   declined?: boolean;
 }
 
+export interface BrowserUserClick {
+  type: 'browser_user_click';
+  sessionId: string;
+  surfaceId: string;
+  x: number;
+  y: number;
+  button?: 'left' | 'right';
+  doubleClick?: boolean;
+}
+
+export interface BrowserUserScroll {
+  type: 'browser_user_scroll';
+  sessionId: string;
+  surfaceId: string;
+  deltaX: number;
+  deltaY: number;
+  x: number;
+  y: number;
+}
+
+export interface BrowserUserKeypress {
+  type: 'browser_user_keypress';
+  sessionId: string;
+  surfaceId: string;
+  key: string;
+  modifiers?: string[];
+}
+
+export interface BrowserInteractiveMode {
+  type: 'browser_interactive_mode';
+  sessionId: string;
+  surfaceId: string;
+  enabled: boolean;
+}
+
+export interface BrowserInteractiveModeChanged {
+  type: 'browser_interactive_mode_changed';
+  sessionId: string;
+  surfaceId: string;
+  enabled: boolean;
+  reason?: string;
+  message?: string;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -757,7 +801,11 @@ export type ClientMessage =
   | DocumentSaveRequest
   | DocumentLoadRequest
   | DocumentListRequest
-  | BrowserCDPResponse;
+  | BrowserCDPResponse
+  | BrowserUserClick
+  | BrowserUserScroll
+  | BrowserUserKeypress
+  | BrowserInteractiveMode;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1780,7 +1828,8 @@ export type ServerMessage =
   | DocumentSaveResponse
   | DocumentLoadResponse
   | DocumentListResponse
-  | BrowserCDPRequest;
+  | BrowserCDPRequest
+  | BrowserInteractiveModeChanged;
 
 // === Contract schema ===
 

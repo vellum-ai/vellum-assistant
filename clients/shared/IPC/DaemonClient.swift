@@ -243,6 +243,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `browser_frame` message with a new screenshot frame.
     public var onBrowserFrame: ((BrowserFrameMessage) -> Void)?
 
+    /// Called when the daemon sends a `browser_interactive_mode_changed` message.
+    public var onBrowserInteractiveModeChanged: ((BrowserInteractiveModeChangedMessage) -> Void)?
+
     /// Called when the daemon sends a `diagnostics_export_response` message.
     public var onDiagnosticsExportResponse: ((DiagnosticsExportResponseMessage) -> Void)?
 
@@ -1314,6 +1317,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onDiagnosticsExportResponse?(msg)
         case .browserFrame(let msg):
             onBrowserFrame?(msg)
+        case .browserInteractiveModeChanged(let msg):
+            onBrowserInteractiveModeChanged?(msg)
         case .envVarsResponse(let msg):
             onEnvVarsResponse?(msg)
         default:
