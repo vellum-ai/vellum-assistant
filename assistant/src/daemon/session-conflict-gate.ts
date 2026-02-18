@@ -31,13 +31,14 @@ export class ConflictGate {
       reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
     },
+    scopeId = 'default',
   ): Promise<ConflictGateDecision | null> {
     if (!conflictConfig.enabled || conflictConfig.gateMode !== 'soft') return null;
 
     this.turnCounter += 1;
     const threshold = conflictConfig.relevanceThreshold;
     const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
-    const pendingBeforeResolve = listPendingConflictDetails('default', 50);
+    const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
     const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
       if (relevance >= threshold) return true;
@@ -53,7 +54,7 @@ export class ConflictGate {
       candidatesBeforeResolve,
     );
 
-    const pending = listPendingConflictDetails('default', 50);
+    const pending = listPendingConflictDetails(scopeId, 50);
     if (pending.length === 0) return null;
 
     const scored = pending.map((conflict) => ({

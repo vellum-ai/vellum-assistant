@@ -31,6 +31,7 @@ export interface MemoryPrepareContext {
   systemPrompt: string;
   provider: Provider;
   conflictGate: ConflictGate;
+  scopeId: string;
 }
 
 /**
@@ -51,7 +52,7 @@ export async function prepareMemoryContext(
   // Conflict gate
   const conflictConfig = memoryEnabled ? runtimeConfig.memory?.conflicts : undefined;
   const conflictGateResult = conflictConfig
-    ? await ctx.conflictGate.evaluate(content, conflictConfig)
+    ? await ctx.conflictGate.evaluate(content, conflictConfig, ctx.scopeId)
     : null;
 
   if (conflictGateResult?.relevant) {

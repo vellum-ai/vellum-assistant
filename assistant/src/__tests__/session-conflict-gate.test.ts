@@ -6,6 +6,7 @@ import type { ServerMessage } from '../daemon/ipc-protocol.js';
 let runCalls: Message[][] = [];
 let resolverCallCount = 0;
 let markAskedCalls: string[] = [];
+let conflictScopeCalls: string[] = [];
 let memoryEnabled = true;
 let pendingConflicts: Array<{
   id: string;
@@ -192,7 +193,10 @@ mock.module('../context/window-manager.js', () => ({
 }));
 
 mock.module('../memory/conflict-store.js', () => ({
-  listPendingConflictDetails: () => pendingConflicts,
+  listPendingConflictDetails: (scopeId: string) => {
+    conflictScopeCalls.push(scopeId);
+    return pendingConflicts;
+  },
   markConflictAsked: (conflictId: string) => {
     markAskedCalls.push(conflictId);
     return true;
@@ -234,10 +238,10 @@ mock.module('../agent/loop.js', () => ({
   },
 }));
 
-import { Session } from '../daemon/session.js';
+import { Session, type SessionMemoryPolicy } from '../daemon/session.js';
 import { looksLikeClarificationReply } from '../daemon/session-conflict-gate.js';
 
-function makeSession(): Session {
+function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
   const provider = {
     name: 'mock',
     async sendMessage(): Promise<ProviderResponse> {
@@ -249,7 +253,7 @@ function makeSession(): Session {
       };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp');
+  return new Session('conv-1', provider, 'system prompt', 4096, () => {}, '/tmp', undefined, memoryPolicy);
 }
 
 function extractText(message: Message): string {
@@ -264,6 +268,7 @@ describe('Session conflict soft gate', () => {
     runCalls = [];
     resolverCallCount = 0;
     markAskedCalls = [];
+    conflictScopeCalls = [];
     memoryEnabled = true;
     pendingConflicts = [];
     persistedMessages.length = 0;
@@ -545,6 +550,52 @@ describe('Session conflict soft gate', () => {
     expect(firstUserText).toContain('Memory clarification request');
     expect(secondUserText).not.toContain('Memory clarification request');
     expect(markAskedCalls).toEqual(['conflict-cooldown']);
+  });
+
+  test('passes session scopeId through to conflict store queries', async () => {
+    pendingConflicts = [{
+      id: 'conflict-scoped',
+      scopeId: 'thread:private-abc',
+      existingItemId: 'existing-scoped',
+      candidateItemId: 'candidate-scoped',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Do you prefer tabs or spaces?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use tabs for indentation.',
+      candidateStatement: 'Use spaces for indentation.',
+    }];
+
+    const session = makeSession({
+      scopeId: 'thread:private-abc',
+      includeDefaultFallback: false,
+      strictSideEffects: true,
+    });
+    await session.loadFromDb();
+
+    await session.processMessage('tabs or spaces?', [], () => {});
+
+    // Every call to listPendingConflictDetails should use the session's scopeId
+    expect(conflictScopeCalls.length).toBeGreaterThan(0);
+    expect(conflictScopeCalls.every((s) => s === 'thread:private-abc')).toBe(true);
+    // No calls should have used the hardcoded 'default'
+    expect(conflictScopeCalls).not.toContain('default');
+  });
+
+  test('default session uses "default" scopeId for conflict queries', async () => {
+    pendingConflicts = [];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('hello', [], () => {});
+
+    // With no custom policy, scopeId should default to 'default'
+    expect(conflictScopeCalls.every((s) => s === 'default')).toBe(true);
   });
 
   test('skips conflict gate when top-level memory.enabled is false', async () => {
