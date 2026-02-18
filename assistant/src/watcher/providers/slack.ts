@@ -65,24 +65,28 @@ export const slackProvider: WatcherProvider = {
       const items: WatcherItem[] = [];
       let latestTs = watermark;
 
-      // Poll each DM channel for new messages
+      // Poll each DM channel for new messages, paginating to fetch all
       for (const channel of dmChannels) {
         try {
-          const histResp = await slack.conversationHistory(token, channel.id, 10, undefined, watermark);
-          for (const msg of histResp.messages) {
-            // Skip our own messages
-            if (msg.user === userId) continue;
-            // Skip messages older than watermark (shouldn't happen but guard)
-            if (parseFloat(msg.ts) <= parseFloat(watermark)) continue;
+          let cursor: string | undefined;
+          do {
+            const histResp = await slack.conversationHistory(token, channel.id, 100, undefined, watermark, cursor);
+            for (const msg of histResp.messages) {
+              // Skip our own messages
+              if (msg.user === userId) continue;
+              // Skip messages older than watermark (shouldn't happen but guard)
+              if (parseFloat(msg.ts) <= parseFloat(watermark)) continue;
 
-            const channelName = channel.name ?? channel.user ?? channel.id;
-            const eventType = channel.is_im ? 'slack_dm' : 'slack_group_dm';
-            items.push(messageToItem({ ...msg, channel: channel.id }, eventType, channelName));
+              const channelName = channel.name ?? channel.user ?? channel.id;
+              const eventType = channel.is_im ? 'slack_dm' : 'slack_group_dm';
+              items.push(messageToItem({ ...msg, channel: channel.id }, eventType, channelName));
 
-            if (parseFloat(msg.ts) > parseFloat(latestTs)) {
-              latestTs = msg.ts;
+              if (parseFloat(msg.ts) > parseFloat(latestTs)) {
+                latestTs = msg.ts;
+              }
             }
-          }
+            cursor = histResp.has_more ? histResp.response_metadata?.next_cursor : undefined;
+          } while (cursor);
         } catch (err) {
           // Skip channels we can't read (archived, permissions, etc.)
           log.debug({ channelId: channel.id, err }, 'Skipping channel in Slack watcher');
