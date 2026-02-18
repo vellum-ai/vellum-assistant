@@ -157,6 +157,13 @@ export async function handleAddTrustRule(
     );
   }
 
+  if (run.pendingConfirmation.persistentDecisionsAllowed === false) {
+    return Response.json(
+      { error: 'Persistent trust rules are not allowed for this tool invocation' },
+      { status: 403 },
+    );
+  }
+
   const body = await req.json() as {
     pattern?: string;
     scope?: string;
