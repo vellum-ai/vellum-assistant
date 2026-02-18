@@ -195,10 +195,10 @@ struct MainWindowView: View {
                 // Guard against archived threads: if the thread was archived while an
                 // overlay was open, persistentThreadId may still point to the stale ID.
                 if case .thread(let id) = newSelection {
-                    if threadManager.visibleThreads.contains(where: { $0.id == id }) {
+                    if threadManager.threads.contains(where: { $0.id == id && !$0.isArchived }) {
                         threadManager.selectThread(id: id)
                     } else {
-                        // Thread was archived — fall back to the first visible thread
+                        // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
                             windowState.selection = .thread(fallback.id)
                         } else {
