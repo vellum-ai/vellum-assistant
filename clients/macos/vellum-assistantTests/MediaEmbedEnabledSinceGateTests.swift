@@ -125,6 +125,8 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
 
     // MARK: - Toggle OFF->ON resets enabledSince (SettingsStore)
 
+    /// Seeds a stale enabledSince from a prior enable, then toggles OFF->ON
+    /// and verifies the old timestamp is replaced with a fresh one.
     func testToggleOffToOnResetsEnabledSince() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -132,14 +134,22 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let configPath = tempDir.appendingPathComponent("config.json").path
-        let json = #"{"ui":{"mediaEmbeds":{"enabled":false}}}"#
+        let staleDate = "2020-01-01T00:00:00Z"
+        let json = """
+        {"ui":{"mediaEmbeds":{"enabled":false,"enabledSince":"\(staleDate)"}}}
+        """
         try! json.write(toFile: configPath, atomically: true, encoding: .utf8)
 
         let store = SettingsStore(configPath: configPath)
         XCTAssertFalse(store.mediaEmbedsEnabled)
-        // enabledSince is defaulted to now when the key is missing from config
         XCTAssertNotNil(store.mediaEmbedsEnabledSince)
-        let initialSince = store.mediaEmbedsEnabledSince!
+
+        let formatter = ISO8601DateFormatter()
+        let staleParsed = formatter.date(from: staleDate)!
+        XCTAssertEqual(
+            store.mediaEmbedsEnabledSince!, staleParsed,
+            "Config should load the seeded stale enabledSince"
+        )
 
         let before = Date()
         store.setMediaEmbedsEnabled(true)
@@ -151,7 +161,10 @@ final class MediaEmbedEnabledSinceGateTests: XCTestCase {
         let since = store.mediaEmbedsEnabledSince!
         XCTAssertGreaterThanOrEqual(since, before)
         XCTAssertLessThanOrEqual(since, after)
-        XCTAssertGreaterThanOrEqual(since, initialSince, "Toggle ON should reset enabledSince to a newer date")
+        XCTAssertGreaterThan(
+            since, staleParsed,
+            "Toggle ON must replace the old enabledSince with a fresh timestamp"
+        )
     }
 
     // MARK: - Image embeds respect enabledSince
