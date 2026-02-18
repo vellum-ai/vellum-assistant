@@ -215,4 +215,161 @@ describe('CredentialBroker.serverUse', () => {
     expect(result.success).toBe(true);
     expect(result.result).toEqual({ ok: true });
   });
+
+  // ---------------------------------------------------------------------------
+  // Baseline: tool/domain policy mismatch deny behavior
+  // ---------------------------------------------------------------------------
+
+  describe('baseline — tool policy mismatch deny', () => {
+    test('denies tool not in multi-tool allowlist and lists allowed tools', async () => {
+      upsertCredentialMetadata('aws', 'access_key', {
+        allowedTools: ['deploy_lambda', 's3_upload'],
+      });
+      setSecureKey('credential:aws:access_key', 'AKIA_test');
+
+      const result = await broker.serverUse({
+        service: 'aws',
+        field: 'access_key',
+        toolName: 'ec2_terminate',
+        execute: async () => { throw new Error('should not be called'); },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('ec2_terminate');
+      expect(result.reason).toContain('not allowed');
+      // The denial message should enumerate the allowed tools
+      expect(result.reason).toContain('deploy_lambda');
+      expect(result.reason).toContain('s3_upload');
+    });
+
+    test('denies with empty allowedTools and suggests updating credential', async () => {
+      upsertCredentialMetadata('stripe', 'secret_key', {
+        allowedTools: [],
+      });
+      setSecureKey('credential:stripe:secret_key', 'sk_test_xyz');
+
+      const result = await broker.serverUse({
+        service: 'stripe',
+        field: 'secret_key',
+        toolName: 'charge_card',
+        execute: async () => { throw new Error('should not be called'); },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('No tools are currently allowed');
+      expect(result.reason).toContain('credential_store');
+    });
+
+    test('denies when credential has domain restrictions even if tool matches', async () => {
+      upsertCredentialMetadata('github', 'oauth_token', {
+        allowedTools: ['git_push'],
+        allowedDomains: ['github.com'],
+      });
+      setSecureKey('credential:github:oauth_token', 'gho_test');
+
+      const result = await broker.serverUse({
+        service: 'github',
+        field: 'oauth_token',
+        toolName: 'git_push',
+        execute: async () => { throw new Error('should not be called'); },
+      });
+
+      // Domain-restricted credentials are blocked for all server-side use
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('domain restrictions');
+      expect(result.reason).toContain('cannot be used server-side');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Baseline: service/field uniqueness assumptions
+  // ---------------------------------------------------------------------------
+
+  describe('baseline — service/field uniqueness', () => {
+    test('upsert overwrites metadata for same service+field pair', async () => {
+      upsertCredentialMetadata('vercel', 'api_token', {
+        allowedTools: ['publish_page'],
+      });
+      // Second upsert with the same service+field updates the record
+      upsertCredentialMetadata('vercel', 'api_token', {
+        allowedTools: ['publish_page', 'unpublish_page'],
+      });
+      setSecureKey('credential:vercel:api_token', 'tok_updated');
+
+      const result = await broker.serverUse({
+        service: 'vercel',
+        field: 'api_token',
+        toolName: 'unpublish_page',
+        execute: async (v) => v.length,
+      });
+
+      // The second upsert's allowedTools should be in effect
+      expect(result.success).toBe(true);
+    });
+
+    test('same service with different fields are independent credentials', async () => {
+      upsertCredentialMetadata('vercel', 'api_token', {
+        allowedTools: ['publish_page'],
+      });
+      upsertCredentialMetadata('vercel', 'deploy_hook', {
+        allowedTools: ['trigger_deploy'],
+      });
+      setSecureKey('credential:vercel:api_token', 'tok_api');
+      setSecureKey('credential:vercel:deploy_hook', 'hook_secret');
+
+      // api_token should deny trigger_deploy
+      const r1 = await broker.serverUse({
+        service: 'vercel',
+        field: 'api_token',
+        toolName: 'trigger_deploy',
+        execute: async () => { throw new Error('should not be called'); },
+      });
+      expect(r1.success).toBe(false);
+
+      // deploy_hook should allow trigger_deploy
+      const r2 = await broker.serverUse({
+        service: 'vercel',
+        field: 'deploy_hook',
+        toolName: 'trigger_deploy',
+        execute: async (v) => {
+          expect(v).toBe('hook_secret');
+          return 'triggered';
+        },
+      });
+      expect(r2.success).toBe(true);
+      expect(r2.result).toBe('triggered');
+    });
+
+    test('different services with same field name are independent', async () => {
+      upsertCredentialMetadata('github', 'api_token', {
+        allowedTools: ['github_api'],
+      });
+      upsertCredentialMetadata('gitlab', 'api_token', {
+        allowedTools: ['gitlab_api'],
+      });
+      setSecureKey('credential:github:api_token', 'gh_tok');
+      setSecureKey('credential:gitlab:api_token', 'gl_tok');
+
+      // github credential should not serve gitlab tool
+      const r1 = await broker.serverUse({
+        service: 'github',
+        field: 'api_token',
+        toolName: 'gitlab_api',
+        execute: async () => { throw new Error('should not be called'); },
+      });
+      expect(r1.success).toBe(false);
+
+      // gitlab credential serves its own tool with its own value
+      const r2 = await broker.serverUse({
+        service: 'gitlab',
+        field: 'api_token',
+        toolName: 'gitlab_api',
+        execute: async (v) => {
+          expect(v).toBe('gl_tok');
+          return 'ok';
+        },
+      });
+      expect(r2.success).toBe(true);
+    });
+  });
 });

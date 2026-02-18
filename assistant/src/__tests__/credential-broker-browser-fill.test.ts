@@ -317,4 +317,201 @@ describe('CredentialBroker.browserFill', () => {
     // Ensure the secret value doesn't appear in the error result
     expect(JSON.stringify(result)).not.toContain('ghp_supersecret');
   });
+
+  // ---------------------------------------------------------------------------
+  // Baseline: tool/domain policy mismatch deny behavior
+  // ---------------------------------------------------------------------------
+
+  describe('baseline — tool/domain policy mismatch deny', () => {
+    test('denies tool not in multi-tool allowlist and enumerates allowed tools', async () => {
+      upsertCredentialMetadata('aws', 'access_key', {
+        allowedTools: ['s3_upload', 'cloudfront_invalidate'],
+        allowedDomains: [],
+      });
+      setSecureKey('credential:aws:access_key', 'AKIA_test');
+
+      let fillCalled = false;
+      const result = await broker.browserFill({
+        service: 'aws',
+        field: 'access_key',
+        toolName: 'browser_fill_credential',
+        fill: async () => { fillCalled = true; },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('browser_fill_credential');
+      expect(result.reason).toContain('not allowed');
+      expect(result.reason).toContain('s3_upload');
+      expect(result.reason).toContain('cloudfront_invalidate');
+      expect(fillCalled).toBe(false);
+    });
+
+    test('denies when tool matches but domain does not', async () => {
+      upsertCredentialMetadata('github', 'pat', {
+        allowedTools: ['browser_fill_credential'],
+        allowedDomains: ['github.com'],
+      });
+      setSecureKey('credential:github:pat', 'ghp_fill_test');
+
+      let fillCalled = false;
+      const result = await broker.browserFill({
+        service: 'github',
+        field: 'pat',
+        toolName: 'browser_fill_credential',
+        domain: 'phishing-github.com',
+        fill: async () => { fillCalled = true; },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('phishing-github.com');
+      expect(result.reason).toContain('not allowed');
+      expect(fillCalled).toBe(false);
+    });
+
+    test('denies when both tool and domain mismatch — tool check runs first', async () => {
+      upsertCredentialMetadata('slack', 'bot_token', {
+        allowedTools: ['slack_post'],
+        allowedDomains: ['slack.com'],
+      });
+      setSecureKey('credential:slack:bot_token', 'xoxb-test');
+
+      const result = await broker.browserFill({
+        service: 'slack',
+        field: 'bot_token',
+        toolName: 'browser_fill_credential',
+        domain: 'evil.com',
+        fill: async () => { throw new Error('should not be called'); },
+      });
+
+      expect(result.success).toBe(false);
+      // Tool policy is evaluated before domain policy, so the denial
+      // mentions the tool name, not the domain
+      expect(result.reason).toContain('browser_fill_credential');
+      expect(result.reason).toContain('not allowed');
+    });
+
+    test('denies with empty allowedTools and suggests credential_store', async () => {
+      upsertCredentialMetadata('custom', 'key', {
+        allowedTools: [],
+      });
+      setSecureKey('credential:custom:key', 'secret');
+
+      const result = await broker.browserFill({
+        service: 'custom',
+        field: 'key',
+        toolName: 'browser_fill_credential',
+        fill: async () => { throw new Error('should not be called'); },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('No tools are currently allowed');
+      expect(result.reason).toContain('credential_store');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Baseline: service/field uniqueness assumptions
+  // ---------------------------------------------------------------------------
+
+  describe('baseline — service/field uniqueness', () => {
+    test('upsert overwrites metadata for same service+field pair', async () => {
+      upsertCredentialMetadata('github', 'token', {
+        allowedTools: ['other_tool'],
+      });
+      // Second upsert updates the same record
+      upsertCredentialMetadata('github', 'token', {
+        allowedTools: ['browser_fill_credential'],
+      });
+      setSecureKey('credential:github:token', 'ghp_updated');
+
+      let filledValue: string | undefined;
+      const result = await broker.browserFill({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+        fill: async (v) => { filledValue = v; },
+      });
+
+      // The second upsert's policy should be in effect
+      expect(result.success).toBe(true);
+      expect(filledValue).toBe('ghp_updated');
+    });
+
+    test('same service with different fields are independent credentials', async () => {
+      upsertCredentialMetadata('github', 'username', {
+        allowedTools: ['browser_fill_credential'],
+      });
+      upsertCredentialMetadata('github', 'password', {
+        allowedTools: ['other_tool'],
+      });
+      setSecureKey('credential:github:username', 'octocat');
+      setSecureKey('credential:github:password', 'hunter2');
+
+      // username allows browser_fill_credential
+      const r1 = await broker.browserFill({
+        service: 'github',
+        field: 'username',
+        toolName: 'browser_fill_credential',
+        fill: async () => {},
+      });
+      expect(r1.success).toBe(true);
+
+      // password does NOT allow browser_fill_credential
+      const r2 = await broker.browserFill({
+        service: 'github',
+        field: 'password',
+        toolName: 'browser_fill_credential',
+        fill: async () => { throw new Error('should not be called'); },
+      });
+      expect(r2.success).toBe(false);
+      expect(r2.reason).toContain('not allowed');
+    });
+
+    test('different services with same field name are independent', async () => {
+      upsertCredentialMetadata('github', 'token', {
+        allowedTools: ['browser_fill_credential'],
+        allowedDomains: ['github.com'],
+      });
+      upsertCredentialMetadata('gitlab', 'token', {
+        allowedTools: ['browser_fill_credential'],
+        allowedDomains: ['gitlab.com'],
+      });
+      setSecureKey('credential:github:token', 'gh_tok');
+      setSecureKey('credential:gitlab:token', 'gl_tok');
+
+      // github credential on github.com succeeds
+      let filled1 = '';
+      const r1 = await broker.browserFill({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+        domain: 'github.com',
+        fill: async (v) => { filled1 = v; },
+      });
+      expect(r1.success).toBe(true);
+      expect(filled1).toBe('gh_tok');
+
+      // github credential on gitlab.com fails (domain mismatch)
+      const r2 = await broker.browserFill({
+        service: 'github',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+        domain: 'gitlab.com',
+        fill: async () => { throw new Error('should not be called'); },
+      });
+      expect(r2.success).toBe(false);
+
+      // gitlab credential on gitlab.com succeeds with its own value
+      let filled3 = '';
+      const r3 = await broker.browserFill({
+        service: 'gitlab',
+        field: 'token',
+        toolName: 'browser_fill_credential',
+        domain: 'gitlab.com',
+        fill: async (v) => { filled3 = v; },
+      });
+      expect(r3.success).toBe(true);
+      expect(filled3).toBe('gl_tok');
+    });
+  });
 });
