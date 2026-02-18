@@ -47,6 +47,16 @@ Operators can be combined: `from:boss@company.com newer_than:2d is:unread`
 - First search or list messages to collect IDs, then apply batch actions.
 - Always confirm with the user before batch-archiving or batch-labeling large numbers of messages.
 
+## Personalized Drafting
+
+When drafting emails, check your `<dynamic-user-profile>` for style items (e.g., "email writing style: tone"). If present, match the user's natural voice — their typical greetings, sign-offs, tone, and structure.
+
+If no style items exist and the user asks you to draft an email, suggest running `gmail_analyze_style` first:
+
+> "I can analyze your sent emails to learn your writing style so drafts sound like you. Want me to do that?"
+
+The tool reads sent emails, extracts consistent patterns (greetings, sign-offs, tone, structure, vocabulary), and stores them in memory. All future drafts will automatically reflect the user's style.
+
 ## Confidence Scores
 
 Medium-risk tools (archive, label, trash, send, unsubscribe) require a confidence score between 0 and 1. Set this based on how certain you are the action matches the user's intent:

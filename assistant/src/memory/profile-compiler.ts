@@ -4,7 +4,7 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { getDb } from './db.js';
 import { memoryItems } from './schema.js';
 
-const PROFILE_KIND_ALLOWLIST = ['profile', 'preference', 'constraint', 'instruction'] as const;
+const PROFILE_KIND_ALLOWLIST = ['profile', 'preference', 'constraint', 'instruction', 'style'] as const;
 
 const TRUST_RANK: Record<string, number> = {
   user_confirmed: 3,

@@ -73,7 +73,7 @@ export async function handleMemorySave(
   const kind = args.kind;
   const validKinds = new Set([
     'preference', 'fact', 'decision', 'profile',
-    'relationship', 'event', 'opinion', 'instruction',
+    'relationship', 'event', 'opinion', 'instruction', 'style',
   ]);
   if (typeof kind !== 'string' || !validKinds.has(kind)) {
     return {

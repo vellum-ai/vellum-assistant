@@ -23,7 +23,8 @@ export type MemoryItemKind =
   | 'relationship'
   | 'event'
   | 'opinion'
-  | 'instruction';
+  | 'instruction'
+  | 'style';
 
 interface ExtractedItem {
   kind: MemoryItemKind;
@@ -36,7 +37,7 @@ interface ExtractedItem {
 
 const VALID_KINDS = new Set<string>([
   'preference', 'profile', 'project', 'decision', 'todo',
-  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction',
+  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
 ]);
 
 const SUPERSEDE_KINDS = new Set<MemoryItemKind>(['decision', 'preference', 'constraint']);
@@ -80,6 +81,7 @@ Extract items in these categories:
 - event: Deadlines, milestones, meetings, releases, dates
 - opinion: Viewpoints, assessments, evaluations of tools/approaches
 - instruction: Explicit directives on how the assistant should behave
+- style: Communication style patterns — writing tone, formatting habits, vocabulary choices, greeting/sign-off conventions
 
 For each item, provide:
 - kind: One of the categories above
