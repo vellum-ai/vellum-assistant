@@ -10,13 +10,11 @@ private let log = Logger(
 /// Clicking it opens the Activity sidebar with all step details.
 public struct CurrentStepIndicator: View {
     public let toolCalls: [ToolCallData]
-    public let isActivityPanelOpen: Bool
     public let isStreaming: Bool
     public let onTap: () -> Void
 
     public init(toolCalls: [ToolCallData], isActivityPanelOpen: Bool = false, isStreaming: Bool = false, onTap: @escaping () -> Void) {
         self.toolCalls = toolCalls
-        self.isActivityPanelOpen = isActivityPanelOpen
         self.isStreaming = isStreaming
         self.onTap = onTap
     }
@@ -87,7 +85,7 @@ public struct CurrentStepIndicator: View {
                 Spacer()
 
                 // Chevron to indicate it's clickable
-                Image(systemName: isActivityPanelOpen ? "chevron.left" : "chevron.right")
+                Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(VColor.textMuted)
             }

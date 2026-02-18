@@ -301,20 +301,6 @@ struct MainWindowView: View {
                 }
             }
             .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
-                // Close activity panel if the referenced message no longer exists.
-                // Watch message IDs (not just count) so that regenerate/undo flows
-                // that replace a message with a new ID at the same array position
-                // also trigger a close.
-                if let messageId = windowState.activityMessageId,
-                   windowState.activePanel == .activity,
-                   let viewModel = threadManager.activeViewModel {
-                    let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
-                    if !messageExists {
-                        windowState.selection = nil
-                        windowState.activityMessageId = nil
-                    }
-                }
-
                 // Bootstrap avatar: apply milestones based on assistant turn count
                 if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {
@@ -494,12 +480,7 @@ struct MainWindowView: View {
                     break
                 }
             }
-            // Close the activity panel when switching threads — the stored messageId
-            // belongs to the previous thread and won't exist in the new one.
-            if case .panel(.activity) = windowState.selection {
-                windowState.selection = nil
-                windowState.activityMessageId = nil
-            } else if case .panel(.identity) = windowState.selection {
+            if case .panel(.identity) = windowState.selection {
                 windowState.selection = nil
             }
             // Clear stale activeSurfaceId on the old thread and sync the new one
@@ -983,15 +964,6 @@ struct MainWindowView: View {
         switch panelId {
         case .chat:
             chatView
-        case .activity:
-            if let viewModel = threadManager.activeViewModel,
-               let messageId = windowState.activityMessageId {
-                ActivityPanel(
-                    viewModel: viewModel,
-                    messageId: messageId,
-                    onClose: { windowState.selection = nil }
-                )
-            }
         case .settings:
             SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
         case .agent:
@@ -1197,31 +1169,6 @@ struct MainWindowView: View {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
-            } else if panelType == .activity {
-                // Activity panel shown as side panel alongside chat
-                let config = windowState.layoutConfig
-                let showActivity = threadManager.activeViewModel != nil
-                    && windowState.activityMessageId != nil
-                let showConfigPanel = config.right.visible && config.right.content != .empty
-
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: showActivity || showConfigPanel,
-                    main: { slotView(for: config.center.content) },
-                    panel: {
-                        if showActivity,
-                           let viewModel = threadManager.activeViewModel,
-                           let messageId = windowState.activityMessageId {
-                            ActivityPanel(
-                                viewModel: viewModel,
-                                messageId: messageId,
-                                onClose: { windowState.selection = nil }
-                            )
-                        } else {
-                            slotView(for: config.right.content)
-                        }
-                    }
-                )
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -1657,10 +1604,6 @@ private struct ActiveChatViewWrapper: View {
             onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
-            onOpenActivity: { messageId in
-                windowState.toggleActivityPanel(with: messageId)
-            },
-            isActivityPanelOpen: { if case .panel(.activity) = windowState.selection { return true } else { return false } }(),
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
                 do {

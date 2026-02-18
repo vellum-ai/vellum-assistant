@@ -379,6 +379,100 @@ public struct ToolCallData: Identifiable, Equatable {
     #else
     #error("Unsupported platform")
     #endif
+
+    /// Human-readable label for the tool (e.g. "Run Command" instead of "bash").
+    public var friendlyName: String {
+        switch toolName {
+        case "bash", "host_bash":                  return "Run Command"
+        case "file_write", "host_file_write":      return "Write File"
+        case "file_edit", "host_file_edit":        return "Edit File"
+        case "file_read", "host_file_read":        return "Read File"
+        case "glob":                               return "Find Files"
+        case "grep":                               return "Search Files"
+        case "web_fetch":                          return "Fetch URL"
+        case "browser_navigate":                   return "Open Page"
+        case "browser_screenshot":                 return "Take Screenshot"
+        case "browser_click":                      return "Click Element"
+        case "browser_type":                       return "Type Text"
+        case "app_create":                         return "Create App"
+        case "app_update":                         return "Update App"
+        case "request_system_permission":          return "Request Permission"
+        default:
+            return toolName
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
+
+    /// SF Symbol name appropriate for the tool type.
+    public var toolIcon: String {
+        switch toolName {
+        case "bash", "host_bash":                  return "terminal"
+        case "file_write", "host_file_write":      return "doc.badge.plus"
+        case "file_edit", "host_file_edit":        return "pencil.line"
+        case "file_read", "host_file_read":        return "doc.text"
+        case "glob":                               return "folder.badge.magnifyingglass"
+        case "grep":                               return "magnifyingglass"
+        case "web_fetch":                          return "arrow.down.circle"
+        case "browser_navigate":                   return "globe"
+        case "browser_screenshot":                 return "camera.viewfinder"
+        case "browser_click":                      return "cursorarrow.click"
+        case "browser_type":                       return "keyboard"
+        case "app_create", "app_update":           return "apps.iphone"
+        case "request_system_permission":          return "lock.shield"
+        default:                                   return "puzzlepiece.extension"
+        }
+    }
+
+    /// Brief past-tense plain-language description of what was done.
+    public var actionDescription: String {
+        let name = lastName(of: inputSummary)
+        switch toolName {
+        case "bash", "host_bash":
+            return inputSummary.isEmpty ? "Ran a shell command" : "Ran `\(truncated(inputSummary, to: 60))`"
+        case "file_edit", "host_file_edit":
+            return name.isEmpty ? "Edited a file" : "Edited \(name)"
+        case "file_write", "host_file_write":
+            return name.isEmpty ? "Wrote a file" : "Wrote \(name)"
+        case "file_read", "host_file_read":
+            return name.isEmpty ? "Read a file" : "Read \(name)"
+        case "glob":
+            return inputSummary.isEmpty ? "Found files" : "Found files matching \(inputSummary)"
+        case "grep":
+            return inputSummary.isEmpty ? "Searched files" : "Searched for \"\(truncated(inputSummary, to: 40))\""
+        case "web_fetch":
+            if let host = URL(string: inputSummary)?.host { return "Fetched data from \(host)" }
+            return "Fetched a URL"
+        case "browser_navigate":
+            if let host = URL(string: inputSummary)?.host { return "Opened \(host)" }
+            return "Opened a page"
+        case "browser_screenshot":
+            return "Took a screenshot"
+        case "browser_click":
+            return inputSummary.isEmpty ? "Clicked an element" : "Clicked \"\(truncated(inputSummary, to: 50))\""
+        case "browser_type":
+            return inputSummary.isEmpty ? "Typed text" : "Typed \"\(truncated(inputSummary, to: 40))\""
+        case "app_create":
+            return "Created an app"
+        case "app_update":
+            return "Updated the app"
+        case "request_system_permission":
+            return inputSummary.isEmpty ? "Requested a system permission" : "Requested \(inputSummary) permission"
+        default:
+            return inputSummary.isEmpty ? "Used \(friendlyName)" : "\(friendlyName): \(truncated(inputSummary, to: 60))"
+        }
+    }
+
+    private func lastName(of path: String) -> String {
+        guard !path.isEmpty else { return "" }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private func truncated(_ s: String, to length: Int) -> String {
+        s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
 }
 
 /// Data for an inline UI surface rendered within a chat message.

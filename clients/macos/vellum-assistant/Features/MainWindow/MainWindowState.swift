@@ -35,7 +35,6 @@ final class MainWindowState: ObservableObject {
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool
     @Published var workspaceComposerExpanded = false
-    @Published var activityMessageId: UUID?
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
 
@@ -62,8 +61,8 @@ final class MainWindowState: ObservableObject {
                     selection = nil
                 }
             }
-            // Persist non-activity panels
-            if let newValue, newValue != .activity {
+            // Persist the active panel
+            if let newValue {
                 lastActivePanelString = String(describing: newValue)
             } else if newValue == nil {
                 lastActivePanelString = nil
@@ -158,31 +157,16 @@ final class MainWindowState: ObservableObject {
 
     // MARK: - Panel Toggling
 
-    func toggleActivityPanel(with messageId: UUID) {
-        if case .panel(.activity) = selection, activityMessageId == messageId {
-            // Close if already open with the same message
-            selection = nil
-            activityMessageId = nil
-        } else {
-            // Open with new message or update to different message
-            self.activityMessageId = messageId
-            self.selection = .panel(.activity)
-        }
-    }
-
     func togglePanel(_ panel: SidePanelType) {
         if case .panel(let current) = selection, current == panel {
             selection = nil
         } else {
             selection = .panel(panel)
         }
-        // Persist non-activity panels
-        if panel != .activity {
-            if case .panel(let p) = selection, p == panel {
-                lastActivePanelString = String(describing: panel)
-            } else {
-                lastActivePanelString = nil
-            }
+        if case .panel(let p) = selection, p == panel {
+            lastActivePanelString = String(describing: panel)
+        } else {
+            lastActivePanelString = nil
         }
     }
 
@@ -245,9 +229,6 @@ final class MainWindowState: ObservableObject {
         guard !homeBaseDashboardDefaultEnabled else { return }
         guard let savedPanelString = lastActivePanelString,
               let panel = SidePanelType(rawValue: savedPanelString) else { return }
-
-        // Don't restore activity panel (it's session-specific)
-        guard panel != .activity else { return }
 
         selection = .panel(panel)
     }

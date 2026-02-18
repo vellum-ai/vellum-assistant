@@ -89,8 +89,6 @@ struct ChatView: View {
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
-    let onOpenActivity: (UUID) -> Void
-    let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
@@ -594,8 +592,6 @@ struct ChatView: View {
                                 showRegenerate: isLastAssistant,
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
-                                onOpenActivity: onOpenActivity,
-                                isActivityPanelOpen: isActivityPanelOpen,
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings
                             )
@@ -655,13 +651,6 @@ struct ChatView: View {
             .onChange(of: messages.count) {
                 withAnimation(VAnimation.fast) {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            }
-            .onChange(of: isActivityPanelOpen) {
-                if !isActivityPanelOpen {
-                    withAnimation(VAnimation.standard) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
                 }
             }
         }
@@ -893,8 +882,6 @@ private struct ChatBubble: View {
     let showRegenerate: Bool
     let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let onOpenActivity: (UUID) -> Void
-    let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
 
@@ -1242,7 +1229,7 @@ private struct ChatBubble: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 RunningIndicator(
                     label: Self.friendlyRunningLabel(displayName, buildingStatus: activeBuildingStatus),
-                    onTap: { onOpenActivity(message.id) }
+                    onTap: {}
                 )
                 CodePreviewView(code: message.streamingCodePreview!)
             }
@@ -1255,7 +1242,7 @@ private struct ChatBubble: View {
                 label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
                 progressiveLabels: progressive,
                 labelInterval: progressive.isEmpty ? 6 : 15,
-                onTap: { onOpenActivity(message.id) }
+                onTap: {}
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
@@ -1264,21 +1251,22 @@ private struct ChatBubble: View {
                 label: "Thinking",
                 progressiveLabels: ["Thinking", "Figuring out next steps", "Almost ready"],
                 labelInterval: 8,
-                onTap: { onOpenActivity(message.id) }
+                onTap: {}
             )
                 .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — show chips on one line
+        } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
+            // All done (or denied) — steps pill + permission chip + regenerate on one row
             let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
-            HStack(spacing: VSpacing.sm) {
+            HStack(alignment: .center, spacing: VSpacing.sm) {
                 if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                    compactToolChip
+                    UsedToolsList(toolCalls: message.toolCalls)
                 } else if hasInProgressTools && permissionWasDenied {
                     compactFailedToolChip
                 }
                 if let confirmation = decidedConfirmation {
                     compactPermissionChip(confirmation)
                 }
+                if showRegenerate { regenerateButton }
                 Spacer()
             }
             .padding(.top, VSpacing.xxs)
@@ -1452,57 +1440,6 @@ private struct ChatBubble: View {
         default:
             if rawType.isEmpty { return "Permission" }
             return rawType.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private var compactToolChip: some View {
-        Button {
-            onOpenActivity(message.id)
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
-                let primary = uniqueNames.first ?? "Tool"
-
-                Image(systemName: Self.friendlyToolIcon(primary))
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.textMuted)
-
-                let label: String = {
-                    if uniqueNames.count == 1 {
-                        if message.toolCalls.count == 1, let first = message.toolCalls.first {
-                            // Single tool: contextual label with details
-                            return Self.friendlyToolLabel(primary, inputSummary: first.inputSummary)
-                        }
-                        // Multiple of the same tool: count-based
-                        return Self.friendlyToolLabelPlural(primary, count: message.toolCalls.count)
-                    }
-                    return "Used \(message.toolCalls.count) tools"
-                }()
-
-                Text(label)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                Capsule().fill(VColor.surface)
-            )
-            .overlay(
-                Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
         }
     }
 
@@ -2697,9 +2634,7 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {},
-                onOpenActivity: { _ in },
-                isActivityPanelOpen: false
+                onStopWatch: {}
             )
         }
     }

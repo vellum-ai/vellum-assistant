@@ -8,10 +8,6 @@ public struct ToolCallChip: View {
     }
     @State private var isExpanded = false
 
-    private var toolDisplayName: String {
-        toolCall.toolName
-    }
-
     private var hasExpandableContent: Bool {
         toolCall.result != nil || toolCall.cachedImage != nil
     }
@@ -25,24 +21,17 @@ public struct ToolCallChip: View {
                 }
             } label: {
                 HStack(spacing: VSpacing.xs) {
-                    // Terminal icon
-                    Image(systemName: "terminal")
+                    // Tool-specific icon
+                    Image(systemName: toolCall.toolIcon)
                         .font(.system(size: 12))
                         .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
 
-                    // Tool name
-                    Text(toolDisplayName)
+                    // Plain-language description of what was done
+                    Text(toolCall.actionDescription)
                         .font(VFont.captionMedium)
                         .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
-
-                    // Input summary (truncated)
-                    if !toolCall.inputSummary.isEmpty {
-                        Text(toolCall.inputSummary)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     // Status indicator
                     if !toolCall.isComplete {
@@ -62,9 +51,37 @@ public struct ToolCallChip: View {
             }
             .buttonStyle(.plain)
 
-            // Expanded result
+            // Expanded details
             if isExpanded, hasExpandableContent {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Divider()
+                        .padding(.horizontal, VSpacing.sm)
+
+                    // Technical details section
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Technical details")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .textCase(.uppercase)
+
+                        HStack(alignment: .top, spacing: VSpacing.xs) {
+                            Text(toolCall.friendlyName)
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.textSecondary)
+                            if !toolCall.inputSummary.isEmpty {
+                                Text("·")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                Text(toolCall.inputSummary)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .textSelection(.enabled)
+                                    .lineLimit(3)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+
                     // Image preview (for browser_screenshot etc.)
                     if let cachedImage = toolCall.cachedImage {
                         #if os(macOS)
@@ -73,28 +90,37 @@ public struct ToolCallChip: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .padding(.horizontal, VSpacing.sm)
                         #elseif os(iOS)
                         Image(uiImage: cachedImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .padding(.horizontal, VSpacing.sm)
                         #endif
                     }
 
-                    // Text result
+                    // Output section
                     if let result = toolCall.result {
-                        ScrollView {
-                            Text(result)
-                                .font(VFont.monoSmall)
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Output")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+
+                            ScrollView {
+                                Text(result)
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxHeight: 200)
                         }
-                        .frame(maxHeight: 200)
+                        .padding(.horizontal, VSpacing.sm)
                     }
                 }
-                .padding(.horizontal, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
             }
         }
@@ -119,18 +145,24 @@ public struct ToolCallChip: View {
 #Preview("ToolCallChip") {
     VStack(alignment: .leading, spacing: VSpacing.md) {
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "Run Command",
+            toolName: "bash",
             inputSummary: "ls -la /Users/test/project",
             result: "total 42\ndrwxr-xr-x  10 user  staff  320 Jan  1 12:00 .\ndrwxr-xr-x   5 user  staff  160 Jan  1 11:00 ..",
             isComplete: true
         ))
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "Read File",
+            toolName: "file_read",
             inputSummary: "/src/main.swift",
             isComplete: false
         ))
         ToolCallChip(toolCall: ToolCallData(
-            toolName: "Run Command",
+            toolName: "file_edit",
+            inputSummary: "/src/Config.swift",
+            result: "File updated successfully.",
+            isComplete: true
+        ))
+        ToolCallChip(toolCall: ToolCallData(
+            toolName: "bash",
             inputSummary: "rm -rf /important",
             result: "Permission denied",
             isError: true,
