@@ -716,6 +716,7 @@ export class Session {
           systemPrompt: this.systemPrompt,
           provider: this.provider,
           conflictGate: this.conflictGate,
+          scopeId: this.memoryPolicy.scopeId,
         },
         content,
         userMessageId,
