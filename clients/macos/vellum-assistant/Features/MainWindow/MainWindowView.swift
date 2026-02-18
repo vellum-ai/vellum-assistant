@@ -35,6 +35,7 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
     @AppStorage("sidePanelWidth") private var sidePanelWidth: Double = 400
+    @AppStorage("appPanelWidth") private var appPanelWidth: Double = -1
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
     @AppStorage("homeBaseDashboardAutoEnabled") private var homeBaseDashboardAutoEnabled: Bool = false
     @State private var drawerDragStartWidth: Double?
@@ -1108,8 +1109,12 @@ struct MainWindowView: View {
             // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
+                let effectiveWidth = Binding<Double>(
+                    get: { appPanelWidth > 0 ? appPanelWidth : geometry.size.width * 0.7 },
+                    set: { appPanelWidth = $0 }
+                )
                 VSplitView(
-                    panelWidth: $sidePanelWidth,
+                    panelWidth: effectiveWidth,
                     showPanel: true,
                     main: {
                         chatView
