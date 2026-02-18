@@ -65,6 +65,21 @@ public class APIKeyManager {
         #endif
     }
 
+    public func deleteAPIKey(provider: String = "anthropic") -> Bool {
+        #if targetEnvironment(simulator)
+        UserDefaults.standard.removeObject(forKey: udKey(provider))
+        return true
+        #else
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: provider
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+        #endif
+    }
+
     private func udKey(_ provider: String) -> String {
         "apikey_\(service)_\(provider)"
     }
