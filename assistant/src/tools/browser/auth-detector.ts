@@ -223,9 +223,22 @@ const CAPTCHA_DETECT_EXPRESSION = `(() => {
     if (document.querySelector(sel)) return true;
   }
 
-  // reCAPTCHA / hCaptcha iframes
-  if (document.querySelector('iframe[src*="recaptcha"]')) return true;
-  if (document.querySelector('iframe[src*="hcaptcha"]')) return true;
+  // reCAPTCHA — only flag visible challenges, not invisible v3 scoring widgets.
+  // The challenge iframe (api2/bframe) or a visible .g-recaptcha container indicates
+  // an interactive CAPTCHA the user must solve.
+  if (document.querySelector('iframe[src*="recaptcha/api2/bframe"]')) return true;
+  const recaptchaContainer = document.querySelector('.g-recaptcha');
+  if (recaptchaContainer) {
+    const rect = recaptchaContainer.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
+
+  // hCaptcha — only flag when a visible challenge container is present
+  const hcaptchaContainer = document.querySelector('#hcaptcha-container, .h-captcha');
+  if (hcaptchaContainer) {
+    const rect = hcaptchaContainer.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return true;
+  }
 
   return false;
 })()`;
