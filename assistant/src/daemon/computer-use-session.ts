@@ -481,6 +481,11 @@ export class ComputerUseSession {
       });
     };
 
+    // Build a set of tool names the CU session is allowed to execute.
+    // This prevents tools registered globally (e.g. computer_use_request_control)
+    // but not advertised to the CU model from executing during CU sessions.
+    const allowedToolNames = new Set(toolDefs.map((td) => td.name));
+
     const toolExecutor = async (
       name: string,
       input: Record<string, unknown>,
@@ -490,6 +495,7 @@ export class ComputerUseSession {
         sessionId: this.sessionId,
         conversationId: this.sessionId,
         proxyToolResolver: proxyResolver,
+        allowedToolNames,
         requestSecret: async (params) => {
           return secretPrompter.prompt(
             params.service, params.field, params.label,
