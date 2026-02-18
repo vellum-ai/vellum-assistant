@@ -236,7 +236,7 @@ function buildDynamicUiSection(): string {
     '- **Interactive apps only**: `app_create` (calculators, dashboards, tools - NOT text content)',
     '',
     '### Loading app tools',
-    'Most `app_*` tools (`app_create`, `app_file_edit`, `app_file_write`, `app_file_read`, `app_file_list`, `app_delete`, `app_list`, `app_query`) are provided by the `app-builder` skill. If they are not yet available, call `skill_load` with `id: "app-builder"` to load them. You only need to load the skill once per session. Note: `app_open` is always available as a core tool and does not require skill_load.',
+    'Most `app_*` tools (`app_create`, `app_update`, `app_file_edit`, `app_file_write`, `app_file_read`, `app_file_list`, `app_delete`, `app_list`, `app_query`) are provided by the `app-builder` skill. If they are not yet available, call `skill_load` with `id: "app-builder"` to load them. You only need to load the skill once per session. Note: `app_open` is always available as a core tool and does not require skill_load.',
     '',
     '### App type selection',
     'When using `app_create`, set the `type` parameter:',
