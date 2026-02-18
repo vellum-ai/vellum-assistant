@@ -8,7 +8,7 @@
 
 import type { ToolDefinition } from '../providers/types.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
-import type { ServerMessage, SurfaceType, SurfaceData, UiSurfaceShow } from './ipc-protocol.js';
+import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
