@@ -219,7 +219,7 @@ export class RuntimeHttpServer {
     // Match /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
-      return Response.json({ error: 'Not found' }, { status: 404 });
+      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
     }
 
     const assistantId = match[1];
@@ -316,7 +316,7 @@ export class RuntimeHttpServer {
         return await handleReplayDeadLetters(assistantId, req);
       }
 
-      return Response.json({ error: 'Not found' }, { status: 404 });
+      return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
     } catch (err) {
       if (err instanceof IngressBlockedError) {
         log.warn({ endpoint, assistantId, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');

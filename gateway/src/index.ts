@@ -82,7 +82,7 @@ function main() {
         return handleRuntimeProxy(req);
       }
 
-      return Response.json({ error: "Not found" }, { status: 404 });
+      return Response.json({ error: "Not found", source: "gateway" }, { status: 404 });
     },
   });
 
