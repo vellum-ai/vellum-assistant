@@ -152,9 +152,22 @@ export class ComputerUseSession {
     }, SESSION_TIMEOUT_MS);
 
     const messages = this.buildMessages(obs, hadPreviousAXTree);
-    this.loopPromise = this.runAgentLoop(messages);
+    this.loopPromise = this.runAgentLoop(messages).catch((err) => {
+      // Catches errors from setup code (e.g. skill projection failures) that
+      // occur before runAgentLoop's internal try-catch takes over.
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err, sessionId: this.sessionId }, 'Agent loop startup failed');
+      if (this.state !== 'complete' && this.state !== 'error') {
+        this.state = 'error';
+        this.sendToClient({
+          type: 'cu_error',
+          sessionId: this.sessionId,
+          message,
+        });
+        this.notifyTerminal();
+      }
+    });
 
-    // Await the loop; errors are caught inside runAgentLoop
     await this.loopPromise;
   }
 
@@ -548,7 +561,8 @@ export class ComputerUseSession {
         this.notifyTerminal();
       }
     } finally {
-      // Always clear session timer to prevent resource leaks
+      // Always clean up skill projection state and session timer
+      resetSkillToolProjection(this.skillProjectionState);
       if (this.sessionTimer) {
         clearTimeout(this.sessionTimer);
         this.sessionTimer = null;
