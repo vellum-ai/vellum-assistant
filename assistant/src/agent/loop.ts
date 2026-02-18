@@ -481,7 +481,7 @@ function stripOldImageBlocks(history: Message[]): Message[] {
         return {
           ...tr,
           contentBlocks: undefined,
-          content: tr.content + '\n[Screenshot was captured and shown previously — image data removed to save context.]',
+          content: (tr.content || '') + '\n[Screenshot was captured and shown previously — image data removed to save context.]',
         };
       }),
     };
