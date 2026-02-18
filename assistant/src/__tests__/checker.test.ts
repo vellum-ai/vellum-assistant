@@ -3492,4 +3492,75 @@ describe('Permission Checker', () => {
       expect(result.matchedRule?.pattern).toBe(`host_file_edit:${filePath}`);
     });
   });
+
+  // ── browser tool permission baselines ─────────────────────────────
+  // All 10 browser tools are core-registered and RiskLevel.Low by default.
+  // These tests lock that baseline so the migration can verify it's preserved.
+
+  describe('browser tool permission baselines', () => {
+    const browserToolNames = [
+      'browser_navigate',
+      'browser_snapshot',
+      'browser_screenshot',
+      'browser_close',
+      'browser_click',
+      'browser_type',
+      'browser_press_key',
+      'browser_wait_for',
+      'browser_extract',
+      'browser_fill_credential',
+    ] as const;
+
+    // Register mock browser tools with the correct metadata so classifyRisk
+    // resolves them without pulling in the full headless-browser module
+    // (which depends on playwright and browser-manager).
+    beforeAll(() => {
+      for (const name of browserToolNames) {
+        const existing = (() => {
+          try { return (registerTool as any).__registry?.get(name); } catch { return undefined; }
+        })();
+        if (existing) continue;
+
+        registerTool({
+          name,
+          description: `Mock ${name} for permission baseline`,
+          category: 'browser',
+          defaultRiskLevel: RiskLevel.Low,
+          getDefinition: () => ({
+            name,
+            description: `Mock ${name}`,
+            input_schema: { type: 'object' as const, properties: {} },
+          }),
+          execute: async () => ({ content: 'ok', isError: false }),
+        });
+      }
+    });
+
+    for (const toolName of browserToolNames) {
+      test(`${toolName} has RiskLevel.Low default risk`, async () => {
+        const risk = await classifyRisk(toolName, {});
+        expect(risk).toBe(RiskLevel.Low);
+      });
+    }
+
+    test('browser tools are auto-allowed in legacy mode (RiskLevel.Low)', async () => {
+      testConfig.permissions = { mode: 'legacy' };
+      for (const toolName of browserToolNames) {
+        const result = await check(toolName, {}, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.reason).toContain('Low risk');
+      }
+    });
+
+    test('strict mode prompts browser tools without trust rules (no implicit auto-allow)', async () => {
+      testConfig.permissions = { mode: 'strict' };
+      try {
+        const result = await check('browser_navigate', { url: 'https://example.com' }, '/tmp');
+        expect(result.decision).toBe('prompt');
+        expect(result.reason).toContain('Strict mode');
+      } finally {
+        testConfig.permissions = { mode: 'legacy' };
+      }
+    });
+  });
 });
