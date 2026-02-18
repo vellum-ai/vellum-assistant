@@ -20,7 +20,7 @@ describe('AssistantEventHub — fanout', () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: 'ast_1' }, (e) => received.push(e));
+    hub.subscribe({ assistantId: 'ast_1' }, (e) => { received.push(e); });
     await hub.publish(makeEvent());
 
     expect(received).toHaveLength(1);
@@ -31,9 +31,9 @@ describe('AssistantEventHub — fanout', () => {
     const hub = new AssistantEventHub();
     const order: string[] = [];
 
-    hub.subscribe({ assistantId: 'ast_1' }, () => order.push('first'));
-    hub.subscribe({ assistantId: 'ast_1' }, () => order.push('second'));
-    hub.subscribe({ assistantId: 'ast_1' }, () => order.push('third'));
+    hub.subscribe({ assistantId: 'ast_1' }, () => { order.push('first'); });
+    hub.subscribe({ assistantId: 'ast_1' }, () => { order.push('second'); });
+    hub.subscribe({ assistantId: 'ast_1' }, () => { order.push('third'); });
 
     await hub.publish(makeEvent());
 
@@ -44,7 +44,7 @@ describe('AssistantEventHub — fanout', () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: 'ast_OTHER' }, (e) => received.push(e));
+    hub.subscribe({ assistantId: 'ast_OTHER' }, (e) => { received.push(e); });
     await hub.publish(makeEvent({ assistantId: 'ast_1' }));
 
     expect(received).toHaveLength(0);
@@ -55,8 +55,8 @@ describe('AssistantEventHub — fanout', () => {
     const receivedA: AssistantEvent[] = [];
     const receivedB: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: 'ast_1', sessionId: 'sess_A' }, (e) => receivedA.push(e));
-    hub.subscribe({ assistantId: 'ast_1', sessionId: 'sess_B' }, (e) => receivedB.push(e));
+    hub.subscribe({ assistantId: 'ast_1', sessionId: 'sess_A' }, (e) => { receivedA.push(e); });
+    hub.subscribe({ assistantId: 'ast_1', sessionId: 'sess_B' }, (e) => { receivedB.push(e); });
 
     await hub.publish(makeEvent({ sessionId: 'sess_A' }));
 
@@ -68,7 +68,7 @@ describe('AssistantEventHub — fanout', () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: 'ast_1' }, (e) => received.push(e));
+    hub.subscribe({ assistantId: 'ast_1' }, (e) => { received.push(e); });
 
     await hub.publish(makeEvent({ sessionId: 'sess_A' }));
     await hub.publish(makeEvent({ sessionId: 'sess_B' }));
@@ -90,7 +90,7 @@ describe('AssistantEventHub — unsubscribe cleanup', () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    const sub = hub.subscribe({ assistantId: 'ast_1' }, (e) => received.push(e));
+    const sub = hub.subscribe({ assistantId: 'ast_1' }, (e) => { received.push(e); });
     await hub.publish(makeEvent());
     expect(received).toHaveLength(1);
 
@@ -136,8 +136,8 @@ describe('AssistantEventHub — unsubscribe cleanup', () => {
     const received1: AssistantEvent[] = [];
     const received2: AssistantEvent[] = [];
 
-    const sub1 = hub.subscribe({ assistantId: 'ast_1' }, (e) => received1.push(e));
-    hub.subscribe({ assistantId: 'ast_1' }, (e) => received2.push(e));
+    const sub1 = hub.subscribe({ assistantId: 'ast_1' }, (e) => { received1.push(e); });
+    hub.subscribe({ assistantId: 'ast_1' }, (e) => { received2.push(e); });
 
     sub1.dispose();
     await hub.publish(makeEvent());
@@ -202,7 +202,7 @@ describe('AssistantEventHub — re-entrancy / snapshot isolation', () => {
 
     hub.subscribe({ assistantId: 'ast_1' }, () => {
       // Add a new subscriber mid-fanout
-      hub.subscribe({ assistantId: 'ast_1' }, (e) => lateReceived.push(e));
+      hub.subscribe({ assistantId: 'ast_1' }, (e) => { lateReceived.push(e); });
     });
 
     await hub.publish(makeEvent());
@@ -218,7 +218,7 @@ describe('AssistantEventHub — re-entrancy / snapshot isolation', () => {
 
     // eslint-disable-next-line prefer-const
     sub = hub.subscribe({ assistantId: 'ast_1' }, () => { sub.dispose(); });
-    hub.subscribe({ assistantId: 'ast_1' }, (e) => received.push(e));
+    hub.subscribe({ assistantId: 'ast_1' }, (e) => { received.push(e); });
 
     await hub.publish(makeEvent());
     expect(received).toHaveLength(1);
