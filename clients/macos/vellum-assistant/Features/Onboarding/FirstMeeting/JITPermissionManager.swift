@@ -74,7 +74,23 @@ final class JITPermissionManager {
     // Check if permission is needed and show JIT request if so
     func requestIfNeeded(_ type: JITPermissionType) -> Bool {
         guard isActive else { return true } // Not in JIT mode, skip
-        if isAlwaysAllowed(type) { return true } // User chose Always Allow previously
+
+        if isAlwaysAllowed(type) {
+            // User previously chose Always Allow — skip the dialog but still verify OS permission.
+            // If the OS permission was later revoked, trigger the grant flow directly without showing the dialog.
+            switch type {
+            case .microphone:
+                if SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
+            case .accessibility:
+                if PermissionManager.accessibilityStatus(prompt: false) == .granted { return true }
+            case .screenCapture:
+                if CGPreflightScreenCaptureAccess() { return true }
+            }
+            // OS permission not granted — trigger OS prompt directly without showing JIT dialog
+            activePermissionRequest = type
+            grantActivePermission()
+            return false
+        }
 
         switch type {
         case .microphone:

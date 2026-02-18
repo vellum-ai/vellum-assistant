@@ -238,6 +238,7 @@ public struct ToolConfirmationData: Equatable {
             }
             return "I would like to fetch a URL."
         case "browser_navigate":
+            if !r.isEmpty { return "I would like to open a page \(r)." }
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
                 return "I would like to open \(host)."

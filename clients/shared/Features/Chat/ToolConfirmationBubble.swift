@@ -330,7 +330,7 @@ public struct ToolConfirmationBubble: View {
         HStack(spacing: VSpacing.xs) {
             confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: true) { onDeny() }
             confirmationButton("Allow", isPrimary: true, isDanger: false) { onAllow() }
-            alwaysAllowInlineButton
+            if hasRuleOptions { alwaysAllowInlineButton }
             Spacer()
         }
     }
