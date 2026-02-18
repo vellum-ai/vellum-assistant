@@ -309,6 +309,10 @@ public struct SettingsView: View {
                 .font(.caption)
             }
 
+            if FeatureFlagManager.shared.isEnabled(.featureFlagEditorEnabled) {
+                FeatureFlagEditorSection()
+            }
+
             #if DEBUG
             if let daemonClient {
                 Section("Developer") {
@@ -374,6 +378,43 @@ public struct SettingsView: View {
         screenRecordingGranted = status == .granted
     }
 
+}
+
+// MARK: - Feature Flag Editor
+
+private struct FeatureFlagEditorSection: View {
+    @State private var flagStates: [(key: String, enabled: Bool)] = []
+
+    var body: some View {
+        Section("Feature Flags") {
+            if flagStates.isEmpty {
+                Text("No feature flags configured")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(flagStates.enumerated()), id: \.element.key) { index, flag in
+                    Toggle(flag.key, isOn: Binding(
+                        get: { flagStates[index].enabled },
+                        set: { newValue in
+                            flagStates[index].enabled = newValue
+                            FeatureFlagManager.shared.setOverride(flag.key, enabled: newValue)
+                        }
+                    ))
+                    .font(.body.monospaced())
+                }
+            }
+        }
+        .onAppear {
+            loadFlags()
+        }
+    }
+
+    private func loadFlags() {
+        let all = FeatureFlagManager.shared.allFlags()
+        flagStates = all
+            .sorted(by: { $0.key < $1.key })
+            .map { (key: $0.key, enabled: $0.value) }
+    }
 }
 
 // MARK: - Knowledge Section
