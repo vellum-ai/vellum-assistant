@@ -5,7 +5,8 @@
  * this module checks the workspace for uncommitted changes and creates a
  * single git commit capturing all file modifications from that turn.
  *
- * Commits are performed asynchronously so they do not block the turn response.
+ * Commits are awaited so they complete before the next turn starts,
+ * preventing cross-turn attribution of file changes.
  */
 
 import { getWorkspaceGitService } from './git-service.js';
@@ -70,8 +71,8 @@ function buildChangeSummary(files: string[]): string {
  * Checks the workspace for uncommitted changes. If any are found,
  * creates a single commit with structured metadata.
  *
- * This function is designed to be called fire-and-forget (void) so
- * it never blocks the turn response. All errors are caught and logged.
+ * This function should be awaited so it completes before the next turn
+ * starts. All errors are caught and logged to avoid disrupting the session.
  *
  * @param workspaceDir - Absolute path to the workspace directory
  * @param sessionId - Session/conversation identifier
