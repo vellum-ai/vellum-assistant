@@ -898,6 +898,18 @@ extension ChatViewModel {
             isWatchSessionActive = false
             onWatchCompleteRequest?(msg)
 
+        case .subagentSpawned(let msg):
+            guard belongsToSession(msg.parentSessionId) else { return }
+            let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
+            activeSubagents.append(info)
+
+        case .subagentStatusChanged(let msg):
+            if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
+                activeSubagents[index].status = SubagentStatus(wire: msg.status)
+                activeSubagents[index].summary = msg.summary
+                activeSubagents[index].error = msg.error
+            }
+
         default:
             break
         }

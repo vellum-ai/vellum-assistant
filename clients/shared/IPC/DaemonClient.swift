@@ -270,6 +270,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
+    /// Called when a subagent is spawned.
+    public var onSubagentSpawned: ((SubagentSpawnedMessage) -> Void)?
+
+    /// Called when a subagent's status changes (running, completed, failed, aborted).
+    public var onSubagentStatusChanged: ((SubagentStatusChangedMessage) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -1373,6 +1379,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemStatusChanged?(msg)
         case .workItemRunTaskResponse(let msg):
             onWorkItemRunTaskResponse?(msg)
+        case .subagentSpawned(let msg):
+            onSubagentSpawned?(msg)
+        case .subagentStatusChanged(let msg):
+            onSubagentStatusChanged?(msg)
         default:
             break
         }

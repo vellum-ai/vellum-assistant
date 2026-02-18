@@ -42,6 +42,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var surfaceUndoCount: Int = 0
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
+    @Published public var activeSubagents: [SubagentInfo] = []
 
     /// Maximum file size per attachment (20 MB).
     static let maxFileSize = 20 * 1024 * 1024

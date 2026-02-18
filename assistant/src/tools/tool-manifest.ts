@@ -19,6 +19,13 @@ import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
 import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, workItemListTool, workItemEnqueueTool } from './tasks/index.js';
+import {
+  subagentSpawnTool,
+  subagentStatusTool,
+  subagentAbortTool,
+  subagentMessageTool,
+  subagentReadTool,
+} from './subagent/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -112,6 +119,11 @@ export const explicitTools: Tool[] = [
   taskDeleteTool,
   workItemListTool,
   workItemEnqueueTool,
+  subagentSpawnTool,
+  subagentStatusTool,
+  subagentAbortTool,
+  subagentMessageTool,
+  subagentReadTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

@@ -94,6 +94,7 @@ struct ChatView: View {
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
+    var activeSubagents: [SubagentInfo] = []
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     private var streamingScrollTrigger: Int {
@@ -621,9 +622,25 @@ struct ChatView: View {
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
+
+                        // Subagent chips anchored to the message that spawned them
+                        ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                            SubagentStatusChip(subagent: subagent)
+                                .frame(maxWidth: 520, alignment: .leading)
+                                .id("subagent-\(subagent.id)")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
 
-                    if isSending && !(messages.last?.isStreaming == true) {
+                    // Subagents with no parent message (e.g. from history load)
+                    ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                        SubagentStatusChip(subagent: subagent)
+                            .frame(maxWidth: 520, alignment: .leading)
+                            .id("subagent-\(subagent.id)")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
+                    if isThinking && !(messages.last?.isStreaming == true) {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false

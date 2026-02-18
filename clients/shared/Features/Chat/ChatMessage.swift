@@ -484,6 +484,47 @@ public struct CommandListData: Equatable {
     public init() {}
 }
 
+public enum SubagentStatus: String, Equatable, Sendable {
+    case pending
+    case running
+    case awaitingInput = "awaiting_input"
+    case completed
+    case failed
+    case aborted
+    case unknown
+
+    public init(wire: String) {
+        self = SubagentStatus(rawValue: wire) ?? .unknown
+    }
+
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .failed, .aborted: return true
+        default: return false
+        }
+    }
+}
+
+public struct SubagentInfo: Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public var status: SubagentStatus
+    public var summary: String?
+    public var error: String?
+    /// The chat message ID that was active when this subagent was spawned.
+    /// Used to render the subagent chip inline after the spawning message.
+    public var parentMessageId: UUID?
+
+    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil) {
+        self.id = id
+        self.label = label
+        self.status = status
+        self.parentMessageId = parentMessageId
+    }
+
+    public var isTerminal: Bool { status.isTerminal }
+}
+
 public struct SkillInvocationData: Equatable {
     public let name: String
     public let emoji: String?
