@@ -827,6 +827,22 @@ public struct UiSurfaceCompleteMessage: Decodable, Sendable {
     public let submittedData: [String: AnyCodable]?
 }
 
+/// Document editor show command from daemon.
+/// Backed by generated `IPCDocumentEditorShow`.
+public typealias DocumentEditorShowMessage = IPCDocumentEditorShow
+
+/// Document editor update command from daemon.
+/// Backed by generated `IPCDocumentEditorUpdate`.
+public typealias DocumentEditorUpdateMessage = IPCDocumentEditorUpdate
+
+/// Document persistence messages
+public typealias DocumentSaveRequestMessage = IPCDocumentSaveRequest
+public typealias DocumentSaveResponseMessage = IPCDocumentSaveResponse
+public typealias DocumentLoadRequestMessage = IPCDocumentLoadRequest
+public typealias DocumentLoadResponseMessage = IPCDocumentLoadResponse
+public typealias DocumentListRequestMessage = IPCDocumentListRequest
+public typealias DocumentListResponseMessage = IPCDocumentListResponse
+
 /// Confirms undo/regenerate removed messages.
 public typealias UndoCompleteMessage = IPCUndoComplete
 
@@ -1639,6 +1655,11 @@ public enum ServerMessage: Decodable, Sendable {
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
     case uiSurfaceUndoResult(UiSurfaceUndoResultMessage)
+    case documentEditorShow(DocumentEditorShowMessage)
+    case documentEditorUpdate(DocumentEditorUpdateMessage)
+    case documentSaveResponse(DocumentSaveResponseMessage)
+    case documentLoadResponse(DocumentLoadResponseMessage)
+    case documentListResponse(DocumentListResponseMessage)
     case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
@@ -1721,6 +1742,21 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_complete":
             let message = try UiSurfaceCompleteMessage(from: decoder)
             self = .uiSurfaceComplete(message)
+        case "document_editor_show":
+            let message = try DocumentEditorShowMessage(from: decoder)
+            self = .documentEditorShow(message)
+        case "document_editor_update":
+            let message = try DocumentEditorUpdateMessage(from: decoder)
+            self = .documentEditorUpdate(message)
+        case "document_save_response":
+            let message = try DocumentSaveResponseMessage(from: decoder)
+            self = .documentSaveResponse(message)
+        case "document_load_response":
+            let message = try DocumentLoadResponseMessage(from: decoder)
+            self = .documentLoadResponse(message)
+        case "document_list_response":
+            let message = try DocumentListResponseMessage(from: decoder)
+            self = .documentListResponse(message)
         case "ui_layout_config":
             let message = try UiLayoutConfigMessage(from: decoder)
             self = .uiLayoutConfig(message)

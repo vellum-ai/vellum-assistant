@@ -1,0 +1,381 @@
+import SwiftUI
+import WebKit
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentEditor")
+
+/// Built-in document editor view using Toast UI Editor.
+/// Displayed in the Directory panel's Documents tab.
+struct DocumentEditorView: NSViewRepresentable {
+    @ObservedObject var documentManager: DocumentManager
+    let onContentChanged: (String, String, Int) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(documentManager: documentManager, onContentChanged: onContentChanged)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+
+        // Inject Vellum bridge for content change notifications
+        let bridgeScript = WKUserScript(
+            source: """
+                window.vellum = {
+                    sendAction: function(actionId, data) {
+                        window.webkit.messageHandlers.vellumBridge.postMessage({actionId: actionId, data: data});
+                    }
+                };
+                """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(bridgeScript)
+        contentController.add(context.coordinator, name: "vellumBridge")
+
+        configuration.userContentController = contentController
+
+        #if DEBUG
+        let webInspectorKey = ["developer", "Extras", "Enabled"].joined()
+        configuration.preferences.setValue(true, forKey: webInspectorKey)
+        #endif
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        context.coordinator.webView = webView
+
+        // Register coordinator with DocumentManager
+        documentManager.editorCoordinator = context.coordinator
+        print("🔧 Coordinator registered with DocumentManager")
+
+        // Load initial empty document
+        loadEditorHTML(webView: webView, title: "Untitled Document", content: "")
+
+        log.info("DocumentEditorView created")
+        print("📄 DocumentEditorView created, loading HTML...")
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        // No updates needed - content updates are handled via coordinator
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "vellumBridge")
+    }
+
+    private func loadEditorHTML(webView: WKWebView, title: String, content: String) {
+        let html = generateEditorHTML(title: title, initialContent: content)
+        webView.loadHTMLString(html, baseURL: URL(string: "https://document.vellum.local/"))
+    }
+
+    // MARK: - Coordinator
+
+    class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, DocumentEditorCoordinator {
+        let documentManager: DocumentManager
+        let onContentChanged: (String, String, Int) -> Void
+        weak var webView: WKWebView?
+        private var isInitialized = false
+
+        init(documentManager: DocumentManager, onContentChanged: @escaping (String, String, Int) -> Void) {
+            self.documentManager = documentManager
+            self.onContentChanged = onContentChanged
+        }
+
+        // MARK: - DocumentEditorCoordinator
+
+        func setInitialContent(title: String, markdown: String) {
+            guard let webView = webView else { return }
+
+            // If already initialized, just update content
+            if isInitialized {
+                let escapedTitle = escapeForJS(title)
+                let escapedMarkdown = escapeForJS(markdown)
+                let js = """
+                    (function() {
+                        if (typeof window.editor !== 'undefined') {
+                            window.editor.setMarkdown('\(escapedMarkdown)', false);
+                            document.getElementById('title-input').value = '\(escapedTitle)';
+                        }
+                    })();
+                    """
+                webView.evaluateJavaScript(js) { _, error in
+                    if let error = error {
+                        log.error("setInitialContent JS error: \(error.localizedDescription)")
+                    } else {
+                        log.info("Initial content set: title=\(title), length=\(markdown.count)")
+                    }
+                }
+            } else {
+                // Editor not ready yet, reload with new content
+                let html = generateEditorHTML(title: title, initialContent: markdown)
+                webView.loadHTMLString(html, baseURL: URL(string: "https://document.vellum.local/"))
+            }
+        }
+
+        func sendContentUpdate(markdown: String, mode: String) {
+            guard let webView = webView, isInitialized else {
+                log.warning("⚠️ Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
+                print("⚠️ Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
+                return
+            }
+            print("✅ Sending content update to WebView: mode=\(mode), length=\(markdown.count)")
+
+            let escapedMarkdown = escapeForJS(markdown)
+            let js: String
+
+            if mode == "replace" {
+                js = """
+                    (function() {
+                        if (typeof window.editor !== 'undefined') {
+                            window.editor.setMarkdown('\(escapedMarkdown)', false);
+                        }
+                    })();
+                    """
+            } else {
+                // append mode
+                js = """
+                    (function() {
+                        if (typeof window.editor !== 'undefined') {
+                            var current = window.editor.getMarkdown();
+                            window.editor.setMarkdown(current + '\\n\\n' + '\(escapedMarkdown)', false);
+                            window.editor.moveCursorToEnd();
+                        }
+                    })();
+                    """
+            }
+
+            webView.evaluateJavaScript(js) { _, error in
+                if let error = error {
+                    log.error("sendContentUpdate JS error: \(error.localizedDescription)")
+                } else {
+                    log.info("Content update sent: mode=\(mode), length=\(markdown.count)")
+                }
+            }
+        }
+
+        // MARK: - WKScriptMessageHandler
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? [String: Any],
+                  let actionId = body["actionId"] as? String else { return }
+
+            if actionId == "content_changed", let data = body["data"] as? [String: Any] {
+                let title = data["title"] as? String ?? "Untitled Document"
+                let content = data["content"] as? String ?? ""
+                let wordCount = data["wordCount"] as? Int ?? 0
+                onContentChanged(title, content, wordCount)
+            }
+        }
+
+        // MARK: - WKNavigationDelegate
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            isInitialized = true
+            log.info("Document editor loaded")
+            print("✅ WebView finished loading - editor initialized!")
+        }
+
+        private func escapeForJS(_ str: String) -> String {
+            return str
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+        }
+    }
+}
+
+// MARK: - HTML Generation
+
+/// Generates the Toast UI Editor HTML template.
+/// Reuses the same editor from document-tool.ts editor-template.ts
+private func generateEditorHTML(title: String, initialContent: String) -> String {
+    let escapedTitle = escapeHTML(title)
+    let escapedContent = escapeJSON(initialContent)
+
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>\(escapedTitle)</title>
+
+  <!-- Toast UI Editor CSS -->
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/theme/toastui-editor-dark.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .title-input {
+      font-size: 20px;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      color: #f8fafc;
+      outline: none;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .title-input::placeholder { color: #64748b; }
+
+    .status {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-left: 16px;
+      white-space: nowrap;
+    }
+
+    .editor-container {
+      flex: 1;
+      overflow: hidden;
+      padding: 24px;
+    }
+
+    #editor {
+      height: 100%;
+    }
+
+    /* Override Toast UI Editor dark theme colors to match Vellum */
+    .toastui-editor-defaultUI { border: none !important; }
+    .toastui-editor-toolbar { background: #1e293b !important; border-bottom: 1px solid #334155 !important; }
+    .toastui-editor-toolbar-icons { color: #cbd5e1 !important; }
+    .toastui-editor-toolbar-icons:hover { background: #334155 !important; }
+    .toastui-editor-md-container,
+    .toastui-editor-ww-container { background: #0f172a !important; color: #f8fafc !important; }
+    .toastui-editor-contents { color: #f8fafc !important; }
+    .toastui-editor-contents h1,
+    .toastui-editor-contents h2,
+    .toastui-editor-contents h3 { color: #f8fafc !important; border-bottom-color: #334155 !important; }
+    .toastui-editor-contents pre { background: #1e293b !important; }
+    .toastui-editor-contents code { background: #1e293b !important; color: #e2e8f0 !important; }
+    .toastui-editor-contents blockquote { border-left-color: #7c3aed !important; color: #cbd5e1 !important; }
+    .toastui-editor-contents table td,
+    .toastui-editor-contents table th { border-color: #334155 !important; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <input type="text" class="title-input" placeholder="Untitled Document" value="\(escapedTitle)" id="title-input" />
+    <div class="status" id="status">Ready</div>
+  </div>
+
+  <div class="editor-container">
+    <div id="editor"></div>
+  </div>
+
+  <!-- Toast UI Editor JS -->
+  <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
+
+  <script>
+    // Initialize Toast UI Editor
+    window.editor = new toastui.Editor({
+      el: document.querySelector('#editor'),
+      height: '100%',
+      initialEditType: 'wysiwyg',
+      previewStyle: 'vertical',
+      theme: 'dark',
+      usageStatistics: false,
+      initialValue: \(escapedContent),
+      toolbarItems: [
+        ['heading', 'bold', 'italic', 'strike'],
+        ['hr', 'quote'],
+        ['ul', 'ol', 'task', 'indent', 'outdent'],
+        ['table', 'link', 'image', 'code', 'codeblock']
+      ],
+      hooks: {
+        addImageBlobHook: (blob, callback) => {
+          const reader = new FileReader();
+          reader.onload = (e) => callback(e.target.result, blob.name);
+          reader.readAsDataURL(blob);
+        }
+      }
+    });
+
+    const titleInput = document.getElementById('title-input');
+    const statusEl = document.getElementById('status');
+    let wordCount = 0;
+    let saveTimeout = null;
+
+    // Update word count
+    function updateWordCount() {
+      const text = window.editor.getMarkdown();
+      wordCount = text.trim().split(/\\s+/).filter(w => w.length > 0).length;
+      statusEl.textContent = `${wordCount} words`;
+    }
+
+    // Notify Swift side of content changes (debounced)
+    function notifyContentChanged() {
+      clearTimeout(saveTimeout);
+      statusEl.textContent = 'Saving...';
+
+      saveTimeout = setTimeout(() => {
+        const content = window.editor.getMarkdown();
+        const title = titleInput.value.trim() || 'Untitled Document';
+
+        if (typeof window.vellum !== 'undefined' && typeof window.vellum.sendAction === 'function') {
+          window.vellum.sendAction('content_changed', {
+            title,
+            content,
+            wordCount
+          });
+        }
+
+        updateWordCount();
+      }, 500);
+    }
+
+    // Listen for content changes
+    window.editor.on('change', notifyContentChanged);
+    titleInput.addEventListener('input', notifyContentChanged);
+
+    // Initial word count
+    updateWordCount();
+
+    // Focus editor
+    setTimeout(() => window.editor.focus(), 100);
+  </script>
+</body>
+</html>
+"""
+}
+
+private func escapeHTML(_ str: String) -> String {
+    return str
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "'", with: "&#039;")
+}
+
+private func escapeJSON(_ str: String) -> String {
+    guard let data = try? JSONEncoder().encode(str),
+          let json = String(data: data, encoding: .utf8) else {
+        return "\"\""
+    }
+    return json
+}
