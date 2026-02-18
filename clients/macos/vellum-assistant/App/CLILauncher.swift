@@ -36,6 +36,7 @@ final class CLILauncher {
 
         let proc = Process()
         proc.executableURL = binaryURL
+        proc.arguments = ["hatch", "-d"]
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
