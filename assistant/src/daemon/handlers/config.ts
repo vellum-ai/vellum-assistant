@@ -46,10 +46,11 @@ export function handleModelSet(
     if (provider && provider !== 'ollama') {
       const currentConfig = getConfig();
       if (!currentConfig.apiKeys[provider]) {
-        ctx.send(socket, { type: 'error', message: `Cannot switch to ${msg.model}. No API key configured for ${provider}.` });
         // Send current model_info so the client resyncs its optimistic state
-        const cfg = getConfig();
-        ctx.send(socket, { type: 'model_info', model: cfg.model, provider: cfg.provider });
+        // (don't use generic 'error' type — it would interrupt in-flight chat)
+        const configured = Object.keys(currentConfig.apiKeys).filter((k) => !!currentConfig.apiKeys[k]);
+        if (!configured.includes('ollama')) configured.push('ollama');
+        ctx.send(socket, { type: 'model_info', model: currentConfig.model, provider: currentConfig.provider, configuredProviders: configured });
         return;
       }
     }
