@@ -425,6 +425,189 @@ describe('credential_store tool', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Alias and injection template fields
+  // -----------------------------------------------------------------------
+  describe('alias and injection template fields', () => {
+    test('store with valid alias and templates persists metadata', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'fal',
+        field: 'api_key',
+        value: 'fal-key-123',
+        alias: 'fal-primary',
+        injection_templates: [
+          {
+            hostPattern: '*.fal.ai',
+            injectionType: 'header',
+            headerName: 'Authorization',
+            valuePrefix: 'Key ',
+          },
+        ],
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('fal', 'api_key');
+      expect(metadata).toBeDefined();
+      expect(metadata!.alias).toBe('fal-primary');
+      expect(metadata!.injectionTemplates).toHaveLength(1);
+      expect(metadata!.injectionTemplates![0].hostPattern).toBe('*.fal.ai');
+      expect(metadata!.injectionTemplates![0].injectionType).toBe('header');
+      expect(metadata!.injectionTemplates![0].headerName).toBe('Authorization');
+      expect(metadata!.injectionTemplates![0].valuePrefix).toBe('Key ');
+    });
+
+    test('store with alias only (no templates)', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'openai',
+        field: 'api_key',
+        value: 'sk-test',
+        alias: 'openai-main',
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('openai', 'api_key');
+      expect(metadata).toBeDefined();
+      expect(metadata!.alias).toBe('openai-main');
+      expect(metadata!.injectionTemplates).toBeUndefined();
+    });
+
+    test('store with templates only (no alias)', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'replicate',
+        field: 'token',
+        value: 'r8_test',
+        injection_templates: [
+          {
+            hostPattern: 'api.replicate.com',
+            injectionType: 'header',
+            headerName: 'Authorization',
+            valuePrefix: 'Bearer ',
+          },
+        ],
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('replicate', 'token');
+      expect(metadata).toBeDefined();
+      expect(metadata!.alias).toBeUndefined();
+      expect(metadata!.injectionTemplates).toHaveLength(1);
+      expect(metadata!.injectionTemplates![0].injectionType).toBe('header');
+    });
+
+    test('rejects template missing headerName for header type', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'fal',
+        field: 'api_key',
+        value: 'fal-key-123',
+        injection_templates: [
+          {
+            hostPattern: '*.fal.ai',
+            injectionType: 'header',
+            // missing headerName
+          },
+        ],
+      }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('headerName is required');
+    });
+
+    test('rejects template missing queryParamName for query type', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'mapbox',
+        field: 'token',
+        value: 'pk.test',
+        injection_templates: [
+          {
+            hostPattern: 'api.mapbox.com',
+            injectionType: 'query',
+            // missing queryParamName
+          },
+        ],
+      }, _ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('queryParamName is required');
+    });
+
+    test('round-trip: store then list shows the credential', async () => {
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'anthropic',
+        field: 'api_key',
+        value: 'sk-ant-test',
+        alias: 'claude-key',
+        injection_templates: [
+          {
+            hostPattern: 'api.anthropic.com',
+            injectionType: 'header',
+            headerName: 'x-api-key',
+          },
+        ],
+      }, _ctx);
+
+      const listResult = await credentialStoreTool.execute({ action: 'list' }, _ctx);
+      expect(listResult.isError).toBe(false);
+      const entries = JSON.parse(listResult.content);
+      const entry = entries.find((e: { service: string; field: string }) =>
+        e.service === 'anthropic' && e.field === 'api_key',
+      );
+      expect(entry).toBeDefined();
+
+      // Verify metadata persisted correctly
+      const metadata = getCredentialMetadata('anthropic', 'api_key');
+      expect(metadata).toBeDefined();
+      expect(metadata!.alias).toBe('claude-key');
+      expect(metadata!.injectionTemplates).toHaveLength(1);
+    });
+
+    test('update alias on existing credential', async () => {
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'fal',
+        field: 'api_key',
+        value: 'fal-key-123',
+        alias: 'fal-old',
+      }, _ctx);
+
+      let metadata = getCredentialMetadata('fal', 'api_key');
+      expect(metadata!.alias).toBe('fal-old');
+
+      // Re-store same credential with updated alias
+      await credentialStoreTool.execute({
+        action: 'store',
+        service: 'fal',
+        field: 'api_key',
+        value: 'fal-key-123',
+        alias: 'fal-new',
+      }, _ctx);
+
+      metadata = getCredentialMetadata('fal', 'api_key');
+      expect(metadata!.alias).toBe('fal-new');
+    });
+
+    test('store with query injection template', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'mapbox',
+        field: 'token',
+        value: 'pk.test123',
+        injection_templates: [
+          {
+            hostPattern: 'api.mapbox.com',
+            injectionType: 'query',
+            queryParamName: 'access_token',
+          },
+        ],
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      const metadata = getCredentialMetadata('mapbox', 'token');
+      expect(metadata!.injectionTemplates).toHaveLength(1);
+      expect(metadata!.injectionTemplates![0].injectionType).toBe('query');
+      expect(metadata!.injectionTemplates![0].queryParamName).toBe('access_token');
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Namespace isolation
   // -----------------------------------------------------------------------
   describe('namespace isolation', () => {
