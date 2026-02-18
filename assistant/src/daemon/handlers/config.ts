@@ -41,11 +41,21 @@ export function handleModelSet(
   ctx: HandlerContext,
 ): void {
   try {
+    // Validate API key before switching
+    const provider = MODEL_TO_PROVIDER[msg.model];
+    if (provider && provider !== 'ollama') {
+      const currentConfig = getConfig();
+      if (!currentConfig.apiKeys[provider]) {
+        ctx.send(socket, { type: 'error', message: `Cannot switch to ${msg.model}. No API key configured for ${provider}.` });
+        return;
+      }
+    }
+
     // Use raw config to avoid persisting env-var API keys to disk
     const raw = loadRawConfig();
     raw.model = msg.model;
     // Infer provider from model ID to keep provider and model in sync
-    raw.provider = MODEL_TO_PROVIDER[msg.model] ?? raw.provider;
+    raw.provider = provider ?? raw.provider;
 
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload
