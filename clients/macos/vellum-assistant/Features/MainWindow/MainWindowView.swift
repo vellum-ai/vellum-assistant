@@ -641,17 +641,13 @@ struct MainWindowView: View {
             .padding(.trailing, VSpacing.sm)
             .frame(height: 36)
 
-            NewConversationButton(action: { windowState.selection = nil; threadManager.createThread() })
-                .padding(.horizontal, VSpacing.md)
-                .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.xl)
-
             ScrollView {
-                VStack(spacing: VSpacing.xxl) {
+                VStack(spacing: 0) {
                     // MARK: Threads Section
                     VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Threads")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        SidebarSectionHeader(title: "Threads") {
+                            NewConversationButton(action: { windowState.selection = nil; threadManager.createThread() })
+                        }
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
@@ -677,21 +673,28 @@ struct MainWindowView: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .padding(.bottom, VSpacing.md)
+
+                    Divider()
+                        .padding(.horizontal, VSpacing.sm)
 
                     // MARK: Apps Section
                     VStack(spacing: VSpacing.xs) {
-                        HStack {
-                            SidebarSectionHeader(title: "Pinned Apps")
-                            Spacer()
+                        SidebarSectionHeader(title: "Apps") {
                             Button {
                                 windowState.togglePanel(.directory)
                             } label: {
-                                Text("View more")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.accent)
+                                Text("Directory")
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    )
                             }
                             .buttonStyle(.plain)
-                            .padding(.trailing, VSpacing.lg)
                         }
 
                         if !appListManager.apps.isEmpty {
@@ -719,7 +722,12 @@ struct MainWindowView: View {
                             }
                         }
                     }
+                    .padding(.top, VSpacing.md)
                 }
+                .padding(VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .padding(.horizontal, VSpacing.sm)
                 .padding(.top, VSpacing.sm)
             }
             .scrollClipDisabled()
@@ -1327,16 +1335,33 @@ private struct ZoomIndicatorView: View {
     }
 }
 
-private struct SidebarSectionHeader: View {
+private struct SidebarSectionHeader<Trailing: View>: View {
     let title: String
+    let trailing: Trailing
+
+    init(title: String, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.trailing = trailing()
+    }
 
     var body: some View {
-        Text(title)
-            .font(VFont.headline)
-            .foregroundColor(VColor.textSecondary)
-            .textCase(.uppercase)
-            .padding(.leading, VSpacing.lg)
-            .padding(.bottom, VSpacing.xs)
+        HStack {
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+                .textCase(.uppercase)
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.bottom, VSpacing.xs)
+    }
+}
+
+extension SidebarSectionHeader where Trailing == EmptyView {
+    init(title: String) {
+        self.title = title
+        self.trailing = EmptyView()
     }
 }
 
@@ -1344,8 +1369,20 @@ private struct NewConversationButton: View {
     let action: () -> Void
 
     var body: some View {
-        VButton(label: "New conversation", icon: "plus", style: .primary, isFullWidth: true, action: action)
-            .controlSize(.small)
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                Text("New")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.accent)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
