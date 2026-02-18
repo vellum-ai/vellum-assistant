@@ -2,8 +2,8 @@
  * App tool definitions.
  *
  * These tools allow the model to create, list, update, open, query, and delete
- * persistent user-defined apps.  Most are local tools that call functions in
- * the app-store data layer; `app_open` is a proxy tool forwarded to the
+ * persistent user-defined apps.  Most are local tools that delegate to executor
+ * functions in executors.ts; `app_open` is a proxy tool forwarded to the
  * connected macOS client (same pattern as ui_show).
  */
 
@@ -11,6 +11,18 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolExecutionResult, ToolContext } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import * as appStore from '../../memory/app-store.js';
+import {
+  executeAppCreate,
+  executeAppList,
+  executeAppQuery,
+  executeAppUpdate,
+  executeAppDelete,
+  executeAppFileList,
+  executeAppFileRead,
+  executeAppFileEdit,
+  executeAppFileWrite,
+} from './executors.js';
+import type { AppCreateInput, AppFileEditInput, AppFileWriteInput } from './executors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,43 +119,11 @@ export const appCreateTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    const name = input.name as string;
-    const description = input.description as string | undefined;
-    const schemaJson = (input.schema_json as string | undefined) ?? '{}';
-    const htmlDefinition = input.html as string;
-    const pages = input.pages as Record<string, string> | undefined;
-    const autoOpen = input.auto_open !== false; // default true
-    const preview = input.preview as Record<string, unknown> | undefined;
-    const appType = (input.type as string | undefined) === 'site' ? 'site' as const : 'app' as const;
-
-    const app = appStore.createApp({ name, description, schemaJson, htmlDefinition, pages, appType });
-
-    // Auto-open the app via the proxy resolver if available
-    if (autoOpen && context.proxyToolResolver) {
-      try {
-        const openResult = await context.proxyToolResolver('app_open', { app_id: app.id, preview });
-        return {
-          content: JSON.stringify({
-            ...app,
-            auto_opened: true,
-            open_result: openResult.content,
-          }),
-          isError: false,
-        };
-      } catch {
-        // App was created successfully but auto-open failed; return creation result with a note
-        return {
-          content: JSON.stringify({
-            ...app,
-            auto_opened: false,
-            auto_open_error: 'Failed to auto-open app. Use app_open to open it manually.',
-          }),
-          isError: false,
-        };
-      }
-    }
-
-    return { content: JSON.stringify(app), isError: false };
+    return executeAppCreate(
+      input as unknown as AppCreateInput,
+      appStore,
+      context.proxyToolResolver,
+    );
   },
 };
 
@@ -202,13 +182,7 @@ export const appListTool: Tool = {
   },
 
   async execute(_input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const apps = appStore.listApps().map((a) => ({
-      id: a.id,
-      name: a.name,
-      description: a.description,
-      updatedAt: a.updatedAt,
-    }));
-    return { content: JSON.stringify(apps), isError: false };
+    return executeAppList(appStore);
   },
 };
 
@@ -241,9 +215,7 @@ export const appQueryTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const records = appStore.queryAppRecords(appId);
-    return { content: JSON.stringify(records), isError: false };
+    return executeAppQuery({ app_id: input.app_id as string }, appStore);
   },
 };
 
@@ -299,16 +271,17 @@ export const appUpdateTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const updates: Partial<Pick<appStore.AppDefinition, 'name' | 'description' | 'schemaJson' | 'htmlDefinition' | 'pages'>> = {};
-    if (typeof input.name === 'string') updates.name = input.name;
-    if (typeof input.description === 'string') updates.description = input.description;
-    if (typeof input.schema_json === 'string') updates.schemaJson = input.schema_json;
-    if (typeof input.html === 'string') updates.htmlDefinition = input.html;
-    if (input.pages && typeof input.pages === 'object') updates.pages = input.pages as Record<string, string>;
-
-    const app = appStore.updateApp(appId, updates);
-    return { content: JSON.stringify(app), isError: false };
+    return executeAppUpdate(
+      {
+        app_id: input.app_id as string,
+        name: input.name as string | undefined,
+        description: input.description as string | undefined,
+        schema_json: input.schema_json as string | undefined,
+        html: input.html as string | undefined,
+        pages: input.pages as Record<string, string> | undefined,
+      },
+      appStore,
+    );
   },
 };
 
@@ -341,9 +314,7 @@ export const appDeleteTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    appStore.deleteApp(appId);
-    return { content: JSON.stringify({ deleted: true, appId }), isError: false };
+    return executeAppDelete({ app_id: input.app_id as string }, appStore);
   },
 };
 
@@ -376,9 +347,7 @@ export const appFileListTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const files = appStore.listAppFiles(appId);
-    return { content: JSON.stringify(files), isError: false };
+    return executeAppFileList({ app_id: input.app_id as string }, appStore);
   },
 };
 
@@ -424,24 +393,15 @@ export const appFileReadTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const path = input.path as string;
-    const offset = (input.offset as number | undefined) ?? 1;
-    const limit = input.limit as number | undefined;
-
-    const raw = appStore.readAppFile(appId, path);
-    const allLines = raw.split('\n');
-    const startIndex = Math.max(0, offset - 1);
-    const sliced = limit != null ? allLines.slice(startIndex, startIndex + limit) : allLines.slice(startIndex);
-
-    const formatted = sliced
-      .map((line, i) => {
-        const lineNum = startIndex + i + 1;
-        return `${String(lineNum).padStart(6)}\t${line}`;
-      })
-      .join('\n');
-
-    return { content: formatted, isError: false };
+    return executeAppFileRead(
+      {
+        app_id: input.app_id as string,
+        path: input.path as string,
+        offset: input.offset as number | undefined,
+        limit: input.limit as number | undefined,
+      },
+      appStore,
+    );
   },
 };
 
@@ -496,19 +456,7 @@ export const appFileEditTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const path = input.path as string;
-    const oldString = input.old_string as string;
-    const newString = input.new_string as string;
-    const replaceAll = (input.replace_all as boolean | undefined) ?? false;
-
-    if (!oldString) {
-      return { content: JSON.stringify({ error: 'old_string must not be empty' }), isError: true };
-    }
-
-    const status = input.status as string | undefined;
-    const result = appStore.editAppFile(appId, path, oldString, newString, replaceAll);
-    return { content: JSON.stringify(result), isError: false, status };
+    return executeAppFileEdit(input as unknown as AppFileEditInput, appStore);
   },
 };
 
@@ -554,18 +502,7 @@ export const appFileWriteTool: Tool = {
   },
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const appId = input.app_id as string;
-    const path = input.path as string;
-    const content = input.content as string;
-
-    const app = appStore.getApp(appId);
-    if (!app) {
-      return { content: JSON.stringify({ error: `App '${appId}' not found` }), isError: true };
-    }
-
-    const status = input.status as string | undefined;
-    appStore.writeAppFile(appId, path, content);
-    return { content: JSON.stringify({ written: true, path }), isError: false, status };
+    return executeAppFileWrite(input as unknown as AppFileWriteInput, appStore);
   },
 };
 
