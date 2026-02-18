@@ -29,8 +29,12 @@ class HostFileReadTool implements Tool {
             type: 'number',
             description: 'Maximum number of lines to read',
           },
+          reason: {
+            type: 'string',
+            description: 'Brief human-readable explanation of why this file is being read, shown to the user in the permission prompt',
+          },
         },
-        required: ['path'],
+        required: ['path', 'reason'],
       },
     };
   }

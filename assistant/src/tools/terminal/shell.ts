@@ -53,7 +53,7 @@ class ShellTool implements Tool {
             description: 'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
           },
         },
-        required: ['command'],
+        required: ['command', 'reason'],
       },
     };
   }
