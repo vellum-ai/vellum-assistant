@@ -437,6 +437,52 @@ describe('DaemonServer initial session hydration', () => {
     });
   });
 
+  test('session_create normalizes unrecognized threadType to standard', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    internal.dispatchMessage({
+      type: 'session_create',
+      title: 'Bad threadType',
+      threadType: 'bogus' as unknown,
+    }, socket);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should normalize to 'standard'
+    expect(lastCreateConversationArgs).toEqual({
+      title: 'Bad threadType',
+      threadType: 'standard',
+    });
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('standard');
+  });
+
+  test('session_create defaults missing threadType to standard', async () => {
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    internal.dispatchMessage({
+      type: 'session_create',
+      title: 'No threadType',
+    }, socket);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(lastCreateConversationArgs).toEqual({
+      title: 'No threadType',
+      threadType: 'standard',
+    });
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('standard');
+  });
+
   test('session_create with private threadType derives correct policy', async () => {
     // conversation starts as 'standard' from beforeEach — the mock
     // createConversation must derive private state from the IPC request.
