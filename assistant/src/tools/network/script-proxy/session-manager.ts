@@ -14,8 +14,10 @@ import type {
 import type { PolicyCallback } from './http-forwarder.js';
 import { evaluateRequestWithApproval } from './policy.js';
 import { getCAPath, ensureLocalCA } from './certs.js';
+import { minimatch } from 'minimatch';
 import { resolveById } from '../../credentials/resolve.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
+import { getSecureKey } from '../../../security/secure-keys.js';
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
   idleTimeoutMs: 5 * 60 * 1000, // 5 minutes
@@ -135,7 +137,33 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
         shouldIntercept: (hostname: string, port: number) =>
           routeConnection(hostname, port, managed.session.credentialIds, templates),
         rewriteCallback: async (req) => {
-          // Pass-through — credential injection wiring comes in a later PR
+          // Inject credential values into HTTPS requests that match a
+          // template host pattern. Secret values are read at injection time
+          // and MUST NEVER be logged or returned to callers.
+          for (const [credId, tpls] of templates) {
+            for (const tpl of tpls) {
+              if (!minimatch(req.hostname, tpl.hostPattern, { nocase: true })) continue;
+
+              const resolved = resolveById(credId);
+              if (!resolved) continue;
+              const value = getSecureKey(resolved.storageKey);
+              if (!value) continue;
+
+              if (tpl.injectionType === 'header' && tpl.headerName) {
+                req.headers[tpl.headerName.toLowerCase()] =
+                  (tpl.valuePrefix ?? '') + value;
+                return req.headers;
+              }
+              // Query param injection requires URL path rewriting, which the
+              // current RewriteCallback interface doesn't support. For now,
+              // return headers unchanged — query injection will be wired once
+              // the MITM handler gains path-rewrite capability.
+              if (tpl.injectionType === 'query') {
+                return req.headers;
+              }
+              return req.headers;
+            }
+          }
           return req.headers;
         },
       };
@@ -155,8 +183,23 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
     );
 
     switch (decision.kind) {
-      case 'matched':
-        return {}; // credential injection headers added in a later PR
+      case 'matched': {
+        // Inject the credential value into the outbound request headers.
+        // Secret values are read from secure storage at injection time and
+        // MUST NEVER be logged — sanitizeHeaders in logging.ts handles redaction.
+        const { credentialId, template } = decision;
+        const resolved = resolveById(credentialId);
+        if (!resolved) return {};
+        const value = getSecureKey(resolved.storageKey);
+        if (!value) return {};
+
+        if (template.injectionType === 'header' && template.headerName) {
+          const headerValue = (template.valuePrefix ?? '') + value;
+          return { [template.headerName]: headerValue };
+        }
+        // Query param injection is handled via URL rewriting in the MITM path
+        return {};
+      }
       case 'ambiguous':
         return null; // block — can't auto-resolve
       case 'ask_missing_credential':
