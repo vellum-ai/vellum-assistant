@@ -204,7 +204,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
   }
 
   // Build the policy callback for HTTP/CONNECT request gating
-  const policyCallback: PolicyCallback = async (hostname: string, port: number | null, reqPath: string) => {
+  const policyCallback: PolicyCallback = async (hostname: string, port: number | null, reqPath: string, scheme: 'http' | 'https') => {
     // Build allKnown from the full credential registry so the policy engine
     // can distinguish "known host, missing credential" from "unknown host".
     const allKnown: CredentialInjectionTemplate[] = [];
@@ -216,7 +216,7 @@ export async function startSession(sessionId: ProxySessionId): Promise<ProxySess
 
     const decision = evaluateRequestWithApproval(
       hostname, port, reqPath,
-      managed.session.credentialIds, templates, allKnown,
+      managed.session.credentialIds, templates, allKnown, scheme,
     );
 
     switch (decision.kind) {

@@ -108,7 +108,7 @@ export function createProxyServer(config: ProxyServerConfig = {}): Server {
         config.onRequest('CONNECT', req.url!);
       }
 
-      config.policyCallback(connectTarget.host, connectTarget.port === 443 ? null : connectTarget.port, '/')
+      config.policyCallback(connectTarget.host, connectTarget.port === 443 ? null : connectTarget.port, '/', 'https')
         .then((extraHeaders) => {
           if (extraHeaders === null) {
             clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');

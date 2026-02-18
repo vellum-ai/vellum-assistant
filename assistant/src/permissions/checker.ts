@@ -102,7 +102,7 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
   return parsed;
 }
 
-function normalizeWebFetchUrl(rawUrl: string): URL | null {
+export function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 

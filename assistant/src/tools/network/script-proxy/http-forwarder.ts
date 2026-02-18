@@ -28,6 +28,7 @@ export type PolicyCallback = (
   hostname: string,
   port: number | null,
   path: string,
+  scheme: 'http' | 'https',
 ) => Promise<Record<string, string> | null>;
 
 /**
@@ -129,7 +130,7 @@ export function forwardHttpRequest(
   };
 
   if (policyCallback) {
-    policyCallback(hostname, parsed.port ? Number(parsed.port) : null, path)
+    policyCallback(hostname, parsed.port ? Number(parsed.port) : null, path, 'http')
       .then((extraHeaders) => {
         if (extraHeaders === null) {
           clientRes.writeHead(403, { 'Content-Type': 'text/plain' });

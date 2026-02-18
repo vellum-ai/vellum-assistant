@@ -65,6 +65,8 @@ export interface RequestTargetContext {
   hostname: string;
   port: number | null;
   path: string;
+  /** The protocol scheme of the original request ('http' or 'https'). */
+  scheme: 'http' | 'https';
 }
 
 /**

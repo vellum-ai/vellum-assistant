@@ -175,7 +175,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result).toEqual({
       kind: 'ask_missing_credential',
-      target: { hostname: 'api.fal.ai', port: 443, path: '/v1/run' },
+      target: { hostname: 'api.fal.ai', port: 443, path: '/v1/run', scheme: 'https' },
       matchingPatterns: ['*.fal.ai'],
     });
   });
@@ -213,7 +213,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result).toEqual({
       kind: 'ask_missing_credential',
-      target: { hostname: 'api.fal.ai', port: 8080, path: '/generate' },
+      target: { hostname: 'api.fal.ai', port: 8080, path: '/generate', scheme: 'https' },
       matchingPatterns: ['*.fal.ai'],
     });
   });
@@ -225,7 +225,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result).toEqual({
       kind: 'ask_unauthenticated',
-      target: { hostname: 'example.com', port: null, path: '/data' },
+      target: { hostname: 'example.com', port: null, path: '/data', scheme: 'https' },
     });
   });
 
@@ -239,7 +239,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result).toEqual({
       kind: 'ask_unauthenticated',
-      target: { hostname: 'example.com', port: 443, path: '/' },
+      target: { hostname: 'example.com', port: 443, path: '/', scheme: 'https' },
     });
   });
 
@@ -257,7 +257,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result).toEqual({
       kind: 'ask_unauthenticated',
-      target: { hostname: 'unknown-service.internal', port: null, path: '/api' },
+      target: { hostname: 'unknown-service.internal', port: null, path: '/api', scheme: 'https' },
     });
   });
 
@@ -268,7 +268,7 @@ describe('evaluateRequestWithApproval', () => {
     );
     expect(result.kind).toBe('ask_unauthenticated');
     if (result.kind === 'ask_unauthenticated') {
-      expect(result.target).toEqual({ hostname: 'localhost', port: 3000, path: '/webhook' });
+      expect(result.target).toEqual({ hostname: 'localhost', port: 3000, path: '/webhook', scheme: 'https' });
     }
   });
 });

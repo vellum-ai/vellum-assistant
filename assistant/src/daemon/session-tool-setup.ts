@@ -13,7 +13,7 @@ import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
+import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { coreAppProxyTools } from '../tools/apps/definitions.js';
@@ -194,7 +194,8 @@ export function createProxyApprovalCallback(
     // Use the standard network_request tool name so trust rules align with
     // the checker's URL-based candidate generation and allowlist options.
     const toolName = 'network_request';
-    const url = `https://${hostname}${port ? ':' + port : ''}${path}`;
+    const { scheme } = decision.target;
+    const url = `${scheme}://${hostname}${port ? ':' + port : ''}${path}`;
 
     const input: Record<string, unknown> = {
       url,
@@ -208,13 +209,11 @@ export function createProxyApprovalCallback(
 
     // Check trust store before prompting — build candidates that mirror
     // buildCommandCandidates() in checker.ts for network_request.
-    let urlObj: URL | null = null;
-    try { urlObj = new URL(url); } catch { /* invalid URL — fall through */ }
-
     const candidates: string[] = [`${toolName}:${url}`];
-    if (urlObj) {
-      candidates.push(`${toolName}:${urlObj.href}`);
-      candidates.push(`${toolName}:${urlObj.origin}/*`);
+    const normalized = normalizeWebFetchUrl(url);
+    if (normalized) {
+      candidates.push(`${toolName}:${normalized.href}`);
+      candidates.push(`${toolName}:${normalized.origin}/*`);
     }
     candidates.push(`${toolName}:*`);
     // Deduplicate
