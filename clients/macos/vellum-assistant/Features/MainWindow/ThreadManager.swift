@@ -103,6 +103,28 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
     }
 
+    func createPrivateThread() {
+        let thread = ThreadModel(kind: .private)
+        let viewModel = makeViewModel()
+        let threadId = thread.id
+        viewModel.onFirstUserMessage = { [weak self] text in
+            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            self?.updateLastInteracted(threadId: threadId)
+            Task { @MainActor in
+                await self?.generateTitle(for: threadId, userMessage: text)
+            }
+        }
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+        activeThreadId = thread.id
+
+        // Immediately create a daemon session so the thread is persisted
+        // before the user sends any messages.
+        viewModel.createSessionIfNeeded(threadType: "private")
+
+        log.info("Created private thread \(thread.id)")
+    }
+
     func closeThread(id: UUID) {
         // No-op if only 1 thread remains
         guard threads.count > 1 else { return }
