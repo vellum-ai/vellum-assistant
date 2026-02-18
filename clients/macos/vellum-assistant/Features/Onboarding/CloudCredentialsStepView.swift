@@ -181,6 +181,8 @@ struct CloudCredentialsStepView: View {
 
     private var gcpFields: some View {
         VStack(spacing: VSpacing.sm) {
+            gcpSetupBlurb
+
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Project ID")
                     .font(.system(size: 13, weight: .medium))
@@ -212,12 +214,40 @@ struct CloudCredentialsStepView: View {
                     }
                 )
             }
-
-            Text("Create a service account with Compute Admin permissions and upload its JSON key file.")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var gcpSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, set up the following in the Google Cloud Console:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                gcpSetupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
+                gcpSetupStep("2. Create a Service Account with the Compute Admin role.")
+                gcpSetupStep("3. Generate a JSON key for the service account and download it.")
+            }
+            Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
+                Text("Open Google Cloud Console")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Violet._400))
+            }
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+        )
+    }
+
+    private func gcpSetupStep(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundColor(VColor.textMuted)
     }
 
     // MARK: - File Picker UI
