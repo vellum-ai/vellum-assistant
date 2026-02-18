@@ -7,6 +7,7 @@ struct JITPermissionView: View {
 
     @State private var showContent = false
     @State private var iconScale: CGFloat = 1.0
+    @State private var showTechnicalDetails = false
 
     var body: some View {
         ZStack {
@@ -32,6 +33,7 @@ struct JITPermissionView: View {
         .onAppear {
             if manager.activePermissionRequest != nil {
                 showContent = false
+                showTechnicalDetails = false
                 iconScale = 1.0
                 withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
                     showContent = true
@@ -42,6 +44,7 @@ struct JITPermissionView: View {
         .onChange(of: manager.activePermissionRequest) { _, newValue in
             if newValue != nil {
                 showContent = false
+                showTechnicalDetails = false
                 iconScale = 1.0
                 withAnimation(.easeOut(duration: 0.4).delay(0.1)) {
                     showContent = true
@@ -50,6 +53,7 @@ struct JITPermissionView: View {
             } else {
                 withAnimation(VAnimation.fast) {
                     showContent = false
+                    showTechnicalDetails = false
                 }
             }
         }
@@ -59,24 +63,17 @@ struct JITPermissionView: View {
 
     private func permissionCard(for request: JITPermissionManager.JITPermissionType) -> some View {
         VStack(spacing: VSpacing.xl) {
-            // Body part icon with breathing animation
+            // Icon with breathing glow
             ZStack {
-                // Glow behind icon
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [
-                                VColor.accent.opacity(0.3),
-                                VColor.accent.opacity(0.0)
-                            ],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 40
+                            colors: [VColor.accent.opacity(0.3), VColor.accent.opacity(0.0)],
+                            center: .center, startRadius: 0, endRadius: 40
                         )
                     )
                     .frame(width: 80, height: 80)
                     .scaleEffect(iconScale)
-
                 Image(systemName: request.icon)
                     .font(.system(size: 32, weight: .light))
                     .foregroundColor(VColor.accent)
@@ -85,11 +82,12 @@ struct JITPermissionView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
 
-            // Title
+            // Non-technical question (bold) + supporting message
             VStack(spacing: VSpacing.sm) {
                 Text(request.title)
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .multilineTextAlignment(.center)
 
                 Text(request.message)
                     .font(VFont.body)
@@ -100,24 +98,44 @@ struct JITPermissionView: View {
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 6)
 
-            // Explanation card
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "lock.shield")
-                        .font(.system(size: 11))
-                        .foregroundColor(VColor.textMuted)
-                    Text("Privacy")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textMuted)
+            // Collapsed technical details accordion
+            VStack(alignment: .leading, spacing: 0) {
+                Button(action: {
+                    withAnimation(VAnimation.standard) {
+                        showTechnicalDetails.toggle()
+                    }
+                }) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VColor.accent)
+                            .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
+                        Text("Technical details")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.accent)
+                    }
                 }
+                .buttonStyle(.plain)
 
-                Text(request.explanation)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                if showTechnicalDetails {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text(request.explanation)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(request.technicalDetails)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, VSpacing.sm)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
+            .clipped()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(VSpacing.lg)
+            .padding(VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.surface.opacity(0.3))
@@ -128,18 +146,17 @@ struct JITPermissionView: View {
             )
             .opacity(showContent ? 1 : 0)
 
-            // Buttons
-            VStack(spacing: VSpacing.md) {
-                OnboardingButton(title: "Allow", style: .primary) {
-                    manager.grantActivePermission()
-                }
-
-                Button("Not now") {
+            // Action buttons
+            HStack(spacing: VSpacing.sm) {
+                permissionButton("Don't Allow", isPrimary: false) {
                     dismiss()
                 }
-                .buttonStyle(.plain)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+                permissionButton("Allow", isPrimary: false) {
+                    manager.grantActivePermission()
+                }
+                permissionButton("Always Allow", isPrimary: true) {
+                    manager.grantActivePermission(always: true)
+                }
             }
             .opacity(showContent ? 1 : 0)
         }
@@ -162,6 +179,26 @@ struct JITPermissionView: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private func permissionButton(_ title: String, isPrimary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(isPrimary ? .white : VColor.textPrimary.opacity(0.85))
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.sm + VSpacing.xxs)
+                .background(isPrimary ? AnyShapeStyle(VColor.accent) : AnyShapeStyle(Color.clear))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(isPrimary ? Color.clear : VColor.textPrimary.opacity(0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
 
     private func dismiss() {
         manager.dismissActivePermission()

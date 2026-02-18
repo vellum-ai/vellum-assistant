@@ -54,6 +54,14 @@ final class JITPermissionManager {
             }
         }
 
+        var technicalDetails: String {
+            switch self {
+            case .microphone: return "Grants access to the system microphone via the Speech Recognition permission. Used only during voice input activation (Fn key hold). Audio is processed locally by Apple's Speech Framework and transcribed text is sent to Claude for processing."
+            case .accessibility: return "Grants Accessibility API access (AXUIElement) allowing programmatic control of UI elements. Required for computer control features like clicking buttons, typing text, and navigating applications on your behalf. Access is limited to user-initiated tasks."
+            case .screenCapture: return "Grants Screen Recording permission allowing the app to capture screenshots of your display. Used during computer control sessions to provide visual context to Claude. Captures are transient and used only for task execution."
+            }
+        }
+
         var icon: String {
             switch self {
             case .microphone: return "ear"
@@ -66,6 +74,23 @@ final class JITPermissionManager {
     // Check if permission is needed and show JIT request if so
     func requestIfNeeded(_ type: JITPermissionType) -> Bool {
         guard isActive else { return true } // Not in JIT mode, skip
+
+        if isAlwaysAllowed(type) {
+            // User previously chose Always Allow — skip the dialog but still verify OS permission.
+            // If the OS permission was later revoked, trigger the grant flow directly without showing the dialog.
+            switch type {
+            case .microphone:
+                if SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
+            case .accessibility:
+                if PermissionManager.accessibilityStatus(prompt: false) == .granted { return true }
+            case .screenCapture:
+                if CGPreflightScreenCaptureAccess() { return true }
+            }
+            // OS permission not granted — trigger OS prompt directly without showing JIT dialog
+            activePermissionRequest = type
+            grantActivePermission()
+            return false
+        }
 
         switch type {
         case .microphone:
@@ -83,9 +108,10 @@ final class JITPermissionManager {
         }
     }
 
-    // Grant the currently active permission
-    func grantActivePermission() {
+    // Grant the currently active permission; pass always: true to skip this dialog in future sessions
+    func grantActivePermission(always: Bool = false) {
         guard let type = activePermissionRequest else { return }
+        if always { setAlwaysAllowed(type) }
         switch type {
         case .microphone:
             SFSpeechRecognizer.requestAuthorization { _ in }
@@ -102,6 +128,24 @@ final class JITPermissionManager {
 
     func dismissActivePermission() {
         activePermissionRequest = nil
+    }
+
+    // MARK: - Always Allow persistence
+
+    private func alwaysAllowKey(for type: JITPermissionType) -> String {
+        switch type {
+        case .microphone:   return "com.vellum.jit.alwaysAllow.microphone"
+        case .accessibility: return "com.vellum.jit.alwaysAllow.accessibility"
+        case .screenCapture: return "com.vellum.jit.alwaysAllow.screenCapture"
+        }
+    }
+
+    private func isAlwaysAllowed(_ type: JITPermissionType) -> Bool {
+        UserDefaults.standard.bool(forKey: alwaysAllowKey(for: type))
+    }
+
+    private func setAlwaysAllowed(_ type: JITPermissionType) {
+        UserDefaults.standard.set(true, forKey: alwaysAllowKey(for: type))
     }
 }
 
