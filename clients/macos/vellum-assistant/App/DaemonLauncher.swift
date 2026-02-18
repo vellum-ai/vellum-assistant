@@ -203,6 +203,7 @@ final class DaemonLauncher {
 
         let proc = Process()
         proc.executableURL = binaryURL
+        proc.arguments = buildRemoteArgs()
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
 
@@ -238,5 +239,24 @@ final class DaemonLauncher {
 
     private func cleanupPIDFile() {
         try? FileManager.default.removeItem(at: pidFileURL)
+    }
+
+    private static let hostingModeToRemote: [String: String] = [
+        "aws": "aws",
+        "customHardware": "custom",
+        "gcp": "gcp",
+    ]
+
+    private func buildRemoteArgs() -> [String] {
+        let configURL = vellumDir
+            .appendingPathComponent("workspace")
+            .appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hostingMode = json["hostingMode"] as? String,
+              let remoteValue = Self.hostingModeToRemote[hostingMode] else {
+            return []
+        }
+        return ["--remote", remoteValue]
     }
 }
