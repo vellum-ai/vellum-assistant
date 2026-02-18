@@ -663,6 +663,7 @@ export class DaemonServer {
       type: 'session_info',
       sessionId: conversation.id,
       title: conversation.title ?? 'New Conversation',
+      threadType: conversation.threadType,
     });
 
     this.send(socket, {

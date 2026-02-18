@@ -275,6 +275,7 @@ export async function handleSessionSwitch(
     type: 'session_info',
     sessionId: conversation.id,
     title: conversation.title ?? 'Untitled',
+    threadType: conversation.threadType,
   });
 }
 

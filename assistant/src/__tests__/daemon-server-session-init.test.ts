@@ -8,6 +8,7 @@ const conversation = {
   totalInputTokens: 0,
   totalOutputTokens: 0,
   totalEstimatedCost: 0,
+  threadType: 'standard' as string,
 };
 
 let lastCreatedWorkingDir: string | undefined;
@@ -54,6 +55,12 @@ class MockSession {
   }
 
   abort(): void {}
+
+  hasEscalationHandler(): boolean {
+    return true;
+  }
+
+  setEscalationHandler(): void {}
 
   handleConfirmationResponse(): void {}
 
@@ -228,5 +235,53 @@ describe('DaemonServer initial session hydration', () => {
     internal.dispatchMessage({ type: 'sandbox_set', enabled: false }, socket);
 
     expect(session!.setSandboxOverrideCalls).toBe(0);
+  });
+
+  test('sendInitialSession includes threadType in session_info', async () => {
+    conversation.threadType = 'private';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('private');
+  });
+
+  test('sendInitialSession includes standard threadType by default', async () => {
+    conversation.threadType = 'standard';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    await internal.sendInitialSession(socket);
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('standard');
+  });
+
+  test('session_switch includes threadType in session_info', async () => {
+    conversation.threadType = 'private';
+    const server = new DaemonServer();
+    const internal = asDaemonServerTestAccess(server);
+    const { socket, writes } = createFakeSocket();
+
+    // Hydrate the session first so switch has something to find
+    await internal.sendInitialSession(socket);
+    writes.length = 0;
+
+    internal.dispatchMessage({ type: 'session_switch', sessionId: conversation.id }, socket);
+    // Allow async handler to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    const messages = decodeMessages(writes);
+    const sessionInfo = messages.find((msg) => msg.type === 'session_info');
+    expect(sessionInfo).toBeDefined();
+    expect(sessionInfo!.threadType).toBe('private');
   });
 });
