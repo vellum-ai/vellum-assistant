@@ -1214,4 +1214,38 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     // when check() already returned 'prompt'
     expect(promptCount).toBe(1);
   });
+
+  // ── USER.md security invariant (PR 31) ──────────
+
+  test('file_edit to USER.md forces prompt in private thread even with matching trust rule', async () => {
+    // This is a key security invariant: USER.md contains the user's persistent
+    // memory. In a private thread (forcePromptSideEffects=true), edits to it
+    // must always require explicit approval, even when a trust rule matches.
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule: file_edit:*/USER.md' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_edit',
+      { path: '/Users/sidd/.vellum/workspace/USER.md', old_string: 'old pref', new_string: 'new pref' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // file_edit is a side-effect tool, so forcePromptSideEffects must trigger prompting
+    expect(promptCalled).toBe(true);
+  });
+
+  test('host_file_edit to USER.md forces prompt in private thread', async () => {
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'host_file_edit',
+      { path: '/Users/sidd/.vellum/workspace/USER.md', old_string: 'x', new_string: 'y' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(promptCalled).toBe(true);
+  });
 });

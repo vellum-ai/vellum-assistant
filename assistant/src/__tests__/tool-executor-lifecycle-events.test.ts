@@ -401,4 +401,115 @@ describe('ToolExecutor lifecycle events', () => {
 
     await expect(raced).resolves.toEqual({ content: 'ok', isError: false });
   });
+
+  // ── forcePromptSideEffects lifecycle event tests (PR 31) ──────────
+
+  test('emits permission_prompt with private-thread reason when forcePromptSideEffects is true for file_edit', async () => {
+    // check() returns allow — simulating a matched trust rule that would
+    // normally auto-allow. The forcePromptSideEffects flag should promote
+    // this to a prompt.
+    checkerDecision = 'allow';
+    checkerReason = 'Matched trust rule';
+    checkerRisk = 'low';
+    promptDecision = 'allow';
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      'file_edit',
+      { path: '/tmp/project/config.ts', old_string: 'a', new_string: 'b' },
+      {
+        ...makeContext(events),
+        forcePromptSideEffects: true,
+      },
+    );
+
+    expect(result).toEqual({ content: 'ok', isError: false });
+
+    const promptEvent = events.find((e) => e.type === 'permission_prompt');
+    expect(promptEvent).toBeDefined();
+    if (promptEvent?.type !== 'permission_prompt') throw new Error('Expected permission_prompt event');
+    expect(promptEvent.toolName).toBe('file_edit');
+    expect(promptEvent.reason).toBe('Private thread: side-effect tools require explicit approval');
+  });
+
+  test('permission_prompt reason reflects private-thread policy for bash under forcePromptSideEffects', async () => {
+    checkerDecision = 'allow';
+    checkerReason = 'Matched trust rule';
+    checkerRisk = 'low';
+    promptDecision = 'allow';
+    sandboxed = true;
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      'bash',
+      { command: 'npm install' },
+      {
+        ...makeContext(events),
+        forcePromptSideEffects: true,
+      },
+    );
+
+    const promptEvent = events.find((e) => e.type === 'permission_prompt');
+    expect(promptEvent).toBeDefined();
+    if (promptEvent?.type !== 'permission_prompt') throw new Error('Expected permission_prompt event');
+    expect(promptEvent.toolName).toBe('bash');
+    expect(promptEvent.reason).toBe('Private thread: side-effect tools require explicit approval');
+    expect(promptEvent.sandboxed).toBe(true);
+  });
+
+  test('no permission_prompt event for read-only tool even with forcePromptSideEffects', async () => {
+    checkerDecision = 'allow';
+    checkerReason = 'allowed';
+    checkerRisk = 'low';
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      'file_read',
+      { path: '/tmp/project/README.md' },
+      {
+        ...makeContext(events),
+        forcePromptSideEffects: true,
+      },
+    );
+
+    // file_read is not a side-effect tool, so no prompt event should appear
+    const promptEvent = events.find((e) => e.type === 'permission_prompt');
+    expect(promptEvent).toBeUndefined();
+    expect(events.map((e) => e.type)).toEqual(['start', 'executed']);
+  });
+
+  test('file_edit to USER.md emits permission_prompt under forcePromptSideEffects', async () => {
+    // Security invariant: editing USER.md in a private thread must always
+    // prompt, even when a trust rule would auto-allow.
+    checkerDecision = 'allow';
+    checkerReason = 'Matched trust rule: file_edit:*/USER.md';
+    checkerRisk = 'low';
+    promptDecision = 'allow';
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      'file_edit',
+      { path: '/Users/sidd/.vellum/workspace/USER.md', old_string: 'old', new_string: 'new' },
+      {
+        ...makeContext(events),
+        forcePromptSideEffects: true,
+      },
+    );
+
+    expect(result).toEqual({ content: 'ok', isError: false });
+
+    const promptEvent = events.find((e) => e.type === 'permission_prompt');
+    expect(promptEvent).toBeDefined();
+    if (promptEvent?.type !== 'permission_prompt') throw new Error('Expected permission_prompt event');
+    expect(promptEvent.toolName).toBe('file_edit');
+    expect(promptEvent.reason).toBe('Private thread: side-effect tools require explicit approval');
+  });
 });
