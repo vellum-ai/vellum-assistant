@@ -7,6 +7,7 @@ import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } f
 import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { ToolError, PermissionDeniedError } from '../util/errors.js';
+import { TokenExpiredError } from '../security/token-manager.js';
 import { getLogger } from '../util/logger.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
@@ -479,7 +480,7 @@ export class ToolExecutor {
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
-      const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError;
+      const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
 
       emitLifecycleEvent(context, {
         type: 'error',

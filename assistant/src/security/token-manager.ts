@@ -108,7 +108,11 @@ export async function withValidToken<T>(
 ): Promise<T> {
   let token = getSecureKey(`credential:${service}:access_token`);
   if (!token) {
-    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.`);
+    const isGoogle = service === 'integration:gmail' || service === 'integration:google-calendar';
+    const googleHint = isGoogle
+      ? ' Do NOT fabricate credentials. Install and load the "google-oauth-setup" skill to set up OAuth credentials properly.'
+      : '';
+    throw new TokenExpiredError(service, `No access token found for "${service}". Authorization required.${googleHint}`);
   }
 
   // Proactively refresh if expired or about to expire.
