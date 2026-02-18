@@ -147,7 +147,11 @@ export async function executeBrowserNavigate(
     if (!allowPrivateNetwork && browserManager.browserMode !== 'cdp') {
       // Cache DNS results per-hostname to avoid redundant lookups on subrequests
       // (heavy sites like DoorDash fire hundreds of requests to the same CDN hostnames).
-      const dnsCache = new Map<string, { addresses: string[]; blockedAddress?: string }>();
+      // Use a short TTL to mitigate DNS rebinding attacks where a hostname first
+      // resolves to a public IP then later to a private one. Blocked results are
+      // never cached so they are always re-resolved.
+      const DNS_CACHE_TTL_MS = 5_000;
+      const dnsCache = new Map<string, { addresses: string[]; blockedAddress?: string; cachedAt: number }>();
       routeHandler = async (route, request) => {
         try {
           const reqUrl = request.url();
@@ -167,16 +171,27 @@ export async function executeBrowserNavigate(
             return;
           }
 
-          // Resolve DNS and check resolved addresses (cached per hostname)
-          let resolution = dnsCache.get(reqParsed.hostname);
-          if (!resolution) {
-            resolution = await resolveRequestAddress(
+          // Resolve DNS and check resolved addresses (cached per hostname with TTL).
+          // Blocked results are never cached to ensure re-resolution catches
+          // DNS rebinding where a hostname flips from public to private IP.
+          let cached = dnsCache.get(reqParsed.hostname);
+          const now = Date.now();
+          if (cached && (now - cached.cachedAt > DNS_CACHE_TTL_MS)) {
+            dnsCache.delete(reqParsed.hostname);
+            cached = undefined;
+          }
+          const resolution = cached ?? await (async () => {
+            const res = await resolveRequestAddress(
               reqParsed.hostname,
               resolveHostAddresses,
               false,
             );
-            dnsCache.set(reqParsed.hostname, resolution);
-          }
+            // Only cache allowed results; blocked results must be re-resolved
+            if (!res.blockedAddress) {
+              dnsCache.set(reqParsed.hostname, { ...res, cachedAt: now });
+            }
+            return res;
+          })();
           if (resolution.blockedAddress) {
             blockedUrl = sanitizeUrlForOutput(reqParsed);
             log.warn({ blockedUrl, resolvedTo: resolution.blockedAddress }, 'Blocked navigation: DNS resolves to private address');
@@ -198,14 +213,20 @@ export async function executeBrowserNavigate(
     // scripts after DOMContentLoaded). Fall back gracefully instead of failing.
     let response: PageResponse | null = null;
     let navigationTimedOut = false;
+    const urlBeforeNav = page.url();
     try {
       response = await page.goto(parsedUrl.href, {
         waitUntil: 'domcontentloaded',
-        timeout: 15_000,
+        timeout: NAVIGATE_TIMEOUT_MS,
       });
     } catch (navErr) {
       const navMsg = navErr instanceof Error ? navErr.message : String(navErr);
       if (navMsg.includes('Timeout') || navMsg.includes('timeout')) {
+        // If the page URL never changed from before navigation, the page
+        // never actually loaded — re-throw instead of reporting success.
+        if (page.url() === urlBeforeNav) {
+          throw navErr;
+        }
         navigationTimedOut = true;
         log.info({ url: safeRequestedUrl }, 'Navigation timed out waiting for domcontentloaded, continuing with partial load');
       } else {

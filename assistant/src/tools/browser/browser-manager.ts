@@ -200,13 +200,16 @@ class BrowserManager {
             } else {
               log.warn('Client accepted CDP request but CDP not detected');
               useCdp = false;
+              this._browserMode = 'headless';
             }
           } else {
             log.info('Client declined CDP request');
             useCdp = false;
+            this._browserMode = 'headless';
           }
         } else if (!cdpAvailable) {
           useCdp = false;
+          this._browserMode = 'headless';
         }
       }
 
