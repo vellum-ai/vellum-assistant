@@ -11,7 +11,7 @@ final class AvatarAppearanceManager {
 
     static let shared = AvatarAppearanceManager()
 
-    private var looksPath: String {
+    var looksPath: String {
         NSHomeDirectory() + "/.vellum/workspace/LOOKS.md"
     }
 
@@ -60,5 +60,32 @@ final class AvatarAppearanceManager {
 
         fileMonitor = source
         source.resume()
+    }
+
+    // MARK: - Evolution Write-Back
+
+    /// Write a resolved LooksConfig to LOOKS.md.
+    /// Only writes if the config actually changed from current.
+    func applyEvolutionResult(_ newConfig: LooksConfig) {
+        guard newConfig != config else { return }
+
+        let content = """
+        - **Body:** \(newConfig.bodyColor)
+        - **Cheeks:** \(newConfig.cheekColor)
+        - **Hat:** \(formatOutfitField(newConfig.hat, color: newConfig.hatColor))
+        - **Shirt:** \(formatOutfitField(newConfig.shirt, color: newConfig.shirtColor))
+        - **Accessory:** \(formatOutfitField(newConfig.accessory, color: newConfig.accessoryColor))
+        - **Held Item:** \(newConfig.heldItem)
+        """
+
+        try? content.write(toFile: looksPath, atomically: true, encoding: .utf8)
+        // File watcher will pick up the change and call reload()
+    }
+
+    private func formatOutfitField(_ item: String, color: String?) -> String {
+        if let color = color, color != "none" {
+            return "\(item) (\(color))"
+        }
+        return item
     }
 }

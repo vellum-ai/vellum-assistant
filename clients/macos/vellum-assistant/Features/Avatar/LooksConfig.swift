@@ -1,7 +1,7 @@
 import Foundation
 
 /// Parses LOOKS.md from the workspace and provides a color palette and outfit for the dino avatar.
-struct LooksConfig {
+struct LooksConfig: Equatable {
     var bodyColor: String
     var cheekColor: String
 
