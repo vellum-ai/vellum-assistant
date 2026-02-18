@@ -4,7 +4,6 @@ import type { ToolDefinition } from '../../providers/types.js';
 import {
   getSecureKey,
   setSecureKey,
-  getSecureKey,
   deleteSecureKey,
   getBackendType,
   listSecureKeys,

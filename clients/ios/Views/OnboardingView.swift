@@ -288,6 +288,8 @@ struct DaemonSetupStep: View {
                 UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
                 if sessionToken.isEmpty {
                     _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
+                    // Also clear legacy UserDefaults key so migrateAuthToken() can't resurrect it
+                    UserDefaults.standard.removeObject(forKey: "daemon_auth_token")
                 } else {
                     _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
                 }
