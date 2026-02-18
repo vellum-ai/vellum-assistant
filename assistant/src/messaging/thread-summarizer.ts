@@ -108,17 +108,17 @@ function truncateMessages(
 
   // If the thread is short enough that first+last windows overlap, we can't
   // split into first/middle/last — but we still need to honor the token budget.
-  // Progressively drop the oldest messages until we fit.
+  // Progressively drop the oldest messages (from the front) to keep the
+  // newest context, which is more valuable for summarization.
   if (KEEP_FIRST + KEEP_LAST >= messages.length) {
-    const budgetChars = maxTokens * CHARS_PER_TOKEN;
     const kept = [...messages];
     while (kept.length > 1) {
       const transcript = formatTranscript(kept);
       if (transcript.length / CHARS_PER_TOKEN <= maxTokens) {
         return kept;
       }
-      // Drop the second message (preserve the first for context, trim from the front)
-      kept.splice(1, 1);
+      // Drop the first (oldest) message to prioritize keeping latest context
+      kept.shift();
     }
     return kept;
   }
