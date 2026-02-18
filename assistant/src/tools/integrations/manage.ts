@@ -133,7 +133,7 @@ class IntegrationManageTool implements Tool {
           return { content: `Error: no clientId configured for "${integrationId}". Run set_client_id first.`, isError: true };
         }
 
-        if (!context.sendToClient) {
+        if (!context.isInteractive) {
           return { content: 'Error: connect action requires an interactive client session', isError: true };
         }
 

@@ -156,7 +156,8 @@ export class Session {
   /** @internal — exposed for session-usage.ts module functions. */
   assistantId: string | null = null;
   private conflictGate = new ConflictGate();
-  private hasNoClient = false;
+  /** @internal — exposed for session-tool-setup.ts to propagate into ToolContext. */
+  hasNoClient = false;
   /** @internal — exposed for session-process.ts module functions. */
   readonly queue = new MessageQueue();
   /** @internal — exposed for session-process.ts module functions. */

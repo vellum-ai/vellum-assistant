@@ -43,6 +43,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   allowedToolNames?: Set<string>;
   /** Session memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
+  /** True when the session has no connected IPC client (HTTP-only path). */
+  hasNoClient?: boolean;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -95,6 +97,7 @@ export function createToolExecutor(
       forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => ctx.sendToClient(msg as any),
+      isInteractive: !ctx.hasNoClient,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       requestSecret: async (params) => {
         return secretPrompter.prompt(
