@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -942,6 +942,45 @@ describe('WorkspaceGitService', () => {
         { bypassBreaker: true },
       );
       expect(result.committed).toBe(true);
+    });
+  });
+
+  describe('commitIfDirty diff error handling', () => {
+    test('non-1 exit code from git diff --cached --quiet is treated as an error', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Create a file so the workspace is dirty and commitIfDirty will
+      // proceed past the "clean" early-return.
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Access the private execGit method and wrap it so that
+      // 'git diff --cached --quiet' throws with exit code 2 (simulating
+      // a real git error rather than the expected exit code 1 for
+      // "staged changes exist").
+      const proto = Object.getPrototypeOf(service);
+      const originalExecGit = proto.execGit.bind(service);
+      proto.execGit = async function (args: string[]) {
+        if (args[0] === 'diff' && args[1] === '--cached' && args[2] === '--quiet') {
+          const err = new Error(
+            'Git command failed: git diff --cached --quiet\nError: simulated error\nStderr: ',
+          ) as Error & { code?: number };
+          err.code = 2;
+          throw err;
+        }
+        return originalExecGit(args);
+      };
+
+      try {
+        // commitIfDirty should propagate the error (not treat code 2 as
+        // "staged changes exist")
+        await expect(
+          service.commitIfDirty(() => ({ message: 'should not commit' })),
+        ).rejects.toThrow();
+      } finally {
+        // Restore the original method
+        proto.execGit = originalExecGit;
+      }
     });
   });
 
