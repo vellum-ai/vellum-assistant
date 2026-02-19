@@ -29,6 +29,20 @@ final class AvatarAppearanceManager {
         NSHomeDirectory() + "/.vellum/workspace/LOOKS.md"
     }
 
+    /// Workspace path for custom avatar (new canonical location, used from PR 02 onward).
+    static func workspaceCustomAvatarURL(homeDirectory: String = NSHomeDirectory()) -> URL {
+        URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent(".vellum/workspace/data/avatar/custom-avatar.png")
+    }
+
+    /// Legacy Application Support path for custom avatar (pre-migration location).
+    static func legacyAppSupportCustomAvatarURL() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("vellum-assistant", isDirectory: true)
+            .appendingPathComponent("custom-avatar.png")
+    }
+
     private var customAvatarURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
