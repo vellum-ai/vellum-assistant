@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -9,8 +10,12 @@ class TasksWindowViewModel: ObservableObject {
     @Published var isLoading = true
     @Published var errorMessage: String?
 
+    private let logger = Logger(subsystem: "com.vellum.vellum-assistant", category: "TasksWindow")
     private let daemonClient: DaemonClient
     private var refreshTask: Task<Void, Never>?
+    /// Tracks work item IDs with an in-flight run request so we can
+    /// detect duplicate taps and log them as a precondition failure.
+    private var runInFlightIds: Set<String> = []
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -38,12 +43,18 @@ class TasksWindowViewModel: ObservableObject {
             }
         }
 
-        daemonClient.onWorkItemStatusChanged = { _ in scheduleRefresh() }
+        daemonClient.onWorkItemStatusChanged = { [weak self] notification in
+            // The daemon confirmed a status transition — clear in-flight tracking
+            // so subsequent run requests for this item are allowed.
+            self?.runInFlightIds.remove(notification.item.id)
+            scheduleRefresh()
+        }
         daemonClient.onTasksChanged = { _ in scheduleRefresh() }
 
         daemonClient.onWorkItemDeleteResponse = { [weak self] response in
             guard let self else { return }
             if !response.success {
+                self.logger.warning("onWorkItemDeleteResponse: server rejected delete for id=\(response.id, privacy: .public)")
                 self.fetchItems()
             }
         }
@@ -55,29 +66,47 @@ class TasksWindowViewModel: ObservableObject {
         do {
             try daemonClient.sendWorkItemsList()
         } catch {
+            logger.error("fetchItems failed: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
             isLoading = false
         }
     }
 
     func runTask(id: String) {
+        let item = items.first { $0.id == id }
+        let status = item?.status ?? "unknown"
+        let alreadyInFlight = runInFlightIds.contains(id)
+
+        logger.info("runTask: id=\(id, privacy: .public) status=\(status, privacy: .public) inFlight=\(alreadyInFlight)")
+
+        if alreadyInFlight {
+            logger.warning("runTask: skipping duplicate run request for id=\(id, privacy: .public)")
+            return
+        }
+
+        runInFlightIds.insert(id)
         do {
             try daemonClient.sendWorkItemRunTask(id: id)
         } catch {
+            logger.error("runTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            runInFlightIds.remove(id)
             errorMessage = error.localizedDescription
         }
     }
 
     func completeTask(id: String) {
+        logger.info("completeTask: id=\(id, privacy: .public)")
         do {
             try daemonClient.sendWorkItemComplete(id: id)
             items.removeAll { $0.id == id }
         } catch {
+            logger.error("completeTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
     }
 
     func removeTask(id: String) {
+        logger.info("removeTask: id=\(id, privacy: .public)")
         let snapshot = items
 
         withAnimation(.linear(duration: 0.15)) {
@@ -87,6 +116,7 @@ class TasksWindowViewModel: ObservableObject {
         do {
             try daemonClient.sendWorkItemDelete(id: id)
         } catch {
+            logger.error("removeTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             withAnimation(.linear(duration: 0.15)) {
                 items = snapshot
             }
@@ -120,6 +150,7 @@ class TasksWindowViewModel: ObservableObject {
         do {
             try daemonClient.sendWorkItemUpdate(id: id, priorityTier: tier)
         } catch {
+            logger.error("updatePriority: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             // Rollback to pre-update state
             withAnimation(.linear(duration: 0.15)) {
                 items = snapshot
