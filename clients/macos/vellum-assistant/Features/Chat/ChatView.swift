@@ -213,15 +213,14 @@ struct ChatView: View {
             Spacer()
             Spacer()
 
-            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                .frame(width: 80, height: 80)
-                .allowsHitTesting(false)
+            Text("🍃")
+                .font(.system(size: 48))
                 .opacity(emptyStateVisible ? 1 : 0)
                 .scaleEffect(emptyStateVisible ? 1 : 0.8)
                 .padding(.bottom, VSpacing.lg)
 
             Text(emptyStateTitle)
-                .font(.system(size: 28, weight: .medium))
+                .font(.custom("Fraunces", size: 28).weight(.regular))
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 500)
@@ -248,6 +247,7 @@ struct ChatView: View {
                 editorContentHeight: $editorContentHeight,
                 isComposerExpanded: $isComposerExpanded
             )
+            .frame(maxWidth: 500)
             .opacity(emptyStateVisible ? 1 : 0)
             .offset(y: emptyStateVisible ? 0 : 10)
 
@@ -256,20 +256,6 @@ struct ChatView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    VColor.accent.opacity(0.07),
-                    VColor.accent.opacity(0.02),
-                    Color.clear,
-                ]),
-                center: .center,
-                startRadius: 20,
-                endRadius: 350
-            )
-            .offset(y: -40)
-            .opacity(emptyStateVisible ? 1 : 0)
-        )
         .onAppear {
             withAnimation(.easeOut(duration: 0.5)) {
                 emptyStateVisible = true
@@ -285,9 +271,8 @@ struct ChatView: View {
             Spacer()
             Spacer()
 
-            DinoFaceView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                .frame(width: 80, height: 80)
-                .allowsHitTesting(false)
+            Text("🍃")
+                .font(.system(size: 48))
                 .padding(.bottom, VSpacing.lg)
 
             Text("Temporary Chat")
@@ -427,14 +412,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private var chatBackground: some View {
-        if let url = ResourceBundle.bundle.url(forResource: "background", withExtension: "png"),
-           let nsImage = NSImage(contentsOf: url) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .scaledToFit()
-                .opacity(colorScheme == .light ? 0 : 1.0)
-                .allowsHitTesting(false)
-        }
+        EmptyView()
     }
 
     /// Handle dropped items — supports both file URLs and raw image data.
@@ -2120,7 +2098,7 @@ private struct ChatBubble: View {
             let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
             let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
             let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
-            parsed[attrStart..<attrEnd].foregroundColor = adaptiveColor(light: Indigo._500, dark: Indigo._300)
+            parsed[attrStart..<attrEnd].foregroundColor = adaptiveColor(light: Sage._500, dark: Sage._300)
         }
 
         // Store in cache (with size limit to prevent unbounded growth)

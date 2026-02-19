@@ -193,7 +193,7 @@ struct TextResponseView: View {
                     .frame(width: 28, height: 28)
                     .background(
                         Circle()
-                            .fill(inputState.inputText.isEmpty ? Violet._600.opacity(0.4) : Violet._600)
+                            .fill(inputState.inputText.isEmpty ? VColor.sendButton.opacity(0.4) : VColor.sendButton)
                     )
             }
             .buttonStyle(.plain)

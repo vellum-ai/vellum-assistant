@@ -127,7 +127,7 @@ struct FirstMeetingIntroductionView: View {
                     .frame(width: 24, height: 24)
                     .background(
                         Circle()
-                            .fill(sendButtonDisabled ? VColor.textMuted : Violet._600)
+                            .fill(sendButtonDisabled ? VColor.textMuted : VColor.sendButton)
                     )
             }
             .buttonStyle(.plain)

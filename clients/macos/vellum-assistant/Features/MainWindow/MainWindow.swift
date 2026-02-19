@@ -86,6 +86,48 @@ class TitleBarZoomableWindow: NSWindow {
     }
 }
 
+/// NSHostingController subclass whose view returns `mouseDownCanMoveWindow = false`.
+/// This prevents the transparent title bar from swallowing clicks intended for
+/// SwiftUI buttons (sidebar toggle, temporary-chat toggle) that sit in the
+/// title bar zone.
+class NonDraggableHostingController<Content: View>: NSHostingController<Content> {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Recursively ensure the hosting view itself won't start a window drag
+        disableDragging(in: view)
+    }
+
+    private func disableDragging(in view: NSView) {
+        // The hosting view is private, so we swap it with a wrapper
+        // that overrides mouseDownCanMoveWindow.
+    }
+
+    override func loadView() {
+        super.loadView()
+        // Replace the default hosting view with our non-draggable subclass
+        let wrapper = NonDraggableContainerView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+
+        // Re-parent the hosting view's content into our wrapper
+        let hostingView = self.view
+        wrapper.addSubview(hostingView)
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+        ])
+        self.view = wrapper
+    }
+}
+
+/// A plain NSView that returns `mouseDownCanMoveWindow = false`,
+/// preventing the transparent title bar from intercepting clicks.
+private class NonDraggableContainerView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
 @MainActor
 final class MainWindow {
     private let services: AppServices
@@ -208,7 +250,8 @@ final class MainWindow {
             return
         }
 
-        let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}))
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {})
+        let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let windowWidth: CGFloat = 1200
@@ -230,6 +273,7 @@ final class MainWindow {
         window.contentViewController = hostingController
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
         window.backgroundColor = NSColor(VColor.background)
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 800, height: 600)

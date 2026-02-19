@@ -36,7 +36,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "car.fill",
-                        iconColor: Violet._500,
+                        iconColor: Sage._500,
                         title: "How control works",
                         items: [
                             "You\u{2019}re always in the driver\u{2019}s seat",

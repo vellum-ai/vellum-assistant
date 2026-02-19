@@ -348,7 +348,7 @@ struct GeneratedPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(item.isShared ? Violet._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
+                .stroke(item.isShared ? Sage._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -374,10 +374,10 @@ struct GeneratedPanel: View {
             Text("Shared")
                 .font(VFont.small)
         }
-        .foregroundColor(Violet._400)
+        .foregroundColor(Sage._400)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(Violet._900.opacity(0.5))
+        .background(Sage._900.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 

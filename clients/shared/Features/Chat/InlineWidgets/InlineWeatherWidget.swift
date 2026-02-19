@@ -426,7 +426,7 @@ public struct InlineWeatherWidget: View {
                 Capsule()
                     .fill(
                         LinearGradient(
-                            colors: [Indigo._400, Emerald._400],
+                            colors: [Sage._400, Emerald._400],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -455,13 +455,13 @@ public struct InlineWeatherWidget: View {
         switch sfSymbol {
         case "sun.max.fill": return Amber._400
         case "cloud.sun.fill": return Amber._300
-        case "moon.fill": return Indigo._200
-        case "cloud.moon.fill": return Indigo._300
-        case "cloud.fill": return Slate._400
-        case "cloud.rain.fill": return Indigo._400
-        case "snowflake": return Indigo._300
+        case "moon.fill": return Sage._200
+        case "cloud.moon.fill": return Sage._300
+        case "cloud.fill": return Stone._400
+        case "cloud.rain.fill": return Sage._400
+        case "snowflake": return Sage._300
         case "cloud.bolt.fill": return Amber._500
-        case "cloud.fog.fill": return Slate._500
+        case "cloud.fog.fill": return Stone._500
         default: return VColor.textSecondary
         }
     }

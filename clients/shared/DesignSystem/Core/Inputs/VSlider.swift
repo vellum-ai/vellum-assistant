@@ -90,18 +90,18 @@ public struct VSlider: View {
     private var thumbView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: VRadius.xs)
-                .fill(Violet._700)
+                .fill(Sage._700)
                 .frame(width: thumbWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.xs)
-                        .stroke(Violet._800, lineWidth: 1)
+                        .stroke(Sage._800, lineWidth: 1)
                 )
 
             // Grip lines
             HStack(spacing: gripLineSpacing) {
                 ForEach(0..<gripLineCount, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Violet._300)
+                        .fill(Sage._300)
                         .frame(width: gripLineWidth, height: gripLineHeight)
                 }
             }

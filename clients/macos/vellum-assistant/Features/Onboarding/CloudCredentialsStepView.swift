@@ -230,7 +230,7 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
                 Text("Open Google Cloud Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Violet._400))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Sage._400))
             }
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -284,7 +284,7 @@ struct CloudCredentialsStepView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(adaptiveColor(light: Slate._900, dark: Violet._600))
+                    .foregroundColor(adaptiveColor(light: Stone._900, dark: Sage._600))
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -305,7 +305,7 @@ struct CloudCredentialsStepView: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(adaptiveColor(light: Slate._900.opacity(0.3), dark: Violet._600.opacity(0.3)), lineWidth: 1)
+                    .stroke(adaptiveColor(light: Stone._900.opacity(0.3), dark: Sage._600.opacity(0.3)), lineWidth: 1)
             )
         }
     }
@@ -365,12 +365,12 @@ struct CloudCredentialsStepView: View {
                     RoundedRectangle(cornerRadius: VRadius.lg)
                         .fill(continueDisabled
                             ? adaptiveColor(
-                                light: Slate._900.opacity(0.3),
-                                dark: Violet._600.opacity(0.3)
+                                light: Stone._900.opacity(0.3),
+                                dark: Sage._600.opacity(0.3)
                             )
                             : adaptiveColor(
-                                light: Slate._900,
-                                dark: Violet._600
+                                light: Stone._900,
+                                dark: Sage._600
                             )
                         )
                 )

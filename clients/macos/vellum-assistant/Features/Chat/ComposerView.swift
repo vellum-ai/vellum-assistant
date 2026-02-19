@@ -151,7 +151,7 @@ struct ComposerView: View {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(VColor.surfaceBorder.opacity(isComposerFocused ? 0.12 : 0), lineWidth: 3)
             )
-            .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
+            .shadow(color: .clear, radius: 0)
         }
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
@@ -285,7 +285,7 @@ struct ComposerView: View {
                     } label: {
                         ZStack {
                             Circle()
-                                .fill(VColor.accent.opacity(0.55))
+                                .fill(VColor.sendButton)
                                 .frame(width: 30, height: 30)
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 13, weight: .semibold))
@@ -764,7 +764,7 @@ private final class ComposerNativeTextView: NSTextView {
         if let match = text.range(of: #"^/\w+"#, options: .regularExpression) {
             let nsRange = NSRange(match, in: text)
             layoutManager.addTemporaryAttributes(
-                [.foregroundColor: NSColor(Indigo._500)],
+                [.foregroundColor: NSColor(Sage._500)],
                 forCharacterRange: nsRange
             )
         }

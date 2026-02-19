@@ -319,7 +319,6 @@ struct MainWindowView: View {
                             .padding(.leading, (sidebarOpen && windowState.layoutConfig.left.visible) ? VSpacing.sm : trafficLightPadding)
                             .padding(.trailing, VSpacing.lg)
                             .frame(height: 36)
-                            .background(TitleBarInteractableBackground())
                         }
 
                         // Main content
@@ -741,6 +740,9 @@ struct MainWindowView: View {
         }
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
+        .overlay(alignment: .trailing) {
+            VColor.surfaceBorder.frame(width: 1)
+        }
     }
 
     @ViewBuilder
@@ -1507,31 +1509,6 @@ private struct DrawerMenuItem: View {
     }
 }
 
-
-// MARK: - Title Bar Hit-Testing Fix
-
-/// An AppKit-backed background view that tells macOS "don't drag the window
-/// from this area."  Without this, the transparent title bar swallows clicks
-/// intended for the sidebar toggle and temporary-chat toggle when the sidebar
-/// is closed, because the buttons sit inside a nested HStack>VStack rather
-/// than at the root VStack level where NSHostingView's hit-test naturally
-/// finds them.
-private struct TitleBarInteractableBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> some NSView {
-        let view = NonDraggableView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor(VColor.background).cgColor
-        return view
-    }
-
-    func updateNSView(_ nsView: some NSView, context: Context) {
-        nsView.layer?.backgroundColor = NSColor(VColor.background).cgColor
-    }
-}
-
-private class NonDraggableView: NSView {
-    override var mouseDownCanMoveWindow: Bool { false }
-}
 
 // MARK: - File Picker Helper
 

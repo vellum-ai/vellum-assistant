@@ -88,8 +88,8 @@ struct OnboardingFlowView: View {
                 .background(
                     RadialGradient(
                         colors: [
-                            adaptiveColor(light: Slate._100, dark: Slate._900),
-                            adaptiveColor(light: Slate._200, dark: Slate._950)
+                            adaptiveColor(light: Stone._100, dark: Slate._900),
+                            adaptiveColor(light: Stone._200, dark: Slate._950)
                         ],
                         center: .center,
                         startRadius: 0,

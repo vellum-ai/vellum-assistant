@@ -128,8 +128,8 @@ struct ButtonsGallerySection: View {
                         VCircleButton(icon: "plus", label: "Add") {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Violet fill").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "phone.fill", label: "Call", fillColor: Violet._500) {}
+                        Text("Sage fill").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "phone.fill", label: "Call", fillColor: Sage._500) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Large (48pt)").font(VFont.caption).foregroundColor(VColor.textMuted)

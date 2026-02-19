@@ -97,8 +97,8 @@ struct FnKeyStepView: View {
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
                                 .fill(adaptiveColor(
-                                    light: Slate._900,
-                                    dark: Violet._600
+                                    light: Stone._900,
+                                    dark: Sage._600
                                 ))
                         )
                 }
@@ -117,8 +117,8 @@ struct FnKeyStepView: View {
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.lg)
                                 .fill(adaptiveColor(
-                                    light: Slate._900,
-                                    dark: Violet._600
+                                    light: Stone._900,
+                                    dark: Sage._600
                                 ))
                         )
                 }

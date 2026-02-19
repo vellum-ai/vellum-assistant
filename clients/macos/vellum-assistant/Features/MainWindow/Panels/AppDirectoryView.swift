@@ -176,10 +176,10 @@ struct AppDirectoryView: View {
                                 Text("Shared")
                                     .font(VFont.small)
                             }
-                            .foregroundColor(Violet._400)
+                            .foregroundColor(Sage._400)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Violet._900.opacity(0.5))
+                            .background(Sage._900.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         }
                     }

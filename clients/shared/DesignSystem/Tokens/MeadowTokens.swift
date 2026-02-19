@@ -8,7 +8,7 @@ public enum Meadow {
         dark: Slate._900.opacity(0.75)
     )
     public static let panelBorder = adaptiveColor(
-        light: Slate._200.opacity(0.6),
+        light: Stone._200.opacity(0.6),
         dark: Slate._700.opacity(0.4)
     )
 
@@ -30,8 +30,8 @@ public enum Meadow {
     public static let artPixelSize: CGFloat = 5.0
 
     // Interview palette
-    public static let avatarGradientStart = Violet._600
-    public static let avatarGradientEnd = Violet._400
-    public static let userBubbleGradientStart = Violet._600
-    public static let userBubbleGradientEnd = Violet._400
+    public static let avatarGradientStart = Sage._600
+    public static let avatarGradientEnd = Sage._400
+    public static let userBubbleGradientStart = Sage._600
+    public static let userBubbleGradientEnd = Sage._400
 }

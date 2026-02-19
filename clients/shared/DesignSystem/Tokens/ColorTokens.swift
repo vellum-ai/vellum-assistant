@@ -78,6 +78,19 @@ public enum Violet {
     public static let _100 = Color(hex: 0xF4F0FD)
 }
 
+public enum Sage {
+    public static let _950 = Color(hex: 0x1A2316)
+    public static let _900 = Color(hex: 0x2A3825)
+    public static let _800 = Color(hex: 0x3D4F36)
+    public static let _700 = Color(hex: 0x516748)
+    public static let _600 = Color(hex: 0x657D5B)
+    public static let _500 = Color(hex: 0x7A8B6F)
+    public static let _400 = Color(hex: 0x98A88F)
+    public static let _300 = Color(hex: 0xB5C3AE)
+    public static let _200 = Color(hex: 0xD4DFD0)
+    public static let _100 = Color(hex: 0xEDF2EB)
+}
+
 public enum Indigo {
     public static let _950 = Color(hex: 0x180F66)
     public static let _900 = Color(hex: 0x261A96)
@@ -117,25 +130,74 @@ public enum Amber {
     public static let _100 = Color(hex: 0xFEFCE8)
 }
 
+/// Warm neutral scale for light mode — sandstone/limestone tones.
+public enum Stone {
+    public static let _950 = Color(hex: 0x1C1917)
+    public static let _900 = Color(hex: 0x292524)
+    public static let _800 = Color(hex: 0x44403C)
+    public static let _700 = Color(hex: 0x57534E)
+    public static let _600 = Color(hex: 0x78716C)
+    public static let _500 = Color(hex: 0x97918B)
+    public static let _400 = Color(hex: 0xA8A29E)
+    public static let _300 = Color(hex: 0xD6D3D1)
+    public static let _200 = Color(hex: 0xE7E5E4)
+    public static let _100 = Color(hex: 0xF5F5F4)
+    public static let _50  = Color(hex: 0xFAFAF9)
+}
+
+// MARK: - Dark Theme Scales
+
+/// Warm neutral scale for dark mode backgrounds & text.
+public enum Moss {
+    public static let _950 = Color(hex: 0x262624)
+    public static let _900 = Color(hex: 0x2A2A28)
+    public static let _800 = Color(hex: 0x2F2F2D)
+    public static let _700 = Color(hex: 0x3A3A37)
+    public static let _600 = Color(hex: 0x4A4A46)
+    public static let _500 = Color(hex: 0x6B6B65)
+    public static let _400 = Color(hex: 0xA1A096)
+    public static let _300 = Color(hex: 0xBDB9A9)
+    public static let _200 = Color(hex: 0xD4D1C1)
+    public static let _100 = Color(hex: 0xE8E6DA)
+    public static let _50  = Color(hex: 0xF5F3EB)
+}
+
+/// Forest green accent scale for dark mode.
+public enum Forest {
+    public static let _950 = Color(hex: 0x0A2A14)
+    public static let _900 = Color(hex: 0x123D1F)
+    public static let _800 = Color(hex: 0x18522A)
+    public static let _700 = Color(hex: 0x1C5F30)
+    public static let _600 = Color(hex: 0x216C37)
+    public static let _500 = Color(hex: 0x3A8A4F)
+    public static let _400 = Color(hex: 0x5AAB6A)
+    public static let _300 = Color(hex: 0x85C991)
+    public static let _200 = Color(hex: 0xB5E1BC)
+    public static let _100 = Color(hex: 0xE2F4E5)
+}
+
 // MARK: - Semantic Color Tokens
 
 public enum VColor {
     // Backgrounds
-    public static let background = adaptiveColor(light: .white, dark: Slate._950)
-    public static let backgroundSubtle = adaptiveColor(light: Slate._100, dark: Slate._800)
-    public static let chatBackground = adaptiveColor(light: .white, dark: Slate._900)
-    public static let surface = adaptiveColor(light: .white, dark: Slate._800)
-    public static let surfaceBorder = adaptiveColor(light: Slate._200, dark: Slate._700)
-    public static let surfaceSubtle = adaptiveColor(light: Slate._50, dark: Slate._900)
+    public static let background = adaptiveColor(light: .white, dark: Moss._950)
+    public static let backgroundSubtle = adaptiveColor(light: Stone._100, dark: Moss._950)
+    public static let chatBackground = adaptiveColor(light: .white, dark: Moss._950)
+    public static let surface = adaptiveColor(light: .white, dark: Moss._800)
+    public static let surfaceBorder = adaptiveColor(light: Stone._200, dark: Moss._700)
+    public static let surfaceSubtle = adaptiveColor(light: Stone._50, dark: Moss._900)
 
     // Text
-    public static let textPrimary = adaptiveColor(light: Slate._900, dark: Slate._50)
-    public static let textSecondary = adaptiveColor(light: Slate._600, dark: Slate._400)
-    public static let textMuted = adaptiveColor(light: Slate._500, dark: Slate._500)
+    public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._200)
+    public static let textSecondary = adaptiveColor(light: Stone._600, dark: Moss._400)
+    public static let textMuted = adaptiveColor(light: Stone._500, dark: Moss._500)
 
-    // Accent (violet = primary)
-    public static let accent = adaptiveColor(light: Violet._700, dark: Violet._600)
-    public static let accentSubtle = Violet._100
+    // Accent
+    public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
+
+    // Send button — always green
+    public static let sendButton = Color(hex: 0x216C37)
+    public static let accentSubtle = adaptiveColor(light: Sage._100, dark: Forest._900)
 
     // Onboarding accent (amber) — always dark theme
     public static let onboardingAccent = Amber._500
@@ -148,15 +210,15 @@ public enum VColor {
     public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
 
     // Chat
-    public static let userBubble = adaptiveColor(light: Slate._200, dark: Violet._600)
-    public static let userBubbleText = adaptiveColor(light: Slate._900, dark: .white)
-    public static let userBubbleTextSecondary = adaptiveColor(light: Slate._600, dark: Color.white.opacity(0.8))
+    public static let userBubble = adaptiveColor(light: Stone._200, dark: Color(hex: 0x191919))
+    public static let userBubbleText = adaptiveColor(light: Stone._900, dark: Moss._200)
+    public static let userBubbleTextSecondary = adaptiveColor(light: Stone._600, dark: Moss._200.opacity(0.8))
 
     // Interactive states
-    public static let ghostHover = adaptiveColor(light: Slate._100, dark: Slate._700)
-    public static let ghostPressed = adaptiveColor(light: Slate._200, dark: Slate._600)
-    public static let divider = adaptiveColor(light: Slate._200, dark: Slate._700)
-    public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: .white)
-    public static let toggleOff = adaptiveColor(light: Slate._300, dark: Slate._700)
-    public static let toggleBorder = adaptiveColor(light: Slate._400, dark: Slate._600)
+    public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
+    public static let ghostPressed = adaptiveColor(light: Stone._200, dark: Moss._600)
+    public static let divider = adaptiveColor(light: Stone._200, dark: Moss._700)
+    public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
+    public static let toggleOff = adaptiveColor(light: Stone._300, dark: Moss._700)
+    public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
 }

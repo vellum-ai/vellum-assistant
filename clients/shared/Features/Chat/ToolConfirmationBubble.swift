@@ -326,7 +326,7 @@ public struct ToolConfirmationBubble: View {
                 .foregroundColor(isPrimary || isDanger ? .white : VColor.textSecondary)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs + 1)
-                .background(isDanger ? Rose._600 : isPrimary ? Indigo._600 : Color.clear)
+                .background(isDanger ? Color(hex: 0xC1421B) : isPrimary ? Sage._600 : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
