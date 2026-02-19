@@ -1422,7 +1422,20 @@ export class Session {
       // the agent loop started, even if post-processing threw.
       if (turnStarted) {
         this.turnCount++;
-        await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
+        const config = getConfig();
+        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+        const commitPromise = commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
+        let timedOut = false;
+        await Promise.race([
+          commitPromise,
+          new Promise<void>((resolve) => setTimeout(() => { timedOut = true; resolve(); }, maxWait)),
+        ]);
+        if (timedOut) {
+          rlog.warn(
+            { turnNumber: this.turnCount, maxWaitMs: maxWait, conversationId: this.conversationId },
+            'Turn-boundary commit timed out — continuing without waiting (commit still runs in background)',
+          );
+        }
       }
 
       this.profiler.emitSummary(this.traceEmitter, reqId);

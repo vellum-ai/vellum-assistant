@@ -703,6 +703,24 @@ export const SkillsInstallConfigSchema = z.object({
   }).default('npm'),
 });
 
+export const WorkspaceGitConfigSchema = z.object({
+  turnCommitMaxWaitMs: z
+    .number({ error: 'workspaceGit.turnCommitMaxWaitMs must be a number' })
+    .int('workspaceGit.turnCommitMaxWaitMs must be an integer')
+    .positive('workspaceGit.turnCommitMaxWaitMs must be a positive integer')
+    .default(4000),
+  failureBackoffBaseMs: z
+    .number({ error: 'workspaceGit.failureBackoffBaseMs must be a number' })
+    .int('workspaceGit.failureBackoffBaseMs must be an integer')
+    .positive('workspaceGit.failureBackoffBaseMs must be a positive integer')
+    .default(2000),
+  failureBackoffMaxMs: z
+    .number({ error: 'workspaceGit.failureBackoffMaxMs must be a number' })
+    .int('workspaceGit.failureBackoffMaxMs must be an integer')
+    .positive('workspaceGit.failureBackoffMaxMs must be a positive integer')
+    .default(60000),
+});
+
 export const SwarmConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'swarm.enabled must be a boolean' })
@@ -950,6 +968,11 @@ export const AssistantConfigSchema = z.object({
     install: { nodeManager: 'npm' },
     allowBundled: null,
   }),
+  workspaceGit: WorkspaceGitConfigSchema.default({
+    turnCommitMaxWaitMs: 4000,
+    failureBackoffBaseMs: 2000,
+    failureBackoffMaxMs: 60000,
+  }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -1005,3 +1028,4 @@ export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
+export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;

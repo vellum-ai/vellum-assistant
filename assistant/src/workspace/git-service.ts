@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLogger } from '../util/logger.js';
+import { getConfig } from '../config/loader.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('workspace-git');
@@ -142,10 +143,38 @@ export class WorkspaceGitService {
   private readonly mutex: Mutex;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  private consecutiveFailures = 0;
+  private nextAllowedAttemptMs = 0;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
     this.mutex = new Mutex();
+  }
+
+  /**
+   * Check if the circuit breaker is open (too many recent failures).
+   * When open, commit attempts are skipped until the backoff window expires.
+   */
+  private isBreakerOpen(): boolean {
+    if (this.consecutiveFailures === 0) return false;
+    return Date.now() < this.nextAllowedAttemptMs;
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0;
+    this.nextAllowedAttemptMs = 0;
+  }
+
+  private recordFailure(): void {
+    const config = getConfig();
+    const failureBackoffBaseMs = config.workspaceGit?.failureBackoffBaseMs ?? 2000;
+    const failureBackoffMaxMs = config.workspaceGit?.failureBackoffMaxMs ?? 60000;
+    this.consecutiveFailures++;
+    const delay = Math.min(
+      failureBackoffBaseMs * Math.pow(2, this.consecutiveFailures - 1),
+      failureBackoffMaxMs,
+    );
+    this.nextAllowedAttemptMs = Date.now() + delay;
   }
 
   /**
@@ -349,42 +378,64 @@ export class WorkspaceGitService {
   async commitIfDirty(
     decide: (status: GitStatus) => { message: string; metadata?: GitCommitMetadata } | null,
   ): Promise<{ committed: boolean; status: GitStatus }> {
+    // Circuit breaker: skip expensive git work if recent attempts have been failing
+    if (this.isBreakerOpen()) {
+      log.debug(
+        { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
+        'Circuit breaker open, skipping commit attempt',
+      );
+      return { committed: false, status: { staged: [], modified: [], untracked: [], clean: true } };
+    }
+
     await this.ensureInitialized();
 
-    return this.mutex.withLock(async () => {
-      const status = await this.getStatusInternal();
-      if (status.clean) {
-        return { committed: false, status };
-      }
+    try {
+      const result = await this.mutex.withLock(async () => {
+        const status = await this.getStatusInternal();
+        if (status.clean) {
+          return { committed: false, status };
+        }
 
-      const decision = decide(status);
-      if (!decision) {
-        return { committed: false, status };
-      }
+        const decision = decide(status);
+        if (!decision) {
+          return { committed: false, status };
+        }
 
-      await this.execGit(['add', '-A']);
+        await this.execGit(['add', '-A']);
 
-      // Verify something was actually staged. Another service instance
-      // (or external process) could have committed between our status
-      // check and the add, leaving the index clean.
-      try {
-        await this.execGit(['diff', '--cached', '--quiet']);
-        // Exit code 0 means nothing staged — nothing to commit
-        return { committed: false, status };
-      } catch {
-        // Exit code 1 means there ARE staged changes — proceed
-      }
+        // Verify something was actually staged. Another service instance
+        // (or external process) could have committed between our status
+        // check and the add, leaving the index clean.
+        try {
+          await this.execGit(['diff', '--cached', '--quiet']);
+          // Exit code 0 means nothing staged — nothing to commit
+          return { committed: false, status };
+        } catch (err) {
+          // git diff --cached --quiet exits with code 1 when there are staged changes.
+          // Any other error (timeout, permission, etc.) should be treated as a failure.
+          const execErr = err as ExecError;
+          if (execErr.code !== 1) {
+            throw err;
+          }
+          // Exit code 1 = staged changes exist — proceed with commit
+        }
 
-      let fullMessage = decision.message;
-      if (decision.metadata && Object.keys(decision.metadata).length > 0) {
-        fullMessage += '\n\n' + Object.entries(decision.metadata)
-          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-          .join('\n');
-      }
+        let fullMessage = decision.message;
+        if (decision.metadata && Object.keys(decision.metadata).length > 0) {
+          fullMessage += '\n\n' + Object.entries(decision.metadata)
+            .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+            .join('\n');
+        }
 
-      await this.execGit(['commit', '-m', fullMessage]);
-      return { committed: true, status };
-    });
+        await this.execGit(['commit', '-m', fullMessage]);
+        return { committed: true, status };
+      });
+      this.recordSuccess();
+      return result;
+    } catch (err) {
+      this.recordFailure();
+      throw err;
+    }
   }
 
   /**
@@ -617,4 +668,19 @@ export function getAllWorkspaceGitServices(): ReadonlyMap<string, WorkspaceGitSe
  */
 export function _resetGitServiceRegistry(): void {
   serviceRegistry.clear();
+}
+
+/**
+ * @internal Test-only: reset circuit breaker state for a service instance
+ */
+export function _resetBreaker(service: WorkspaceGitService): void {
+  (service as unknown as { consecutiveFailures: number }).consecutiveFailures = 0;
+  (service as unknown as { nextAllowedAttemptMs: number }).nextAllowedAttemptMs = 0;
+}
+
+/**
+ * @internal Test-only: get consecutive failure count
+ */
+export function _getConsecutiveFailures(service: WorkspaceGitService): number {
+  return (service as unknown as { consecutiveFailures: number }).consecutiveFailures;
 }
