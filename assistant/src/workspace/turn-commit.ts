@@ -16,6 +16,7 @@ import {
   type CommitContext,
   type CommitMessageProvider,
 } from './commit-message-provider.js';
+import { getEnrichmentService } from './commit-message-enrichment-service.js';
 
 const log = getLogger('turn-commit');
 
@@ -77,6 +78,22 @@ export async function commitTurnChanges(
         { sessionId, turnNumber, filesChanged: uniqueFiles.length },
         'Turn-boundary commit created',
       );
+
+      // Fire-and-forget enrichment — never blocks turn completion
+      try {
+        const commitHash = await gitService.getHeadHash();
+        const ctx: CommitContext = {
+          workspaceDir,
+          trigger: 'turn',
+          sessionId,
+          turnNumber,
+          changedFiles: uniqueFiles,
+          timestampMs: Date.now(),
+        };
+        getEnrichmentService().enqueue({ workspaceDir, commitHash, context: ctx, gitService });
+      } catch (enrichErr) {
+        log.debug({ enrichErr }, 'Failed to enqueue enrichment (non-fatal)');
+      }
     } else {
       log.debug({ sessionId, turnNumber }, 'No workspace changes to commit for turn');
     }

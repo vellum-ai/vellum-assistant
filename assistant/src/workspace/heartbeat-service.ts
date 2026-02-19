@@ -5,6 +5,7 @@ import {
   type CommitContext,
   type CommitMessageProvider,
 } from './commit-message-provider.js';
+import { getEnrichmentService } from './commit-message-enrichment-service.js';
 
 const log = getLogger('heartbeat');
 
@@ -198,8 +199,10 @@ export class HeartbeatService {
 
       try {
         const now = this.now();
-        const { committed } = await service.commitIfDirty((status) => {
-          const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
+        let shutdownFiles: string[] = [];
+        const { committed } = await service.commitIfDirty((st) => {
+          const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
+          shutdownFiles = uniqueFiles;
           log.info({ workspaceDir, totalChanges: uniqueFiles.length }, 'Committing pending changes on shutdown');
 
           const ctx: CommitContext = {
@@ -215,6 +218,20 @@ export class HeartbeatService {
         if (committed) {
           firstSeenDirty.delete(workspaceDir);
           result.committed++;
+
+          // Fire-and-forget enrichment
+          try {
+            const commitHash = await service.getHeadHash();
+            const shutdownCtx: CommitContext = {
+              workspaceDir,
+              trigger: 'shutdown',
+              changedFiles: shutdownFiles,
+              timestampMs: this.now(),
+            };
+            getEnrichmentService().enqueue({ workspaceDir, commitHash, context: shutdownCtx, gitService: service });
+          } catch (enrichErr) {
+            log.debug({ enrichErr }, 'Failed to enqueue shutdown enrichment (non-fatal)');
+          }
         } else {
           result.skipped++;
         }
@@ -241,6 +258,8 @@ export class HeartbeatService {
     service: WorkspaceGitService,
   ): Promise<boolean> {
     const now = this.now();
+    let heartbeatFiles: string[] = [];
+    let heartbeatReason: string | undefined;
 
     // Atomic status check + conditional commit within a single mutex lock.
     const { committed, status } = await service.commitIfDirty((st) => {
@@ -270,6 +289,9 @@ export class HeartbeatService {
         ? `changes older than ${Math.round(dirtyAge / 1000)}s`
         : `${totalChanges} files changed (threshold: ${this.fileThreshold})`;
 
+      heartbeatFiles = uniqueFiles;
+      heartbeatReason = reason;
+
       log.info(
         { workspaceDir, totalChanges, dirtyAgeMs: dirtyAge, reason },
         'Heartbeat auto-committing workspace changes',
@@ -288,6 +310,22 @@ export class HeartbeatService {
 
     if (committed) {
       firstSeenDirty.delete(workspaceDir);
+
+      // Fire-and-forget enrichment
+      try {
+        const commitHash = await service.getHeadHash();
+        const hbCtx: CommitContext = {
+          workspaceDir,
+          trigger: 'heartbeat',
+          changedFiles: heartbeatFiles,
+          timestampMs: now,
+          reason: heartbeatReason,
+        };
+        getEnrichmentService().enqueue({ workspaceDir, commitHash, context: hbCtx, gitService: service });
+      } catch (enrichErr) {
+        log.debug({ enrichErr }, 'Failed to enqueue heartbeat enrichment (non-fatal)');
+      }
+
       return true;
     }
 

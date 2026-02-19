@@ -719,6 +719,26 @@ export const WorkspaceGitConfigSchema = z.object({
     .int('workspaceGit.failureBackoffMaxMs must be an integer')
     .positive('workspaceGit.failureBackoffMaxMs must be a positive integer')
     .default(60000),
+  enrichmentQueueSize: z
+    .number({ error: 'workspaceGit.enrichmentQueueSize must be a number' })
+    .int('workspaceGit.enrichmentQueueSize must be an integer')
+    .positive('workspaceGit.enrichmentQueueSize must be a positive integer')
+    .default(50),
+  enrichmentConcurrency: z
+    .number({ error: 'workspaceGit.enrichmentConcurrency must be a number' })
+    .int('workspaceGit.enrichmentConcurrency must be an integer')
+    .positive('workspaceGit.enrichmentConcurrency must be a positive integer')
+    .default(1),
+  enrichmentJobTimeoutMs: z
+    .number({ error: 'workspaceGit.enrichmentJobTimeoutMs must be a number' })
+    .int('workspaceGit.enrichmentJobTimeoutMs must be an integer')
+    .positive('workspaceGit.enrichmentJobTimeoutMs must be a positive integer')
+    .default(30000),
+  enrichmentMaxRetries: z
+    .number({ error: 'workspaceGit.enrichmentMaxRetries must be a number' })
+    .int('workspaceGit.enrichmentMaxRetries must be an integer')
+    .nonnegative('workspaceGit.enrichmentMaxRetries must be non-negative')
+    .default(2),
 });
 
 export const SwarmConfigSchema = z.object({
@@ -972,6 +992,10 @@ export const AssistantConfigSchema = z.object({
     turnCommitMaxWaitMs: 4000,
     failureBackoffBaseMs: 2000,
     failureBackoffMaxMs: 60000,
+    enrichmentQueueSize: 50,
+    enrichmentConcurrency: 1,
+    enrichmentJobTimeoutMs: 30000,
+    enrichmentMaxRetries: 2,
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
