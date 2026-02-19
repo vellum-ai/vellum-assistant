@@ -732,7 +732,13 @@ program
 program
   .command('doctor')
   .description('Run diagnostic checks')
-  .action(async () => {
+  .option('--fix', 'Stop daemon + gateway, install latest assistant, and rerun local hatch')
+  .action(async (opts: { fix?: boolean }) => {
+    if (opts.fix) {
+      await runDoctorFix();
+      return;
+    }
+
     const pass = (label: string) => log.info(`  \u2713 ${label}`);
     const fail = (label: string, detail?: string) =>
       log.info(`  \u2717 ${label}${detail ? ` — ${detail}` : ''}`);
@@ -998,6 +1004,72 @@ program
       }
     }
   });
+
+async function runDoctorFix(): Promise<void> {
+  const GATEWAY_PORT = 7830;
+
+  log.info('Doctor fix: stopping daemon...');
+  const stopResult = await stopDaemon();
+  if (stopResult.stopped) {
+    log.info('  Daemon stopped');
+  } else if (stopResult.reason === 'not_running') {
+    log.info('  Daemon was not running');
+  } else {
+    log.error('  Failed to stop daemon — process survived SIGKILL');
+    process.exit(1);
+  }
+
+  log.info('Doctor fix: stopping gateway...');
+  try {
+    const lsofOutput = execSync(`lsof -ti tcp:${GATEWAY_PORT}`, {
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    }).trim();
+    if (lsofOutput) {
+      for (const pidStr of lsofOutput.split('\n')) {
+        const pid = parseInt(pidStr.trim(), 10);
+        if (!isNaN(pid)) {
+          try {
+            process.kill(pid, 'SIGTERM');
+            log.info(`  Killed gateway process (pid ${pid})`);
+          } catch {
+            log.info(`  Process ${pid} already exited`);
+          }
+        }
+      }
+    } else {
+      log.info('  No gateway process found');
+    }
+  } catch {
+    log.info('  No gateway process found on port ' + GATEWAY_PORT);
+  }
+
+  log.info('Doctor fix: installing latest assistant...');
+  try {
+    execSync('bun pm cache rm', { stdio: 'inherit' });
+  } catch {
+    log.info('  Cache clear skipped (non-fatal)');
+  }
+
+  log.info('Doctor fix: rerunning local hatch...');
+  const child = spawn('bunx', ['vellum@latest', 'hatch', '--remote', 'local'], {
+    stdio: 'inherit',
+    env: { ...process.env },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Hatch exited with code ${code}`));
+      }
+    });
+    child.on('error', reject);
+  });
+
+  log.info('Doctor fix: complete!');
+}
 
 // --- Hooks commands ---
 registerHooksCommand(program);
