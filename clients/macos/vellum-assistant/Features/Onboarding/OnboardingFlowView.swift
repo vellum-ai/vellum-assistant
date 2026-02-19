@@ -12,7 +12,7 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
 
     private var maxOnboardingStep: Int {
-        state.userHostedEnabled ? 3 : 2
+        state.userHostedEnabled ? 2 : 1
     }
 
     var body: some View {
@@ -22,8 +22,8 @@ struct OnboardingFlowView: View {
 
             if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
-                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials → ModelSelection (steps 0–3)
-                // Otherwise: WakeUp → APIKey → ModelSelection (steps 0–2)
+                // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
+                // Otherwise: WakeUp → APIKey (steps 0–1)
                 VStack(spacing: 0) {
                     Spacer()
 
@@ -71,13 +71,7 @@ struct OnboardingFlowView: View {
                         case 1:
                             APIKeyStepView(state: state)
                         case 2:
-                            if state.userHostedEnabled {
-                                CloudCredentialsStepView(state: state)
-                            } else {
-                                ModelSelectionStepView(state: state)
-                            }
-                        case 3:
-                            ModelSelectionStepView(state: state)
+                            CloudCredentialsStepView(state: state)
                         default:
                             EmptyView()
                         }

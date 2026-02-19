@@ -27,7 +27,7 @@ enum ActivationKey: String, CaseIterable {
 final class OnboardingState {
     /// Bump this version whenever the default-flow step order changes so that
     /// persisted step indices from a previous layout are not consumed as-is.
-    private static let currentFlowVersion = 7
+    private static let currentFlowVersion = 8
 
     var currentStep: Int = 0
     var assistantName: String = "Velly"
@@ -120,9 +120,9 @@ final class OnboardingState {
         // conversation entry point (step 2). Prevent stale persisted indices
         // from reopening legacy permission-request steps.
         // When userHostedEnabled is on and a cloud provider is selected, the flow
-        // has 4 steps (0–3); otherwise it stays at 3 steps (0–2).
+        // has 3 steps (0–2); otherwise it stays at 2 steps (0–1).
         let hasCloudStep = FeatureFlagManager.shared.isEnabled(.userHostedEnabled) && cloudProvider != "local"
-        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 3 : 2)
+        let maxStep = onboardingVariant == .firstMeeting ? 4 : (hasCloudStep ? 2 : 1)
         if currentStep > maxStep {
             currentStep = maxStep
         }
