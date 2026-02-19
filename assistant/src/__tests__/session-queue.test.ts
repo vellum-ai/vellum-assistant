@@ -103,9 +103,15 @@ mock.module('../memory/conversation-store.js', () => ({
   updateConversationTitle: () => {},
 }));
 
+let linkAttachmentShouldThrow = false;
+
 mock.module('../memory/attachments-store.js', () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
-  linkAttachmentToMessage: () => {},
+  linkAttachmentToMessage: () => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error('Simulated linkAttachmentToMessage failure');
+    }
+  },
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -137,7 +143,6 @@ mock.module('../context/window-manager.js', () => ({
 // ---------------------------------------------------------------------------
 
 const turnCommitCalls: Array<{ workspaceDir: string; sessionId: string; turnNumber: number }> = [];
-let usageStoreShouldThrow = false;
 
 mock.module('../workspace/git-service.js', () => ({
   getWorkspaceGitService: () => ({
@@ -164,9 +169,6 @@ let capturedUsageEvents: CapturedUsageEvent[] = [];
 
 mock.module('../memory/llm-usage-store.js', () => ({
   recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
-    if (usageStoreShouldThrow) {
-      throw new Error('Simulated usage store failure');
-    }
     capturedUsageEvents.push({ requestId: input.requestId, actor: input.actor });
     return { id: 'mock-id', createdAt: Date.now(), ...input };
   },
@@ -278,7 +280,7 @@ function resolveRun(index: number) {
 
 beforeEach(() => {
   turnCommitCalls.length = 0;
-  usageStoreShouldThrow = false;
+  linkAttachmentShouldThrow = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -1382,11 +1384,28 @@ describe('Regression: cancel semantics and error channel split', () => {
     const events: ServerMessage[] = [];
     const session = makeSession();
     await session.loadFromDb();
-    usageStoreShouldThrow = true;
+    linkAttachmentShouldThrow = true;
 
     const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
     await waitForPendingRun(1);
-    resolveRun(0);
+    const run = pendingRuns[0];
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'attachment-trigger' }],
+    };
+    run.onEvent({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+      contentBlocks: [
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
+      ],
+    });
+    run.onEvent({ type: 'usage', inputTokens: 10, outputTokens: 5, model: 'mock', providerDurationMs: 100 });
+    run.onEvent({ type: 'message_complete', message: assistantMsg });
+    run.resolve([...run.messages, assistantMsg]);
     await p1;
 
     expect(turnCommitCalls).toHaveLength(1);
@@ -1395,8 +1414,8 @@ describe('Regression: cancel semantics and error channel split', () => {
       sessionId: 'conv-1',
       turnNumber: 1,
     });
-    const completion = events.find((e) => e.type === 'message_complete');
-    expect(completion).toBeDefined();
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toBeDefined();
   });
 
   test('provider failure during processing emits both session_error and generic error', async () => {
