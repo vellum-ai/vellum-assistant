@@ -1650,6 +1650,13 @@ private struct ChatBubble: View {
         if !partitioned.images.isEmpty {
             attachmentImageGrid(partitioned.images)
         }
+        if !partitioned.videos.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(partitioned.videos) { attachment in
+                    InlineVideoAttachmentView(attachment: attachment)
+                }
+            }
+        }
         if !partitioned.files.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(partitioned.files) { attachment in
@@ -2080,7 +2087,8 @@ private struct ChatBubble: View {
     private func openImageInPreview(_ attachment: ChatAttachment) {
         guard let data = Data(base64Encoded: attachment.data) else { return }
         let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent(attachment.filename)
+        let sanitized = (attachment.filename as NSString).lastPathComponent
+        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
         do {
             try data.write(to: fileURL)
             NSWorkspace.shared.open(fileURL)

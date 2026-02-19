@@ -76,14 +76,21 @@ struct InlineVideoAttachmentView: View {
         }
     }
 
+    /// Builds a safe temp-file URL by stripping path components from the filename
+    /// to prevent traversal attacks (e.g. "../../etc/passwd").
+    private func safeTempURL() -> URL {
+        let sanitized = (attachment.filename as NSString).lastPathComponent
+        let safeName = sanitized.isEmpty ? "video" : sanitized
+        return FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+    }
+
     private func prepareAndPlay() {
         guard let data = Data(base64Encoded: attachment.data) else {
             failed = true
             return
         }
 
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent(attachment.filename)
+        let fileURL = safeTempURL()
         do {
             try data.write(to: fileURL)
         } catch {
@@ -99,8 +106,7 @@ struct InlineVideoAttachmentView: View {
 
     private func openInExternalPlayer() {
         guard let data = Data(base64Encoded: attachment.data) else { return }
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent(attachment.filename)
+        let fileURL = safeTempURL()
         try? data.write(to: fileURL)
         NSWorkspace.shared.open(fileURL)
     }
