@@ -53,7 +53,19 @@ class TaskListRemoveTool implements Tool {
         title: (input.task_name ?? input.title) as string | undefined,
       };
 
-      const item = resolveWorkItem(selector);
+      const result = resolveWorkItem(selector);
+
+      if (result.status === 'not_found') {
+        log.warn({ selectorType, error: result.message }, 'work item not found for removal');
+        return { content: `Error: ${result.message}`, isError: true };
+      }
+
+      if (result.status === 'ambiguous') {
+        log.warn({ selectorType, matchCount: result.matches.length }, 'ambiguous selector for removal');
+        return { content: `Error: ${result.message}`, isError: true };
+      }
+
+      const item = result.workItem;
 
       log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id, title: item.title }, 'resolved work item for removal');
 
