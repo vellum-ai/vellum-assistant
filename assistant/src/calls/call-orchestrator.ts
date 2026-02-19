@@ -185,13 +185,27 @@ export class CallOrchestrator {
           // No bracket at all — safe to flush everything
           this.relay.sendTextToken(ttsBuffer, false);
           ttsBuffer = '';
-        } else if (bracketIdx > 0) {
-          // Flush everything before the bracket; keep the bracket and after
-          this.relay.sendTextToken(ttsBuffer.slice(0, bracketIdx), false);
-          ttsBuffer = ttsBuffer.slice(bracketIdx);
+        } else {
+          // Flush everything before the bracket
+          if (bracketIdx > 0) {
+            this.relay.sendTextToken(ttsBuffer.slice(0, bracketIdx), false);
+            ttsBuffer = ttsBuffer.slice(bracketIdx);
+          }
+
+          // Only hold the buffer if the bracket text could be the start of a
+          // known control marker. Otherwise flush immediately so ordinary
+          // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
+          const afterBracket = ttsBuffer;
+          const couldBeControl =
+            '[ASK_USER:'.startsWith(afterBracket) || '[END_CALL]'.startsWith(afterBracket);
+
+          if (!couldBeControl) {
+            // Not a control marker prefix — flush everything
+            this.relay.sendTextToken(ttsBuffer, false);
+            ttsBuffer = '';
+          }
+          // Otherwise hold it — might be a control marker still being streamed
         }
-        // If force is true, we still hold bracket-prefixed text — it will be
-        // evaluated after the stream completes.
       };
 
       stream.on('text', (text) => {
