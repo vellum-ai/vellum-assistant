@@ -5,6 +5,7 @@
  * 1. classifyRisk — risk classification
  * 2. check — trust rule matching
  * 3. scanText — secret scanning on output
+ * 4. ToolExecutor.execute() — full pipeline overhead with noop/slow tools
  *
  * Target ranges:
  * - p50 pipeline overhead (classifyRisk + check) < 20ms for pre-approved tools
@@ -12,6 +13,7 @@
  * - Overhead is constant regardless of tool execution time
  * - Secret scanning < 5ms for short outputs (< 1KB)
  * - Secret scanning < 50ms for large outputs (100KB)
+ * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
 import { describe, test, expect, beforeAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -19,6 +21,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const testDir = mkdtempSync(join(tmpdir(), 'tool-pipeline-bench-'));
+
+// Local registry for ToolExecutor tests — the mock delegates to this map
+// so that registerTool/getTool/getAllTools work for our benchmark tools.
+const localRegistry = new Map<string, import('../tools/types.js').Tool>();
 
 // Mocks must precede imports of modules under test.
 mock.module('../util/platform.js', () => ({
@@ -31,12 +37,14 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
+  getHooksDir: () => join(testDir, 'hooks'),
 }));
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
 }));
 
 mock.module('../permissions/trust-store.js', () => ({
@@ -64,14 +72,23 @@ mock.module('../config/skills.js', () => ({
 }));
 
 mock.module('../tools/registry.js', () => ({
-  getTool: () => undefined,
-  getAllTools: () => [],
-  registerTool: () => {},
+  getTool: (name: string) => localRegistry.get(name),
+  getAllTools: () => Array.from(localRegistry.values()),
+  registerTool: (tool: import('../tools/types.js').Tool) => { localRegistry.set(tool.name, tool); },
+}));
+
+mock.module('../hooks/manager.js', () => ({
+  getHookManager: () => ({
+    trigger: () => Promise.resolve({ blocked: false }),
+  }),
 }));
 
 import { classifyRisk, check } from '../permissions/checker.js';
 import { scanText, DEFAULT_ENTROPY_CONFIG } from '../security/secret-scanner.js';
 import { RiskLevel } from '../permissions/types.js';
+import { ToolExecutor } from '../tools/executor.js';
+import { PermissionPrompter } from '../permissions/prompter.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -327,5 +344,116 @@ describe('Tool execution pipeline benchmark', () => {
     // Combined pipeline overhead for a pre-approved tool
     expect(p50).toBeLessThan(20);
     expect(p95).toBeLessThan(50);
+  });
+
+  // -------------------------------------------------------------------------
+  // ToolExecutor end-to-end overhead benchmarks
+  // -------------------------------------------------------------------------
+
+  describe('ToolExecutor overhead', () => {
+    const SLEEP_MS = 50;
+    // Fewer iterations for slow-tool tests to avoid timeouts (50ms * 30 = 1.5s)
+    const SLOW_ITERATIONS = 30;
+    let executor: ToolExecutor;
+    const toolContext: ToolContext = {
+      workingDir: '/tmp',
+      sessionId: 'bench-session',
+      conversationId: 'bench-conv',
+    };
+
+    function makeTool(name: string, sleepMs: number): Tool {
+      return {
+        name,
+        description: `Benchmark tool (${sleepMs}ms)`,
+        category: 'benchmark',
+        defaultRiskLevel: RiskLevel.Low,
+        getDefinition: () => ({
+          name,
+          description: `Benchmark tool (${sleepMs}ms)`,
+          input_schema: { type: 'object' as const, properties: {} },
+        }),
+        execute: async (): Promise<ToolExecutionResult> => {
+          if (sleepMs > 0) {
+            await new Promise((r) => setTimeout(r, sleepMs));
+          }
+          return { content: 'ok', isError: false };
+        },
+      };
+    }
+
+    beforeAll(() => {
+      // Auto-allow prompter (never called for low-risk tools, but required by constructor)
+      const prompter = new PermissionPrompter(() => {});
+      executor = new ToolExecutor(prompter);
+
+      const noopTool = makeTool('bench_noop', 0);
+      const slowTool = makeTool('bench_slow', SLEEP_MS);
+      localRegistry.set(noopTool.name, noopTool);
+      localRegistry.set(slowTool.name, slowTool);
+    });
+
+    test('ToolExecutor with noop tool: pipeline overhead < 20ms', async () => {
+      // Warmup
+      for (let i = 0; i < WARMUP; i++) {
+        await executor.execute('bench_noop', {}, toolContext);
+      }
+
+      const { timings } = await benchmarkAsync(
+        () => executor.execute('bench_noop', {}, toolContext),
+        ITERATIONS,
+      );
+
+      const p50 = percentile(timings, 50);
+      const p95 = percentile(timings, 95);
+
+      // Full pipeline overhead for a noop tool should be minimal
+      expect(p50).toBeLessThan(20);
+      expect(p95).toBeLessThan(50);
+    });
+
+    test('ToolExecutor with slow tool (50ms): overhead is constant', async () => {
+      // Warmup
+      for (let i = 0; i < WARMUP; i++) {
+        await executor.execute('bench_slow', {}, toolContext);
+      }
+
+      const { timings } = await benchmarkAsync(
+        () => executor.execute('bench_slow', {}, toolContext),
+        SLOW_ITERATIONS,
+      );
+
+      const p50 = percentile(timings, 50);
+
+      // Total time should be ~50ms + overhead. Pipeline overhead (total - sleep)
+      // should be similar to the noop case.
+      expect(p50).toBeGreaterThanOrEqual(SLEEP_MS);
+      // Total should not exceed sleep + generous overhead budget
+      expect(p50).toBeLessThan(SLEEP_MS + 30);
+    }, 10_000);
+
+    test('overhead subtraction: slow tool overhead matches noop overhead', async () => {
+      // Run both tools and compare pipeline overhead
+      const noopTimings: number[] = [];
+      const slowTimings: number[] = [];
+
+      for (let i = 0; i < SLOW_ITERATIONS; i++) {
+        const s1 = performance.now();
+        await executor.execute('bench_noop', {}, toolContext);
+        noopTimings.push(performance.now() - s1);
+
+        const s2 = performance.now();
+        await executor.execute('bench_slow', {}, toolContext);
+        slowTimings.push(performance.now() - s2);
+      }
+
+      const noopP50 = percentile(noopTimings, 50);
+      const slowP50 = percentile(slowTimings, 50);
+
+      // Overhead = slow_duration - sleep_time. Should be close to noop_duration.
+      const slowOverhead = slowP50 - SLEEP_MS;
+
+      // The overhead portion of the slow tool should be within 10ms of the noop total
+      expect(Math.abs(slowOverhead - noopP50)).toBeLessThan(10);
+    }, 10_000);
   });
 });
