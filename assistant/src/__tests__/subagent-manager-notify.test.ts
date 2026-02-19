@@ -247,9 +247,6 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    const clientMessages: ServerMessage[] = [];
-    const _sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
-
     await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('failed');
