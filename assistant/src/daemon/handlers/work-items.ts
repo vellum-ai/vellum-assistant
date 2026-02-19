@@ -24,7 +24,6 @@ import { getTask, getTaskRun } from '../../tasks/task-store.js';
 import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
-import { RiskLevel } from '../../permissions/types.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
