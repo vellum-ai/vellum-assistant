@@ -73,6 +73,12 @@ export function handleWorkItemUpdate(
 
   const item = updateWorkItem(msg.id, updates as Parameters<typeof updateWorkItem>[1]) ?? null;
   ctx.send(socket, { type: 'work_item_update_response', item });
+
+  // Broadcast to all clients so other open task views stay in sync
+  // (e.g. priority/sort changes made by one client are reflected everywhere)
+  if (item) {
+    broadcastWorkItemStatus(ctx, item.id);
+  }
 }
 
 export function handleWorkItemComplete(
