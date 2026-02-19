@@ -200,7 +200,7 @@ export function createToolExecutor(
     }
 
     // Auto-emit task_progress card on first DoorDash CLI command
-    if (name === 'bash' && !result.isError) {
+    if ((name === 'bash' || name === 'host_bash') && !result.isError) {
       const cmd = input.command as string | undefined;
       if (cmd && /(?:^|[;&|]\s*)vellum doordash\b/.test(cmd) && !ctx.surfaceState.has('doordash-progress')) {
         const surfaceId = 'doordash-progress';
