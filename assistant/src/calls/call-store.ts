@@ -279,11 +279,47 @@ export function buildCallbackDedupeKey(
 }
 
 /**
+ * Check whether a callback dedupe key has already been processed (read-only).
+ * Returns true if the key already exists, false otherwise.
+ */
+export function isCallbackProcessed(dedupeKey: string): boolean {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+  const row = raw.query(
+    `SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`,
+  ).get(dedupeKey);
+  return row != null;
+}
+
+/**
+ * Record a callback as processed. Should be called AFTER downstream writes
+ * (session updates, event recording) have succeeded so that Twilio retries
+ * are not silently dropped if those writes fail.
+ *
+ * Uses INSERT OR IGNORE so concurrent calls for the same key are safe.
+ */
+export function recordProcessedCallback(
+  dedupeKey: string,
+  callSessionId: string,
+): void {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+  raw.query(
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+}
+
+/**
  * Try to record a processed callback. Returns true if this is a new callback
  * (inserted successfully). Returns false if the callback was already processed
  * (dedupe key already exists), indicating a replay.
  *
  * Uses INSERT ... ON CONFLICT DO NOTHING pattern for atomicity.
+ *
+ * @deprecated Use isCallbackProcessed + recordProcessedCallback instead to
+ * ensure the dedupe marker is only persisted after downstream writes succeed.
  */
 export function tryRecordProcessedCallback(
   dedupeKey: string,
