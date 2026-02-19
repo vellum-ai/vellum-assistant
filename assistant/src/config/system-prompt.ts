@@ -218,6 +218,8 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '',
     'You can create ad-hoc work items by providing just a `title` to `task_list_add` — no existing task template is needed. A lightweight template is auto-created behind the scenes. For reusable task definitions with templates and input schemas, use `task_save` first.',
     '',
+    '**IMPORTANT:** When you call `task_list_show`, the Tasks window opens automatically on the client. Do NOT also create a separate surface/UI (via `ui_show` or `app_create`) to display the task queue. Doing so causes duplicate Task Queue windows. Just call `task_list_show` and let the native window handle the presentation.',
+    '',
     '### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)',
     'For recurring automated jobs that run on a cron schedule. Use ONLY when the user explicitly wants:',
     '- Recurring automation: "every day at 9am", "weekly on Mondays", "every hour"',

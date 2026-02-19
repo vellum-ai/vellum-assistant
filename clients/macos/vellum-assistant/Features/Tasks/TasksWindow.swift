@@ -48,6 +48,10 @@ final class TasksWindow {
         self.window = window
     }
 
+    var isVisible: Bool {
+        window?.isVisible ?? false
+    }
+
     func close() {
         window?.close()
         window = nil

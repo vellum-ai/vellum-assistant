@@ -92,13 +92,36 @@ final class SurfaceManager: ObservableObject {
     /// workspace instead of opening as floating NSPanels.
     var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
 
+    /// Returns true when the standalone Tasks window is already visible.
+    /// Set by AppDelegate so SurfaceManager can suppress duplicate task queue surfaces.
+    var isTasksWindowVisible: (() -> Bool)?
+
     /// Called when a dynamic page requests opening an external link.
     /// Parameters: url string, optional metadata dictionary.
     var onLinkOpen: ((String, [String: Any]?) -> Void)?
 
     // MARK: - Show
 
+    /// Checks whether a surface title looks like a task queue UI that would
+    /// duplicate the standalone TasksWindow.
+    private static let taskQueueTitlePatterns: [String] = [
+        "task queue", "task list", "tasks"
+    ]
+
+    private func isTaskQueueSurface(_ message: UiSurfaceShowMessage) -> Bool {
+        guard let title = message.title else { return false }
+        let lower = title.lowercased()
+        return Self.taskQueueTitlePatterns.contains { lower.contains($0) }
+    }
+
     func showSurface(_ message: UiSurfaceShowMessage) {
+        // Safety net: suppress surfaces that duplicate the standalone Tasks window.
+        // The LLM is prompted not to create these, but if it does anyway we skip them.
+        if isTaskQueueSurface(message), isTasksWindowVisible?() == true {
+            log.info("Suppressed duplicate task queue surface: id=\(message.surfaceId), title=\(message.title ?? "nil")")
+            return
+        }
+
         guard let surface = Surface.from(message) else {
             log.error("Failed to parse surface from message: surfaceId=\(message.surfaceId), type=\(message.surfaceType)")
             return
