@@ -62,7 +62,7 @@ public struct CurrentStepIndicator: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     HStack(spacing: VSpacing.xs) {
                         // Show tool name if available, otherwise show generic "Thinking..."
-                        Text(current?.toolName ?? "Thinking...")
+                        Text(current?.friendlyName ?? "Thinking...")
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
 
