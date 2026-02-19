@@ -60,12 +60,20 @@ function formatLocalDate(date: Date, timeZone: string): string {
  */
 function addDays(date: Date, days: number, timeZone: string): Date {
   const parts = localDateParts(date, timeZone);
-  // Build a date string for the target local date at noon, then resolve via Intl.
-  const target = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
-  // Verify the target resolves to the expected local date by checking the
-  // local date parts.  Date.UTC handles month/year overflow automatically
-  // (e.g. Jan 32 → Feb 1), so this is safe across boundaries.
-  return target;
+  // Use Date.UTC for calendar overflow (e.g. Jan 32 → Feb 1).
+  const ref = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+  const tY = ref.getUTCFullYear();
+  const tM = ref.getUTCMonth() + 1;
+  const tD = ref.getUTCDate();
+  // Noon UTC covers UTC-12 through ~UTC+11.  For far-east timezones
+  // (UTC+12/+13/+14) noon UTC is already the next local day, so fall
+  // back to midnight UTC which resolves correctly there.
+  const noonUTC = new Date(Date.UTC(tY, tM - 1, tD, 12, 0, 0));
+  const r = localDateParts(noonUTC, timeZone);
+  if (r.year === tY && r.month === tM && r.day === tD) {
+    return noonUTC;
+  }
+  return new Date(Date.UTC(tY, tM - 1, tD, 0, 0, 0));
 }
 
 /**

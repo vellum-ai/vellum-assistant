@@ -222,4 +222,15 @@ describe('DST-safe timezone behavior', () => {
     expect(result).toContain('2026-11-03 Tuesday');
     expect(result).toContain('2026-11-04 Wednesday');
   });
+
+  test('dates are correct in far-east UTC+13 timezone (Pacific/Auckland NZDT)', () => {
+    // Feb 18 12:00 UTC = Feb 19 01:00 NZDT (UTC+13 during daylight saving)
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'Pacific/Auckland', horizonDays: 3 });
+    // In Auckland, Feb 18 12:00 UTC is already Feb 19 (Thursday)
+    expect(result).toContain('Today: 2026-02-19 (Thursday)');
+    // Horizon should show consecutive days without +1 shift
+    expect(result).toContain('2026-02-20 Friday');
+    expect(result).toContain('2026-02-21 Saturday');
+    expect(result).toContain('2026-02-22 Sunday');
+  });
 });
