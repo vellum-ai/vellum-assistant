@@ -3008,9 +3008,69 @@ queued → running → awaiting_review → done → archived
 | `done` | User reviewed and accepted the output |
 | `archived` | Completed item moved out of active view |
 
-### IPC Messages (Planned)
+### Data Flow
 
-These messages will be added to the Unix socket IPC protocol:
+```mermaid
+flowchart TD
+    subgraph "Model Tools"
+        TLA[task_list_add]
+        TLU[task_list_update]
+        TLS[task_list_show]
+    end
+
+    subgraph "Resolution"
+        RWI[resolveWorkItem]
+        DUPE[Duplicate Check<br/>findActiveWorkItemsByTitle]
+    end
+
+    subgraph "Store"
+        WIS[work-item-store]
+        DB[(SQLite)]
+    end
+
+    subgraph "Daemon IPC Handlers"
+        HC[handleWorkItemCreate]
+        HU[handleWorkItemUpdate]
+        HCo[handleWorkItemComplete]
+        HR[handleWorkItemRunTask]
+        BC[tasks_changed broadcast]
+    end
+
+    subgraph "macOS Client"
+        TW[TasksWindowView]
+        DC[DaemonClient]
+    end
+
+    TLA -->|"if_exists check"| DUPE
+    DUPE -->|"no match"| WIS
+    DUPE -->|"match found → reuse/update"| TLU
+    TLU --> RWI
+    RWI --> WIS
+    TLS --> WIS
+    WIS --> DB
+
+    HC --> WIS
+    HU --> WIS
+    HCo --> WIS
+    HR --> WIS
+    HC --> BC
+    HU --> BC
+    HCo --> BC
+    HR --> BC
+
+    BC -->|"via socket"| DC
+    DC -->|"onTasksChanged"| TW
+    TW -->|"debounced refetch (300ms)"| DC
+```
+
+**Key behaviors:**
+
+- **`task_list_update`** uses `resolveWorkItem` to find the target work item by work item ID, task ID, or title (case-insensitive exact match). When multiple items match by task ID or title, the resolver applies a deterministic tie-break (lowest priority tier, then earliest `createdAt`).
+- **`task_list_add`** has duplicate prevention via the `if_exists` parameter (default: `reuse_existing`). Before creating, it calls `findActiveWorkItemsByTitle` to check for active items with the same title. If a match is found, the tool either returns the existing item (`reuse_existing`), updates it in place (`update_existing`), or proceeds to create a duplicate (`create_duplicate`).
+- **All daemon work-item handlers** (`handleWorkItemCreate`, `handleWorkItemUpdate`, `handleWorkItemComplete`, `handleWorkItemRunTask`) emit a `tasks_changed` broadcast after mutations via `ctx.broadcast({ type: 'tasks_changed' })`. They also emit the more specific `work_item_status_changed` with the affected item's current state.
+- **The macOS Tasks window** (`TasksWindowView`) subscribes to both `tasks_changed` and `work_item_status_changed` callbacks on `DaemonClient`. Both trigger a debounced refetch (300ms) so rapid successive mutations coalesce into a single re-fetch.
+
+### IPC Messages
 
 **Client → Server:**
 
@@ -3027,7 +3087,8 @@ These messages will be added to the Unix socket IPC protocol:
 
 | Message | Purpose |
 |---------|---------|
-| `work_item_status_changed` | Notify the client when a work item transitions state |
+| `work_item_status_changed` | Notify the client when a work item transitions state (includes item snapshot) |
+| `tasks_changed` | Lightweight broadcast after any work-item mutation; triggers client-side refetch |
 
 ## Avatar Evolution Pipeline
 
