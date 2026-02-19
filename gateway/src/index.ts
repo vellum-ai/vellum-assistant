@@ -21,7 +21,7 @@ function main() {
   const handleTelegramWebhook = telegramConfigured
     ? createTelegramWebhookHandler(
         config,
-        async (chatId, result, assistantId) => {
+        async (chatId, result) => {
           const msg = result.runtimeResponse?.assistantMessage;
           const content = msg?.content;
           const attachments = msg?.attachments ?? [];
@@ -40,7 +40,7 @@ function main() {
 
           if (attachments.length > 0) {
             try {
-              await sendTelegramAttachments(config, chatId, assistantId, attachments);
+              await sendTelegramAttachments(config, chatId, attachments);
             } catch (err) {
               log.error({ err, chatId }, "Failed to send Telegram attachments");
             }

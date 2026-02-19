@@ -31,7 +31,6 @@ export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: st
 export type OnReply = (
   chatId: string,
   result: InboundResult,
-  assistantId: string,
 ) => Promise<void>;
 
 export function createTelegramWebhookHandler(
@@ -122,7 +121,6 @@ export function createTelegramWebhookHandler(
         try {
           await resetConversation(
             config,
-            routing.assistantId,
             normalized.sourceChannel,
             normalized.message.externalChatId,
           );
@@ -185,7 +183,7 @@ export function createTelegramWebhookHandler(
                 fileName: att.fileName,
                 mimeType: att.mimeType,
               });
-              return uploadAttachment(config, routing.assistantId, downloaded);
+              return uploadAttachment(config, downloaded);
             }),
           );
           for (const result of results) {
@@ -262,7 +260,7 @@ export function createTelegramWebhookHandler(
 
     // Fire reply asynchronously so webhook ack is not blocked by outbound send
     if (onReply && !isRejection(routing) && !result.rejected && result.runtimeResponse?.assistantMessage) {
-      onReply(normalized.message.externalChatId, result, routing.assistantId).catch((err) => {
+      onReply(normalized.message.externalChatId, result).catch((err) => {
         log.error({ err, updateId: payload.update_id }, "Failed to send reply");
       });
     }

@@ -77,7 +77,7 @@ describe("sendTelegramAttachments", () => {
       kind: "generated_image",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should have called: 1) runtime download, 2) telegram sendPhoto
     expect(calls).toHaveLength(2);
@@ -114,7 +114,7 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("/attachments/att-2");
@@ -138,7 +138,7 @@ describe("sendTelegramAttachments", () => {
       kind: "filesystem",
     };
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+    await sendTelegramAttachments(config, "chat-1", [meta]);
 
     // Should have sent only the failure notice via sendMessage
     expect(calls).toHaveLength(1);
@@ -176,7 +176,7 @@ describe("sendTelegramAttachments", () => {
       { id: "att-ok", filename: "good.png", mimeType: "image/png", sizeBytes: 50, kind: "generated_image" },
     ];
 
-    await sendTelegramAttachments(config, "chat-1", "assistant-a", attachments);
+    await sendTelegramAttachments(config, "chat-1", attachments);
 
     // Should have: download att-fail (fail), download att-ok, sendPhoto for att-ok, sendMessage for notice
     expect(calls.filter((u) => u.includes("sendPhoto"))).toHaveLength(1);
