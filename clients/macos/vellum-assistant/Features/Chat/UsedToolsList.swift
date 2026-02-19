@@ -91,6 +91,7 @@ private struct UsedToolsRow: View {
 
     @State private var isExpanded = false
     @State private var isHovered = false
+    @Environment(\.displayScale) private var displayScale
 
     private var hasDetails: Bool {
         !toolCall.inputSummary.isEmpty ||
@@ -178,8 +179,17 @@ private struct UsedToolsRow: View {
                     }
                     .padding(.horizontal, VSpacing.md)
 
-                    // Screenshot
-                    if let img = toolCall.cachedImage {
+                    // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
+                    if let img = toolCall.cachedImage,
+                       let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                        Image(decorative: cgImage, scale: displayScale)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .padding(.horizontal, VSpacing.md)
+                    } else if let img = toolCall.cachedImage {
                         Image(nsImage: img)
                             .resizable()
                             .aspectRatio(contentMode: .fit)

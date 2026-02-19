@@ -16,19 +16,40 @@ struct AnimatedImageView: View {
     @State private var loadedImage: NSImage?
     @State private var imageData: Data?
     @State private var isLoading = true
+    @Environment(\.displayScale) private var displayScale
+
+    /// Maximum display dimension in points (matches text bubble maxWidth).
+    private let maxDimension: CGFloat = 520
 
     var body: some View {
         Group {
             if let data = imageData, isAnimatedGIF(data) {
                 GIFView(data: data)
                     .frame(
-                        width: min(imageSize.width, 280),
-                        height: min(imageSize.height, 280)
+                        width: min(gifSize.width, maxDimension),
+                        height: min(gifSize.height, maxDimension)
+                    )
+            } else if let image = loadedImage,
+                      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                // Use CGImage with the display's scale factor so each source pixel
+                // maps to exactly one backing-store pixel on Retina displays,
+                // preventing the upscale blur that Image(nsImage:) causes.
+                let nativeWidth = CGFloat(cgImage.width) / displayScale
+                let nativeHeight = CGFloat(cgImage.height) / displayScale
+                Image(decorative: cgImage, scale: displayScale)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(
+                        maxWidth: min(nativeWidth, maxDimension),
+                        maxHeight: min(nativeHeight, maxDimension)
                     )
             } else if let image = loadedImage {
+                // Fallback when CGImage extraction fails
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: maxDimension)
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 24))
@@ -41,11 +62,11 @@ struct AnimatedImageView: View {
         }
     }
 
-    private var imageSize: CGSize {
-        guard let image = loadedImage else { return CGSize(width: 280, height: 280) }
+    private var gifSize: CGSize {
+        guard let image = loadedImage else { return CGSize(width: maxDimension, height: maxDimension) }
         let size = image.size
-        guard size.width > 0, size.height > 0 else { return CGSize(width: 280, height: 280) }
-        let scale = min(280 / size.width, 280 / size.height, 1.0)
+        guard size.width > 0, size.height > 0 else { return CGSize(width: maxDimension, height: maxDimension) }
+        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
 

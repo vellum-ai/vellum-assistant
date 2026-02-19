@@ -1652,7 +1652,6 @@ private struct ChatBubble: View {
                         MarkdownTableView(headers: headers, rows: rows)
                     case .image(let alt, let url):
                         AnimatedImageView(urlString: url)
-                            .frame(maxWidth: 280, maxHeight: 280)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .accessibilityLabel(alt.isEmpty ? "Image" : alt)
 
@@ -1811,7 +1810,6 @@ private struct ChatBubble: View {
                                 MarkdownTableView(headers: headers, rows: rows)
                             case .image(let alt, let url):
                                 AnimatedImageView(urlString: url)
-                                    .frame(maxWidth: 280, maxHeight: 280)
                                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                     .accessibilityLabel(alt.isEmpty ? "Image" : alt)
                             case .heading(let level, let headingText):
