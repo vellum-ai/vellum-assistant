@@ -120,7 +120,7 @@ export interface ProxyDecisionTrace {
  * Strip the query string from a URL path so that secrets passed as
  * query parameters (API keys, tokens) are never recorded in traces.
  */
-function stripQueryString(p: string): string {
+export function stripQueryString(p: string): string {
   const idx = p.indexOf('?');
   return idx === -1 ? p : p.slice(0, idx);
 }
