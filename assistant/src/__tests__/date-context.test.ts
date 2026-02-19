@@ -1,0 +1,197 @@
+import { describe, test, expect } from 'bun:test';
+import { buildTemporalContext } from '../daemon/date-context.js';
+
+// Fixed timestamps for deterministic assertions (all UTC midday to avoid DST edge cases).
+
+/** Wednesday 2026-02-18 12:00 UTC */
+const WED_FEB_18 = Date.UTC(2026, 1, 18, 12, 0, 0);
+
+/** Saturday 2026-02-21 12:00 UTC */
+const SAT_FEB_21 = Date.UTC(2026, 1, 21, 12, 0, 0);
+
+/** Sunday 2026-02-22 12:00 UTC */
+const SUN_FEB_22 = Date.UTC(2026, 1, 22, 12, 0, 0);
+
+/** Tuesday 2026-12-29 12:00 UTC — year boundary */
+const TUE_DEC_29 = Date.UTC(2026, 11, 29, 12, 0, 0);
+
+/** Friday 2026-02-27 12:00 UTC */
+const FRI_FEB_27 = Date.UTC(2026, 1, 27, 12, 0, 0);
+
+// ---------------------------------------------------------------------------
+// Basic structure
+// ---------------------------------------------------------------------------
+
+describe('buildTemporalContext', () => {
+  test('returns output wrapped in <temporal_context> tags', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toStartWith('<temporal_context>');
+    expect(result).toEndWith('</temporal_context>');
+  });
+
+  test('includes today date and weekday', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Today: 2026-02-18 (Wednesday)');
+  });
+
+  test('includes timezone', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'America/New_York' });
+    expect(result).toContain('Timezone: America/New_York');
+  });
+
+  test('includes week definitions', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('work week = Monday–Friday');
+    expect(result).toContain('weekend = Saturday–Sunday');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekday baseline — today is Wednesday
+// ---------------------------------------------------------------------------
+
+describe('weekday baseline (Wednesday)', () => {
+  test('next weekend is the upcoming Saturday-Sunday', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    // Wednesday Feb 18 → next Saturday is Feb 21, Sunday is Feb 22
+    expect(result).toContain('Next weekend: 2026-02-21 – 2026-02-22');
+  });
+
+  test('next work week is the following Monday-Friday', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    // Wednesday Feb 18 → next Monday is Feb 23, Friday is Feb 27
+    expect(result).toContain('Next work week: 2026-02-23 – 2026-02-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekend baseline — today is Saturday
+// ---------------------------------------------------------------------------
+
+describe('weekend baseline (Saturday)', () => {
+  test('next weekend is the *following* Saturday-Sunday, not today', () => {
+    const result = buildTemporalContext({ nowMs: SAT_FEB_21, timeZone: 'UTC' });
+    // Saturday Feb 21 → next Saturday is Feb 28, Sunday is Mar 1
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('next work week is the upcoming Monday-Friday', () => {
+    const result = buildTemporalContext({ nowMs: SAT_FEB_21, timeZone: 'UTC' });
+    // Saturday Feb 21 → next Monday is Feb 23, Friday is Feb 27
+    expect(result).toContain('Next work week: 2026-02-23 – 2026-02-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekend baseline — today is Sunday
+// ---------------------------------------------------------------------------
+
+describe('weekend baseline (Sunday)', () => {
+  test('next weekend is the following Saturday-Sunday', () => {
+    const result = buildTemporalContext({ nowMs: SUN_FEB_22, timeZone: 'UTC' });
+    // Sunday Feb 22 → next Saturday is Feb 28, Sunday is Mar 1
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('next work week is the upcoming Monday-Friday', () => {
+    const result = buildTemporalContext({ nowMs: SUN_FEB_22, timeZone: 'UTC' });
+    // Sunday Feb 22 → next Monday is Feb 23, Friday is Feb 27
+    expect(result).toContain('Next work week: 2026-02-23 – 2026-02-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Friday baseline
+// ---------------------------------------------------------------------------
+
+describe('Friday baseline', () => {
+  test('next weekend is tomorrow (Saturday) and Sunday', () => {
+    const result = buildTemporalContext({ nowMs: FRI_FEB_27, timeZone: 'UTC' });
+    // Friday Feb 27 → next Saturday is Feb 28, Sunday is Mar 1
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('next work week is the following Monday-Friday', () => {
+    const result = buildTemporalContext({ nowMs: FRI_FEB_27, timeZone: 'UTC' });
+    // Friday Feb 27 → next Monday is Mar 2, Friday is Mar 6
+    expect(result).toContain('Next work week: 2026-03-02 – 2026-03-06');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Month / year boundary
+// ---------------------------------------------------------------------------
+
+describe('month/year boundary', () => {
+  test('handles year boundary correctly', () => {
+    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC' });
+    expect(result).toContain('Today: 2026-12-29 (Tuesday)');
+    // Tuesday Dec 29 → next Saturday is Jan 2 2027
+    expect(result).toContain('Next weekend: 2027-01-02 – 2027-01-03');
+    // Next Monday is Jan 4 2027 (skips current work week)
+    // Wait — Dec 29 is Tuesday, so next Monday = Jan 4? Let me think:
+    // Dec 29 Tue → Mon is (1-2+7)%7 = 6 days → Jan 4 Mon
+    expect(result).toContain('Next work week: 2027-01-04 – 2027-01-08');
+  });
+
+  test('horizon entries cross year boundary', () => {
+    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC', horizonDays: 5 });
+    expect(result).toContain('2026-12-30 Wednesday');
+    expect(result).toContain('2026-12-31 Thursday');
+    expect(result).toContain('2027-01-01 Friday');
+    expect(result).toContain('2027-01-02 Saturday');
+    expect(result).toContain('2027-01-03 Sunday');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Output size caps
+// ---------------------------------------------------------------------------
+
+describe('output size caps', () => {
+  test('output is at most 1500 characters', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC', horizonDays: 14 });
+    expect(result.length).toBeLessThanOrEqual(1500);
+  });
+
+  test('horizon entries are capped at 14 even if more requested', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC', horizonDays: 30 });
+    const horizonMatches = result.match(/^\s+\d{4}-\d{2}-\d{2} \w+$/gm);
+    expect(horizonMatches).not.toBeNull();
+    expect(horizonMatches!.length).toBeLessThanOrEqual(14);
+  });
+
+  test('default horizon is 14 days', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    const horizonMatches = result.match(/^\s+\d{4}-\d{2}-\d{2} \w+$/gm);
+    expect(horizonMatches).not.toBeNull();
+    expect(horizonMatches!.length).toBe(14);
+  });
+
+  test('respects smaller horizonDays', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC', horizonDays: 3 });
+    const horizonMatches = result.match(/^\s+\d{4}-\d{2}-\d{2} \w+$/gm);
+    expect(horizonMatches).not.toBeNull();
+    expect(horizonMatches!.length).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DST-safe timezone behavior
+// ---------------------------------------------------------------------------
+
+describe('DST-safe timezone behavior', () => {
+  test('date labels are correct in US Eastern timezone', () => {
+    // Feb 18 12:00 UTC = Feb 18 07:00 EST (same calendar date)
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'America/New_York' });
+    expect(result).toContain('Today: 2026-02-18 (Wednesday)');
+  });
+
+  test('date labels are correct in timezone ahead of UTC', () => {
+    // Use a timestamp near midnight UTC so the local date differs
+    // Feb 18 23:00 UTC = Feb 19 08:00 JST
+    const nearMidnight = Date.UTC(2026, 1, 18, 23, 0, 0);
+    const result = buildTemporalContext({ nowMs: nearMidnight, timeZone: 'Asia/Tokyo' });
+    expect(result).toContain('Today: 2026-02-19 (Thursday)');
+  });
+});
