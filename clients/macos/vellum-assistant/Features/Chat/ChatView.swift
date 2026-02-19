@@ -98,9 +98,11 @@ struct ChatView: View {
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses utf8.count (O(1) for contiguous strings) instead of String.count (O(n) grapheme
     /// cluster enumeration) to avoid per-delta CPU cost on long streaming responses.
+    /// Uses total message text length (monotonically increasing) rather than the last segment's
+    /// length, which resets when a new text segment starts after a tool call.
     private var streamingScrollTrigger: Int {
         let last = messages.last
-        let textLen = last?.textSegments.last?.utf8.count ?? 0
+        let textLen = last?.text.utf8.count ?? 0
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
