@@ -136,6 +136,8 @@ export class WorkspaceGitService {
   private initPromise: Promise<void> | null = null;
   private consecutiveFailures = 0;
   private nextAllowedAttemptMs = 0;
+  private initConsecutiveFailures = 0;
+  private initNextAllowedAttemptMs = 0;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -179,6 +181,42 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Check if the init circuit breaker is open (too many recent init failures).
+   * When open, init attempts are skipped until the backoff window expires.
+   */
+  private isInitBreakerOpen(): boolean {
+    if (this.initConsecutiveFailures === 0) return false;
+    return Date.now() < this.initNextAllowedAttemptMs;
+  }
+
+  private recordInitSuccess(): void {
+    if (this.initConsecutiveFailures > 0) {
+      log.info(
+        { workspaceDir: this.workspaceDir, previousFailures: this.initConsecutiveFailures },
+        'Init circuit breaker closed: initialization succeeded after failures',
+      );
+    }
+    this.initConsecutiveFailures = 0;
+    this.initNextAllowedAttemptMs = 0;
+  }
+
+  private recordInitFailure(): void {
+    const config = getConfig();
+    const failureBackoffBaseMs = config.workspaceGit?.failureBackoffBaseMs ?? 2000;
+    const failureBackoffMaxMs = config.workspaceGit?.failureBackoffMaxMs ?? 60000;
+    this.initConsecutiveFailures++;
+    const delay = Math.min(
+      failureBackoffBaseMs * Math.pow(2, this.initConsecutiveFailures - 1),
+      failureBackoffMaxMs,
+    );
+    this.initNextAllowedAttemptMs = Date.now() + delay;
+    log.warn(
+      { workspaceDir: this.workspaceDir, consecutiveFailures: this.initConsecutiveFailures, backoffMs: delay },
+      'Init circuit breaker opened: initialization failed, backing off',
+    );
+  }
+
+  /**
    * Ensure the git repository is initialized.
    * Idempotent: safe to call multiple times.
    *
@@ -195,6 +233,11 @@ export class WorkspaceGitService {
     // Fast path: already initialized
     if (this.initialized) {
       return;
+    }
+
+    // Circuit breaker: skip if recent init attempts have been failing
+    if (this.isInitBreakerOpen()) {
+      throw new Error('Init circuit breaker open: backing off after repeated failures');
     }
 
     // If initialization is in progress, wait for it
@@ -294,6 +337,7 @@ export class WorkspaceGitService {
             await this.ensureCommitIdentityLocked();
             await this.ensureOnMainLocked();
             this.initialized = true;
+            this.recordInitSuccess();
             return;
           }
         }
@@ -328,12 +372,14 @@ export class WorkspaceGitService {
       await this.execGit(['commit', '-m', message, '--allow-empty']);
 
       this.initialized = true;
+      this.recordInitSuccess();
     });
 
     // If initialization fails, clear the cached promise so subsequent
     // calls can retry instead of permanently returning the rejected promise.
     this.initPromise.catch(() => {
       this.initPromise = null;
+      this.recordInitFailure();
     });
 
     return this.initPromise;
@@ -772,4 +818,19 @@ export function _resetBreaker(service: WorkspaceGitService): void {
  */
 export function _getConsecutiveFailures(service: WorkspaceGitService): number {
   return (service as unknown as { consecutiveFailures: number }).consecutiveFailures;
+}
+
+/**
+ * @internal Test-only: reset init circuit breaker state for a service instance
+ */
+export function _resetInitBreaker(service: WorkspaceGitService): void {
+  (service as unknown as { initConsecutiveFailures: number }).initConsecutiveFailures = 0;
+  (service as unknown as { initNextAllowedAttemptMs: number }).initNextAllowedAttemptMs = 0;
+}
+
+/**
+ * @internal Test-only: get init consecutive failure count
+ */
+export function _getInitConsecutiveFailures(service: WorkspaceGitService): number {
+  return (service as unknown as { initConsecutiveFailures: number }).initConsecutiveFailures;
 }
