@@ -82,7 +82,7 @@ Delete a provisioned assistant instance. The cloud provider and connection detai
 vellum-cli retire <name>
 ```
 
-The CLI looks up the instance by name in `~/.vellum/lockfile.json` and determines how to retire it based on the saved `cloud` field:
+The CLI looks up the instance by name in `~/.vellum.lock.json` and determines how to retire it based on the saved `cloud` field:
 
 - **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
 - **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
