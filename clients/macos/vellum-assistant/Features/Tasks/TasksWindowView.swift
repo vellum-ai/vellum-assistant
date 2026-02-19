@@ -32,6 +32,32 @@ struct TasksWindowView: View {
             Divider()
                 .background(VColor.surfaceBorder)
 
+            // Column headers — fixed above the scrollable list
+            HStack(alignment: .center, spacing: 0) {
+                Text("Task")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Priority")
+                    .frame(width: TasksTableContract.priorityWidth)
+
+                Text("Status")
+                    .frame(width: TasksTableContract.statusWidth)
+
+                Text("Actions")
+                    .frame(width: TasksTableContract.actionsWidth)
+            }
+            .font(VFont.captionMedium)
+            .foregroundColor(VColor.textMuted)
+            .padding(.vertical, VSpacing.sm)
+            .padding(.horizontal, VSpacing.lg)
+            // Inner horizontal padding matches row padding so labels sit
+            // directly above their respective columns.
+            .padding(.horizontal, VSpacing.md)
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
+
             // Content
             if isLoading {
                 VStack {
