@@ -31,7 +31,6 @@ const NOW = 1700000000000;
 /** A fake selfie image attachment with deterministic IDs. */
 export const FAKE_SELFIE_ATTACHMENT: StoredAttachment = {
   id: 'att-selfie-001',
-  assistantId: 'asst-test-001',
   originalFilename: 'selfie.png',
   mimeType: 'image/png',
   sizeBytes: Buffer.from(TINY_PNG_BASE64, 'base64').length,
@@ -43,7 +42,6 @@ export const FAKE_SELFIE_ATTACHMENT: StoredAttachment = {
 /** A fake document attachment. */
 export const FAKE_DOCUMENT_ATTACHMENT: StoredAttachment = {
   id: 'att-doc-001',
-  assistantId: 'asst-test-001',
   originalFilename: 'report.pdf',
   mimeType: 'application/pdf',
   sizeBytes: 4096,
@@ -55,7 +53,6 @@ export const FAKE_DOCUMENT_ATTACHMENT: StoredAttachment = {
 /** A fake JPEG photo attachment. */
 export const FAKE_PHOTO_ATTACHMENT: StoredAttachment = {
   id: 'att-photo-001',
-  assistantId: 'asst-test-001',
   originalFilename: 'photo.jpg',
   mimeType: 'image/jpeg',
   sizeBytes: Buffer.from(TINY_JPEG_BASE64, 'base64').length,
