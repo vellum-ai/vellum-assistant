@@ -20,9 +20,9 @@ Route to the appropriate Linear team based on the report's domain:
 
 | Domain | Team |
 |--------|------|
-| Default / anything related to the Vellum assistant app | Jarvis |
+| Default | Engineering |
 
-If the domain is ambiguous, default to **Jarvis**. As new teams are added, update this table.
+If the domain is ambiguous, default to **Engineering**. As new teams are added, update this table.
 
 ## Step 3: Search for duplicates
 
@@ -50,7 +50,7 @@ Try 2-3 different keyword variations to be thorough. Check issues in ALL statuse
      ```
 3. **Consider bumping priority**: If the existing issue is priority 4 (Low) or 0 (None), and this is a second+ report, suggest bumping to 3 (Normal). If it's already Normal and this is a 3rd+ report, suggest bumping to 2 (High). Ask the user before changing priority.
 4. **Link related issues** if you found multiple related-but-not-duplicate issues.
-5. Tell the user the issue identifier (e.g., JAR-XX) and current status so they know if it's already being worked on.
+5. Tell the user the issue identifier (e.g., TEAM-XX) and current status so they know if it's already being worked on.
 
 ## Step 4b: If no duplicate exists
 
@@ -113,7 +113,7 @@ Default to **3 (Normal)** unless there's a clear reason to go higher or lower.
 ## Step 5: Report back
 
 Tell the user:
-- The issue identifier (e.g., JAR-XX)
+- The issue identifier (e.g., TEAM-XX)
 - Whether it was new or a duplicate
 - Current status and priority
 - If duplicate: how many times it's been reported (check comments for previous "Additional report" entries)

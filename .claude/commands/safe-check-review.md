@@ -25,10 +25,11 @@ Then stop.
 Using the PR number from the state file, run these commands in parallel:
 
 1. **Reviews and comments:** `gh pr view <number> --json comments,reviews,createdAt`
-2. **PR description reactions:** `gh api repos/vellum-ai/vellum-assistant/issues/<number>/reactions --jq '[.[] | {user: .user.login, content: .content}]'`
+2. **PR description reactions:** `gh api repos/{owner}/{repo}/issues/<number>/reactions --jq '[.[] | {user: .user.login, content: .content}]'` (derive `{owner}/{repo}` from `gh repo view --json nameWithOwner -q .nameWithOwner`)
 3. **Review threads (with resolution status):**
+   Derive the owner and repo name from the git remote, then query:
    ```
-   gh api graphql -f query='query { repository(owner:"vellum-ai", name:"vellum-assistant") { pullRequest(number:<number>) { reviewThreads(first:100) { nodes { id isResolved comments(first:5) { nodes { body author { login } path line } } } } } } }'
+   gh api graphql -f query='query { repository(owner:"<owner>", name:"<repo>") { pullRequest(number:<number>) { reviewThreads(first:100) { nodes { id isResolved comments(first:5) { nodes { body author { login } path line } } } } } } }'
    ```
 4. **CI status:** `gh pr checks <number>`
 
@@ -120,6 +121,4 @@ If all reviewers have responded, none requested changes (all approved), and CI i
 
 ## Repo-specific gotchas
 
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
+Follow the project conventions described in CLAUDE.md.
