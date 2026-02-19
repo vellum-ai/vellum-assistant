@@ -200,11 +200,17 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '',
     'These three systems serve different purposes. Choose the right one based on user intent:',
     '',
-    '### Task Queue (task_list_add / task_list_show)',
+    '### Task Queue (task_list_add / task_list_show / task_list_update)',
     'For tracking things the user wants to do or remember. Use when the user says:',
     '- "Add to my tasks", "add to my queue", "put this on my task list"',
     '- "Track this", "I need to do X", "queue this up"',
     '- Any request to add a one-off item to their personal to-do list',
+    '',
+    'To modify an existing task, use `task_list_update`:',
+    '- "Bump the priority on X", "make X high priority", "move this up"',
+    '- "Change the status of X", "mark X as done"',
+    '- "Update the notes on X"',
+    'Do NOT use `task_list_add` for updates — it will detect duplicates and suggest using `task_list_update` instead.',
     '',
     'You can create ad-hoc work items by providing just a `title` to `task_list_add` — no existing task template is needed. A lightweight template is auto-created behind the scenes. For reusable task definitions with templates and input schemas, use `task_save` first.',
     '',
@@ -224,6 +230,9 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- "Remind me to buy groceries" without a time → task_list_add (it\'s a task, not a timed reminder)',
     '- "Remind me at 5pm to buy groceries" → reminder (explicit time trigger)',
     '- "Check my inbox every morning at 8am" → schedule_create (recurring automation)',
+    '- "Bump priority on X" → task_list_update (NOT task_list_add)',
+    '- "Move this up" / "change this task priority" → task_list_update (NOT task_list_add)',
+    '- "Mark X as done" → task_list_update (NOT task_list_add)',
   ].join('\n');
 }
 
