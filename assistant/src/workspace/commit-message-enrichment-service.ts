@@ -9,7 +9,7 @@
  * - Bounded queue with configurable max size (drops oldest on overflow)
  * - Bounded concurrency (default 1 worker)
  * - Per-job timeout with retry + exponential backoff
- * - Graceful shutdown: drains both in-flight and pending jobs
+ * - Graceful shutdown: drains in-flight jobs, discards pending jobs
  * - Fire-and-forget: enqueue() never blocks or throws
  */
 
@@ -99,32 +99,27 @@ export class CommitEnrichmentService {
   }
 
   /**
-   * Graceful shutdown: drain pending queue and wait for all jobs to complete.
+   * Graceful shutdown: discard pending queue and wait for in-flight jobs only.
    *
-   * Jobs are processed serially to respect maxConcurrency (default 1),
-   * preventing concurrent git notes writes that can race.
+   * Bounded shutdown time is more important than processing all pending
+   * enrichments. Enrichment is best-effort metadata and must never delay
+   * daemon shutdown materially. Pending jobs are counted as dropped.
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
 
-    // Wait for any in-flight workers to finish first
+    // Discard pending jobs — enrichment is best-effort and must not delay shutdown
+    if (this.queue.length > 0) {
+      const pendingCount = this.queue.length;
+      this.droppedCount += pendingCount;
+      this.queue = [];
+      log.info({ discarded: pendingCount, droppedCount: this.droppedCount }, 'Enrichment queue shutting down, discarded pending jobs');
+    }
+
+    // Wait for any in-flight workers to finish
     if (this.inFlightPromises.size > 0) {
       log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
       await Promise.all(this.inFlightPromises);
-    }
-
-    // Now drain remaining queue items serially, respecting concurrency
-    if (this.queue.length > 0) {
-      log.info({ pending: this.queue.length }, 'Enrichment queue shutting down, draining pending jobs');
-    }
-    while (this.queue.length > 0) {
-      const job = this.queue.shift()!;
-      this.activeWorkers++;
-      try {
-        await this.executeJob(job);
-      } finally {
-        this.activeWorkers--;
-      }
     }
 
     log.info(

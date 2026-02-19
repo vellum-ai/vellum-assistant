@@ -35,15 +35,25 @@ interface FetchedAsset {
 
 /**
  * Extract all remote (http/https) URLs from HTML content.
- * Looks in src=, href=, and CSS url() references.
+ * Looks in src=, href= on asset elements (not <a> tags), and CSS url() references.
  */
 export function extractRemoteUrls(html: string): string[] {
   const urls = new Set<string>();
 
-  // Match src="..." and href="..." attributes (double or single quotes, or unquoted)
-  const attrRe = /\b(?:src|href)\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))/gi;
+  // Match src="..." attributes on any element
+  const srcRe = /\bsrc\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))/gi;
   let m: RegExpExecArray | null;
-  while ((m = attrRe.exec(html)) !== null) {
+  while ((m = srcRe.exec(html)) !== null) {
+    const url = m[1] ?? m[2] ?? m[3];
+    if (url && /^https?:\/\//i.test(url)) {
+      urls.add(url);
+    }
+  }
+
+  // Match href="..." only on <link> elements (stylesheets, icons, preloads), not <a> tags.
+  // Captures <link ...href="..."> where href appears anywhere within the tag.
+  const linkRe = /<link\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
+  while ((m = linkRe.exec(html)) !== null) {
     const url = m[1] ?? m[2] ?? m[3];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);
@@ -104,13 +114,17 @@ export async function materializeAssets(
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), ASSET_FETCH_TIMEOUT_MS);
-        const resp = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!resp.ok) {
-          bundlerLog.warn({ url, status: resp.status }, 'Failed to fetch asset, keeping original URL');
-          return;
+        let buf: Buffer;
+        try {
+          const resp = await fetch(url, { signal: controller.signal });
+          if (!resp.ok) {
+            bundlerLog.warn({ url, status: resp.status }, 'Failed to fetch asset, keeping original URL');
+            return;
+          }
+          buf = Buffer.from(await resp.arrayBuffer());
+        } finally {
+          clearTimeout(timeout);
         }
-        const buf = Buffer.from(await resp.arrayBuffer());
         const filename = assetFilename(url);
         const archivePath = `assets/${filename}`;
         assets.push({ archivePath, data: buf });
@@ -121,9 +135,12 @@ export async function materializeAssets(
     }),
   );
 
-  // Rewrite URLs in HTML — replace each occurrence of the original URL with the local path
+  // Rewrite URLs in HTML — replace each occurrence of the original URL with the local path.
+  // Sort by length descending so longer URLs are replaced first, preventing prefix collisions
+  // (e.g. "https://cdn/x" replacing part of "https://cdn/x/y.png").
+  const sortedEntries = [...urlMap.entries()].sort((a, b) => b[0].length - a[0].length);
   let rewrittenHtml = html;
-  for (const [originalUrl, localPath] of urlMap) {
+  for (const [originalUrl, localPath] of sortedEntries) {
     // Escape regex special chars in the URL
     const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     rewrittenHtml = rewrittenHtml.replace(new RegExp(escaped, 'g'), localPath);

@@ -383,12 +383,18 @@ export class WorkspaceGitService {
    *
    * @param decide - Called with the current status. Return an object with `message`
    *   (and optional `metadata`) to commit, or `null` to skip.
+   * @param options.bypassBreaker - Skip circuit breaker checks (used for shutdown commits).
+   * @param options.deadlineMs - Absolute timestamp (Date.now()) after which the commit
+   *   should be skipped. Checked before lock acquisition, after lock acquisition, and
+   *   before git add/commit to prevent stale queued attempts from doing expensive work.
    * @returns Whether a commit was created and the status at check time.
    */
   async commitIfDirty(
     decide: (status: GitStatus) => { message: string; metadata?: GitCommitMetadata } | null,
-    options?: { bypassBreaker?: boolean },
+    options?: { bypassBreaker?: boolean; deadlineMs?: number },
   ): Promise<{ committed: boolean; status: GitStatus }> {
+    const emptyStatus: GitStatus = { staged: [], modified: [], untracked: [], clean: false };
+
     // Circuit breaker: skip expensive git work if recent attempts have been failing.
     // Shutdown commits bypass the breaker because the process is about to exit and
     // this is the last chance to persist workspace state.
@@ -397,21 +403,60 @@ export class WorkspaceGitService {
         { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
         'Circuit breaker open, skipping commit attempt',
       );
-      return { committed: false, status: { staged: [], modified: [], untracked: [], clean: false } };
+      return { committed: false, status: emptyStatus };
+    }
+
+    // Deadline fast-path: bail before acquiring the lock if already past deadline.
+    if (isDeadlineExpired(options?.deadlineMs)) {
+      log.debug(
+        { workspaceDir: this.workspaceDir },
+        'Deadline expired before lock acquisition, skipping commit',
+      );
+      return { committed: false, status: emptyStatus };
     }
 
     await this.ensureInitialized();
 
     try {
       const result = await this.mutex.withLock(async () => {
+        // Re-check breaker under lock: a queued call that started before the
+        // breaker opened should not proceed with expensive git work now that
+        // the breaker is open.
+        if (!options?.bypassBreaker && this.isBreakerOpen()) {
+          log.debug(
+            { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
+            'Circuit breaker open after lock acquisition, skipping commit',
+          );
+          return { committed: false, status: emptyStatus, didRunGit: false as const };
+        }
+
+        // Re-check deadline after lock acquisition: the call may have waited
+        // in the mutex queue past its deadline.
+        if (isDeadlineExpired(options?.deadlineMs)) {
+          log.debug(
+            { workspaceDir: this.workspaceDir },
+            'Deadline expired after lock acquisition, skipping commit',
+          );
+          return { committed: false, status: emptyStatus, didRunGit: false as const };
+        }
+
         const status = await this.getStatusInternal();
         if (status.clean) {
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         }
 
         const decision = decide(status);
         if (!decision) {
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
+        }
+
+        // Check deadline before expensive git add/commit operations.
+        if (isDeadlineExpired(options?.deadlineMs)) {
+          log.debug(
+            { workspaceDir: this.workspaceDir },
+            'Deadline expired before git add/commit, skipping commit',
+          );
+          return { committed: false, status, didRunGit: true as const };
         }
 
         await this.execGit(['add', '-A']);
@@ -422,7 +467,7 @@ export class WorkspaceGitService {
         try {
           await this.execGit(['diff', '--cached', '--quiet']);
           // Exit code 0 means nothing staged — nothing to commit
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         } catch (err) {
           // git diff --cached --quiet exits with code 1 when there are staged changes.
           // Any other error (timeout, permission, etc.) should be treated as a failure.
@@ -441,10 +486,12 @@ export class WorkspaceGitService {
         }
 
         await this.execGit(['commit', '-m', fullMessage]);
-        return { committed: true, status };
+        return { committed: true, status, didRunGit: true as const };
       });
-      this.recordSuccess();
-      return result;
+      if (result.didRunGit) {
+        this.recordSuccess();
+      }
+      return { committed: result.committed, status: result.status };
     } catch (err) {
       this.recordFailure();
       throw err;
@@ -596,15 +643,19 @@ export class WorkspaceGitService {
 
   /**
    * Execute a git command in the workspace directory.
-   * Includes a 30-second timeout to prevent hung operations
-   * (e.g. stale git lock files).
+   * Uses the configurable interactiveGitTimeoutMs (default 10 000 ms) to
+   * prevent hung operations (e.g. stale git lock files). The timeout is
+   * intentionally short for interactive workspace operations — background
+   * enrichment jobs use their own dedicated timeout.
    */
   private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    const config = getConfig();
+    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
     try {
       const { stdout, stderr } = await execFileAsync('git', args, {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
-        timeout: 30_000,
+        timeout: timeoutMs,
         env: cleanGitEnv(this.workspaceDir),
       });
       return { stdout, stderr };
@@ -662,6 +713,14 @@ export class WorkspaceGitService {
   getWorkspaceDir(): string {
     return this.workspaceDir;
   }
+}
+
+/**
+ * Check whether a deadline has expired.
+ * Returns true when `deadlineMs` is provided and `Date.now()` has reached or passed it.
+ */
+export function isDeadlineExpired(deadlineMs?: number): boolean {
+  return deadlineMs !== undefined && Date.now() >= deadlineMs;
 }
 
 /**

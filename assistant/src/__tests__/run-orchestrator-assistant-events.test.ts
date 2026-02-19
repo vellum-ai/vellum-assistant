@@ -119,7 +119,7 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(
-      { assistantId: 'ast-http-1' },
+      { assistantId: 'self' },
       (e) => { received.push(e); },
     );
 
@@ -128,14 +128,14 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun('ast-http-1', conversation.id, 'Do something');
+    await orchestrator.startRun(conversation.id, 'Do something');
     // Wait for the async hub chain to flush.
     await new Promise((r) => setTimeout(r, 20));
 
     sub.dispose();
 
     expect(received).toHaveLength(1);
-    expect(received[0].assistantId).toBe('ast-http-1');
+    expect(received[0].assistantId).toBe('self');
     expect(received[0].sessionId).toBe(conversation.id);
     expect(received[0].message.type).toBe('confirmation_request');
     expect(received[0].message).toBe(confirmationMsg);
@@ -165,7 +165,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(
-      { assistantId: 'ast-http-2' },
+      { assistantId: 'self' },
       (e) => { received.push(e); },
     );
 
@@ -174,7 +174,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun('ast-http-2', conversation.id, 'Hello');
+    await orchestrator.startRun(conversation.id, 'Hello');
     await new Promise((r) => setTimeout(r, 20));
 
     sub.dispose();
@@ -198,7 +198,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(
-      { assistantId: 'ast-http-3' },
+      { assistantId: 'self' },
       (e) => { received.push(e); },
     );
 
@@ -207,7 +207,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun('ast-http-3', conversation.id, 'ping');
+    await orchestrator.startRun(conversation.id, 'ping');
     await new Promise((r) => setTimeout(r, 20));
 
     sub.dispose();

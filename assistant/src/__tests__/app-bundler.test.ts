@@ -1,5 +1,4 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { createHash } from 'node:crypto';
 
 // Mock the logger before importing the module under test
 mock.module('../util/logger.js', () => ({
@@ -10,27 +9,6 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { extractRemoteUrls, materializeAssets } from '../bundler/app-bundler.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Compute expected asset filename for a URL (mirrors the production logic). */
-function expectedFilename(url: string): string {
-  const hash = createHash('sha256').update(url).digest('hex').slice(0, 12);
-  let ext = '';
-  try {
-    const parsed = new URL(url);
-    const match = parsed.pathname.match(/\.\w+$/);
-    ext = match ? match[0] : '';
-  } catch {
-    // no extension
-  }
-  if (!ext || ext.length > 10 || !/^\.\w+$/.test(ext)) {
-    ext = '';
-  }
-  return `${hash}${ext}`;
-}
 
 // ---------------------------------------------------------------------------
 // extractRemoteUrls
@@ -167,10 +145,9 @@ describe('materializeAssets', () => {
     const html = `<img src="${imageUrl}">`;
     const result = await materializeAssets(html);
 
-    const filename = expectedFilename(imageUrl);
-    expect(result.rewrittenHtml).toBe(`<img src="assets/${filename}">`);
+    expect(result.rewrittenHtml).toBe('<img src="assets/e724846245db.png">');
     expect(result.assets).toHaveLength(1);
-    expect(result.assets[0].archivePath).toBe(`assets/${filename}`);
+    expect(result.assets[0].archivePath).toBe('assets/e724846245db.png');
     expect(result.assets[0].data).toEqual(imageData);
   });
 
@@ -193,9 +170,14 @@ describe('materializeAssets', () => {
     const result = await materializeAssets(html);
 
     expect(result.assets).toHaveLength(3);
+
+    const expectedFilenames: Record<string, string> = {
+      'https://cdn.example.com/a.png': '6155f67efa62.png',
+      'https://cdn.example.com/b.css': '5e6d8d571910.css',
+      'https://cdn.example.com/c.js': '20fb1ea9b4c9.js',
+    };
     for (const url of urls) {
-      const filename = expectedFilename(url);
-      expect(result.rewrittenHtml).toContain(`assets/${filename}`);
+      expect(result.rewrittenHtml).toContain(`assets/${expectedFilenames[url]}`);
       expect(result.rewrittenHtml).not.toContain(url);
     }
   });
@@ -242,8 +224,7 @@ describe('materializeAssets', () => {
     const html = `<img src="${goodUrl}"><img src="${badUrl}">`;
     const result = await materializeAssets(html);
 
-    const goodFilename = expectedFilename(goodUrl);
-    expect(result.rewrittenHtml).toContain(`assets/${goodFilename}`);
+    expect(result.rewrittenHtml).toContain('assets/691e2a787421.png');
     expect(result.rewrittenHtml).toContain(badUrl);
     expect(result.assets).toHaveLength(1);
   });
@@ -265,9 +246,8 @@ describe('materializeAssets', () => {
     expect(result.assets).toHaveLength(1);
 
     // Both occurrences should be rewritten
-    const filename = expectedFilename(imageUrl);
     expect(result.rewrittenHtml).not.toContain(imageUrl);
-    const matches = result.rewrittenHtml.match(new RegExp(`assets/${filename}`, 'g'));
+    const matches = result.rewrittenHtml.match(/assets\/2f7fc0f99275\.png/g);
     expect(matches).toHaveLength(2);
   });
 
@@ -306,8 +286,7 @@ describe('materializeAssets', () => {
     const html = '<style>body { background: url("https://cdn.example.com/bg.jpg"); }</style>';
     const result = await materializeAssets(html);
 
-    const filename = expectedFilename(cssUrl);
-    expect(result.rewrittenHtml).toContain(`assets/${filename}`);
+    expect(result.rewrittenHtml).toContain('assets/8550eecd4975.jpg');
     expect(result.rewrittenHtml).not.toContain(cssUrl);
   });
 });

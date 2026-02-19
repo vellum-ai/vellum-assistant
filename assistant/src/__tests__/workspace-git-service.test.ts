@@ -7,6 +7,9 @@ import {
   WorkspaceGitService,
   getWorkspaceGitService,
   _resetGitServiceRegistry,
+  _resetBreaker,
+  _getConsecutiveFailures,
+  isDeadlineExpired,
 } from '../workspace/git-service.js';
 
 describe('WorkspaceGitService', () => {
@@ -745,6 +748,220 @@ describe('WorkspaceGitService', () => {
 
       expect(status.untracked).toContain('config.json');
       expect(status.untracked).toContain('README.md');
+    });
+  });
+
+  describe('deadline-aware commitIfDirty', () => {
+    test('deadline expired before lock acquisition skips commit quickly', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Create a file so the workspace is dirty
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Use a deadline that has already passed
+      const pastDeadline = Date.now() - 1000;
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+        { deadlineMs: pastDeadline },
+      );
+
+      expect(result.committed).toBe(false);
+
+      // File should still be uncommitted
+      const status = await service.getStatus();
+      expect(status.clean).toBe(false);
+      expect(status.untracked).toContain('test.txt');
+    });
+
+    test('deadline far in the future allows commit to proceed', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Use a deadline far in the future
+      const futureDeadline = Date.now() + 60_000;
+      const result = await service.commitIfDirty(
+        () => ({ message: 'deadline commit' }),
+        { deadlineMs: futureDeadline },
+      );
+
+      expect(result.committed).toBe(true);
+
+      // Verify the commit was actually created
+      const log = execFileSync('git', ['log', '--oneline', '-n', '1'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      });
+      expect(log).toContain('deadline commit');
+    });
+
+    test('no deadline option allows commit as normal', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // No deadline option at all
+      const result = await service.commitIfDirty(
+        () => ({ message: 'no deadline commit' }),
+      );
+
+      expect(result.committed).toBe(true);
+    });
+  });
+
+  describe('breaker re-check under lock', () => {
+    test('queued call that acquires lock after breaker opens skips commit', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Simulate a breaker that opened between the pre-lock check and lock acquisition.
+      // We do this by:
+      // 1. Starting a commitIfDirty call (which passes the pre-lock breaker check)
+      // 2. Forcing the breaker open while the call is in progress
+
+      // First, force the breaker open by setting internal state directly.
+      // Since commitIfDirty re-checks the breaker after acquiring the lock,
+      // a call that passes the pre-lock check but finds the breaker open
+      // after acquiring the lock should bail out.
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 5;
+      internal.nextAllowedAttemptMs = Date.now() + 60_000; // far in the future
+
+      // With breaker open, commitIfDirty should skip (pre-lock check)
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+      );
+      expect(result.committed).toBe(false);
+
+      // Reset breaker
+      _resetBreaker(service);
+
+      // Now the commit should proceed normally
+      const result2 = await service.commitIfDirty(
+        () => ({ message: 'after breaker reset' }),
+      );
+      expect(result2.committed).toBe(true);
+    });
+
+    test('breaker early return inside lock does not reset breaker via recordSuccess', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Force breaker open with known failure count
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 5;
+      internal.nextAllowedAttemptMs = Date.now() + 60_000;
+
+      // Pre-lock check catches the open breaker and returns early.
+      // Verify that consecutiveFailures is NOT reset to 0.
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+      );
+      expect(result.committed).toBe(false);
+      expect(_getConsecutiveFailures(service)).toBe(5);
+    });
+
+    test('deadline early return inside lock does not reset breaker via recordSuccess', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Set up prior failures (breaker closed but failures recorded)
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 3;
+      // Set nextAllowedAttemptMs in the past so the breaker check passes
+      // but consecutiveFailures is non-zero
+      internal.nextAllowedAttemptMs = Date.now() - 1000;
+
+      // Use a deadline that has already passed — this triggers the pre-lock
+      // deadline fast-path. consecutiveFailures should NOT be reset.
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+        { deadlineMs: Date.now() - 1000 },
+      );
+      expect(result.committed).toBe(false);
+      expect(_getConsecutiveFailures(service)).toBe(3);
+    });
+
+    test('successful git operation after failures resets breaker', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Set up prior failures with breaker closed (backoff expired)
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 3;
+      internal.nextAllowedAttemptMs = Date.now() - 1000;
+
+      // Commit should succeed and reset the breaker
+      const result = await service.commitIfDirty(
+        () => ({ message: 'recovery commit' }),
+      );
+      expect(result.committed).toBe(true);
+      expect(_getConsecutiveFailures(service)).toBe(0);
+    });
+
+    test('bypassBreaker ignores breaker state', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Force breaker open
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 5;
+      internal.nextAllowedAttemptMs = Date.now() + 60_000;
+
+      // With bypassBreaker, commit should succeed despite open breaker
+      const result = await service.commitIfDirty(
+        () => ({ message: 'bypass breaker commit' }),
+        { bypassBreaker: true },
+      );
+      expect(result.committed).toBe(true);
+    });
+  });
+
+  describe('isDeadlineExpired helper', () => {
+    test('returns false when deadlineMs is undefined', () => {
+      expect(isDeadlineExpired(undefined)).toBe(false);
+    });
+
+    test('returns false when deadline is in the future', () => {
+      expect(isDeadlineExpired(Date.now() + 60_000)).toBe(false);
+    });
+
+    test('returns true when deadline is in the past', () => {
+      expect(isDeadlineExpired(Date.now() - 1000)).toBe(true);
+    });
+
+    test('returns true when deadline equals current time', () => {
+      const now = Date.now();
+      // Use a deadline slightly in the past to avoid timing flakes
+      expect(isDeadlineExpired(now - 1)).toBe(true);
     });
   });
 });

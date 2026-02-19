@@ -1701,7 +1701,9 @@ private struct ActiveChatViewWrapper: View {
             ),
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
-            daemonHttpPort: daemonClient.httpPort
+            daemonHttpPort: daemonClient.httpPort,
+            dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
+            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
         )
     }
 }

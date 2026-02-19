@@ -198,7 +198,7 @@ export function getAllToolDefinitions(): ToolDefinition[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { eagerModules, eagerModuleToolNames, explicitTools, lazyTools } = await import('./tool-manifest.js');
+  const { loadEagerModules, eagerModuleToolNames, explicitTools, lazyTools } = await import('./tool-manifest.js');
 
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
@@ -206,9 +206,7 @@ export async function initializeTools(): Promise<void> {
   const preExisting = new Set(tools.keys());
 
   // Import tool modules to trigger registration side effects.
-  for (const modulePath of eagerModules) {
-    await import(modulePath);
-  }
+  await loadEagerModules();
 
   // Explicit tool instances — no side-effect import required.
   for (const tool of explicitTools) {

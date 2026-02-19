@@ -19,7 +19,7 @@ import {
   __resetRegistryForTesting,
   __clearRegistryForTesting,
 } from '../tools/registry.js';
-import { eagerModules, explicitTools, lazyTools } from '../tools/tool-manifest.js';
+import { eagerModuleToolNames, explicitTools, lazyTools } from '../tools/tool-manifest.js';
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.
@@ -175,8 +175,8 @@ describe('tool manifest', () => {
     expect(lazyNames.has('swarm_delegate')).toBe(true);
   });
 
-  test('eager module list contains expected count', () => {
-    expect(eagerModules.length).toBe(28);
+  test('eager module tool names list contains expected count', () => {
+    expect(eagerModuleToolNames.length).toBe(31);
   });
 
   test('explicit tools list includes memory, credential, and timer tools', () => {
@@ -192,7 +192,7 @@ describe('tool manifest', () => {
   test('registered tool count is at least eager + lazy + host', async () => {
     await initializeTools();
     const tools = getAllTools();
-    expect(tools.length).toBeGreaterThanOrEqual(eagerModules.length + lazyTools.length);
+    expect(tools.length).toBeGreaterThanOrEqual(eagerModuleToolNames.length + lazyTools.length);
   });
 });
 
@@ -210,8 +210,13 @@ describe('baseline characterization: hardcoded tool loading', () => {
     }
   });
 
-  test('gmail eager module is NOT in eagerModules manifest', () => {
-    expect(eagerModules).not.toContain('./gmail/executors.js');
+  test('gmail tool names are NOT in eagerModuleToolNames manifest', () => {
+    const gmailTools = ['gmail_search', 'gmail_list_messages', 'gmail_get_message', 'gmail_mark_read',
+      'gmail_draft', 'gmail_archive', 'gmail_batch_archive', 'gmail_label', 'gmail_batch_label',
+      'gmail_trash', 'gmail_send', 'gmail_unsubscribe'];
+    for (const name of gmailTools) {
+      expect(eagerModuleToolNames).not.toContain(name);
+    }
   });
 
   test('weather tool is NOT in global registry after initializeTools()', async () => {
@@ -220,8 +225,8 @@ describe('baseline characterization: hardcoded tool loading', () => {
     expect(tool).toBeUndefined();
   });
 
-  test('weather eager module is NOT in eagerModules manifest', () => {
-    expect(eagerModules).not.toContain('./weather/get-weather.js');
+  test('weather tool name is NOT in eagerModuleToolNames manifest', () => {
+    expect(eagerModuleToolNames).not.toContain('get_weather');
   });
 
   test('claude_code is NOT in global registry after initializeTools()', async () => {

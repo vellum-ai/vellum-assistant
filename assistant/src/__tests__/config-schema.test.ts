@@ -496,6 +496,55 @@ describe('AssistantConfigSchema', () => {
       expect(msgs.some(m => m.includes('permissions.mode'))).toBe(true);
     }
   });
+
+  test('applies workspaceGit defaults including interactiveGitTimeoutMs', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.workspaceGit).toEqual({
+      turnCommitMaxWaitMs: 4000,
+      failureBackoffBaseMs: 2000,
+      failureBackoffMaxMs: 60000,
+      interactiveGitTimeoutMs: 10000,
+      enrichmentQueueSize: 50,
+      enrichmentConcurrency: 1,
+      enrichmentJobTimeoutMs: 30000,
+      enrichmentMaxRetries: 2,
+    });
+  });
+
+  test('accepts custom workspaceGit.interactiveGitTimeoutMs', () => {
+    const result = AssistantConfigSchema.parse({
+      workspaceGit: { interactiveGitTimeoutMs: 5000 },
+    });
+    expect(result.workspaceGit.interactiveGitTimeoutMs).toBe(5000);
+    // Other fields should still get defaults
+    expect(result.workspaceGit.turnCommitMaxWaitMs).toBe(4000);
+  });
+
+  test('rejects non-positive workspaceGit.interactiveGitTimeoutMs', () => {
+    const zeroResult = AssistantConfigSchema.safeParse({
+      workspaceGit: { interactiveGitTimeoutMs: 0 },
+    });
+    expect(zeroResult.success).toBe(false);
+
+    const negativeResult = AssistantConfigSchema.safeParse({
+      workspaceGit: { interactiveGitTimeoutMs: -1 },
+    });
+    expect(negativeResult.success).toBe(false);
+  });
+
+  test('rejects non-integer workspaceGit.interactiveGitTimeoutMs', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { interactiveGitTimeoutMs: 3.5 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects non-number workspaceGit.interactiveGitTimeoutMs', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { interactiveGitTimeoutMs: 'fast' },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

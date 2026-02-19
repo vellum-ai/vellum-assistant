@@ -190,9 +190,9 @@ final class DocumentReopenDismissTests: XCTestCase {
         XCTAssertEqual(receivedSurfaceId, "doc-notify-test")
     }
 
-    // MARK: - Dismiss state via ChatView's dismissedDocumentSurfaceIds
+    // MARK: - Dismiss state via ChatViewModel's dismissedDocumentSurfaceIds
 
-    /// Simulates the dismiss flow: ChatView tracks dismissed surface IDs in a Set.
+    /// Simulates the dismiss flow: ChatViewModel tracks dismissed surface IDs in a Set.
     /// After inserting a surface ID, the widget should not render (the guard in
     /// `documentWidget` checks `!dismissedDocumentSurfaceIds.contains(surfaceId)`).
     func testDismissedSetBlocksRendering() {

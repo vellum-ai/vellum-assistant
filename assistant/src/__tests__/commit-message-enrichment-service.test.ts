@@ -85,44 +85,29 @@ describe('CommitEnrichmentService', () => {
   test('queue overflow drops oldest job', async () => {
     const service = new CommitEnrichmentService({
       maxQueueSize: 2,
-      maxConcurrency: 0, // 0 concurrency means nothing processes, for testing queue behavior
-      jobTimeoutMs: 5000,
-      maxRetries: 0,
-    });
-
-    // Override concurrency so nothing actually runs
-    // We want to test queue overflow behavior only
-    const hash1 = await createCommit();
-    const hash2 = await createCommit();
-    const hash3 = await createCommit();
-
-    // With maxConcurrency 0, nothing will process; but let's use 1 and block processing
-    // Instead, use a service with concurrency 1 but fill the queue faster than it drains
-    const service2 = new CommitEnrichmentService({
-      maxQueueSize: 2,
       maxConcurrency: 1,
       jobTimeoutMs: 30000,
       maxRetries: 0,
     });
 
-    // Enqueue 3 jobs — the first starts immediately (active worker),
-    // second goes to queue, third overflows and drops the second
-    service2.enqueue({ workspaceDir: testDir, commitHash: hash1, context: makeContext(), gitService });
-    service2.enqueue({ workspaceDir: testDir, commitHash: hash2, context: makeContext(), gitService });
-    service2.enqueue({ workspaceDir: testDir, commitHash: hash3, context: makeContext(), gitService });
+    const hash1 = await createCommit();
+    const hash2 = await createCommit();
+    const hash3 = await createCommit();
 
-    // The queue should have 2 items (hash2 and hash3 or hash3 depending on timing)
-    // But hash1 is being processed. Let's check dropped count.
-    // With maxQueueSize=2, after hash1 starts processing (active worker=1),
-    // hash2 goes to queue (size=1), hash3 goes to queue (size=2), no drop yet.
-    // Actually the first job is picked up immediately, so queue has 2 items max.
-    // Let's check dropped count after shutdown.
-    await service2.shutdown();
+    // Enqueue 3 jobs — hash1 starts immediately (active worker),
+    // hash2 goes to queue (size=1), hash3 goes to queue (size=2), no overflow drop.
+    service.enqueue({ workspaceDir: testDir, commitHash: hash1, context: makeContext(), gitService });
+    service.enqueue({ workspaceDir: testDir, commitHash: hash2, context: makeContext(), gitService });
+    service.enqueue({ workspaceDir: testDir, commitHash: hash3, context: makeContext(), gitService });
 
-    // No drops expected since queue size 2 can hold 2 pending while 1 is active
-    expect(service2._getDroppedCount()).toBe(0);
+    // No overflow drops — queue size 2 can hold 2 pending while 1 is active
+    expect(service._getDroppedCount()).toBe(0);
+    expect(service._getQueueSize()).toBe(2);
 
+    // Shutdown discards the 2 pending jobs
     await service.shutdown();
+    expect(service._getDroppedCount()).toBe(2);
+    expect(service._getSucceededCount()).toBe(1);
   });
 
   test('queue overflow actually drops when truly full', async () => {
@@ -191,8 +176,60 @@ describe('CommitEnrichmentService', () => {
     // Shutdown should complete without hanging
     await service.shutdown();
 
-    // At least the first job should have completed (it was in-flight)
-    expect(service._getSucceededCount()).toBeGreaterThanOrEqual(1);
+    // The first job was in-flight and should complete. The second was pending
+    // and should be discarded, counted as dropped.
+    expect(service._getSucceededCount()).toBe(1);
+    expect(service._getDroppedCount()).toBe(1);
+    expect(service._getQueueSize()).toBe(0);
+  });
+
+  test('shutdown discards all pending jobs and counts them as dropped', async () => {
+    // Use maxConcurrency 1 so only one job starts processing; the rest stay pending.
+    const hashes: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      hashes.push(await createCommit());
+    }
+
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 5000,
+      maxRetries: 0,
+    });
+
+    for (const hash of hashes) {
+      service.enqueue({ workspaceDir: testDir, commitHash: hash, context: makeContext(), gitService });
+    }
+
+    // First job is in-flight, remaining 4 are pending
+    await service.shutdown();
+
+    // In-flight job completes, pending jobs are discarded
+    expect(service._getSucceededCount()).toBe(1);
+    expect(service._getDroppedCount()).toBe(4);
+  });
+
+  test('shutdown does not cause concurrency spike', async () => {
+    const hashes: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      hashes.push(await createCommit());
+    }
+
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 5000,
+      maxRetries: 0,
+    });
+
+    for (const hash of hashes) {
+      service.enqueue({ workspaceDir: testDir, commitHash: hash, context: makeContext(), gitService });
+    }
+
+    await service.shutdown();
+
+    // Active workers should be 0 after shutdown
+    expect(service._getActiveWorkers()).toBe(0);
   });
 
   test('discards jobs enqueued after shutdown', async () => {
@@ -259,5 +296,114 @@ describe('CommitEnrichmentService', () => {
     expect(note1.turnNumber).toBe(1);
     expect(note2.turnNumber).toBe(2);
     expect(service._getSucceededCount()).toBe(2);
+  });
+
+  test('job timeout triggers retry with backoff then fails after max retries', async () => {
+    // Use a very short timeout so the real git notes write times out
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 1, // 1ms timeout — will always time out
+      maxRetries: 2,
+    });
+
+    const commitHash = await createCommit();
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash,
+      context: makeContext(),
+      gitService,
+    });
+
+    // Wait for all retries to complete (initial + 2 retries, with backoff)
+    // Backoff: 1s after attempt 1, 2s after attempt 2 = ~3s total
+    // But since the job itself is very fast to time out, total time is dominated by backoff
+    while (service._getActiveWorkers() > 0 || service._getQueueSize() > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await service.shutdown();
+
+    // After 1 initial attempt + 2 retries (3 total), the job should be counted as failed
+    expect(service._getFailedCount()).toBe(1);
+    expect(service._getSucceededCount()).toBe(0);
+  }, 15000); // Allow up to 15s for backoff delays
+
+  test('queue overflow drop behavior is deterministic', async () => {
+    // With maxQueueSize=2 and maxConcurrency=1:
+    // - Job A starts processing immediately (in-flight)
+    // - Job B enters queue (size=1)
+    // - Job C enters queue (size=2)
+    // - Job D overflows: drops oldest (B), adds D → queue has [C, D]
+    // - Job E overflows: drops oldest (C), adds E → queue has [D, E]
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 2,
+      maxConcurrency: 1,
+      jobTimeoutMs: 30000,
+      maxRetries: 0,
+    });
+
+    const hashA = await createCommit();
+    const hashB = await createCommit();
+    const hashC = await createCommit();
+    const hashD = await createCommit();
+    const hashE = await createCommit();
+
+    service.enqueue({ workspaceDir: testDir, commitHash: hashA, context: makeContext({ turnNumber: 1 }), gitService });
+    service.enqueue({ workspaceDir: testDir, commitHash: hashB, context: makeContext({ turnNumber: 2 }), gitService });
+    service.enqueue({ workspaceDir: testDir, commitHash: hashC, context: makeContext({ turnNumber: 3 }), gitService });
+    // No drops yet: A is in-flight, B and C in queue (size=2)
+    expect(service._getDroppedCount()).toBe(0);
+
+    service.enqueue({ workspaceDir: testDir, commitHash: hashD, context: makeContext({ turnNumber: 4 }), gitService });
+    // Queue was full (2), so oldest (B) was dropped
+    expect(service._getDroppedCount()).toBe(1);
+
+    service.enqueue({ workspaceDir: testDir, commitHash: hashE, context: makeContext({ turnNumber: 5 }), gitService });
+    // Queue was full again (2), so oldest (C) was dropped
+    expect(service._getDroppedCount()).toBe(2);
+
+    // Queue should have exactly 2 items: D and E
+    expect(service._getQueueSize()).toBe(2);
+
+    await service.shutdown();
+
+    // A was in-flight and completed; D and E were pending and discarded at shutdown
+    expect(service._getSucceededCount()).toBe(1);
+    // 2 overflow drops + 2 shutdown discards = 4 total
+    expect(service._getDroppedCount()).toBe(4);
+  });
+
+  test('enqueue is fire-and-forget and never throws even when called rapidly', async () => {
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 3,
+      maxConcurrency: 1,
+      jobTimeoutMs: 5000,
+      maxRetries: 0,
+    });
+
+    const hashes: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      hashes.push(await createCommit());
+    }
+
+    // Rapidly enqueue more jobs than the queue can hold — must never throw
+    const fn = () => {
+      for (const hash of hashes) {
+        service.enqueue({
+          workspaceDir: testDir,
+          commitHash: hash,
+          context: makeContext(),
+          gitService,
+        });
+      }
+    };
+
+    expect(fn).not.toThrow();
+
+    // Some jobs should have been dropped due to overflow (queue size 3, 1 in-flight)
+    // 5 jobs: 1 in-flight + 3 queue + 1 overflow = at least 1 drop
+    expect(service._getDroppedCount()).toBeGreaterThanOrEqual(1);
+
+    await service.shutdown();
   });
 });

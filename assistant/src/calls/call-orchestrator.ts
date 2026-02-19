@@ -14,7 +14,6 @@ import {
   updateCallSession,
   recordCallEvent,
   createPendingQuestion,
-  getPendingQuestion,
   expirePendingQuestions,
 } from './call-store.js';
 import { MAX_CALL_DURATION_MS, USER_CONSULTATION_TIMEOUT_MS, SILENCE_TIMEOUT_MS } from './call-constants.js';
@@ -52,6 +51,13 @@ export class CallOrchestrator {
   }
 
   /**
+   * Returns the current orchestrator state.
+   */
+  getState(): OrchestratorState {
+    return this.state;
+  }
+
+  /**
    * Handle a final caller utterance from the ConversationRelay.
    */
   async handleCallerUtterance(transcript: string): Promise<void> {
@@ -73,13 +79,13 @@ export class CallOrchestrator {
   /**
    * Called when the user (in the chat UI) answers a pending question.
    */
-  async handleUserAnswer(answerText: string): Promise<void> {
+  async handleUserAnswer(answerText: string): Promise<boolean> {
     if (this.state !== 'waiting_on_user') {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
         'handleUserAnswer called but orchestrator is not in waiting_on_user state',
       );
-      return;
+      return false;
     }
 
     // Clear the consultation timeout
@@ -95,6 +101,7 @@ export class CallOrchestrator {
     this.conversationHistory.push({ role: 'user', content: `[USER_ANSWERED: ${answerText}]` });
 
     await this.runLlm();
+    return true;
   }
 
   /**
@@ -179,7 +186,7 @@ export class CallOrchestrator {
       // could be the start of a control marker.
       let ttsBuffer = '';
 
-      const flushSafeText = (force: boolean): void => {
+      const flushSafeText = (_force: boolean): void => {
         if (ttsBuffer.length === 0) return;
         const bracketIdx = ttsBuffer.indexOf('[');
         if (bracketIdx === -1) {
@@ -196,14 +203,31 @@ export class CallOrchestrator {
           // Only hold the buffer if the bracket text could be the start of a
           // known control marker. Otherwise flush immediately so ordinary
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
+          //
+          // The check must be bidirectional:
+          //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
+          //    buffer is a prefix of the control tag → hold it.
+          //  - When the buffer is longer than the prefix (e.g. "[ASK_USER: what"),
+          //    the buffer starts with the control tag prefix → hold it (the
+          //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_USER:'.startsWith(afterBracket) || '[END_CALL]'.startsWith(afterBracket);
+            '[ASK_USER:'.startsWith(afterBracket) ||
+            '[END_CALL]'.startsWith(afterBracket) ||
+            afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[END_CALL');
 
           if (!couldBeControl) {
-            // Not a control marker prefix — flush everything
-            this.relay.sendTextToken(ttsBuffer, false);
-            ttsBuffer = '';
+            // Not a control marker prefix — flush up to the next '[' (if any)
+            // so we don't accidentally flush a later partial control marker.
+            const nextBracket = ttsBuffer.indexOf('[', 1);
+            if (nextBracket === -1) {
+              this.relay.sendTextToken(ttsBuffer, false);
+              ttsBuffer = '';
+            } else {
+              this.relay.sendTextToken(ttsBuffer.slice(0, nextBracket), false);
+              ttsBuffer = ttsBuffer.slice(nextBracket);
+            }
           }
           // Otherwise hold it — might be a control marker still being streamed
         }

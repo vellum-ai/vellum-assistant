@@ -11,6 +11,7 @@ import {
   HeartbeatService,
   _resetHeartbeatState,
 } from '../workspace/heartbeat-service.js';
+import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
 
 describe('HeartbeatService', () => {
   let testDir: string;
@@ -342,6 +343,134 @@ describe('HeartbeatService', () => {
       heartbeat.start(); // Idempotent
       await heartbeat.stop();
       await heartbeat.stop(); // Idempotent
+    });
+  });
+
+  describe('custom commit message provider', () => {
+    test('heartbeat commit uses custom provider message', async () => {
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+
+      const customProvider: CommitMessageProvider = {
+        buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
+          return {
+            message: `CUSTOM-HEARTBEAT: ${ctx.changedFiles.length} files via ${ctx.trigger}`,
+            metadata: { customProvider: true, trigger: ctx.trigger },
+          };
+        },
+      };
+
+      let currentTime = 1000000;
+      const heartbeat = new HeartbeatService({
+        ageThresholdMs: 5 * 60 * 1000,
+        fileThreshold: 100,
+        getServices: () => services,
+        now: () => currentTime,
+        commitMessageProvider: customProvider,
+      });
+
+      // First check registers dirty state
+      await heartbeat.check();
+      // Advance time past threshold
+      currentTime += 6 * 60 * 1000;
+      // Second check commits
+      const result = await heartbeat.check();
+      expect(result.committed).toBe(1);
+
+      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      });
+      expect(commitMsg).toContain('CUSTOM-HEARTBEAT:');
+      expect(commitMsg).toContain('via heartbeat');
+      expect(commitMsg).toContain('customProvider: true');
+    });
+
+    test('shutdown commit uses custom provider message', async () => {
+      writeFileSync(join(testDir, 'unsaved.txt'), 'uncommitted content');
+
+      const customProvider: CommitMessageProvider = {
+        buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
+          return {
+            message: `CUSTOM-SHUTDOWN: saving ${ctx.changedFiles.length} files`,
+            metadata: { shutdownProvider: true },
+          };
+        },
+      };
+
+      const heartbeat = new HeartbeatService({
+        getServices: () => services,
+        commitMessageProvider: customProvider,
+      });
+
+      const result = await heartbeat.commitAllPending();
+      expect(result.committed).toBe(1);
+
+      const commitMsg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      });
+      expect(commitMsg).toContain('CUSTOM-SHUTDOWN: saving');
+      expect(commitMsg).toContain('shutdownProvider: true');
+    });
+
+    test('custom provider receives correct context fields for heartbeat trigger', async () => {
+      writeFileSync(join(testDir, 'a.txt'), 'a');
+      writeFileSync(join(testDir, 'b.txt'), 'b');
+
+      let capturedCtx: CommitContext | null = null;
+      const customProvider: CommitMessageProvider = {
+        buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
+          capturedCtx = ctx;
+          return { message: 'capture-context' };
+        },
+      };
+
+      let currentTime = 1000000;
+      const heartbeat = new HeartbeatService({
+        ageThresholdMs: 5 * 60 * 1000,
+        fileThreshold: 100,
+        getServices: () => services,
+        now: () => currentTime,
+        commitMessageProvider: customProvider,
+      });
+
+      // Register dirty state
+      await heartbeat.check();
+      // Advance past threshold
+      currentTime += 6 * 60 * 1000;
+      await heartbeat.check();
+
+      expect(capturedCtx).not.toBeNull();
+      expect(capturedCtx!.trigger).toBe('heartbeat');
+      expect(capturedCtx!.workspaceDir).toBe(testDir);
+      expect(capturedCtx!.changedFiles).toContain('a.txt');
+      expect(capturedCtx!.changedFiles).toContain('b.txt');
+      expect(capturedCtx!.timestampMs).toBe(currentTime);
+      expect(capturedCtx!.reason).toBeDefined();
+    });
+
+    test('custom provider receives correct context fields for shutdown trigger', async () => {
+      writeFileSync(join(testDir, 'shutdown-file.txt'), 'data');
+
+      let capturedCtx: CommitContext | null = null;
+      const customProvider: CommitMessageProvider = {
+        buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
+          capturedCtx = ctx;
+          return { message: 'capture-shutdown-context' };
+        },
+      };
+
+      const heartbeat = new HeartbeatService({
+        getServices: () => services,
+        commitMessageProvider: customProvider,
+      });
+
+      await heartbeat.commitAllPending();
+
+      expect(capturedCtx).not.toBeNull();
+      expect(capturedCtx!.trigger).toBe('shutdown');
+      expect(capturedCtx!.workspaceDir).toBe(testDir);
+      expect(capturedCtx!.changedFiles).toContain('shutdown-file.txt');
     });
   });
 });

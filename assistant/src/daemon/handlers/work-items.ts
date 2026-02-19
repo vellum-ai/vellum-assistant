@@ -178,7 +178,7 @@ export function handleWorkItemOutput(
     }
 
     let summary = '';
-    let highlights: string[] = [];
+    const highlights: string[] = [];
 
     const msgs = getMessages(workItem.lastRunConversationId);
     // Find the last assistant message with text content (not tool calls)

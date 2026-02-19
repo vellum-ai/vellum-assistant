@@ -320,15 +320,15 @@ private struct TasksWindowRow: View {
             if status == .awaitingReview {
                 Button(action: onComplete) {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark")
+                        Image(systemName: "checkmark.circle")
                             .font(.system(size: 10))
-                        Text("Reviewed")
+                        Text("Mark Reviewed")
                             .font(VFont.caption)
                     }
-                    .foregroundColor(VColor.success)
+                    .foregroundColor(.white)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
-                    .background(VColor.success.opacity(0.12))
+                    .background(VColor.success)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .contentShape(Rectangle())
                 }

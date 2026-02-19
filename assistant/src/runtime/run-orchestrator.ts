@@ -102,7 +102,7 @@ export class RunOrchestrator {
           ? (msgRecord.sessionId as string)
           : undefined;
       const resolvedSessionId = msgSessionId ?? conversationId;
-      const event = buildAssistantEvent(assistantId, msg, resolvedSessionId);
+      const event = buildAssistantEvent('self', msg, resolvedSessionId);
       hubChain = hubChain
         .then(() => assistantEventHub.publish(event))
         .catch((err: unknown) => {

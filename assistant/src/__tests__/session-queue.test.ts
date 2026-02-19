@@ -143,6 +143,7 @@ mock.module('../context/window-manager.js', () => ({
 // ---------------------------------------------------------------------------
 
 const turnCommitCalls: Array<{ workspaceDir: string; sessionId: string; turnNumber: number }> = [];
+let turnCommitHangForever = false;
 
 mock.module('../workspace/git-service.js', () => ({
   getWorkspaceGitService: () => ({
@@ -153,6 +154,10 @@ mock.module('../workspace/git-service.js', () => ({
 mock.module('../workspace/turn-commit.js', () => ({
   commitTurnChanges: async (workspaceDir: string, sessionId: string, turnNumber: number) => {
     turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
+    if (turnCommitHangForever) {
+      // Simulate a commit that never resolves within the timeout budget
+      await new Promise<void>(() => {});
+    }
   },
 }));
 
@@ -280,6 +285,7 @@ function resolveRun(index: number) {
 
 beforeEach(() => {
   turnCommitCalls.length = 0;
+  turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
 });
 
@@ -1459,4 +1465,48 @@ describe('Regression: cancel semantics and error channel split', () => {
       expect(sessionErr).toBeUndefined();
     }
   });
+
+  test('commitTurnChanges never resolving within budget -> turn still completes and drains queue', async () => {
+    const session = makeSession();
+    await session.loadFromDb();
+
+    turnCommitHangForever = true;
+
+    const events1: ServerMessage[] = [];
+    const events2: ServerMessage[] = [];
+
+    // Start first message (promise intentionally not awaited — we test queue drain behavior)
+    const _p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    await waitForPendingRun(1);
+
+    // Enqueue a second message while the first is processing
+    session.enqueueMessage('msg-2', [], (e) => events2.push(e), 'req-2');
+
+    // Complete the first agent loop run
+    resolveRun(0);
+
+    // The turn should still complete (timeout fires) and drain the queue
+    // even though commitTurnChanges never resolves.
+    // The default turnCommitMaxWaitMs is 4000ms in the config mock,
+    // but the mock config doesn't set it, so it defaults to 4000ms.
+    // We wait for the second run to be registered, which proves the
+    // turn completed and the queue drained despite the hanging commit.
+    await waitForPendingRun(2, 10_000);
+
+    // First message should have completed
+    const completion1 = events1.find((e) => e.type === 'message_complete');
+    expect(completion1).toBeDefined();
+
+    // Second message should have been dequeued
+    const dequeued = events2.find((e) => e.type === 'message_dequeued');
+    expect(dequeued).toBeDefined();
+
+    // The turn commit should have been called
+    expect(turnCommitCalls).toHaveLength(1);
+
+    // Complete the second run so the test can clean up
+    turnCommitHangForever = false;
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  }, 15_000);
 });
