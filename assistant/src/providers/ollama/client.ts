@@ -3,6 +3,7 @@ import { OpenAIProvider } from '../openai/client.js';
 export interface OllamaProviderOptions {
   apiKey?: string;
   baseURL?: string;
+  streamTimeoutMs?: number;
 }
 
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434/v1';
@@ -13,6 +14,7 @@ export class OllamaProvider extends OpenAIProvider {
       baseURL: resolveBaseUrl(options.baseURL),
       providerName: 'ollama',
       providerLabel: 'Ollama',
+      streamTimeoutMs: options.streamTimeoutMs,
     });
   }
 }

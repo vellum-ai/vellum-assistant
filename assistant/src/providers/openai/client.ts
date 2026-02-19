@@ -8,12 +8,14 @@ import type {
   ContentBlock,
 } from '../types.js';
 import { ProviderError } from '../../util/errors.js';
+import { createStreamTimeout } from '../stream-timeout.js';
 import { escapeXmlAttr } from '../../util/xml.js';
 
 export interface OpenAICompatibleProviderOptions {
   baseURL?: string;
   providerName?: string;
   providerLabel?: string;
+  streamTimeoutMs?: number;
 }
 
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
@@ -25,6 +27,7 @@ export class OpenAIProvider implements Provider {
   private readonly providerLabel: string;
   private client: OpenAI;
   private model: string;
+  private streamTimeoutMs: number;
 
   constructor(apiKey: string, model: string, options: OpenAICompatibleProviderOptions = {}) {
     this.name = options.providerName ?? 'openai';
@@ -34,6 +37,7 @@ export class OpenAIProvider implements Provider {
       baseURL: options.baseURL,
     });
     this.model = model;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
 
   async sendMessage(
@@ -72,7 +76,7 @@ export class OpenAIProvider implements Provider {
         }));
       }
 
-      const stream = await this.client.chat.completions.create(params, { signal });
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
 
       // Accumulate the response from chunks
       let contentText = '';
@@ -82,37 +86,43 @@ export class OpenAIProvider implements Provider {
       let promptTokens = 0;
       let completionTokens = 0;
 
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0];
-        if (choice) {
-          if (choice.delta.content) {
-            contentText += choice.delta.content;
-            onEvent?.({ type: 'text_delta', text: choice.delta.content });
-          }
+      try {
+        const stream = await this.client.chat.completions.create(params, { signal: timeoutSignal });
 
-          if (choice.delta.tool_calls) {
-            for (const tc of choice.delta.tool_calls) {
-              if (!toolCallMap.has(tc.index)) {
-                toolCallMap.set(tc.index, { id: '', name: '', args: '' });
+        for await (const chunk of stream) {
+          const choice = chunk.choices[0];
+          if (choice) {
+            if (choice.delta.content) {
+              contentText += choice.delta.content;
+              onEvent?.({ type: 'text_delta', text: choice.delta.content });
+            }
+
+            if (choice.delta.tool_calls) {
+              for (const tc of choice.delta.tool_calls) {
+                if (!toolCallMap.has(tc.index)) {
+                  toolCallMap.set(tc.index, { id: '', name: '', args: '' });
+                }
+                const entry = toolCallMap.get(tc.index)!;
+                if (tc.id) entry.id = tc.id;
+                if (tc.function?.name) entry.name += tc.function.name;
+                if (tc.function?.arguments) entry.args += tc.function.arguments;
               }
-              const entry = toolCallMap.get(tc.index)!;
-              if (tc.id) entry.id = tc.id;
-              if (tc.function?.name) entry.name += tc.function.name;
-              if (tc.function?.arguments) entry.args += tc.function.arguments;
+            }
+
+            if (choice.finish_reason) {
+              finishReason = choice.finish_reason;
             }
           }
 
-          if (choice.finish_reason) {
-            finishReason = choice.finish_reason;
+          if (chunk.usage) {
+            promptTokens = chunk.usage.prompt_tokens;
+            completionTokens = chunk.usage.completion_tokens;
           }
-        }
 
-        if (chunk.usage) {
-          promptTokens = chunk.usage.prompt_tokens;
-          completionTokens = chunk.usage.completion_tokens;
+          responseModel = chunk.model;
         }
-
-        responseModel = chunk.model;
+      } finally {
+        cleanupTimeout();
       }
 
       // Build content blocks

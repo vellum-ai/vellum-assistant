@@ -9,15 +9,18 @@ import type {
   ContentBlock,
 } from '../types.js';
 import { ProviderError } from '../../util/errors.js';
+import { createStreamTimeout } from '../stream-timeout.js';
 
 export class GeminiProvider implements Provider {
   public readonly name = 'gemini';
   private client: GoogleGenAI;
   private model: string;
+  private streamTimeoutMs: number;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, options: { streamTimeoutMs?: number } = {}) {
     this.client = new GoogleGenAI({ apiKey });
     this.model = model;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
 
   async sendMessage(
@@ -42,10 +45,6 @@ export class GeminiProvider implements Provider {
       if (maxTokens) {
         geminiConfig.maxOutputTokens = maxTokens;
       }
-      if (signal) {
-        geminiConfig.abortSignal = signal;
-      }
-
       if (tools && tools.length > 0) {
         geminiConfig.tools = [{
           functionDeclarations: tools.map((t) => ({
@@ -56,11 +55,8 @@ export class GeminiProvider implements Provider {
         }];
       }
 
-      const stream = await this.client.models.generateContentStream({
-        model: modelOverride ?? this.model,
-        contents: geminiContents,
-        config: geminiConfig,
-      });
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
+      geminiConfig.abortSignal = timeoutSignal;
 
       // Accumulate from streaming chunks
       let fullText = '';
@@ -70,40 +66,50 @@ export class GeminiProvider implements Provider {
       let outputTokens = 0;
       let responseModel = modelOverride ?? this.model;
 
-      for await (const chunk of stream) {
-        // Extract text delta
-        const chunkText = chunk.text;
-        if (chunkText) {
-          fullText += chunkText;
-          onEvent?.({ type: 'text_delta', text: chunkText });
-        }
+      try {
+        const stream = await this.client.models.generateContentStream({
+          model: modelOverride ?? this.model,
+          contents: geminiContents,
+          config: geminiConfig,
+        });
 
-        // Extract function calls
-        const calls = chunk.functionCalls;
-        if (calls) {
-          for (const fc of calls) {
-            functionCalls.push({
-              id: fc.id ?? `call_${crypto.randomUUID()}`,
-              name: fc.name ?? '',
-              args: fc.args ?? {},
-            });
+        for await (const chunk of stream) {
+          // Extract text delta
+          const chunkText = chunk.text;
+          if (chunkText) {
+            fullText += chunkText;
+            onEvent?.({ type: 'text_delta', text: chunkText });
+          }
+
+          // Extract function calls
+          const calls = chunk.functionCalls;
+          if (calls) {
+            for (const fc of calls) {
+              functionCalls.push({
+                id: fc.id ?? `call_${crypto.randomUUID()}`,
+                name: fc.name ?? '',
+                args: fc.args ?? {},
+              });
+            }
+          }
+
+          // Extract metadata from chunks
+          const candidate = chunk.candidates?.[0];
+          if (candidate?.finishReason) {
+            finishReason = candidate.finishReason;
+          }
+
+          if (chunk.usageMetadata) {
+            promptTokens = chunk.usageMetadata.promptTokenCount ?? 0;
+            outputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
+          }
+
+          if (chunk.modelVersion) {
+            responseModel = chunk.modelVersion;
           }
         }
-
-        // Extract metadata from chunks
-        const candidate = chunk.candidates?.[0];
-        if (candidate?.finishReason) {
-          finishReason = candidate.finishReason;
-        }
-
-        if (chunk.usageMetadata) {
-          promptTokens = chunk.usageMetadata.promptTokenCount ?? 0;
-          outputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
-        }
-
-        if (chunk.modelVersion) {
-          responseModel = chunk.modelVersion;
-        }
+      } finally {
+        cleanupTimeout();
       }
 
       // Build content blocks

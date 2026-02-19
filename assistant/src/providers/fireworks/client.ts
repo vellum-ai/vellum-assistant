@@ -3,6 +3,7 @@ import { OpenAIProvider } from '../openai/client.js';
 export interface FireworksProviderOptions {
   apiKey?: string;
   baseURL?: string;
+  streamTimeoutMs?: number;
 }
 
 const DEFAULT_FIREWORKS_BASE_URL = 'https://api.fireworks.ai/inference/v1';
@@ -13,6 +14,7 @@ export class FireworksProvider extends OpenAIProvider {
       baseURL: options.baseURL?.trim() || DEFAULT_FIREWORKS_BASE_URL,
       providerName: 'fireworks',
       providerLabel: 'Fireworks',
+      streamTimeoutMs: options.streamTimeoutMs,
     });
   }
 }

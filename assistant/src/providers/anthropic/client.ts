@@ -8,6 +8,7 @@ import type {
   ContentBlock,
 } from "../types.js";
 import { ProviderError } from "../../util/errors.js";
+import { createStreamTimeout } from '../stream-timeout.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('anthropic-client');
@@ -499,95 +500,76 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Create a local AbortController that aborts after streamTimeoutMs.
-      // If the caller already provided a signal, link it so external
-      // cancellation also aborts the stream.
-      const timeoutController = new AbortController();
-      const timeoutHandle = setTimeout(() => {
-        timeoutController.abort(new Error(`Provider stream timed out after ${this.streamTimeoutMs / 1000}s`));
-      }, this.streamTimeoutMs);
-
-      const onExternalAbort = () => {
-        timeoutController.abort(signal!.reason);
-      };
-      if (signal) {
-        if (signal.aborted) {
-          clearTimeout(timeoutHandle);
-          timeoutController.abort(signal.reason);
-        } else {
-          signal.addEventListener('abort', onExternalAbort, { once: true });
-        }
-      }
-
-      const stream = this.fastMode
-        ? this.client.beta.messages.stream(
-            { ...params, betas: ['fast-mode-2026-02-01'], speed: 'fast' } as Parameters<typeof this.client.beta.messages.stream>[0],
-            { signal: timeoutController.signal },
-          )
-        : this.client.messages.stream(params, { signal: timeoutController.signal });
-
-      stream.on("text", (text) => {
-        onEvent?.({ type: "text_delta", text });
-      });
-
-      stream.on("thinking", (thinking) => {
-        onEvent?.({ type: "thinking_delta", thinking });
-      });
-
-      // Track which tool is currently streaming so we can attribute inputJson deltas.
-      let currentStreamingToolName: string | undefined;
-      let accumulatedInputJson = '';
-      let lastInputJsonEmitMs = 0;
-      let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
-
-      stream.on("streamEvent", (event) => {
-        if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
-          currentStreamingToolName = event.content_block.name;
-          accumulatedInputJson = '';
-          lastInputJsonEmitMs = 0;
-        }
-        if (event.type === 'content_block_stop') {
-          if (pendingInputJsonFlush) {
-            clearTimeout(pendingInputJsonFlush);
-            pendingInputJsonFlush = undefined;
-          }
-          if (currentStreamingToolName && accumulatedInputJson) {
-            onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
-          }
-          currentStreamingToolName = undefined;
-          accumulatedInputJson = '';
-        }
-      });
-
-      stream.on("inputJson", (partialJson) => {
-        if (!currentStreamingToolName) return;
-        accumulatedInputJson += partialJson;
-        const now = Date.now();
-        if (now - lastInputJsonEmitMs >= 150) {
-          lastInputJsonEmitMs = now;
-          if (pendingInputJsonFlush) {
-            clearTimeout(pendingInputJsonFlush);
-            pendingInputJsonFlush = undefined;
-          }
-          onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
-        } else if (!pendingInputJsonFlush) {
-          const toolName = currentStreamingToolName;
-          pendingInputJsonFlush = setTimeout(() => {
-            pendingInputJsonFlush = undefined;
-            lastInputJsonEmitMs = Date.now();
-            if (currentStreamingToolName === toolName) {
-              onEvent?.({ type: "input_json_delta", toolName, accumulatedJson: accumulatedInputJson });
-            }
-          }, 150);
-        }
-      });
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createStreamTimeout(this.streamTimeoutMs, signal);
 
       let response: Anthropic.Message;
       try {
+        const stream = this.fastMode
+          ? this.client.beta.messages.stream(
+              { ...params, betas: ['fast-mode-2026-02-01'], speed: 'fast' } as Parameters<typeof this.client.beta.messages.stream>[0],
+              { signal: timeoutSignal },
+            )
+          : this.client.messages.stream(params, { signal: timeoutSignal });
+
+        stream.on("text", (text) => {
+          onEvent?.({ type: "text_delta", text });
+        });
+
+        stream.on("thinking", (thinking) => {
+          onEvent?.({ type: "thinking_delta", thinking });
+        });
+
+        // Track which tool is currently streaming so we can attribute inputJson deltas.
+        let currentStreamingToolName: string | undefined;
+        let accumulatedInputJson = '';
+        let lastInputJsonEmitMs = 0;
+        let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
+
+        stream.on("streamEvent", (event) => {
+          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+            currentStreamingToolName = event.content_block.name;
+            accumulatedInputJson = '';
+            lastInputJsonEmitMs = 0;
+          }
+          if (event.type === 'content_block_stop') {
+            if (pendingInputJsonFlush) {
+              clearTimeout(pendingInputJsonFlush);
+              pendingInputJsonFlush = undefined;
+            }
+            if (currentStreamingToolName && accumulatedInputJson) {
+              onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+            }
+            currentStreamingToolName = undefined;
+            accumulatedInputJson = '';
+          }
+        });
+
+        stream.on("inputJson", (partialJson) => {
+          if (!currentStreamingToolName) return;
+          accumulatedInputJson += partialJson;
+          const now = Date.now();
+          if (now - lastInputJsonEmitMs >= 150) {
+            lastInputJsonEmitMs = now;
+            if (pendingInputJsonFlush) {
+              clearTimeout(pendingInputJsonFlush);
+              pendingInputJsonFlush = undefined;
+            }
+            onEvent?.({ type: "input_json_delta", toolName: currentStreamingToolName, accumulatedJson: accumulatedInputJson });
+          } else if (!pendingInputJsonFlush) {
+            const toolName = currentStreamingToolName;
+            pendingInputJsonFlush = setTimeout(() => {
+              pendingInputJsonFlush = undefined;
+              lastInputJsonEmitMs = Date.now();
+              if (currentStreamingToolName === toolName) {
+                onEvent?.({ type: "input_json_delta", toolName, accumulatedJson: accumulatedInputJson });
+              }
+            }, 150);
+          }
+        });
+
         response = await stream.finalMessage();
       } finally {
-        clearTimeout(timeoutHandle);
-        signal?.removeEventListener('abort', onExternalAbort);
+        cleanupTimeout();
       }
 
       return {

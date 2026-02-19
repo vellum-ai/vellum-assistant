@@ -100,37 +100,39 @@ export function initializeProviders(config: ProvidersConfig): void {
   cachedFailoverProvider = null;
   cachedFailoverKey = null;
 
+  const streamTimeoutMs = (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000;
+
   if (config.apiKeys.anthropic) {
     const model = resolveModel(config, 'anthropic');
     registerProvider('anthropic', new RetryProvider(
       wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model, {
         useNativeWebSearch: config.webSearchProvider === 'anthropic-native',
-        streamTimeoutMs: (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000,
+        streamTimeoutMs,
       })),
     ));
   }
   if (config.apiKeys.openai) {
     const model = resolveModel(config, 'openai');
     registerProvider('openai', new RetryProvider(
-      wrapWithLogfire(new OpenAIProvider(config.apiKeys.openai, model)),
+      wrapWithLogfire(new OpenAIProvider(config.apiKeys.openai, model, { streamTimeoutMs })),
     ));
   }
   if (config.apiKeys.gemini) {
     const model = resolveModel(config, 'gemini');
     registerProvider('gemini', new RetryProvider(
-      wrapWithLogfire(new GeminiProvider(config.apiKeys.gemini, model)),
+      wrapWithLogfire(new GeminiProvider(config.apiKeys.gemini, model, { streamTimeoutMs })),
     ));
   }
   if (config.provider === 'ollama' || config.apiKeys.ollama) {
     const model = resolveModel(config, 'ollama');
     registerProvider('ollama', new RetryProvider(
-      wrapWithLogfire(new OllamaProvider(model, { apiKey: config.apiKeys.ollama })),
+      wrapWithLogfire(new OllamaProvider(model, { apiKey: config.apiKeys.ollama, streamTimeoutMs })),
     ));
   }
   if (config.apiKeys.fireworks) {
     const model = resolveModel(config, 'fireworks');
     registerProvider('fireworks', new RetryProvider(
-      wrapWithLogfire(new FireworksProvider(config.apiKeys.fireworks, model)),
+      wrapWithLogfire(new FireworksProvider(config.apiKeys.fireworks, model, { streamTimeoutMs })),
     ));
   }
 }
