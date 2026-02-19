@@ -55,6 +55,7 @@ import {
 import {
   handleModelGet,
   handleModelSet,
+  handleImageGenModelSet,
   handleAddTrustRule,
   handleTrustRulesList,
   handleRemoveTrustRule,
@@ -152,6 +153,7 @@ const handlers: DispatchMap = {
   delete_queued_message: handleDeleteQueuedMessage,
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
+  image_gen_model_set: handleImageGenModelSet,
   history_request: handleHistoryRequest,
   undo: handleUndo,
   regenerate: handleRegenerate,

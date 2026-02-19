@@ -27,7 +27,7 @@ export interface ImageGenerationResult {
 // --- Constants ---
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-image';
-const ALLOWED_MODELS = new Set(['gemini-2.5-flash-image', 'gemini-3-pro-image']);
+const ALLOWED_MODELS = new Set(['gemini-2.5-flash-image', 'gemini-3-pro-image', 'gemini-3-pro-image-preview']);
 const MAX_VARIANTS = 4;
 
 // --- Error mapping ---

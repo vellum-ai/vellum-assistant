@@ -754,6 +754,9 @@ export const AssistantConfigSchema = z.object({
   model: z
     .string({ error: 'model must be a string' })
     .default('claude-opus-4-6'),
+  imageGenModel: z
+    .string({ error: 'imageGenModel must be a string' })
+    .default('gemini-2.5-flash-image'),
   apiKeys: z
     .record(z.string(), z.string({ error: 'Each apiKeys value must be a string' }))
     .default({}),

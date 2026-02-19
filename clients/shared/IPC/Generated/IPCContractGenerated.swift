@@ -759,6 +759,11 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     public let value: String
 }
 
+public struct IPCImageGenModelSetRequest: Codable, Sendable {
+    public let type: String
+    public let model: String
+}
+
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String

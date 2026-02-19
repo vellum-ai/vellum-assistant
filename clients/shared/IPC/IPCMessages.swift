@@ -1633,6 +1633,16 @@ extension IPCModelSetRequest {
     }
 }
 
+/// Set the active image generation model.
+/// Backed by generated `IPCImageGenModelSetRequest`.
+public typealias ImageGenModelSetRequestMessage = IPCImageGenModelSetRequest
+
+extension IPCImageGenModelSetRequest {
+    public init(model: String) {
+        self.init(type: "image_gen_model_set", model: model)
+    }
+}
+
 /// Response containing the current model/provider info.
 /// Backed by generated `IPCModelInfo`.
 public typealias ModelInfoMessage = IPCModelInfo

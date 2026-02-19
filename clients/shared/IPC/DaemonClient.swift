@@ -1041,6 +1041,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ModelSetRequestMessage(model: model))
     }
 
+    /// Set the image generation model on the daemon.
+    public func sendImageGenModelSet(model: String) throws {
+        try send(ImageGenModelSetRequestMessage(model: model))
+    }
+
     // MARK: - Integrations
 
     /// Request the list of registered integrations and their connection status.

@@ -125,6 +125,11 @@ export interface ModelSetRequest {
   model: string;
 }
 
+export interface ImageGenModelSetRequest {
+  type: 'image_gen_model_set';
+  model: string;
+}
+
 export interface HistoryRequest {
   type: 'history_request';
   sessionId: string;
@@ -811,6 +816,7 @@ export type ClientMessage =
   | DeleteQueuedMessage
   | ModelGetRequest
   | ModelSetRequest
+  | ImageGenModelSetRequest
   | HistoryRequest
   | UndoRequest
   | RegenerateRequest

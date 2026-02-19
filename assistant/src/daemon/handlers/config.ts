@@ -10,6 +10,7 @@ import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
 import type {
   ModelSetRequest,
+  ImageGenModelSetRequest,
   AddTrustRule,
   RemoveTrustRule,
   UpdateTrustRule,
@@ -123,6 +124,34 @@ export function handleModelSet(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     ctx.send(socket, { type: 'error', message: `Failed to set model: ${message}` });
+  }
+}
+
+export function handleImageGenModelSet(
+  msg: ImageGenModelSetRequest,
+  _socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const raw = loadRawConfig();
+    raw.imageGenModel = msg.model;
+
+    ctx.setSuppressConfigReload(true);
+    try {
+      saveRawConfig(raw);
+    } catch (err) {
+      ctx.setSuppressConfigReload(false);
+      throw err;
+    }
+    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+    log.info({ model: msg.model }, 'Image generation model updated');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, `Failed to set image gen model: ${message}`);
   }
 }
 

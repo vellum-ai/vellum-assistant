@@ -221,6 +221,7 @@ public final class SettingsStore: ObservableObject {
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
         UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
+        try? daemonClient?.sendImageGenModelSet(model: model)
     }
 
     func refreshAPIKeyState() {
