@@ -30,7 +30,9 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
 const WORKSPACE_GITIGNORE_RULES = [
-  'data/',
+  'data/db/',
+  'data/qdrant/',
+  'data/ipc-blobs/',
   'logs/',
   '*.log',
   '*.sock',

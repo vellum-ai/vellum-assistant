@@ -46,7 +46,9 @@ describe('WorkspaceGitService', () => {
       expect(existsSync(gitignorePath)).toBe(true);
 
       const content = readFileSync(gitignorePath, 'utf-8');
-      expect(content).toContain('data/');
+      expect(content).toContain('data/db/');
+      expect(content).toContain('data/qdrant/');
+      expect(content).toContain('data/ipc-blobs/');
       expect(content).toContain('*.log');
       expect(content).toContain('*.sock');
       expect(content).toContain('*.pid');
@@ -566,7 +568,7 @@ describe('WorkspaceGitService', () => {
 
       // Verify .gitignore does NOT have our rules yet
       const contentBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
-      expect(contentBefore).not.toContain('data/');
+      expect(contentBefore).not.toContain('data/db/');
       expect(contentBefore).not.toContain('vellum.sock');
 
       // Initialize the service — should append rules
@@ -575,7 +577,9 @@ describe('WorkspaceGitService', () => {
 
       const contentAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
       expect(contentAfter).toContain('node_modules/');  // original rule preserved
-      expect(contentAfter).toContain('data/');
+      expect(contentAfter).toContain('data/db/');
+      expect(contentAfter).toContain('data/qdrant/');
+      expect(contentAfter).toContain('data/ipc-blobs/');
       expect(contentAfter).toContain('*.log');
       expect(contentAfter).toContain('vellum.sock');
       expect(contentAfter).toContain('session-token');
@@ -612,7 +616,7 @@ describe('WorkspaceGitService', () => {
       execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
       execFileSync('git', ['config', 'user.name', 'Vellum Assistant'], { cwd: testDir });
       execFileSync('git', ['config', 'user.email', 'assistant@vellum.ai'], { cwd: testDir });
-      const gitignoreContent = '# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
+      const gitignoreContent = '# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/ipc-blobs/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
       writeFileSync(join(testDir, '.gitignore'), gitignoreContent);
       writeFileSync(join(testDir, 'file.txt'), 'content');
       execFileSync('git', ['add', '-A'], { cwd: testDir });
@@ -641,24 +645,46 @@ describe('WorkspaceGitService', () => {
       expect(branch).toBe('main');
 
       // No errors, no duplicate rules
-      const ruleCount = (gitignoreAfter.match(/data\//g) || []).length;
+      const ruleCount = (gitignoreAfter.match(/data\/db\//g) || []).length;
       expect(ruleCount).toBe(1);
     });
   });
 
   describe('gitignore behavior', () => {
-    test('respects .gitignore for data directory', async () => {
+    test('ignores data/db/ but tracks other data/ subdirectories', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
 
-      // Create files in data directory
-      mkdirSync(join(testDir, 'data'));
-      writeFileSync(join(testDir, 'data', 'test.db'), 'database content');
+      // Create files in ignored data subdirectories
+      mkdirSync(join(testDir, 'data', 'db'), { recursive: true });
+      writeFileSync(join(testDir, 'data', 'db', 'conversations.sqlite'), 'db content');
+      mkdirSync(join(testDir, 'data', 'qdrant'), { recursive: true });
+      writeFileSync(join(testDir, 'data', 'qdrant', 'index.bin'), 'qdrant content');
+      mkdirSync(join(testDir, 'data', 'ipc-blobs'), { recursive: true });
+      writeFileSync(join(testDir, 'data', 'ipc-blobs', 'blob1'), 'ipc content');
 
-      const status = await service.getStatus();
+      // Create files in tracked data subdirectories
+      mkdirSync(join(testDir, 'data', 'memory'), { recursive: true });
+      writeFileSync(join(testDir, 'data', 'memory', 'index.json'), '{}');
+      mkdirSync(join(testDir, 'data', 'apps'), { recursive: true });
+      writeFileSync(join(testDir, 'data', 'apps', 'state.json'), '{}');
 
-      // data/ files should not appear in status (ignored)
-      expect(status.untracked).not.toContain('data/test.db');
+      // Commit all changes, then verify what was included
+      await service.commitChanges('test commit');
+
+      const committedFiles = execFileSync(
+        'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'],
+        { cwd: testDir, encoding: 'utf-8' },
+      ).trim();
+
+      // Ignored subdirectories should NOT be in the commit
+      expect(committedFiles).not.toContain('data/db/');
+      expect(committedFiles).not.toContain('data/qdrant/');
+      expect(committedFiles).not.toContain('data/ipc-blobs/');
+
+      // Tracked subdirectories SHOULD be in the commit
+      expect(committedFiles).toContain('data/memory/index.json');
+      expect(committedFiles).toContain('data/apps/state.json');
     });
 
     test('respects .gitignore for log files', async () => {
