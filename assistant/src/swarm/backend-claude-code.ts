@@ -28,6 +28,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
 
     async runTask(input: SwarmWorkerBackendInput) {
       const start = Date.now();
+      const stderrLines: string[] = [];
       try {
         const { query } = await import('@anthropic-ai/claude-agent-sdk');
         const config = getConfig();
@@ -58,19 +59,47 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
             permissionMode: 'default',
             maxTurns: 30,
             env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
+            stderr: (data: string) => {
+              const trimmed = data.trimEnd();
+              if (trimmed) {
+                stderrLines.push(trimmed);
+                log.debug({ stderr: trimmed }, 'Swarm worker subprocess stderr');
+              }
+            },
           },
         });
 
         let resultText = '';
+        let hasError = false;
         for await (const message of conversation) {
           if (input.signal?.aborted) break;
-          if (message.type === 'assistant' && message.message?.content) {
-            for (const block of message.message.content) {
-              if (block.type === 'text') resultText += block.text;
+          if (message.type === 'assistant') {
+            if (message.error) {
+              log.error({ error: message.error, sessionId: message.session_id }, 'Swarm worker assistant message error');
+              hasError = true;
+              resultText += `\n[Claude Code error: ${message.error}]`;
+            }
+            if (message.message?.content) {
+              for (const block of message.message.content) {
+                if (block.type === 'text') resultText += block.text;
+              }
             }
           } else if (message.type === 'result') {
-            if (message.subtype === 'success' && message.result && !resultText) {
-              resultText = message.result;
+            if (message.subtype === 'success') {
+              log.info({ numTurns: message.num_turns, durationMs: message.duration_ms, costUsd: message.total_cost_usd }, 'Swarm worker completed');
+              if (message.result && !resultText) {
+                resultText = message.result;
+              }
+            } else {
+              hasError = true;
+              const errors = message.errors ?? [];
+              const denials = message.permission_denials ?? [];
+              log.error({ subtype: message.subtype, errors, permissionDenials: denials.length, numTurns: message.num_turns, durationMs: message.duration_ms }, 'Swarm worker session failed');
+
+              const parts: string[] = [`[${message.subtype}] (${message.num_turns} turns, ${(message.duration_ms / 1000).toFixed(1)}s)`];
+              if (errors.length > 0) parts.push(`Errors: ${errors.join('; ')}`);
+              if (denials.length > 0) parts.push(`Permission denied: ${denials.map(d => d.tool_name).join(', ')}`);
+              resultText += `\n${parts.join('\n')}`;
             }
           }
         }
@@ -80,10 +109,17 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           return { success: false, output: 'Cancelled (aborted)', failureReason: 'cancelled' as const, durationMs: Date.now() - start };
         }
 
-        return { success: true, output: resultText || 'Completed', durationMs: Date.now() - start };
+        return { success: !hasError, output: resultText || 'Completed', durationMs: Date.now() - start };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { success: false, output: message, failureReason: 'backend_unavailable' as const, durationMs: Date.now() - start };
+        const errMessage = err instanceof Error ? err.message : String(err);
+        const recentStderr = stderrLines.slice(-20);
+        log.error({ err, stderrTail: recentStderr }, 'Swarm worker execution failed');
+
+        const parts = [errMessage];
+        if (recentStderr.length > 0) {
+          parts.push(`\nSubprocess stderr (last ${recentStderr.length} lines):\n${recentStderr.join('\n')}`);
+        }
+        return { success: false, output: parts.join(''), failureReason: 'backend_unavailable' as const, durationMs: Date.now() - start };
       }
     },
   };
