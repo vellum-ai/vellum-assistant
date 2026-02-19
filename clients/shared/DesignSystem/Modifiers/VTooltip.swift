@@ -44,11 +44,10 @@ public struct VTooltipModifier: ViewModifier {
                         )
                         .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                         .fixedSize()
-                        .offset(y: 4)
-                        .offset(y: 28)
+                        // Position tooltip so its top edge sits 4px below the parent's bottom edge
+                        .alignmentGuide(.bottom) { d in d[.top] - 4 }
                         .allowsHitTesting(false)
                         .transition(.opacity)
-                        .zIndex(1000)
                 }
             }
             .onDisappear {
