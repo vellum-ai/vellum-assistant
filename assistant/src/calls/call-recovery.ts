@@ -17,6 +17,16 @@ type Logger = ReturnType<typeof getLogger>;
 const defaultLog = getLogger('call-recovery');
 
 /**
+ * Grace period (in ms) for no-SID sessions during startup recovery.
+ *
+ * A daemon crash can leave a live Twilio call without a persisted SID
+ * (crash after `initiateCall` succeeds but before the SID is written).
+ * Webhooks carrying the SID may still arrive after restart, so we skip
+ * very recent sessions and only fail them once the grace period expires.
+ */
+export const NO_SID_GRACE_PERIOD_MS = 60_000;
+
+/**
  * Map a Twilio provider status string to our internal CallStatus.
  * Returns the mapped status or null if the status is unrecognised.
  */
@@ -52,8 +62,10 @@ function isTerminal(status: CallStatus): boolean {
  * For each recoverable call:
  * - If it has a provider SID, fetch the current status from the provider
  *   and transition the call to match.
- * - If no provider SID exists (call never connected), fail it with an
- *   explanatory error message.
+ * - If no provider SID exists and the session is recent (< 60 s), skip it
+ *   so that webhooks carrying the SID can still arrive after a daemon crash.
+ * - If no provider SID exists and the session is older than the grace period,
+ *   fail it with an explanatory error message.
  * - If the call transitions to a terminal state, expire any pending questions.
  */
 export async function reconcileCallsOnStartup(
@@ -72,10 +84,25 @@ export async function reconcileCallsOnStartup(
   for (const session of recoverableCalls) {
     try {
       if (!session.providerCallSid) {
-        // Call never connected to provider — fail it cleanly
+        const sessionAgeMs = Date.now() - session.createdAt;
+
+        if (sessionAgeMs < NO_SID_GRACE_PERIOD_MS) {
+          // Session is recent — the SID may arrive via webhook shortly.
+          // Skip it so webhooks can still deliver the SID and resume the call.
+          log.info(
+            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
+            'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
+          );
+          updateCallSession(session.id, {
+            lastError: 'Daemon restarted before provider SID persisted; awaiting webhook',
+          });
+          continue;
+        }
+
+        // Session is older than the grace period — fail it cleanly
         log.info(
-          { callSessionId: session.id, previousStatus: session.status },
-          'Failing call with no provider SID (never connected)',
+          { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
+          'Failing stale call with no provider SID (grace period expired)',
         );
         updateCallSession(session.id, {
           status: 'failed',

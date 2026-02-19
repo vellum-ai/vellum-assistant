@@ -33,7 +33,7 @@ import {
   createPendingQuestion,
   getPendingQuestion,
 } from '../calls/call-store.js';
-import { reconcileCallsOnStartup, logDeadLetterEvent } from '../calls/call-recovery.js';
+import { reconcileCallsOnStartup, logDeadLetterEvent, NO_SID_GRACE_PERIOD_MS } from '../calls/call-recovery.js';
 import type { VoiceProvider } from '../calls/voice-provider.js';
 
 initializeDb();
@@ -70,6 +70,13 @@ function resetTables() {
 function createTestCallSession(opts: Parameters<typeof createCallSession>[0]) {
   ensureConversation(opts.conversationId);
   return createCallSession(opts);
+}
+
+/** Backdate a session's createdAt so it appears older than the grace period. */
+function backdateSession(sessionId: string, ageMs: number): void {
+  const db = getDb();
+  const past = Date.now() - ageMs;
+  db.run(`UPDATE call_sessions SET created_at = ${past} WHERE id = '${sessionId}'`);
 }
 
 /** Create a mock VoiceProvider that returns configurable statuses. */
@@ -196,14 +203,15 @@ describe('reconcileCallsOnStartup', () => {
     // Should complete without error
   });
 
-  test('fails calls with no provider SID', async () => {
+  test('fails stale calls with no provider SID (past grace period)', async () => {
     const session = createTestCallSession({
       conversationId: 'conv-nosid',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
     });
-    // No providerCallSid set — it's null by default
+    // Backdate session so it exceeds the grace period
+    backdateSession(session.id, NO_SID_GRACE_PERIOD_MS + 10_000);
 
     const provider = createMockProvider();
     await reconcileCallsOnStartup(provider, silentLog);
@@ -213,6 +221,26 @@ describe('reconcileCallsOnStartup', () => {
     expect(updated!.status).toBe('failed');
     expect(updated!.endedAt).not.toBeNull();
     expect(updated!.lastError).toContain('Daemon restarted before call connected to provider');
+  });
+
+  test('skips recent no-SID sessions within grace period', async () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-nosid-recent',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+    // Session was just created (createdAt ~ Date.now()), well within grace period
+
+    const provider = createMockProvider();
+    await reconcileCallsOnStartup(provider, silentLog);
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    // Should NOT be failed — still in its original non-terminal state
+    expect(updated!.status).toBe('initiated');
+    expect(updated!.endedAt).toBeNull();
+    expect(updated!.lastError).toContain('awaiting webhook');
   });
 
   test('transitions to completed when provider says call completed', async () => {
@@ -396,13 +424,14 @@ describe('reconcileCallsOnStartup', () => {
   });
 
   test('handles mixed recoverable calls correctly', async () => {
-    // Call 1: no SID — should fail
+    // Call 1: no SID, stale — should fail
     const noSid = createTestCallSession({
       conversationId: 'conv-mix1',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
     });
+    backdateSession(noSid.id, NO_SID_GRACE_PERIOD_MS + 10_000);
 
     // Call 2: provider says completed — should complete
     const completed = createTestCallSession({
