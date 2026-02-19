@@ -1092,7 +1092,7 @@ struct MainWindowView: View {
         case .threadList:
             sidebarView
         case .identity:
-            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: {}, daemonClient: daemonClient)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = nil })
         }
@@ -1316,7 +1316,7 @@ struct MainWindowView: View {
             DoctorPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
-            IdentityPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: {}, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })

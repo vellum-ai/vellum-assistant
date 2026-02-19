@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
+    let onCustomizeAvatar: () -> Void
     let daemonClient: DaemonClient
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -46,6 +47,25 @@ struct IdentityPanel: View {
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)
+
+            // Customize Avatar CTA
+            Button(action: onCustomizeAvatar) {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "paintpalette")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Customize Avatar")
+                        .font(VFont.bodyMedium)
+                }
+                .foregroundColor(VColor.accent)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, VSpacing.lg)
 
             // Constellation fills remaining space
             ConstellationView(
