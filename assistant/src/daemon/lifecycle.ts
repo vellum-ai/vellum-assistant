@@ -224,9 +224,14 @@ export async function stopDaemon(): Promise<{ stopped: boolean }> {
     killWaited += 100;
   }
 
-  // Clean up socket file — the old daemon's shutdown handler may have
-  // already removed it, or it may still point to the old process.
-  removeSocketFile(getSocketPath());
+  // Only remove the socket if the process has actually exited.
+  // If it's still alive after SIGKILL + timeout, leave the socket
+  // intact to avoid pulling the rug from under a still-running daemon.
+  if (!isProcessRunning(pid)) {
+    removeSocketFile(getSocketPath());
+  } else {
+    log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket intact');
+  }
   cleanupPidFile();
   return { stopped: true };
 }
