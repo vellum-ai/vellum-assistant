@@ -267,7 +267,16 @@ export class SubagentManager {
     managed.session.abort();
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
-      this.setStatus(subagentId, 'aborted', parentSendToClient);
+      // Always route the status update through the stored parent sender so the
+      // owning session's UI chip updates, even when the abort comes from a
+      // different socket (e.g. after thread switching).
+      const statusSender = managed.parentSendToClient ?? parentSendToClient;
+      this.setStatus(subagentId, 'aborted', statusSender);
+      // Also notify the aborting socket if it differs from the parent sender,
+      // so the UI that triggered the abort sees the update immediately.
+      if (managed.parentSendToClient && managed.parentSendToClient !== parentSendToClient) {
+        this.setStatus(subagentId, 'aborted', parentSendToClient);
+      }
       // Notify parent that the subagent was explicitly aborted — tell it NOT to re-spawn.
       // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
