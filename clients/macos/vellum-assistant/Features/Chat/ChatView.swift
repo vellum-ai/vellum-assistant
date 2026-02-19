@@ -2004,27 +2004,40 @@ private struct ChatBubble: View {
 
     @ViewBuilder
     private func documentWidget(for toolCall: ToolCallData) -> some View {
-        // Extract document title from the tool call input summary or result
-        let documentTitle = parseDocumentTitle(from: toolCall)
+        let parsed = parseDocumentResult(from: toolCall)
 
-        DocumentReopenWidget(
-            documentTitle: documentTitle,
-            onReopen: {
-                // TODO: Re-open the document by sending document_editor_show
-                print("Reopen document: \(documentTitle)")
-            },
-            onDismiss: {
-                // TODO: Hide this widget (would need state management)
-                print("Dismiss document widget")
-            }
-        )
-        .padding(.top, VSpacing.sm)
+        if let surfaceId = parsed.surfaceId {
+            DocumentReopenWidget(
+                documentTitle: parsed.title,
+                onReopen: {
+                    NotificationCenter.default.post(
+                        name: .openDocumentEditor,
+                        object: nil,
+                        userInfo: ["documentSurfaceId": surfaceId]
+                    )
+                },
+                onDismiss: {
+                    // TODO: Hide this widget (would need state management)
+                }
+            )
+            .padding(.top, VSpacing.sm)
+        }
     }
 
-    private func parseDocumentTitle(from toolCall: ToolCallData) -> String {
-        // Try to extract title from the input summary
-        // Format is typically something like "Create document: <title>"
-        let summary = toolCall.inputSummary
+    /// Parse the document_create tool call result JSON for surface_id and title.
+    private func parseDocumentResult(from toolCall: ToolCallData) -> (surfaceId: String?, title: String) {
+        // The result is JSON: {"surface_id": "doc-...", "title": "...", ...}
+        if let result = toolCall.result,
+           let data = result.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let surfaceId = json["surface_id"] as? String
+            let title = json["title"] as? String ?? parseDocumentTitleFromSummary(toolCall.inputSummary)
+            return (surfaceId, title)
+        }
+        return (nil, parseDocumentTitleFromSummary(toolCall.inputSummary))
+    }
+
+    private func parseDocumentTitleFromSummary(_ summary: String) -> String {
         if let colonIndex = summary.firstIndex(of: ":") {
             let afterColon = summary[summary.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
             if !afterColon.isEmpty {
