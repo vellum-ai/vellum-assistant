@@ -828,7 +828,7 @@ public struct ChatMessage: Identifiable {
     public let role: ChatRole
     public var textSegments: [String]
     public var contentOrder: [ContentBlockRef]
-    public let timestamp: Date
+    public var timestamp: Date
     public var isStreaming: Bool
     public var status: ChatMessageStatus
     /// Non-nil when this message is an inline tool confirmation request.
