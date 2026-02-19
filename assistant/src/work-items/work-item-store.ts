@@ -118,6 +118,12 @@ export interface WorkItemSelector {
   workItemId?: string;
   taskId?: string;
   title?: string;
+  /** Disambiguator: filter by priority tier (0 = high, 1 = medium, 2 = low) */
+  priorityTier?: number;
+  /** Disambiguator: filter by status (queued, running, etc.) */
+  status?: WorkItemStatus;
+  /** Disambiguator: 1-indexed creation order (1 = oldest, 2 = second oldest, etc.) */
+  createdOrder?: number;
 }
 
 export type ResolveWorkItemResult =
@@ -151,11 +157,70 @@ export function findActiveWorkItemsByTitle(title: string): WorkItem[] {
 }
 
 /**
+ * Apply disambiguator fields to narrow down a set of candidate matches.
+ * Filters by priorityTier, then status, then picks by createdOrder if provided.
+ * Returns the filtered list (may still contain multiple items if disambiguation
+ * fields are insufficient).
+ */
+function applyDisambiguators(items: WorkItem[], selector: WorkItemSelector): WorkItem[] {
+  let filtered = items;
+
+  if (selector.priorityTier !== undefined) {
+    filtered = filtered.filter(i => i.priorityTier === selector.priorityTier);
+  }
+
+  if (selector.status !== undefined) {
+    filtered = filtered.filter(i => i.status === selector.status);
+  }
+
+  if (selector.createdOrder !== undefined && filtered.length > 0) {
+    const sorted = [...filtered].sort((a, b) => a.createdAt - b.createdAt);
+    const idx = selector.createdOrder - 1; // convert 1-indexed to 0-indexed
+    if (idx >= 0 && idx < sorted.length) {
+      filtered = [sorted[idx]];
+    }
+    // If createdOrder is out of range, return the full filtered list so the
+    // caller can report ambiguity with the remaining candidates.
+  }
+
+  return filtered;
+}
+
+/**
+ * Given a list of candidate matches, apply disambiguators and return a resolution result.
+ * Centralises the disambiguate-or-return-ambiguous logic shared across selector branches.
+ */
+function resolveFromCandidates(items: WorkItem[], selectorLabel: string, selector: WorkItemSelector): ResolveWorkItemResult {
+  if (items.length === 0) {
+    return { status: 'not_found', message: `No active work item found for "${selectorLabel}"` };
+  }
+  if (items.length === 1) {
+    return { status: 'found', workItem: items[0] };
+  }
+
+  // Multiple matches — try to narrow down with disambiguator fields
+  const narrowed = applyDisambiguators(items, selector);
+
+  if (narrowed.length === 1) {
+    return { status: 'found', workItem: narrowed[0] };
+  }
+  if (narrowed.length === 0) {
+    // Disambiguators filtered out everything — report the original set so the
+    // caller sees what was available
+    return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selectorLabel, items) };
+  }
+  return { status: 'ambiguous', matches: narrowed, message: formatAmbiguityMessage(selectorLabel, narrowed) };
+}
+
+/**
  * Resolve a single active work item from a selector.
  * Tries fields in priority order: workItemId > taskId > title.
  * Only considers active items (status not 'done' or 'archived').
  * Returns a discriminated union so callers can handle ambiguity explicitly
  * instead of silently picking one match when multiple exist.
+ *
+ * When multiple items match, the optional disambiguator fields (priorityTier,
+ * status, createdOrder) are applied to narrow down the set.
  */
 export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResult {
   if (selector.workItemId) {
@@ -169,20 +234,12 @@ export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResu
 
   if (selector.taskId) {
     const items = findActiveWorkItemsByTaskId(selector.taskId);
-    if (items.length === 0) return { status: 'not_found', message: `No active work item found for task "${selector.taskId}"` };
-    if (items.length > 1) {
-      return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selector.taskId, items) };
-    }
-    return { status: 'found', workItem: items[0] };
+    return resolveFromCandidates(items, selector.taskId, selector);
   }
 
   if (selector.title) {
     const items = findActiveWorkItemsByTitle(selector.title);
-    if (items.length === 0) return { status: 'not_found', message: `No active work item found with title "${selector.title}"` };
-    if (items.length > 1) {
-      return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selector.title, items) };
-    }
-    return { status: 'found', workItem: items[0] };
+    return resolveFromCandidates(items, selector.title, selector);
   }
 
   return { status: 'not_found', message: 'At least one selector field (workItemId, taskId, or title) must be provided' };

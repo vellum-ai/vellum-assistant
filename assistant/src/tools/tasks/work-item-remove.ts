@@ -9,7 +9,7 @@ const log = getLogger('task-list-remove');
 const definition: ToolDefinition = {
   name: 'task_list_remove',
   description:
-    'Remove a task from the Task Queue. Identifies the task by work item ID, task ID, task name, or title.',
+    'Remove a task from the Task Queue. Identifies the task by work item ID, task ID, task name, or title. When multiple items match, use the disambiguation fields (priority_tier, status, created_order) to narrow down.',
   input_schema: {
     type: 'object',
     properties: {
@@ -28,6 +28,19 @@ const definition: ToolDefinition = {
       title: {
         type: 'string',
         description: 'Work item title to search for (case-insensitive exact match)',
+      },
+      priority_tier: {
+        type: 'number',
+        description: 'Disambiguator: filter by priority tier (0 = high, 1 = medium, 2 = low)',
+      },
+      status: {
+        type: 'string',
+        enum: ['queued', 'running', 'awaiting_review', 'failed'],
+        description: 'Disambiguator: filter by work item status',
+      },
+      created_order: {
+        type: 'number',
+        description: 'Disambiguator: 1-indexed creation order among matches (1 = oldest, 2 = second oldest, etc.)',
       },
     },
   },
@@ -51,29 +64,32 @@ class TaskListRemoveTool implements Tool {
         workItemId: input.work_item_id as string | undefined,
         taskId: input.task_id as string | undefined,
         title: (input.task_name ?? input.title) as string | undefined,
+        priorityTier: input.priority_tier as number | undefined,
+        status: input.status as import('../../work-items/work-item-store.js').WorkItemStatus | undefined,
+        createdOrder: input.created_order as number | undefined,
       };
 
-      const result = resolveWorkItem(selector);
+      const resolveResult = resolveWorkItem(selector);
 
-      if (result.status === 'not_found') {
-        log.warn({ selectorType, error: result.message }, 'work item not found for removal');
-        return { content: `Error: ${result.message}`, isError: true };
+      if (resolveResult.status === 'not_found') {
+        log.warn({ selectorType, error: resolveResult.message }, 'work item not found for removal');
+        return { content: `Error: ${resolveResult.message}`, isError: true };
       }
 
-      if (result.status === 'ambiguous') {
-        log.warn({ selectorType, matchCount: result.matches.length }, 'ambiguous selector for removal');
-        return { content: `Error: ${result.message}`, isError: true };
+      if (resolveResult.status === 'ambiguous') {
+        log.warn({ selectorType, matchCount: resolveResult.matches.length }, 'ambiguous selector for removal');
+        return { content: `Error: ${resolveResult.message}`, isError: true };
       }
 
-      const item = result.workItem;
+      const item = resolveResult.workItem;
 
       log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id, title: item.title }, 'resolved work item for removal');
 
-      const result = removeWorkItemFromQueue(item.id);
+      const removeResult = removeWorkItemFromQueue(item.id);
 
       log.info({ resolvedWorkItemId: item.id, deletedCount: 1 }, 'work item removed');
 
-      return { content: result.message, isError: false };
+      return { content: removeResult.message, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ selectorType, error: msg }, 'remove failed');
