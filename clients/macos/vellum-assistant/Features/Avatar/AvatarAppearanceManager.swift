@@ -44,9 +44,7 @@ final class AvatarAppearanceManager {
     }
 
     private var customAvatarURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("vellum-assistant", isDirectory: true)
-        return dir.appendingPathComponent("custom-avatar.png")
+        Self.workspaceCustomAvatarURL()
     }
 
     func start() {
@@ -72,9 +70,23 @@ final class AvatarAppearanceManager {
     // MARK: - Custom Avatar
 
     private func loadCustomAvatar() {
-        let url = customAvatarURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        customAvatarImage = NSImage(contentsOf: url)
+        let workspaceURL = customAvatarURL
+        let legacyURL = Self.legacyAppSupportCustomAvatarURL()
+        let fm = FileManager.default
+
+        // One-time migration: copy legacy avatar to workspace if workspace copy doesn't exist
+        if !fm.fileExists(atPath: workspaceURL.path), fm.fileExists(atPath: legacyURL.path) {
+            let dir = workspaceURL.deletingLastPathComponent()
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? fm.copyItem(at: legacyURL, to: workspaceURL)
+        }
+
+        // Load from workspace (primary) or fall back to legacy for current session
+        if fm.fileExists(atPath: workspaceURL.path) {
+            customAvatarImage = NSImage(contentsOf: workspaceURL)
+        } else if fm.fileExists(atPath: legacyURL.path) {
+            customAvatarImage = NSImage(contentsOf: legacyURL)
+        }
     }
 
     func setCustomAvatar(_ image: NSImage) {
