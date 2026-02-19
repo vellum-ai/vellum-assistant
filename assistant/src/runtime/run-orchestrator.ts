@@ -147,6 +147,9 @@ export class RunOrchestrator {
     // Fire-and-forget the agent loop
     const cleanup = () => {
       this.pending.delete(run.id);
+      // Reset channel capabilities so a subsequent IPC/desktop session on the
+      // same conversation is not incorrectly treated as an HTTP-API client.
+      session.setChannelCapabilities(null);
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller

@@ -567,8 +567,8 @@ export class Session {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
-  setChannelCapabilities(caps: ChannelCapabilities): void {
-    this.channelCapabilities = caps;
+  setChannelCapabilities(caps: ChannelCapabilities | null): void {
+    this.channelCapabilities = caps ?? undefined;
   }
 
   private async approveHostAttachmentReadImpl(filePath: string): Promise<boolean> {
