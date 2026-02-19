@@ -130,10 +130,12 @@ describe('SubagentManager abort notification', () => {
   test('abort sends subagent_status_changed to client', () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
-    injectFakeSubagent(manager, subagentId, makeState(subagentId));
 
     const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+
+    // Pass the sender as parentSendToClient so the stored sender receives the status update.
+    injectFakeSubagent(manager, subagentId, makeState(subagentId), sendToClient);
 
     manager.abort(subagentId, sendToClient);
 
