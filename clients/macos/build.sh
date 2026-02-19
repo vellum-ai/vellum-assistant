@@ -189,6 +189,9 @@ if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ] && [ -d "$CLI_SRC_DIR/src" ] && com
     if bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"; then
         chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
         echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+    elif [ "$CMD" = "release" ]; then
+        echo "ERROR: CLI binary build failed — required for release builds"
+        exit 1
     else
         echo "Warning: CLI binary build failed — skipping (dev mode)"
     fi
