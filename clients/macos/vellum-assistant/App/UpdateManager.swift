@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// The appcast URL points to the public releases repo where CI publishes
 /// signed ZIPs alongside an `appcast.xml`.
 @MainActor
-final class UpdateManager: NSObject, SPUUpdaterDelegate {
+public final class UpdateManager: NSObject, SPUUpdaterDelegate {
 
     private var updaterController: SPUStandardUpdaterController!
 
@@ -37,18 +37,18 @@ final class UpdateManager: NSObject, SPUUpdaterDelegate {
     }
 
     /// Manually trigger "Check for Updates…" (shows UI).
-    func checkForUpdates() {
+    public func checkForUpdates() {
         updaterController.checkForUpdates(nil)
     }
 
     /// Whether the "Check for Updates…" menu item should be enabled.
-    var canCheckForUpdates: Bool {
+    public var canCheckForUpdates: Bool {
         updaterController.updater.canCheckForUpdates
     }
 
     // MARK: - SPUUpdaterDelegate
 
-    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+    nonisolated public func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         Task { @MainActor in
             log.info("Will install update \(item.displayVersionString)")
             onWillInstallUpdate?()
