@@ -311,6 +311,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task {
+            daemonLauncher.stop()
+
             if let name = assistantName {
                 try? await cliLauncher.runRetire(name: name)
             }
@@ -354,7 +356,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            daemonLauncher.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
             showOnboarding()
