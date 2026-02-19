@@ -100,8 +100,10 @@ struct TasksWindowView: View {
                                 hasOutput: viewModel.taskHasOutput(item),
                                 runningIds: viewModel.runInFlightIds,
                                 timeoutIds: viewModel.runTimeoutIds,
+                                cancelInFlightIds: viewModel.cancelInFlightIds,
                                 onTap: { viewModel.fetchOutput(for: item) },
                                 onRun: { viewModel.initiateRun(item: item) },
+                                onCancel: { viewModel.cancelTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
                                 onPriorityChange: { newTier in
                                     viewModel.updatePriority(id: item.id, tier: newTier)
@@ -154,8 +156,10 @@ private struct TasksWindowRow: View {
     let hasOutput: Bool
     let runningIds: Set<String>
     let timeoutIds: Set<String>
+    let cancelInFlightIds: Set<String>
     let onTap: () -> Void
     let onRun: () -> Void
+    let onCancel: () -> Void
     let onRemove: () -> Void
     let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
@@ -275,6 +279,7 @@ private struct TasksWindowRow: View {
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let isRunning = runningIds.contains(item.id) || status == .running
+        let isCancelling = cancelInFlightIds.contains(item.id)
         let isTimedOut = timeoutIds.contains(item.id)
         let isFailed = status == .failed
         let isRerun = status == .done || status == .awaitingReview
@@ -289,7 +294,27 @@ private struct TasksWindowRow: View {
         }()
         let buttonIcon = (isFailed || isTimedOut || isRerun) ? "arrow.clockwise" : "play.fill"
         return HStack(spacing: VSpacing.xs) {
-            if showRun {
+            if isRunning {
+                Button(action: onCancel) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 10))
+                        Text(isCancelling ? "Stopping..." : "Stop")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.error)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isCancelling)
+                .opacity(isCancelling ? 0.4 : 1.0)
+                .accessibilityLabel(isCancelling ? "Stopping task" : "Stop task")
+                .accessibilityHint("Cancel the running task")
+            } else if showRun {
                 VStack(alignment: .center, spacing: 2) {
                     Button(action: onRun) {
                         HStack(spacing: VSpacing.xs) {
@@ -308,8 +333,8 @@ private struct TasksWindowRow: View {
                     .buttonStyle(.plain)
                     .disabled(!runEnabled)
                     .opacity(runEnabled ? 1.0 : 0.4)
-                    .accessibilityLabel(isRunning ? "Task is running" : ((isFailed || isTimedOut) ? "Retry task" : (isRerun ? "Rerun task" : "Run task")))
-                    .accessibilityHint(isRunning ? "Task is already running" : (isTimedOut ? "No response received, tap to retry" : (isFailed ? "Retry running this failed task" : "")))
+                    .accessibilityLabel((isFailed || isTimedOut) ? "Retry task" : (isRerun ? "Rerun task" : "Run task"))
+                    .accessibilityHint(isTimedOut ? "No response received, tap to retry" : (isFailed ? "Retry running this failed task" : ""))
 
                     if isTimedOut {
                         Text("No response")
@@ -319,7 +344,7 @@ private struct TasksWindowRow: View {
                 }
             }
 
-            if isHovered {
+            if isHovered && !isRunning {
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))

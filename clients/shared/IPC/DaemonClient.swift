@@ -293,6 +293,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_approve_permissions_response` message.
     public var onWorkItemApprovePermissionsResponse: ((IPCWorkItemApprovePermissionsResponse) -> Void)?
 
+    /// Called when the daemon sends a `work_item_cancel_response` message.
+    public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -911,6 +914,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
     }
 
+    /// Cancel a running work item.
+    public func sendWorkItemCancel(id: String) throws {
+        try send(IPCWorkItemCancelRequest(type: "work_item_cancel", id: id))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
@@ -1478,6 +1486,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemPreflightResponse?(msg)
         case .workItemApprovePermissionsResponse(let msg):
             onWorkItemApprovePermissionsResponse?(msg)
+        case .workItemCancelResponse(let msg):
+            onWorkItemCancelResponse?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):

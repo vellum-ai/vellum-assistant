@@ -1936,6 +1936,18 @@ public struct IPCWorkItemApprovePermissionsResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCWorkItemCancelRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemCancelResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let type: String
     public let id: String

@@ -10,8 +10,10 @@ import type {
   WorkItemOutputRequest,
   WorkItemPreflightRequest,
   WorkItemApprovePermissionsRequest,
+  WorkItemCancelRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
+import { getSubagentManager } from '../../subagent/index.js';
 import {
   createWorkItem,
   deleteWorkItem,
@@ -297,6 +299,9 @@ export async function handleWorkItemRunTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
       async (conversationId, message) => {
         if (!session) {
+          // Store conversationId on the work item immediately so the cancel
+          // handler can locate the session while the task is still running.
+          updateWorkItem(msg.id, { lastRunConversationId: conversationId });
           session = await ctx.getOrCreateSession(conversationId);
         }
         await session.processMessage(message, [], (event) => {
@@ -399,4 +404,41 @@ export function handleWorkItemApprovePermissions(
   });
 
   ctx.send(socket, { type: 'work_item_approve_permissions_response', id: msg.id, success: true });
+}
+
+export function handleWorkItemCancel(
+  msg: WorkItemCancelRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const workItem = getWorkItem(msg.id);
+  if (!workItem) {
+    ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: false, error: 'Work item not found' });
+    return;
+  }
+
+  if (workItem.status !== 'running') {
+    ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: false, error: `Work item is not running (status: ${workItem.status})` });
+    return;
+  }
+
+  // Abort the session associated with this work item's current run
+  const conversationId = workItem.lastRunConversationId;
+  if (conversationId) {
+    const session = ctx.sessions.get(conversationId);
+    if (session) {
+      session.abort();
+      getSubagentManager().abortAllForParent(conversationId);
+    }
+  }
+
+  updateWorkItem(msg.id, {
+    status: 'failed',
+    lastRunStatus: 'failed',
+  });
+
+  ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: true });
+
+  broadcastWorkItemStatus(ctx, msg.id);
+  ctx.broadcast({ type: 'tasks_changed' });
 }

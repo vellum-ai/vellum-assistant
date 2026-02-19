@@ -20,6 +20,10 @@ class TasksWindowViewModel: ObservableObject {
     /// so the view can show a recoverable "no response" warning.
     @Published var runTimeoutIds: Set<String> = []
 
+    /// Tracks work item IDs with an in-flight cancel request so we can
+    /// disable the cancel button and avoid duplicate taps.
+    @Published var cancelInFlightIds: Set<String> = []
+
     /// The currently selected item for output detail viewing, or nil when
     /// the detail sheet is dismissed.
     @Published var selectedOutputItem: IPCWorkItemsListResponseItem?
@@ -136,6 +140,16 @@ class TasksWindowViewModel: ObservableObject {
                 self.preflightState = .error(response.error ?? "Failed to save permission approvals.")
             }
         }
+
+        daemonClient.onWorkItemCancelResponse = { [weak self] response in
+            guard let self else { return }
+            self.cancelInFlightIds.remove(response.id)
+            if !response.success {
+                self.logger.error("onWorkItemCancelResponse: cancel failed for id=\(response.id, privacy: .public) error=\(response.error ?? "none", privacy: .public)")
+                self.errorMessage = response.error ?? "Failed to cancel task"
+            }
+            self.fetchItems()
+        }
     }
 
     func fetchItems() {
@@ -211,6 +225,26 @@ class TasksWindowViewModel: ObservableObject {
             logger.error("runTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             runInFlightIds.remove(id)
             cancelRunTimeout(id: id)
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Cancel
+
+    func cancelTask(id: String) {
+        logger.info("cancelTask: id=\(id, privacy: .public)")
+
+        guard !cancelInFlightIds.contains(id) else {
+            logger.warning("cancelTask: skipping — already in flight for id=\(id, privacy: .public)")
+            return
+        }
+
+        cancelInFlightIds.insert(id)
+        do {
+            try daemonClient.sendWorkItemCancel(id: id)
+        } catch {
+            logger.error("cancelTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            cancelInFlightIds.remove(id)
             errorMessage = error.localizedDescription
         }
     }
