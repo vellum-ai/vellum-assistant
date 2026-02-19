@@ -182,6 +182,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupDaemonClient()
         setupMenuBar()
+        setupFileMenu()
         setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()

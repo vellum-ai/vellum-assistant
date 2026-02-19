@@ -772,6 +772,9 @@ struct MainWindowView: View {
                     SidebarNavRow(icon: "plus.circle", label: "New chat") {
                         windowState.selection = nil
                         threadManager.createThread()
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            sidebarOpen = false
+                        }
                     }
 
                     Spacer().frame(height: VSpacing.lg)

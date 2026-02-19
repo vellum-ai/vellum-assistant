@@ -18,6 +18,21 @@ extension AppDelegate {
         }
     }
 
+    func setupFileMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        let fileMenu = NSMenu(title: "File")
+
+        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+        newChatItem.keyEquivalentModifierMask = .command
+        newChatItem.target = self
+        fileMenu.addItem(newChatItem)
+
+        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileMenuItem.submenu = fileMenu
+        mainMenu.insertItem(fileMenuItem, at: 1)
+    }
+
     func setupViewMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
 
@@ -258,6 +273,7 @@ extension AppDelegate {
     @objc func openNewChat() {
         showMainWindow()
         mainWindow?.threadManager.createThread()
+        UserDefaults.standard.set(false, forKey: "sidebarOpen")
     }
 
     @objc func openAppCollection() {
