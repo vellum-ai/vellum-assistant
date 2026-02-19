@@ -3082,6 +3082,7 @@ flowchart TD
 | `work_item_update` | Update title, notes, priority, or sort order |
 | `work_item_complete` | Mark an item as `done` after review |
 | `work_item_run_task` | Trigger execution of a queued work item |
+| `work_item_delete` | Delete a work item from the queue |
 
 **Server → Client (push):**
 
@@ -3089,6 +3090,41 @@ flowchart TD
 |---------|---------|
 | `work_item_status_changed` | Notify the client when a work item transitions state (includes item snapshot) |
 | `tasks_changed` | Lightweight broadcast after any work-item mutation; triggers client-side refetch |
+
+### Run-Button State Machine
+
+When the user clicks "Run" on a queued work item, the button follows a deterministic state machine:
+
+```
+idle (visible) → in-flight (hidden) → success/failure → re-enabled (via refetch)
+```
+
+**Sequence:**
+
+1. **Idle** — The run button is visible only when `item.status == "queued"`. The `TasksWindowRow` renders it conditionally based on the `WorkItemStatus` enum.
+2. **In-flight** — The client sends `work_item_run_task` with the work item ID. The daemon validates the request, sets the item's status to `running`, and returns `work_item_run_task_response` with `success: true`. It then broadcasts `work_item_status_changed` and `tasks_changed`. The client's debounced refetch picks up the `running` status, which hides the run button and shows a spinner in the status column.
+3. **Completion** — The daemon executes the task asynchronously. On success, the item transitions to `awaiting_review`; on failure, to `failed`. Both trigger another `work_item_status_changed` + `tasks_changed` broadcast, which the client refetches and renders accordingly (showing a "Reviewed" button for `awaiting_review`, or the run button again for `failed` to allow retry).
+
+**Error handling in `work_item_run_task_response`:**
+
+The response includes a typed `errorCode` field (`WorkItemRunTaskErrorCode`) so the client can deterministically decide what to do without parsing error strings:
+
+| `errorCode` | Meaning | Client behavior |
+|-------------|---------|-----------------|
+| `not_found` | Work item does not exist (deleted concurrently) | Refetch removes the stale row |
+| `already_running` | Item is already executing | No-op; status column already shows spinner |
+| `invalid_status` | Item is `done` or `archived` and cannot be run | Refetch updates the row to reflect terminal status |
+| `no_task` | The associated Task template was deleted | Refetch; row may show an error state |
+
+In all error cases, the subsequent `tasks_changed` broadcast triggers a refetch that brings the UI back to a consistent state, so the button is never stuck in a disabled/hidden state without a path to recovery.
+
+### Delete Flow
+
+Deletion uses optimistic UI with rollback:
+
+1. **Optimistic removal** — `TasksWindowViewModel.removeTask()` snapshots the current `items` array, then immediately removes the target item with animation.
+2. **IPC request** — Sends `work_item_delete` with the item ID. The daemon looks up the item; if found, deletes it and responds with `work_item_delete_response { success: true }`, then broadcasts `tasks_changed`.
+3. **Failure rollback** — If the send throws (socket error), the view model restores the snapshot with animation. If the daemon responds with `success: false` (item not found), the `onWorkItemDeleteResponse` callback triggers a full refetch to reconcile.
 
 ## Avatar Evolution Pipeline
 
