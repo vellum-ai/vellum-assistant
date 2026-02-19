@@ -218,6 +218,8 @@ class IOSThreadStore: ObservableObject {
     }
 
     /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
+    /// Skips updates while the VM is loading history so that hydrating old messages
+    /// doesn't stamp the thread as recently active.
     private func observeForActivityTracking(vm: ChatViewModel, threadId: UUID) {
         guard !observedActivityThreadIds.contains(threadId) else { return }
         observedActivityThreadIds.insert(threadId)
@@ -226,7 +228,8 @@ class IOSThreadStore: ObservableObject {
             .dropFirst()
             .map(\.count)
             .removeDuplicates()
-            .sink { [weak self] _ in
+            .sink { [weak self, weak vm] _ in
+                guard let vm, !vm.isLoadingHistory else { return }
                 self?.touchLastActivity(for: threadId)
             }
             .store(in: &cancellables)

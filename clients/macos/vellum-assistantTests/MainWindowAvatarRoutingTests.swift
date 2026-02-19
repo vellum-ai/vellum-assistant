@@ -52,11 +52,12 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
     func testIdentityPanelRequiresCustomizeAvatarCallback() {
         var customizeCalled = false
         var closeCalled = false
+        let daemonClient = DaemonClient()
 
         let panel = IdentityPanel(
             onClose: { closeCalled = true },
             onCustomizeAvatar: { customizeCalled = true },
-            daemonClient: DaemonClient()
+            daemonClient: daemonClient
         )
 
         // Verify callbacks are wired — invoke them directly to confirm the closures passed through
@@ -65,6 +66,7 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
 
         XCTAssertTrue(closeCalled)
         XCTAssertTrue(customizeCalled)
+        daemonClient.disconnect()
     }
 
     // MARK: - State Transition Tests

@@ -167,6 +167,10 @@ public final class ChatViewModel: ObservableObject {
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
+    /// True while `populateFromHistory` is actively inserting messages.
+    /// Observers can check this to avoid treating the history hydration as new activity.
+    public private(set) var isLoadingHistory: Bool = false
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -1199,6 +1203,7 @@ public final class ChatViewModel: ObservableObject {
             try? daemonClient.send(ModelGetRequestMessage())
         }
 
+        self.isLoadingHistory = true
         let hasUserSentMessages = messages.contains { $0.role == .user }
         if hasUserSentMessages {
             // History arrived after the user already sent messages.
@@ -1218,6 +1223,7 @@ public final class ChatViewModel: ObservableObject {
         } else {
             self.messages = chatMessages
         }
+        self.isLoadingHistory = false
         self.isHistoryLoaded = true
         // Surfaces are now included directly in the history response and populated above
     }
