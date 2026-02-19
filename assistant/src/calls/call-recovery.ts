@@ -27,12 +27,12 @@ const defaultLog = getLogger('call-recovery');
  * current non-terminal state so incoming webhooks can still deliver the
  * SID and resume the call normally.
  *
- * Sessions older than this threshold are also left non-terminal (NOT
- * failed) because the state machine rejects transitions out of terminal
- * states, which would strand the call if a late webhook arrives. They
- * are annotated with an error message for operator visibility.
+ * Sessions older than this threshold are transitioned to `failed` to
+ * prevent orphan sessions from creating false "active call" state
+ * indefinitely. 5 minutes is long enough for any legitimate webhook
+ * to arrive; after that the session is considered abandoned.
  */
-export const NO_SID_GRACE_PERIOD_MS = 60_000;
+export const NO_SID_GRACE_PERIOD_MS = 5 * 60_000;
 
 /**
  * Map a Twilio provider status string to our internal CallStatus.
@@ -70,9 +70,11 @@ function isTerminal(status: CallStatus): boolean {
  * For each recoverable call:
  * - If it has a provider SID, fetch the current status from the provider
  *   and transition the call to match.
- * - If no provider SID exists, leave it in its current non-terminal state
- *   so that webhooks carrying the SID can still arrive and resume the call.
- *   The session is annotated with a `lastError` for operator visibility.
+ * - If no provider SID exists and the session is older than the grace
+ *   period, transition it to `failed` to prevent orphan sessions from
+ *   creating false "active call" state indefinitely.
+ * - If no provider SID exists but the session is within the grace period,
+ *   leave it non-terminal so webhooks can still deliver the SID.
  * - If the call transitions to a terminal state, expire any pending questions.
  */
 export async function reconcileCallsOnStartup(
@@ -94,21 +96,31 @@ export async function reconcileCallsOnStartup(
         const sessionAgeMs = Date.now() - session.createdAt;
         const isStale = sessionAgeMs >= NO_SID_GRACE_PERIOD_MS;
 
-        // Never terminalize no-SID sessions. The state machine rejects
-        // transitions out of terminal states, so marking them `failed`
-        // would strand the call if a late webhook delivers the SID.
-        // Instead, annotate with an error and leave them non-terminal.
-        log.info(
-          { callSessionId: session.id, previousStatus: session.status, sessionAgeMs, isStale },
-          isStale
-            ? 'No-SID session past grace period — leaving non-terminal for late webhooks'
-            : 'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
-        );
-        updateCallSession(session.id, {
-          lastError: isStale
-            ? 'Daemon restarted before provider SID persisted; grace period expired but leaving non-terminal for late webhooks'
-            : 'Daemon restarted before provider SID persisted; awaiting webhook',
-        });
+        if (isStale) {
+          // Session is old enough that any legitimate webhook should
+          // have arrived by now.  Transition to `failed` so it no
+          // longer appears as an active call.
+          log.info(
+            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
+            'No-SID session past grace period — failing orphan session',
+          );
+          updateCallSession(session.id, {
+            status: 'failed',
+            endedAt: Date.now(),
+            lastError: 'Daemon restarted before provider SID persisted; grace period expired — orphan session failed',
+          });
+          expirePendingQuestions(session.id);
+        } else {
+          // Recent session — webhooks carrying the SID may still arrive.
+          // Leave in its current non-terminal state.
+          log.info(
+            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
+            'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
+          );
+          updateCallSession(session.id, {
+            lastError: 'Daemon restarted before provider SID persisted; awaiting webhook',
+          });
+        }
         continue;
       }
 

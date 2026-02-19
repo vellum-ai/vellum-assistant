@@ -203,7 +203,7 @@ describe('reconcileCallsOnStartup', () => {
     // Should complete without error
   });
 
-  test('leaves stale no-SID sessions non-terminal (past grace period)', async () => {
+  test('fails stale no-SID sessions past grace period', async () => {
     const session = createTestCallSession({
       conversationId: 'conv-nosid',
       provider: 'twilio',
@@ -218,10 +218,34 @@ describe('reconcileCallsOnStartup', () => {
 
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
-    // Should NOT be failed — left non-terminal so late webhooks can still deliver the SID
-    expect(updated!.status).toBe('initiated');
-    expect(updated!.endedAt).toBeNull();
-    expect(updated!.lastError).toContain('grace period expired but leaving non-terminal');
+    // Should be failed — orphan session past grace period
+    expect(updated!.status).toBe('failed');
+    expect(updated!.endedAt).not.toBeNull();
+    expect(updated!.lastError).toContain('grace period expired');
+  });
+
+  test('expires pending questions when stale no-SID session is failed', async () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-nosid-pq',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+    // Backdate session so it exceeds the grace period
+    backdateSession(session.id, NO_SID_GRACE_PERIOD_MS + 10_000);
+
+    // Create a pending question
+    createPendingQuestion(session.id, 'Are you still there?');
+    const pendingBefore = getPendingQuestion(session.id);
+    expect(pendingBefore).not.toBeNull();
+    expect(pendingBefore!.status).toBe('pending');
+
+    const provider = createMockProvider();
+    await reconcileCallsOnStartup(provider, silentLog);
+
+    // Pending question should be expired along with the session
+    const pendingAfter = getPendingQuestion(session.id);
+    expect(pendingAfter).toBeNull();
   });
 
   test('skips recent no-SID sessions within grace period', async () => {
@@ -425,7 +449,7 @@ describe('reconcileCallsOnStartup', () => {
   });
 
   test('handles mixed recoverable calls correctly', async () => {
-    // Call 1: no SID, stale — should be left non-terminal (not failed)
+    // Call 1: no SID, stale — should be failed (orphan past grace period)
     const noSid = createTestCallSession({
       conversationId: 'conv-mix1',
       provider: 'twilio',
@@ -465,10 +489,11 @@ describe('reconcileCallsOnStartup', () => {
 
     await reconcileCallsOnStartup(provider, silentLog);
 
-    // No-SID session left non-terminal so late webhooks can still resume it
+    // No-SID session failed — orphan past grace period
     const updatedNoSid = getCallSession(noSid.id);
-    expect(updatedNoSid!.status).toBe('initiated');
-    expect(updatedNoSid!.lastError).toContain('grace period expired but leaving non-terminal');
+    expect(updatedNoSid!.status).toBe('failed');
+    expect(updatedNoSid!.endedAt).not.toBeNull();
+    expect(updatedNoSid!.lastError).toContain('grace period expired');
 
     const updatedCompleted = getCallSession(completed.id);
     expect(updatedCompleted!.status).toBe('completed');
