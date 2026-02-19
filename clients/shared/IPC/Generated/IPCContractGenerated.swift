@@ -1575,6 +1575,7 @@ public struct IPCToolInputDelta: Codable, Sendable {
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
+    public let sessionId: String?
     public let subType: String?
     public let subToolName: String?
     public let subToolInput: String?

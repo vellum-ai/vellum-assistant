@@ -351,27 +351,38 @@ export async function runAgentLoopImpl(
           onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: ctx.conversationId });
           break;
         case 'tool_output_chunk': {
-          // Try to parse structured progress fields from the chunk
+          // Try to parse structured progress fields from the chunk.
+          // Cheap pre-check: only attempt JSON.parse when the chunk looks like an object.
           let structured: { subType?: string; subToolName?: string; subToolInput?: string; subToolIsError?: boolean } | undefined;
-          try {
-            const parsed = JSON.parse(event.chunk);
-            if (parsed && typeof parsed === 'object' && parsed.subType) {
-              structured = parsed;
+          const trimmed = event.chunk.trimStart();
+          if (trimmed.length > 0 && trimmed[0] === '{') {
+            try {
+              const parsed = JSON.parse(event.chunk);
+              const VALID_SUB_TYPES = new Set(['tool_start', 'tool_complete', 'status']);
+              if (parsed && typeof parsed === 'object' && typeof parsed.subType === 'string' && VALID_SUB_TYPES.has(parsed.subType)) {
+                structured = {
+                  subType: parsed.subType as string,
+                  subToolName: typeof parsed.subToolName === 'string' ? parsed.subToolName : undefined,
+                  subToolInput: typeof parsed.subToolInput === 'string' ? parsed.subToolInput : undefined,
+                  subToolIsError: typeof parsed.subToolIsError === 'boolean' ? parsed.subToolIsError : undefined,
+                };
+              }
+            } catch {
+              // Not valid JSON — pass through as plain chunk
             }
-          } catch {
-            // Not JSON — pass through as plain chunk
           }
           if (structured) {
             onEvent({
               type: 'tool_output_chunk',
               chunk: event.chunk,
+              sessionId: ctx.conversationId,
               subType: structured.subType,
               subToolName: structured.subToolName,
               subToolInput: structured.subToolInput,
               subToolIsError: structured.subToolIsError,
             });
           } else {
-            onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
+            onEvent({ type: 'tool_output_chunk', chunk: event.chunk, sessionId: ctx.conversationId });
           }
           break;
         }
