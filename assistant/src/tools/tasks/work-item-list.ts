@@ -4,10 +4,9 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { listWorkItems, type WorkItemStatus } from '../../work-items/work-item-store.js';
 
 const PRIORITY_LABELS: Record<number, string> = {
-  0: 'urgent',
-  1: 'high',
-  2: 'normal',
-  3: 'low',
+  0: 'high',
+  1: 'medium',
+  2: 'low',
 };
 
 const definition: ToolDefinition = {

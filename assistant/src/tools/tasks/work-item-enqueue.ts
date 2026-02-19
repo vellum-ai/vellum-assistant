@@ -5,10 +5,9 @@ import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
 import { createWorkItem } from '../../work-items/work-item-store.js';
 
 const PRIORITY_LABELS: Record<number, string> = {
-  0: 'urgent',
-  1: 'high',
-  2: 'normal',
-  3: 'low',
+  0: 'high',
+  1: 'medium',
+  2: 'low',
 };
 
 const definition: ToolDefinition = {
@@ -38,7 +37,7 @@ const definition: ToolDefinition = {
       },
       priority_tier: {
         type: 'number',
-        description: '0 = urgent, 1 = high, 2 = normal (default), 3 = low.',
+        description: '0 = high, 1 = medium (default), 2 = low.',
       },
       sort_index: {
         type: 'number',
@@ -86,7 +85,7 @@ class TaskListAddTool implements Tool {
           taskId: adHocTask.id,
           title: titleOverride,
           notes,
-          priorityTier: priorityTier ?? 2,
+          priorityTier: priorityTier ?? 1,
           sortIndex,
         });
 
@@ -146,7 +145,7 @@ class TaskListAddTool implements Tool {
         taskId: resolvedTask.id,
         title: titleOverride ?? resolvedTask.title,
         notes,
-        priorityTier: priorityTier ?? 2,
+        priorityTier: priorityTier ?? 1,
         sortIndex,
       });
 

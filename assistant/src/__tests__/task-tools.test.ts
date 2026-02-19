@@ -375,8 +375,8 @@ describe('task_list_show tool', () => {
 
   test('lists work items when they exist', async () => {
     const task = createTask({ title: 'My Task', template: 'Do it' });
-    createWorkItem({ taskId: task.id, title: 'Work Item Alpha', priorityTier: 1 });
-    createWorkItem({ taskId: task.id, title: 'Work Item Beta', notes: 'some notes', priorityTier: 2 });
+    createWorkItem({ taskId: task.id, title: 'Work Item Alpha', priorityTier: 0 });
+    createWorkItem({ taskId: task.id, title: 'Work Item Beta', notes: 'some notes', priorityTier: 1 });
 
     const result = await taskListShowTool.execute({}, stubContext);
 
@@ -397,10 +397,10 @@ describe('task_list_show tool', () => {
 
   test('filters by status when status param is provided', async () => {
     const task = createTask({ title: 'Filter Task', template: 'Do it' });
-    createWorkItem({ taskId: task.id, title: 'Queued Item', priorityTier: 2 });
+    createWorkItem({ taskId: task.id, title: 'Queued Item', priorityTier: 1 });
     const raw = getRawDb();
     // Create a second work item and manually set its status to 'done'
-    const doneItem = createWorkItem({ taskId: task.id, title: 'Done Item', priorityTier: 2 });
+    const doneItem = createWorkItem({ taskId: task.id, title: 'Done Item', priorityTier: 1 });
     raw.query('UPDATE work_items SET status = ? WHERE id = ?').run('done', doneItem.id);
 
     const resultQueued = await taskListShowTool.execute({ status: 'queued' }, stubContext);
@@ -503,7 +503,7 @@ describe('task_list_add tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Buy groceries');
     expect(result.content).toContain('Notes: Milk, eggs, bread');
-    expect(result.content).toContain('Priority: high');
+    expect(result.content).toContain('Priority: medium');
   });
 
   test('ad-hoc work item shows up in task_list_show', async () => {
@@ -534,7 +534,7 @@ describe('task_list_add tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Custom Title Override');
     expect(result.content).toContain('Notes: Important context here');
-    expect(result.content).toContain('Priority: urgent');
+    expect(result.content).toContain('Priority: high');
   });
 });
 

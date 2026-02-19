@@ -235,10 +235,9 @@ private struct TasksWindowRow: View {
 
     private func priorityColor(tier: Double) -> Color {
         switch tier {
-        case 0: return VColor.error
-        case 1: return VColor.warning
-        case 2: return VColor.accent
-        default: return VColor.textMuted
+        case 0: return VColor.error      // high
+        case 1: return VColor.accent     // medium
+        default: return VColor.textMuted // low
         }
     }
 
