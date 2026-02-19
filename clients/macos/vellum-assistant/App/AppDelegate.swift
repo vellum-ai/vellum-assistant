@@ -591,6 +591,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
+                // When the chat window is visible, the inline ToolConfirmationBubble
+                // handles the confirmation UX — skip the native notification to avoid
+                // showing a duplicate prompt.
+                if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
+                    return
+                }
+
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
                 // If the inline chat path already forwarded the response, skip
                 // the duplicate IPC send and state update.
