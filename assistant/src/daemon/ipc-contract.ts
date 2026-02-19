@@ -201,6 +201,13 @@ export interface RideShotgunStart {
   type: 'ride_shotgun_start';
   durationSeconds: number;
   intervalSeconds: number;
+  mode?: 'observe' | 'learn';
+  targetDomain?: string;
+}
+
+export interface RideShotgunStop {
+  type: 'ride_shotgun_stop';
+  watchId: string;
 }
 
 export interface WatchObservation {
@@ -811,6 +818,7 @@ export type ClientMessage =
   | CuSessionAbort
   | CuObservation
   | RideShotgunStart
+  | RideShotgunStop
   | WatchObservation
   | TaskSubmit
   | UiSurfaceAction
@@ -1271,6 +1279,8 @@ export interface RideShotgunResult {
   watchId: string;
   summary: string;
   observationCount: number;
+  recordingId?: string;
+  recordingPath?: string;
 }
 
 export interface MessageQueued {

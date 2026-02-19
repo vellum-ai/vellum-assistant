@@ -6,11 +6,13 @@ final class RideShotgunSummaryWindow {
     private var panel: NSPanel?
     private var autoDismissWork: DispatchWorkItem?
     private let summary: String
+    private let recordingId: String?
     private let onDismiss: () -> Void
     private let onHelp: (String) -> Void
 
-    init(summary: String, onDismiss: @escaping () -> Void, onHelp: @escaping (String) -> Void) {
+    init(summary: String, recordingId: String? = nil, onDismiss: @escaping () -> Void, onHelp: @escaping (String) -> Void) {
         self.summary = summary
+        self.recordingId = recordingId
         self.onDismiss = onDismiss
         self.onHelp = onHelp
     }
@@ -18,6 +20,7 @@ final class RideShotgunSummaryWindow {
     func show() {
         let view = RideShotgunSummaryView(
             summary: summary,
+            recordingId: recordingId,
             onDismiss: { [weak self] in
                 self?.close()
                 self?.onDismiss()
@@ -77,17 +80,24 @@ final class RideShotgunSummaryWindow {
 
 private struct RideShotgunSummaryView: View {
     let summary: String
+    let recordingId: String?
     let onDismiss: () -> Void
     let onHelp: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
-                Image(systemName: "binoculars.fill")
+                Image(systemName: recordingId != nil ? "record.circle" : "binoculars.fill")
                     .foregroundStyle(VColor.accent)
-                Text("Here's what I noticed")
+                Text(recordingId != nil ? "Recording saved" : "Here's what I noticed")
                     .font(VFont.headline)
                 Spacer()
+            }
+
+            if recordingId != nil {
+                Text("Recording saved \u{2014} ask me to build a skill from it")
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.accent)
             }
 
             ScrollView {
@@ -106,7 +116,7 @@ private struct RideShotgunSummaryView: View {
                 }
                 .keyboardShortcut(.escape, modifiers: [])
 
-                Button("Help me with something") {
+                Button(recordingId != nil ? "Build a skill" : "Help me with something") {
                     onHelp()
                 }
                 .keyboardShortcut(.return, modifiers: [])

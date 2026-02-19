@@ -44,13 +44,11 @@ public final class AmbientAgent: ObservableObject {
     }
 
     func pause() {
-        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
-        // rideShotgunTrigger.stop()
+        rideShotgunTrigger.stop()
     }
 
     func resume() {
-        // Ride Shotgun disabled — re-enable when the feature has a clearer value prop
-        // rideShotgunTrigger.start()
+        rideShotgunTrigger.start()
     }
 
     func teardown() {
@@ -100,7 +98,7 @@ public final class AmbientAgent: ObservableObject {
         }
     }
 
-    func startRideShotgun(durationSeconds: Int) {
+    func startRideShotgun(durationSeconds: Int, mode: String? = nil, targetDomain: String? = nil) {
         guard let daemonClient else {
             log.warning("Cannot start ride shotgun: no daemon client")
             return
@@ -112,7 +110,7 @@ public final class AmbientAgent: ObservableObject {
 
         rideShotgunTrigger.recordSessionStarted()
 
-        let session = RideShotgunSession(durationSeconds: durationSeconds)
+        let session = RideShotgunSession(durationSeconds: durationSeconds, mode: mode, targetDomain: targetDomain)
         currentSession = session
 
         // Observe session state changes
@@ -126,6 +124,59 @@ public final class AmbientAgent: ObservableObject {
         showProgress()
     }
 
+    func startLearnSession(targetDomain: String, durationSeconds: Int = 300) {
+        Task { @MainActor in
+            // Ensure Chrome is running with CDP so we can record network traffic
+            await ensureChromeWithCDP()
+            startRideShotgun(durationSeconds: durationSeconds, mode: "learn", targetDomain: targetDomain)
+        }
+    }
+
+    /// Restart Chrome with CDP if it's not already available, or launch it if not running.
+    private func ensureChromeWithCDP() async {
+        // Check if CDP is already available
+        if let url = URL(string: "http://localhost:9222/json/version"),
+           let (_, response) = try? await URLSession.shared.data(from: url),
+           let httpResponse = response as? HTTPURLResponse,
+           httpResponse.statusCode == 200 {
+            log.info("CDP already available, skipping Chrome restart")
+            return
+        }
+
+        // Find running Chrome and restart it with CDP, or launch fresh
+        if let chrome = ChromeAccessibilityHelper.findRunningChrome() {
+            log.info("Restarting Chrome with CDP for learn session")
+            let success = await ChromeAccessibilityHelper.restartChromeForCDP(app: chrome)
+            if !success {
+                log.warning("Chrome CDP restart failed, proceeding without network recording")
+            }
+        } else {
+            // No Chrome running — launch it with CDP
+            log.info("Launching Chrome with CDP for learn session")
+            let config = NSWorkspace.OpenConfiguration()
+            let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
+                config.arguments = ["--remote-debugging-port=9222", "--force-renderer-accessibility", "--user-data-dir=\(chromeDataDir)"]
+            config.activates = true
+            if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+                try? await NSWorkspace.shared.openApplication(at: chromeURL, configuration: config)
+                // Wait for CDP to come up
+                for _ in 0..<30 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    if let url = URL(string: "http://localhost:9222/json/version"),
+                       let (_, response) = try? await URLSession.shared.data(from: url),
+                       let httpResponse = response as? HTTPURLResponse,
+                       httpResponse.statusCode == 200 {
+                        log.info("Chrome launched with CDP ready")
+                        return
+                    }
+                }
+                log.warning("Chrome launched but CDP not responding")
+            } else {
+                log.warning("Google Chrome not found")
+            }
+        }
+    }
+
     func cancelRideShotgun() {
         currentSession?.cancel()
         progressWindow?.close()
@@ -133,6 +184,11 @@ public final class AmbientAgent: ObservableObject {
         currentSession = nil
         sessionCancellable?.cancel()
         sessionCancellable = nil
+    }
+
+    /// Stop the session early but still finalize the recording and generate summary.
+    func stopRideShotgunEarly() {
+        currentSession?.stopEarly()
     }
 
     private func handleSessionStateChange(_ state: RideShotgunSession.State) {
@@ -143,14 +199,15 @@ public final class AmbientAgent: ObservableObject {
             progressWindow = nil
             let hasSession = currentSession != nil
             let summary = currentSession?.summary ?? ""
-            log.debug("Session complete: hasSession=\(hasSession) summaryLength=\(summary.count)")
+            let recordingId = currentSession?.recordingId
+            log.debug("Session complete: hasSession=\(hasSession) summaryLength=\(summary.count) recordingId=\(recordingId ?? "nil")")
             if summary.isEmpty {
-                showSummary("I watched your screen but wasn't able to generate a report. No response was received from the daemon.")
+                showSummary("I watched your screen but wasn't able to generate a report. No response was received from the daemon.", recordingId: recordingId)
             } else if summary.hasPrefix("[error]") {
                 let errorDetail = String(summary.dropFirst("[error] ".count))
-                showSummary("Something went wrong during analysis:\n\n\(errorDetail)")
+                showSummary("Something went wrong during analysis:\n\n\(errorDetail)", recordingId: recordingId)
             } else {
-                showSummary(summary)
+                showSummary(summary, recordingId: recordingId)
             }
             rideShotgunTrigger.recordCompleted()
             sessionCancellable?.cancel()
@@ -190,9 +247,10 @@ public final class AmbientAgent: ObservableObject {
         window.show()
     }
 
-    private func showSummary(_ summary: String) {
+    private func showSummary(_ summary: String, recordingId: String? = nil) {
         let window = RideShotgunSummaryWindow(
             summary: summary,
+            recordingId: recordingId,
             onDismiss: { [weak self] in
                 self?.summaryWindow = nil
                 self?.currentSession = nil

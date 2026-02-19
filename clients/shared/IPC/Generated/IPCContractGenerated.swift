@@ -1046,12 +1046,21 @@ public struct IPCRideShotgunResult: Codable, Sendable {
     public let watchId: String
     public let summary: String
     public let observationCount: Int
+    public let recordingId: String?
+    public let recordingPath: String?
 }
 
 public struct IPCRideShotgunStart: Codable, Sendable {
     public let type: String
     public let durationSeconds: Double
     public let intervalSeconds: Double
+    public let mode: String?
+    public let targetDomain: String?
+}
+
+public struct IPCRideShotgunStop: Codable, Sendable {
+    public let type: String
+    public let watchId: String
 }
 
 public struct IPCSandboxSetRequest: Codable, Sendable {

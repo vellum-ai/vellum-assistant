@@ -1,6 +1,6 @@
 import * as net from 'node:net';
 import type { ClientMessage } from '../ipc-protocol.js';
-import { handleRideShotgunStart } from '../ride-shotgun-handler.js';
+import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { log, pendingSignBundlePayload, pendingSigningIdentity, type HandlerContext } from './shared.js';
@@ -161,6 +161,7 @@ const handlers: DispatchMap = {
   cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
   ride_shotgun_start: handleRideShotgunStart,
+  ride_shotgun_stop: handleRideShotgunStop,
   watch_observation: handleWatchObservation,
   task_submit: handleTaskSubmit,
   app_data_request: handleAppDataRequest,

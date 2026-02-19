@@ -121,6 +121,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     durationSeconds: 300,
     intervalSeconds: 10,
   },
+  ride_shotgun_stop: {
+    type: 'ride_shotgun_stop',
+    watchId: 'watch-001',
+  },
   watch_observation: {
     type: 'watch_observation',
     watchId: 'watch-001',
