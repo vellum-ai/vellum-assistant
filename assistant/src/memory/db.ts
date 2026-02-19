@@ -404,6 +404,16 @@ export function initializeDb(): void {
   `);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS llm_request_logs (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      request_payload TEXT NOT NULL,
+      response_payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
@@ -536,6 +546,7 @@ export function initializeDb(): void {
   migrateMemoryItemsScopeSaltedFingerprints(database);
 
   // Indexes for query performance on large datasets
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tool_invocations_conversation_id ON tool_invocations(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)`);

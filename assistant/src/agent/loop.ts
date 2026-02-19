@@ -32,7 +32,7 @@ export type AgentEvent =
   | { type: 'tool_result'; toolUseId: string; content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }
   | { type: 'input_json_delta'; toolName: string; accumulatedJson: string }
   | { type: 'error'; error: Error }
-  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; model: string; providerDurationMs: number };
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; model: string; providerDurationMs: number; rawRequest?: unknown; rawResponse?: unknown };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 64000,
@@ -186,6 +186,8 @@ export class AgentLoop {
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
           providerDurationMs,
+          rawRequest: response.rawRequest,
+          rawResponse: response.rawResponse,
         });
 
         void getHookManager().trigger('post-llm-call', {

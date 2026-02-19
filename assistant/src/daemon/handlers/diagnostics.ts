@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import archiver from 'archiver';
 import { getDb } from '../../memory/db.js';
-import { messages, toolInvocations, llmUsageEvents } from '../../memory/schema.js';
+import { messages, toolInvocations, llmUsageEvents, llmRequestLogs } from '../../memory/schema.js';
 import type { DiagnosticsExportRequest } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
 
@@ -159,6 +159,20 @@ export async function handleDiagnosticsExport(
       .orderBy(llmUsageEvents.createdAt)
       .all();
 
+    // 5b. Query raw LLM request/response logs in the range
+    const rangeRequestLogs = db
+      .select()
+      .from(llmRequestLogs)
+      .where(
+        and(
+          eq(llmRequestLogs.conversationId, conversationId),
+          gte(llmRequestLogs.createdAt, rangeStart),
+          lte(llmRequestLogs.createdAt, usageRangeEnd),
+        ),
+      )
+      .orderBy(llmRequestLogs.createdAt)
+      .all();
+
     // 6. Write export files to a temp directory
     const exportId = `diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(4).toString('hex')}`;
     const tempDir = join(tmpdir(), exportId);
@@ -167,7 +181,7 @@ export async function handleDiagnosticsExport(
     try {
       // manifest.json
       const manifest = {
-        version: '1.0',
+        version: '1.1',
         exportedAt: new Date().toISOString(),
         conversationId,
         messageId: anchorMessage.id,
@@ -220,6 +234,18 @@ export async function handleDiagnosticsExport(
         }),
       );
       writeFileSync(join(tempDir, 'usage.jsonl'), usageLines.join('\n') + (usageLines.length > 0 ? '\n' : ''));
+
+      // llm_requests.jsonl — raw request/response payloads sent to the LLM provider
+      const requestLogLines = rangeRequestLogs.map((r) =>
+        JSON.stringify({
+          id: r.id,
+          conversationId: r.conversationId,
+          request: JSON.parse(r.requestPayload),
+          response: JSON.parse(r.responsePayload),
+          createdAt: r.createdAt,
+        }),
+      );
+      writeFileSync(join(tempDir, 'llm_requests.jsonl'), requestLogLines.join('\n') + (requestLogLines.length > 0 ? '\n' : ''));
 
       // 7. Zip the temp directory
       const downloadsDir = join(homedir(), 'Downloads');

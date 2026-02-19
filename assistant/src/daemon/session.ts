@@ -81,6 +81,7 @@ import {
   type HistorySessionContext,
 } from './session-history.js';
 import { recordUsage } from './session-usage.js';
+import { recordRequestLog } from '../memory/llm-request-log-store.js';
 import { isProviderOrderingError } from './session-slash.js';
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
 import type { UsageActor } from '../usage/actors.js';
@@ -1016,6 +1017,19 @@ export class Session {
             exchangeInputTokens += event.inputTokens;
             exchangeOutputTokens += event.outputTokens;
             model = event.model;
+
+            // Persist raw LLM request/response payloads for diagnostics export
+            if (event.rawRequest && event.rawResponse) {
+              try {
+                recordRequestLog(
+                  this.conversationId,
+                  JSON.stringify(event.rawRequest),
+                  JSON.stringify(event.rawResponse),
+                );
+              } catch (err) {
+                rlog.warn({ err }, 'Failed to persist LLM request log (non-fatal)');
+              }
+            }
 
             // Ensure llm_call_started is emitted even for tool-only turns
             // (where no text_delta or thinking_delta events fire)
