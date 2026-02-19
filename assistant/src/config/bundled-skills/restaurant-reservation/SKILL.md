@@ -60,7 +60,7 @@ This is the most important step. Reservation sites require authentication before
    `https://www.opentable.com/s?covers=<party_size>&dateTime=<YYYY-MM-DDTHH:MM>&term=<restaurant_or_location>`
    Construct the URL from the details collected in Step 1. URL-encode the `term` parameter.
 2. **For Resy**, navigate to `https://resy.com/cities/<city>` and use the search/filter UI to find available reservations matching the collected details.
-3. If a specific restaurant was named, navigate directly to its page if possible (e.g. `https://www.opentable.com/r/<restaurant-slug>` or `https://resy.com/cities/<city>/venues/<restaurant-slug>`).
+3. If a specific restaurant was named, navigate directly to its page if possible (e.g. `https://www.opentable.com/r/<restaurant-slug>` or `https://resy.com/cities/<city>/venues/<restaurant-slug>`). **After landing on the restaurant page, reapply the user's date, time, and party size filters** — direct restaurant URLs often show default availability that may not match the user's request. Use the on-page date picker, time selector, and party size controls to set the correct values before reviewing slots.
 4. Take a `browser_snapshot` and review the results.
 
 ### Step 5: Present Available Slots
@@ -72,6 +72,7 @@ This is the most important step. Reservation sites require authentication before
    - Offer the same time on adjacent dates.
    - Suggest trying the other provider (OpenTable ↔ Resy).
 4. Let the user choose a slot.
+5. **Click the chosen slot on the page** to select it. Take a fresh `browser_snapshot` to confirm the slot is selected and the booking/confirmation form is now visible. Do not proceed to confirmation steps until the slot is actively selected in the site UI.
 
 ### Step 6: First Confirmation — Reservation Details + Policies
 
