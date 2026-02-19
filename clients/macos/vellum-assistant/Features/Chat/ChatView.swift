@@ -1242,7 +1242,7 @@ private struct ChatBubble: View {
                 label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
                 progressiveLabels: progressive,
                 labelInterval: progressive.isEmpty ? 6 : 15,
-                onTap: {}
+                onTap: nil
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
@@ -1251,7 +1251,7 @@ private struct ChatBubble: View {
                 label: "Thinking",
                 progressiveLabels: ["Thinking", "Figuring out next steps", "Almost ready"],
                 labelInterval: 8,
-                onTap: {}
+                onTap: nil
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {

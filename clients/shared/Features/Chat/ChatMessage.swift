@@ -441,7 +441,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "glob":
             return interpretGlobPattern(inputSummary)
         case "grep":
-            return "Searched through files"
+            return inputSummary.isEmpty ? "Searched through files" : "Searched for \"\(truncated(inputSummary, to: 50))\""
         case "web_fetch":
             if let host = URL(string: inputSummary)?.host { return "Fetched data from \(host)" }
             return "Fetched a webpage"
@@ -458,10 +458,82 @@ public struct ToolCallData: Identifiable, Equatable {
             return "Created an app"
         case "app_update":
             return "Updated the app"
+        case "app_open":
+            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
         case "request_system_permission":
             return "Requested system access"
+        case "web_search":
+            return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
+        case "memory_save", "memory_update":
+            return "Saved a memory"
+        case "memory_search":
+            return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
+        case "task_run":
+            return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
+        case "task_save":
+            return "Saved a task"
+        case "task_list", "work_item_list":
+            return "Checked the task list"
+        case "task_delete":
+            return "Deleted a task"
+        case "work_item_enqueue":
+            return "Queued work"
+        case "swarm_delegate":
+            return inputSummary.isEmpty ? "Delegated to an agent" : "Delegated: \(truncated(inputSummary, to: 50))"
+        case "claude_code":
+            return inputSummary.isEmpty ? "Ran Claude Code" : truncated(inputSummary, to: 60)
+        case "evaluate_typescript_code":
+            return "Evaluated a code snippet"
+        case "followup_create":
+            return inputSummary.isEmpty ? "Set a follow-up" : "Set a reminder: \(truncated(inputSummary, to: 50))"
+        case "followup_list":
+            return "Checked follow-ups"
+        case "followup_resolve":
+            return "Resolved a follow-up"
+        case "contact_search":
+            return inputSummary.isEmpty ? "Looked up a contact" : "Looked up \"\(truncated(inputSummary, to: 40))\""
+        case "contact_upsert":
+            return inputSummary.isEmpty ? "Saved a contact" : "Saved contact \"\(truncated(inputSummary, to: 40))\""
+        case "contact_merge":
+            return "Merged contacts"
+        case "asset_search":
+            return inputSummary.isEmpty ? "Searched assets" : "Searched for \"\(truncated(inputSummary, to: 40))\""
+        case "asset_materialize":
+            return "Prepared an asset"
+        case "computer_use_key":
+            return inputSummary.isEmpty ? "Pressed a key" : "Pressed \(inputSummary)"
+        case "computer_use_type_text":
+            return inputSummary.isEmpty ? "Typed text" : "Typed \"\(truncated(inputSummary, to: 40))\""
+        case "computer_use_scroll":
+            return "Scrolled the page"
+        case "computer_use_drag":
+            return "Dragged an element"
+        case "computer_use_open_app":
+            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
+        case "computer_use_run_applescript":
+            return "Ran an AppleScript"
+        case "computer_use_wait":
+            return "Waited for the screen"
+        case "computer_use_request_control":
+            return "Requested computer control"
+        case "computer_use_done", "computer_use_respond":
+            return "Finished the task"
+        case "ui_show":
+            return inputSummary.isEmpty ? "Showed a panel" : "Opened \(inputSummary)"
+        case "ui_update":
+            return "Updated the panel"
+        case "ui_dismiss":
+            return "Closed the panel"
+        case "request_file":
+            return "Requested a file"
+        case "playbook_create":
+            return "Created a playbook"
+        case "playbook_update":
+            return "Updated a playbook"
+        case "playbook_list":
+            return "Listed playbooks"
         default:
-            return "Performed an action"
+            return friendlyName
         }
     }
 
@@ -471,8 +543,16 @@ public struct ToolCallData: Identifiable, Equatable {
             .filter { !$0.isEmpty }
         guard let first = tokens.first else { return "Ran a command" }
         let base = (first as NSString).lastPathComponent.lowercased()
+
+        // Returns the last non-flag argument after `skip` tokens, or nil.
+        func target(skip: Int = 1) -> String? {
+            let t = tokens.dropFirst(skip).last(where: { !$0.hasPrefix("-") })
+            return t.map { lastName(of: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+
         switch base {
         case "ls", "find", "tree":
+            if let dir = target() { return "Listed \(dir)" }
             return "Listed files"
         case "cat", "less", "more", "head", "tail":
             let file = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
@@ -486,10 +566,14 @@ public struct ToolCallData: Identifiable, Equatable {
             case "push":            return "Pushed code"
             case "pull":            return "Pulled latest changes"
             case "fetch":           return "Fetched remote changes"
-            case "checkout", "switch": return "Switched branch"
+            case "checkout", "switch":
+                let branch = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return branch.isEmpty ? "Switched branch" : "Switched to \(branch)"
             case "log":             return "Reviewed commit history"
             case "clone":           return "Cloned repository"
-            case "merge":           return "Merged branch"
+            case "merge":
+                let branch = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return branch.isEmpty ? "Merged branch" : "Merged \(branch)"
             case "rebase":          return "Rebased branch"
             case "stash":           return "Stashed changes"
             case "reset", "restore": return "Undid changes"
@@ -497,7 +581,13 @@ public struct ToolCallData: Identifiable, Equatable {
             }
         case "npm", "yarn", "bun", "pnpm":
             switch tokens.dropFirst().first ?? "" {
-            case "install", "i", "add": return "Installed dependencies"
+            case "install", "i":    return "Installed dependencies"
+            case "add":
+                let pkg = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return pkg.isEmpty ? "Installed a package" : "Installed \(pkg)"
+            case "remove", "uninstall":
+                let pkg = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return pkg.isEmpty ? "Removed a package" : "Removed \(pkg)"
             case "run":
                 let script = tokens.dropFirst().dropFirst().first(where: { !$0.hasPrefix("-") }) ?? ""
                 return script.isEmpty ? "Ran a script" : "Ran \(script)"
@@ -508,21 +598,37 @@ public struct ToolCallData: Identifiable, Equatable {
             }
         case "swift":
             return (tokens.dropFirst().first ?? "") == "test" ? "Ran tests" : "Built the project"
-        case "python", "python3":   return "Ran a Python script"
-        case "node":                return "Ran a Node script"
-        case "mkdir":               return "Created a folder"
-        case "rm", "rmdir":         return "Deleted files"
-        case "cp":                  return "Copied files"
-        case "mv":                  return "Moved files"
-        case "chmod", "chown":      return "Updated file permissions"
-        case "curl", "wget":        return "Made a network request"
-        case "open":                return "Opened a file"
+        case "python", "python3":
+            let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return script.isEmpty ? "Ran a Python script" : "Ran \(script)"
+        case "node":
+            let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return script.isEmpty ? "Ran a Node script" : "Ran \(script)"
+        case "mkdir":
+            return target().map { "Created folder \($0)" } ?? "Created a folder"
+        case "rm", "rmdir":
+            return target().map { "Deleted \($0)" } ?? "Deleted files"
+        case "cp":
+            return target().map { "Copied \($0)" } ?? "Copied files"
+        case "mv":
+            return target().map { "Moved \($0)" } ?? "Moved files"
+        case "chmod", "chown":
+            return target().map { "Updated permissions on \($0)" } ?? "Updated file permissions"
+        case "curl", "wget":
+            let url = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }) ?? ""
+            if let host = URL(string: url)?.host { return "Fetched from \(host)" }
+            return "Made a network request"
+        case "open":
+            return target().map { "Opened \($0)" } ?? "Opened a file"
         case "defaults":            return "Updated system settings"
-        case "pkill", "kill", "killall": return "Stopped a process"
+        case "pkill", "kill", "killall":
+            return target().map { "Stopped \($0)" } ?? "Stopped a process"
         case "build.sh":            return "Built the project"
         case "echo", "printf":      return "Output text"
         case "export", "env":       return "Set environment variables"
-        default:                    return "Ran a command"
+        default:
+            // Show the command name itself as a last resort
+            return "Ran \(base)"
         }
     }
 
@@ -540,7 +646,8 @@ public struct ToolCallData: Identifiable, Equatable {
            let lang = extMap[ext.lowercased()] {
             return "Found \(lang) files"
         }
-        return "Searched for files"
+        // Fall back to showing the pattern itself
+        return "Found \"\(truncated(pattern, to: 50))\" files"
     }
 
     private func lastName(of path: String) -> String {

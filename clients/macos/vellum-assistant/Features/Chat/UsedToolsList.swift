@@ -2,12 +2,12 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Compact pill button shown after an assistant message completes tool calls.
-/// Clicking it opens a popover listing all steps with human-readable titles
-/// and expandable technical details — replacing the former Activity Panel.
+/// `isExpanded` is owned by the parent so that the steps list can be rendered
+/// in a separate row below all sibling pills (e.g. the permission chip).
 struct UsedToolsList: View {
     let toolCalls: [ToolCallData]
+    @Binding var isExpanded: Bool
 
-    @State private var isPopoverOpen = false
     @State private var isHovered = false
 
     private var hasErrors: Bool { toolCalls.contains { $0.isError } }
@@ -32,7 +32,7 @@ struct UsedToolsList: View {
 
     var body: some View {
         Button {
-            isPopoverOpen.toggle()
+            withAnimation(VAnimation.fast) { isExpanded.toggle() }
         } label: {
             HStack(spacing: VSpacing.xs) {
                 Image(systemName: pillIcon)
@@ -47,10 +47,8 @@ struct UsedToolsList: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundColor(VColor.textMuted)
-                    .rotationEffect(.degrees(isPopoverOpen ? 90 : 0))
-                    .animation(VAnimation.fast, value: isPopoverOpen)
-
-                Spacer()
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(VAnimation.fast, value: isExpanded)
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
@@ -61,16 +59,14 @@ struct UsedToolsList: View {
             .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .onHover { isHovered = $0 }
-        .popover(isPresented: $isPopoverOpen, arrowEdge: .bottom) {
-            StepsPopover(toolCalls: toolCalls)
-        }
     }
 }
 
-// MARK: - Popover content
+// MARK: - Inline steps section (rendered in a separate row by the parent)
 
-private struct StepsPopover: View {
+struct StepsSection: View {
     let toolCalls: [ToolCallData]
 
     var body: some View {
@@ -84,8 +80,7 @@ private struct StepsPopover: View {
                 }
             }
         }
-        .frame(width: 380)
-        .background(VColor.surface)
+        .padding(.top, VSpacing.xs)
     }
 }
 
@@ -266,22 +261,35 @@ private struct UsedToolsRow: View {
 // MARK: - Preview
 
 #if DEBUG
-#Preview("UsedToolsList") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            UsedToolsList(toolCalls: [
-                ToolCallData(toolName: "bash", inputSummary: "ls -la /Users/test", result: "total 42\ndrwxr-xr-x  10 user staff 320", isComplete: true, startedAt: Date().addingTimeInterval(-1.4), completedAt: Date()),
-                ToolCallData(toolName: "file_read", inputSummary: "/src/Config.swift", result: "import Foundation\n\nstruct Config { }", isComplete: true, startedAt: Date().addingTimeInterval(-0.9), completedAt: Date()),
-                ToolCallData(toolName: "file_edit", inputSummary: "/src/Config.swift", result: "", isComplete: true, startedAt: Date().addingTimeInterval(-0.4), completedAt: Date())
-            ])
-
-            UsedToolsList(toolCalls: [
-                ToolCallData(toolName: "bash", inputSummary: "rm -rf /important", result: "Permission denied", isError: true, isComplete: true, startedAt: Date().addingTimeInterval(-0.5), completedAt: Date())
-            ])
+private struct UsedToolsListPreview: View {
+    @State private var expanded1 = false
+    @State private var expanded2 = false
+    let toolCalls1 = [
+        ToolCallData(toolName: "bash", inputSummary: "ls -la /Users/test", result: "total 42\ndrwxr-xr-x  10 user staff 320", isComplete: true, startedAt: Date().addingTimeInterval(-1.4), completedAt: Date()),
+        ToolCallData(toolName: "file_read", inputSummary: "/src/Config.swift", result: "import Foundation\n\nstruct Config { }", isComplete: true, startedAt: Date().addingTimeInterval(-0.9), completedAt: Date()),
+        ToolCallData(toolName: "file_edit", inputSummary: "/src/Config.swift", result: "", isComplete: true, startedAt: Date().addingTimeInterval(-0.4), completedAt: Date())
+    ]
+    let toolCalls2 = [
+        ToolCallData(toolName: "bash", inputSummary: "rm -rf /important", result: "Permission denied", isError: true, isComplete: true, startedAt: Date().addingTimeInterval(-0.5), completedAt: Date())
+    ]
+    var body: some View {
+        ZStack {
+            VColor.background.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack { UsedToolsList(toolCalls: toolCalls1, isExpanded: $expanded1); Spacer() }
+                    if expanded1 { StepsSection(toolCalls: toolCalls1) }
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack { UsedToolsList(toolCalls: toolCalls2, isExpanded: $expanded2); Spacer() }
+                    if expanded2 { StepsSection(toolCalls: toolCalls2) }
+                }
+            }
+            .padding(VSpacing.xl)
+            .frame(width: 560)
         }
-        .padding(VSpacing.xl)
-        .frame(width: 560)
     }
 }
+
+#Preview("UsedToolsList") { UsedToolsListPreview() }
 #endif

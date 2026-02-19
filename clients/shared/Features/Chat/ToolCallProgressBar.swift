@@ -108,7 +108,7 @@ public struct ToolCallProgressBar: View {
 
     @ViewBuilder
     private func stepLabel(for toolCall: ToolCallData) -> some View {
-        Text(toolCall.toolName)
+        Text(toolCall.friendlyName)
             .font(VFont.small)
             .foregroundColor(stepTextColor(for: toolCall))
             .lineLimit(1)
@@ -148,7 +148,7 @@ public struct ToolCallProgressBar: View {
                     .font(.system(size: 12))
                     .foregroundColor(toolCall.isError ? VColor.error : VColor.accent)
 
-                Text(toolCall.toolName)
+                Text(toolCall.friendlyName)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
 

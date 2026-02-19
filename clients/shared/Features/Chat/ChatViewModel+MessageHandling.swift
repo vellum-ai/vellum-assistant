@@ -645,7 +645,7 @@ extension ChatViewModel {
                 }
             }()
             var toolCall = ToolCallData(
-                toolName: toolDisplayName(msg.toolName),
+                toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
                 inputFull: extractToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
