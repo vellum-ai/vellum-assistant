@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "document_create",
+      "description": "Create a new long-form document with a rich text editor. Use this when the user asks to write a blog post, article, or any long-form content. The editor opens in workspace mode with chat docked to the side.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Initial title for the document (optional, can be updated later)"
+          },
+          "initial_content": {
+            "type": "string",
+            "description": "Initial Markdown content to populate the editor (optional)"
+          }
+        }
+      },
+      "executor": "tools/document-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_update",
+      "description": "Update content in an open document editor. Use this to stream generated content or apply edits.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document surface to update"
+          },
+          "content": {
+            "type": "string",
+            "description": "Markdown content to set or append"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["replace", "append"],
+            "description": "Whether to replace all content or append to the end. Defaults to append."
+          }
+        },
+        "required": ["surface_id", "content"]
+      },
+      "executor": "tools/document-update.ts",
+      "execution_target": "host"
+    }
+  ]
+}

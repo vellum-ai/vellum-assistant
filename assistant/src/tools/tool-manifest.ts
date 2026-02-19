@@ -14,7 +14,6 @@ import { credentialStoreTool } from './credentials/vault.js';
 import { accountManageTool } from './credentials/account-registry.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
-import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool, taskListUpdateTool, taskListRemoveTool } from './tasks/index.js';
 import {
@@ -98,8 +97,6 @@ export const explicitTools: Tool[] = [
   accountManageTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
-  documentCreateTool,
-  documentUpdateTool,
   cliDiscoverTool,
   taskSaveTool,
   taskRunTool,
