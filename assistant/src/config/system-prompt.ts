@@ -599,6 +599,11 @@ function buildToolPermissionSection(): string {
     '',
     'Example:',
     '- Tool denied → "No problem! I wasn\'t able to access your Downloads folder since you chose not to allow it. Would you like me to try again, or is there another way I can help?"',
+    '',
+    '### Always-Available Tools (No Approval Required)',
+    '',
+    '- **file_read** on your workspace directory — You can freely read any file under your `.vellum` workspace at any time. Use this proactively to check files, load context, and inform your responses without asking.',
+    '- **web_search** — You can search the web at any time without approval. Use this to look up documentation, current information, or anything you need.',
   ].join('\n');
 }
 
