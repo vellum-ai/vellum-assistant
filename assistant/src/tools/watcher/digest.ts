@@ -1,44 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listWatchers, listWatcherEvents } from '../../watcher/watcher-store.js';
-
-class WatcherDigestTool implements Tool {
-  name = 'watcher_digest';
-  description = 'Get a summary of recent watcher activity. Use this when the user asks about what happened with their email, notifications, etc.';
-  category = 'watcher';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          watcher_id: {
-            type: 'string',
-            description: 'Filter to events from a specific watcher. If omitted, shows events from all watchers.',
-          },
-          hours: {
-            type: 'number',
-            description: 'How many hours back to look. Defaults to 24.',
-          },
-          limit: {
-            type: 'number',
-            description: 'Maximum number of events to return. Defaults to 50.',
-          },
-        },
-        required: [],
-      },
-    };
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeWatcherDigest(input, _context);
-  }
-}
 
 export async function executeWatcherDigest(
   input: Record<string, unknown>,
@@ -87,5 +48,3 @@ export async function executeWatcherDigest(
 
   return { content: lines.join('\n'), isError: false };
 }
-
-registerTool(new WatcherDigestTool());

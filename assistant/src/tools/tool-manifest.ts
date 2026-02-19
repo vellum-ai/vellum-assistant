@@ -37,11 +37,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./skills/scaffold-managed.js');
   await import('./skills/delete-managed.js');
   await import('./system/request-permission.js');
-  await import('./watcher/create.js');
-  await import('./watcher/list.js');
-  await import('./watcher/update.js');
-  await import('./watcher/delete.js');
-  await import('./watcher/digest.js');
   await import('./playbooks/playbook-create.js');
   await import('./playbooks/playbook-list.js');
   await import('./playbooks/playbook-update.js');
@@ -68,11 +63,6 @@ export const eagerModuleToolNames: string[] = [
   'scaffold_managed_skill',
   'delete_managed_skill',
   'request_system_permission',
-  'watcher_create',
-  'watcher_list',
-  'watcher_update',
-  'watcher_delete',
-  'watcher_digest',
   'playbook_create',
   'playbook_list',
   'playbook_update',
