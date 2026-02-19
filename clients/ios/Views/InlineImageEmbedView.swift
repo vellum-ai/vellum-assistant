@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
+import VellumAssistantShared
 
 /// Renders a remote image inline within a chat bubble on iOS.
 ///
@@ -42,7 +43,7 @@ struct InlineImageEmbedView: View {
 
     private var placeholderSkeleton: some View {
         RoundedRectangle(cornerRadius: 8)
-            .fill(Color.gray.opacity(0.15))
+            .fill(VColor.backgroundSubtle)
             .frame(maxWidth: .infinity)
             .frame(height: 120)
     }

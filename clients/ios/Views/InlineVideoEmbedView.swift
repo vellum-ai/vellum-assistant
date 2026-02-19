@@ -68,7 +68,7 @@ struct InlineVideoEmbedView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(Color.black.opacity(0.8))
+                    .fill(VColor.background.opacity(0.8))
                     .frame(height: 200)
 
                 Image(systemName: "play.circle.fill")
@@ -105,7 +105,7 @@ struct InlineVideoEmbedView: View {
         }
         .frame(height: 200)
         .frame(maxWidth: .infinity)
-        .background(Color.black.opacity(0.8))
+        .background(VColor.background.opacity(0.8))
     }
 }
 

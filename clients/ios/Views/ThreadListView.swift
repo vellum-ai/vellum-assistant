@@ -373,7 +373,7 @@ struct ThreadListView: View {
                     } label: {
                         Label("Archive", systemImage: "archivebox")
                     }
-                    .tint(.orange)
+                    .tint(VColor.warning)
                 }
                 .swipeActions(edge: .leading) {
                     Button {
@@ -382,7 +382,7 @@ struct ThreadListView: View {
                     } label: {
                         Label("Rename", systemImage: "pencil")
                     }
-                    .tint(.blue)
+                    .tint(VColor.accent)
                 }
             }
 
@@ -408,7 +408,7 @@ struct ThreadListView: View {
                                 } label: {
                                     Label("Unarchive", systemImage: "tray.and.arrow.up")
                                 }
-                                .tint(.blue)
+                                .tint(VColor.accent)
                             }
                         }
                     }
