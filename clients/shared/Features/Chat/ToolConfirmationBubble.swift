@@ -155,7 +155,7 @@ public struct ToolConfirmationBubble: View {
 
             Divider()
 
-            // More Details accordion (collapsed by default)
+            // More Details accordion (expanded by default)
             VStack(alignment: .leading, spacing: 0) {
                 Button {
                     withAnimation(VAnimation.fast) {
