@@ -32,6 +32,9 @@ struct SchedulesSection: View {
             }
         }
         .onAppear { loadSchedules() }
+        .onChange(of: clientProvider.isConnected) { _, connected in
+            if connected { loadSchedules() }
+        }
         .onDisappear {
             if let daemon = clientProvider.client as? DaemonClient {
                 daemon.onSchedulesListResponse = nil

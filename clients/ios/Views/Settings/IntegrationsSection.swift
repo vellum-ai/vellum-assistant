@@ -49,6 +49,9 @@ struct IntegrationsSection: View {
             }
         }
         .onAppear { loadIntegrations() }
+        .onChange(of: clientProvider.isConnected) { _, connected in
+            if connected { loadIntegrations() }
+        }
         .onDisappear {
             if let daemon = clientProvider.client as? DaemonClient {
                 daemon.onIntegrationListResponse = nil
