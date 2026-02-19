@@ -12,7 +12,7 @@ const PRIORITY_LABELS: Record<number, string> = {
 
 const definition: ToolDefinition = {
   name: 'work_item_list',
-  description: 'List all Tasks (work items) with their status, priority, and last run info.',
+  description: 'List the user\'s Task Queue (work items) with their status, priority, and last run info. Use this when the user says "show my tasks", "what\'s in my queue", "what\'s on my task list", or similar.',
   input_schema: {
     type: 'object',
     properties: {

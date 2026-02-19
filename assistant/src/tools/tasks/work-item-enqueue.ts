@@ -14,7 +14,7 @@ const PRIORITY_LABELS: Record<number, string> = {
 const definition: ToolDefinition = {
   name: 'work_item_enqueue',
   description:
-    'Add a task to the Task Queue. Creates a work item from a task definition (template) by name or ID.',
+    'Add a task to the user\'s Task Queue. Use this when the user says "add to my tasks", "add to my queue", "put this on my task list", "track this task", or any variation of adding a one-off item they want to remember or work on. This creates a work item from a task definition (template) by name or ID. Do NOT use schedule_create or reminder for simple "add to tasks" requests — those are for timed/recurring automation only.',
   input_schema: {
     type: 'object',
     properties: {
