@@ -395,6 +395,68 @@ describe('Twitter integration config handler', () => {
     expect(secureKeyStore['credential:integration:twitter:oauth_client_secret']).toBeUndefined();
   });
 
+  test('set_local_client without secret clears stale secret', () => {
+    // Pre-populate an old client secret
+    secureKeyStore['credential:integration:twitter:oauth_client_id'] = 'old-id';
+    secureKeyStore['credential:integration:twitter:oauth_client_secret'] = 'old-secret';
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'set_local_client',
+      clientId: 'new-id',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; localClientConfigured: boolean };
+    expect(res.success).toBe(true);
+    expect(res.localClientConfigured).toBe(true);
+
+    expect(secureKeyStore['credential:integration:twitter:oauth_client_id']).toBe('new-id');
+    // Stale secret should be cleared
+    expect(secureKeyStore['credential:integration:twitter:oauth_client_secret']).toBeUndefined();
+  });
+
+  test('set_local_client returns error when setSecureKey fails silently', () => {
+    // Override setSecureKey to return false (storage unavailable, not throwing)
+    setSecureKeyOverride = () => false;
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'set_local_client',
+      clientId: 'will-fail-silently',
+      clientSecret: 'will-fail-secret',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string; localClientConfigured: boolean };
+    expect(res.type).toBe('twitter_integration_config_response');
+    expect(res.success).toBe(false);
+    expect(res.localClientConfigured).toBe(false);
+    expect(res.error).toContain('Failed to store');
+  });
+
+  test('unrecognized action returns error response', () => {
+    const msg = {
+      type: 'twitter_integration_config',
+      action: 'nonexistent_action',
+    } as unknown as TwitterIntegrationConfigRequest;
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.type).toBe('twitter_integration_config_response');
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Unknown action');
+  });
+
   test('set_local_client overwrites existing credentials', () => {
     // Set initial credentials
     secureKeyStore['credential:integration:twitter:oauth_client_id'] = 'old-id';

@@ -503,9 +503,34 @@ export function handleTwitterIntegrationConfig(
         });
         return;
       }
-      setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
+      const storedId = setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
+      if (!storedId) {
+        ctx.send(socket, {
+          type: 'twitter_integration_config_response',
+          success: false,
+          managedAvailable: false,
+          localClientConfigured: false,
+          connected: false,
+          error: 'Failed to store client ID in secure storage',
+        });
+        return;
+      }
       if (msg.clientSecret) {
-        setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
+        const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
+        if (!storedSecret) {
+          ctx.send(socket, {
+            type: 'twitter_integration_config_response',
+            success: false,
+            managedAvailable: false,
+            localClientConfigured: false,
+            connected: false,
+            error: 'Failed to store client secret in secure storage',
+          });
+          return;
+        }
+      } else {
+        // Clear any stale secret when updating client without a secret (e.g. switching to PKCE)
+        deleteSecureKey('credential:integration:twitter:oauth_client_secret');
       }
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
@@ -540,6 +565,15 @@ export function handleTwitterIntegrationConfig(
         managedAvailable: false,
         localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
         connected: false,
+      });
+    } else {
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: false,
+        managedAvailable: false,
+        localClientConfigured: false,
+        connected: false,
+        error: `Unknown action: ${(msg as { action: string }).action}`,
       });
     }
   } catch (err) {
