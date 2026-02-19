@@ -31,7 +31,7 @@ export const memorySaveDefinition: ToolDefinition = {
       },
       kind: {
         type: 'string',
-        enum: ['preference', 'fact', 'decision', 'profile', 'relationship', 'event', 'opinion', 'instruction', 'style', 'playbook'],
+        enum: ['preference', 'fact', 'decision', 'profile', 'relationship', 'event', 'opinion', 'instruction', 'style', 'playbook', 'learning'],
         description: 'Category of the memory item',
       },
       subject: {
