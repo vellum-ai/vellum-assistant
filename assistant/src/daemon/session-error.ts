@@ -41,7 +41,8 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /prompt.?is.?too.?long/i,
   /request too large/i,
   /too many.*input.*tokens/i,
-  /max_tokens/i,
+  /max_tokens.*exceeded/i,
+  /exceeded.*max_tokens/i,
 ];
 
 // Provider API error patterns (5xx, server error, etc.)
