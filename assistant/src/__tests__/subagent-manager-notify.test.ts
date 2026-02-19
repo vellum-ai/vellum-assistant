@@ -300,14 +300,11 @@ describe('SubagentManager abortAllForParent', () => {
     expect(count).toBe(2); // sub-1 and sub-2, not sub-3 (already completed)
     expect(notifications).toHaveLength(2);
 
-    // Terminal subagents stay readable via subagent_read.
-    // sub-1 and sub-2 were aborted (now terminal), sub-3 was already completed.
-    expect(manager.getState('sub-1')).toBeDefined();
-    expect(manager.getState('sub-1')!.status).toBe('aborted');
-    expect(manager.getState('sub-2')).toBeDefined();
-    expect(manager.getState('sub-2')!.status).toBe('aborted');
-    expect(manager.getState('sub-3')).toBeDefined();
-    expect(manager.getState('sub-3')!.status).toBe('completed');
+    // All children should be disposed — parent is going away.
+    expect(manager.getState('sub-1')).toBeUndefined();
+    expect(manager.getState('sub-2')).toBeUndefined();
+    expect(manager.getState('sub-3')).toBeUndefined();
+    expect(manager.getChildrenOf('parent-sess-1')).toHaveLength(0);
   });
 
   test('returns 0 for unknown parent', () => {
