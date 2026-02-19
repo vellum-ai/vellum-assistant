@@ -117,11 +117,21 @@ export interface ProxyDecisionTrace {
 }
 
 /**
+ * Strip the query string from a URL path so that secrets passed as
+ * query parameters (API keys, tokens) are never recorded in traces.
+ */
+function stripQueryString(p: string): string {
+  const idx = p.indexOf('?');
+  return idx === -1 ? p : p.slice(0, idx);
+}
+
+/**
  * Build a structured trace record from a policy decision.
  *
  * Intentionally excludes all secret-bearing fields (header values,
  * storage keys, injected tokens) — only patterns, counts, and
- * decision metadata are included.
+ * decision metadata are included. Query parameters are stripped from
+ * the path to prevent leaking secrets (API keys, tokens) into logs.
  */
 export function buildDecisionTrace(
   host: string,
@@ -152,7 +162,7 @@ export function buildDecisionTrace(
   return {
     host,
     port,
-    path,
+    path: stripQueryString(path),
     scheme,
     decisionKind: decision.kind,
     candidateCount,

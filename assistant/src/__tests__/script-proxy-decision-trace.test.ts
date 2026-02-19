@@ -83,6 +83,29 @@ describe('buildDecisionTrace', () => {
     expect(trace.candidateCount).toBe(0);
   });
 
+  test('strips query parameters from path to prevent secret leakage', () => {
+    const decision: PolicyDecision = {
+      kind: 'matched',
+      credentialId: 'cred-fal',
+      template: {
+        hostPattern: '*.fal.ai',
+        injectionType: 'header',
+        headerName: 'Authorization',
+        valuePrefix: 'Key ',
+      },
+    };
+    const trace = buildDecisionTrace('api.fal.ai', 443, '/v1/run?api_key=sk-secret-123&token=abc', 'https', decision);
+    expect(trace.path).toBe('/v1/run');
+    expect(JSON.stringify(trace)).not.toContain('sk-secret-123');
+    expect(JSON.stringify(trace)).not.toContain('abc');
+  });
+
+  test('path without query string is unchanged', () => {
+    const decision: PolicyDecision = { kind: 'missing' };
+    const trace = buildDecisionTrace('example.com', 443, '/v1/models', 'https', decision);
+    expect(trace.path).toBe('/v1/models');
+  });
+
   test('trace never contains secret values', () => {
     const decision: PolicyDecision = {
       kind: 'matched',
