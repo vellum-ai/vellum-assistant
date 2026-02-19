@@ -174,13 +174,17 @@ export class CommitEnrichmentService {
   private async executeJob(job: InternalJob): Promise<void> {
     job.attempts++;
 
+    const controller = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       // Race the enrichment work against a timeout
       await Promise.race([
-        this.doEnrichment(job),
+        this.doEnrichment(job, controller.signal),
         new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error('Enrichment job timed out')), this.jobTimeoutMs);
+          timeoutHandle = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Enrichment job timed out'));
+          }, this.jobTimeoutMs);
         }),
       ]);
       this.succeededCount++;
@@ -189,6 +193,7 @@ export class CommitEnrichmentService {
         'Enrichment job completed',
       );
     } catch (err) {
+      controller.abort();
       const isTimeout = err instanceof Error && err.message === 'Enrichment job timed out';
       if (job.attempts <= this.maxRetries) {
         // Exponential backoff: 1s, 2s, 4s, ...
@@ -228,8 +233,13 @@ export class CommitEnrichmentService {
    * Currently a no-op placeholder that writes a scaffold JSON note
    * to prove the plumbing works. Future: call LLM to generate a
    * rich commit description and write it as a git note.
+   *
+   * Accepts an AbortSignal so callers (e.g. timeout) can cancel
+   * in-progress work and prevent zombie enrichment jobs.
    */
-  private async doEnrichment(job: InternalJob): Promise<void> {
+  private async doEnrichment(job: InternalJob, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
+
     const note = JSON.stringify({
       enriched: true,
       trigger: job.context.trigger,
@@ -239,6 +249,7 @@ export class CommitEnrichmentService {
       turnNumber: job.context.turnNumber,
     });
 
+    if (signal?.aborted) return;
     await job.gitService.writeNote(job.commitHash, note);
   }
 }
