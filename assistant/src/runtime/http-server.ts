@@ -48,6 +48,12 @@ import {
 } from './routes/app-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 import {
+  handleStartCall,
+  handleGetCallStatus,
+  handleCancelCall,
+  handleAnswerCall,
+} from './routes/call-routes.js';
+import {
   handleVoiceWebhook,
   handleStatusCallback,
   handleConnectAction,
@@ -527,6 +533,29 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/replay' && req.method === 'POST') {
         return await handleReplayDeadLetters(req);
+      }
+
+      // ── Call API routes ───────────────────────────────────────────
+      if (endpoint === 'calls/start' && req.method === 'POST') {
+        return await handleStartCall(req);
+      }
+
+      // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer
+      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer)?$/);
+      if (callsMatch) {
+        const callSessionId = callsMatch[1];
+        // Skip known sub-paths that are handled elsewhere (twilio, relay)
+        if (callSessionId !== 'twilio' && callSessionId !== 'relay' && callSessionId !== 'start') {
+          if (callsMatch[2] === '/cancel' && req.method === 'POST') {
+            return await handleCancelCall(req, callSessionId);
+          }
+          if (callsMatch[2] === '/answer' && req.method === 'POST') {
+            return await handleAnswerCall(req, callSessionId);
+          }
+          if (!callsMatch[2] && req.method === 'GET') {
+            return handleGetCallStatus(callSessionId);
+          }
+        }
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });

@@ -2,13 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { getCallSession, updateCallSession } from '../../calls/call-store.js';
-import { getCallOrchestrator, unregisterCallOrchestrator } from '../../calls/call-state.js';
-import { activeRelayConnections } from '../../calls/relay-server.js';
-import { TwilioConversationRelayProvider } from '../../calls/twilio-provider.js';
-import { getLogger } from '../../util/logger.js';
-
-const log = getLogger('call-end');
+import { cancelCall } from '../../calls/call-domain.js';
 
 const definition: ToolDefinition = {
   name: 'call_end',
@@ -47,70 +41,26 @@ class CallEndTool implements Tool {
 
     const reason = input.reason as string | undefined;
 
-    try {
-      const session = getCallSession(callSessionId);
-      if (!session) {
-        return { content: `Error: no call session found with ID ${callSessionId}`, isError: true };
+    const result = await cancelCall({ callSessionId, reason });
+
+    if (!result.ok) {
+      // If the call already ended, report it as a non-error for the tool
+      if (result.status === 409) {
+        return { content: result.error, isError: false };
       }
-
-      if (session.status === 'completed' || session.status === 'failed') {
-        return {
-          content: `Call session ${callSessionId} has already ended with status: ${session.status}`,
-          isError: false,
-        };
-      }
-
-      log.info({ callSessionId, reason }, 'Ending call');
-
-      // Terminate the call via the provider API so Twilio hangs up,
-      // even if the relay WebSocket is not connected.
-      if (session.providerCallSid) {
-        try {
-          const provider = new TwilioConversationRelayProvider();
-          await provider.endCall(session.providerCallSid);
-        } catch (endErr) {
-          log.warn({ err: endErr, callSessionId, callSid: session.providerCallSid }, 'Failed to terminate call via provider API — proceeding with cleanup');
-        }
-      }
-
-      // End the relay connection if active
-      const relayConnection = activeRelayConnections.get(callSessionId);
-      if (relayConnection) {
-        relayConnection.endSession(reason);
-        relayConnection.destroy();
-        activeRelayConnections.delete(callSessionId);
-      }
-
-      // Clean up orchestrator
-      const orchestrator = getCallOrchestrator(callSessionId);
-      if (orchestrator) {
-        orchestrator.destroy();
-        unregisterCallOrchestrator(callSessionId);
-      }
-
-      // Update session status
-      updateCallSession(callSessionId, {
-        status: 'completed',
-        endedAt: Date.now(),
-      });
-
-      log.info({ callSessionId }, 'Call ended successfully');
-
-      const lines = [
-        'Call ended successfully.',
-        `  Call Session ID: ${callSessionId}`,
-        `  Status: completed`,
-      ];
-      if (reason) {
-        lines.push(`  Reason: ${reason}`);
-      }
-
-      return { content: lines.join('\n'), isError: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.error({ err, callSessionId }, 'Failed to end call');
-      return { content: `Error ending call: ${msg}`, isError: true };
+      return { content: `Error: ${result.error}`, isError: true };
     }
+
+    const lines = [
+      'Call ended successfully.',
+      `  Call Session ID: ${callSessionId}`,
+      `  Status: cancelled`,
+    ];
+    if (reason) {
+      lines.push(`  Reason: ${reason}`);
+    }
+
+    return { content: lines.join('\n'), isError: false };
   }
 }
 
