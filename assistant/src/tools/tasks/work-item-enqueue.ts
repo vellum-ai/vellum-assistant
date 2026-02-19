@@ -3,6 +3,9 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
 import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem } from '../../work-items/work-item-store.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('task-list-add');
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'high',
@@ -77,8 +80,10 @@ class TaskListAddTool implements Tool {
     if (existing.length === 0) return null;
 
     const match = existing[0];
+    log.info({ title, existingId: match.id, ifExists }, 'task_list_add: duplicate detected');
 
     if (ifExists === 'reuse_existing') {
+      log.info({ title, existingId: match.id }, 'task_list_add: reused existing item');
       return {
         content: `Task "${match.title}" already exists in the queue (ID: ${match.id}, status: ${match.status}). Use task_list_update to modify it.`,
         isError: false,
@@ -93,6 +98,7 @@ class TaskListAddTool implements Tool {
       if (Object.keys(updates).length > 0) {
         updateWorkItem(match.id, updates);
       }
+      log.info({ title, existingId: match.id, updates }, 'task_list_add: updated existing item');
       return {
         content: `Reused existing task "${match.title}" (ID: ${match.id}) instead of creating a duplicate.${
           Object.keys(updates).length > 0 ? ` Updated: ${Object.keys(updates).join(', ')}.` : ''
@@ -128,7 +134,11 @@ class TaskListAddTool implements Tool {
         if (ifExists !== 'create_duplicate') {
           const duplicateResult = this.handleDuplicate(titleOverride, ifExists, input);
           if (duplicateResult) return duplicateResult;
+        } else {
+          log.info({ title: titleOverride }, 'task_list_add: creating duplicate (if_exists=create_duplicate)');
         }
+
+        log.debug({ title: titleOverride }, 'task_list_add: creating new item');
 
         // Auto-create a lightweight task template for the ad-hoc item
         const adHocTask = createTask({
@@ -202,7 +212,11 @@ class TaskListAddTool implements Tool {
       if (ifExists !== 'create_duplicate') {
         const duplicateResult = this.handleDuplicate(finalTitle, ifExists, input);
         if (duplicateResult) return duplicateResult;
+      } else {
+        log.info({ title: finalTitle }, 'task_list_add: creating duplicate (if_exists=create_duplicate)');
       }
+
+      log.debug({ title: finalTitle }, 'task_list_add: creating new item');
 
       const workItem = createWorkItem({
         taskId: resolvedTask.id,
