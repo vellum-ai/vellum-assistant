@@ -35,7 +35,7 @@ interface FetchedAsset {
 
 /**
  * Extract all remote (http/https) URLs from HTML content.
- * Looks in src=, href= on asset elements (not <a> tags), and CSS url() references.
+ * Looks in src=, href= on all elements except <a> tags, and CSS url() references.
  */
 export function extractRemoteUrls(html: string): string[] {
   const urls = new Set<string>();
@@ -50,11 +50,13 @@ export function extractRemoteUrls(html: string): string[] {
     }
   }
 
-  // Match href="..." only on <link> elements (stylesheets, icons, preloads), not <a> tags.
-  // Captures <link ...href="..."> where href appears anywhere within the tag.
-  const linkRe = /<link\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
-  while ((m = linkRe.exec(html)) !== null) {
-    const url = m[1] ?? m[2] ?? m[3];
+  // Match href="..." on any element except <a> tags (which are navigation links, not assets).
+  // Captures the tag name and href value so we can skip anchors.
+  const hrefRe = /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
+  while ((m = hrefRe.exec(html)) !== null) {
+    const tagName = m[1];
+    if (tagName.toLowerCase() === 'a') continue;
+    const url = m[2] ?? m[3] ?? m[4];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);
     }
