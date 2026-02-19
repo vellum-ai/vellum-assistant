@@ -527,6 +527,11 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected: Bool = {
+            // Top-level nav panels deselect all threads
+            if case .panel(let panel) = windowState.selection,
+               panel == .directory || panel == .identity {
+                return false
+            }
             if thread.id == windowState.persistentThreadId { return true }
             if case .thread(let id) = windowState.selection, id == thread.id { return true }
             if case .appEditing(_, let threadId) = windowState.selection, threadId == thread.id { return true }
@@ -1375,17 +1380,18 @@ private struct SidebarNavRow: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(isActive || isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .foregroundColor(VColor.textPrimary)
                     .frame(width: 18)
                 Text(label)
-                    .font(isActive ? VFont.bodyMedium : VFont.body)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
             .padding(.leading, 20)
             .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(isActive ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear))
+            .background(isActive || isHovered ? VColor.hoverOverlay.opacity(0.08) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
