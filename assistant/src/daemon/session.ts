@@ -659,6 +659,11 @@ export class Session {
 
     this.profiler.startRequest();
 
+    // Tracks whether the agent loop started — once true, we guarantee a
+    // turn-boundary commit even if post-processing throws.
+    let turnStarted = false;
+    let commitReason: 'turn_complete' | 'post_processing_error' | 'cancelled_turn' = 'turn_complete';
+
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
@@ -1048,6 +1053,11 @@ export class Session {
         return 'continue';
       };
 
+      // Mark that the agent loop is about to run — workspace files may be
+      // modified from this point onward, so we must commit at the turn boundary
+      // even if post-processing (e.g. resolveAssistantAttachments) throws.
+      turnStarted = true;
+
       let updatedHistory = await this.agentLoop.run(
         runMessages,
         buildEventHandler(),
@@ -1333,12 +1343,6 @@ export class Session {
         });
       }
 
-      // Turn-boundary commit: awaited so it completes before the next turn
-      // starts (drainQueue runs in `finally`).  Runs after the completion
-      // event so the client isn't blocked on git operations.
-      this.turnCount++;
-      await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
-
       // Auto-generate conversation title after first exchange
       if (isFirstMessage) {
         this.generateTitle(content, firstAssistantText).catch((err) => {
@@ -1349,6 +1353,7 @@ export class Session {
       const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
       // AbortError is expected when user cancels — don't treat as an error
       if (isUserCancellation(err, errorCtx)) {
+        commitReason = 'cancelled_turn';
         rlog.info('Generation cancelled by user');
         this.traceEmitter.emit('generation_cancelled', 'Generation cancelled by user', {
           requestId: reqId,
@@ -1356,6 +1361,7 @@ export class Session {
         });
         onEvent({ type: 'generation_cancelled', sessionId: this.conversationId });
       } else {
+        commitReason = 'post_processing_error';
         const message = err instanceof Error ? err.message : String(err);
         const errorClass = err instanceof Error ? err.constructor.name : 'Error';
         rlog.error({ err }, 'Session processing error');
@@ -1375,6 +1381,18 @@ export class Session {
         });
       }
     } finally {
+      // Turn-boundary commit: runs after completion/error events (try or
+      // catch) but before drainQueue.  Guarantees a commit attempt whenever
+      // the agent loop started, even if post-processing threw.
+      if (turnStarted) {
+        this.turnCount++;
+        rlog.info(
+          { reason: commitReason, turnNumber: this.turnCount, conversationId: this.conversationId },
+          'Attempting turn-boundary commit',
+        );
+        await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
+      }
+
       this.profiler.emitSummary(this.traceEmitter, reqId);
 
       this.abortController = null;

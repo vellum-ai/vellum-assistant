@@ -436,12 +436,22 @@ export async function runDaemon(): Promise<void> {
     // Commit any uncommitted workspace changes before stopping the server.
     // This ensures no workspace state is lost during graceful shutdown.
     try {
+      log.info({ phase: 'pre_stop' }, 'Committing pending workspace changes');
       await heartbeat.commitAllPending();
     } catch (err) {
-      log.warn({ err }, 'Shutdown workspace commit failed');
+      log.warn({ err, phase: 'pre_stop' }, 'Shutdown workspace commit failed');
     }
 
     await server.stop();
+
+    // Final commit sweep: catch any writes that occurred during server.stop()
+    // (e.g. in-flight tool executions completing during drain).
+    try {
+      log.info({ phase: 'post_stop' }, 'Final workspace commit sweep');
+      await heartbeat.commitAllPending();
+    } catch (err) {
+      log.warn({ err, phase: 'post_stop' }, 'Post-stop workspace commit failed');
+    }
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
     scheduler.stop();
