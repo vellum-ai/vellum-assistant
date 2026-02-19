@@ -273,6 +273,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
+    /// Called when the daemon wants us to open/focus the tasks window.
+    public var onOpenTasksWindow: (() -> Void)?
+
     /// Called when a subagent is spawned.
     public var onSubagentSpawned: ((IPCSubagentSpawned) -> Void)?
 
@@ -1391,6 +1394,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemStatusChanged?(msg)
         case .workItemRunTaskResponse(let msg):
             onWorkItemRunTaskResponse?(msg)
+        case .openTasksWindow:
+            onOpenTasksWindow?()
         case .subagentSpawned(let msg):
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):
