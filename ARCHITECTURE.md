@@ -2434,7 +2434,7 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    MSG["Inbound user_message / task_submit"] --> CHECK{"secretDetection.enabled<br/>+ action == 'block'?"}
+    MSG["Inbound user_message / task_submit"] --> CHECK{"secretDetection.enabled<br/>+ blockIngress == true?"}
     CHECK -->|no| PASS["Pass through to session"]
     CHECK -->|yes| SCAN["scanText(content)<br/>regex + entropy detection"]
     SCAN --> MATCH{"Matches found?"}
