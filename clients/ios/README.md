@@ -7,7 +7,14 @@ The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Pack
 - **Standalone mode** — connects directly to Anthropic API using your API key (no Mac required)
 - **Connected to Mac mode** — proxies through the Vellum daemon running on your Mac over TCP
 - Chat interface with streaming responses, markdown rendering, and code blocks
-- Multiple threads with persistence across restarts
+- Multiple threads with persistence, search, rename, timestamps, and archive
+- Daemon-synced threads in Connected mode (shared with macOS)
+- Model picker, model list, and command list rendering (shared components)
+- Subagent status chips with real-time state updates
+- Skill invocation chips in message bubbles
+- Compact used tools list with expandable step details
+- Inline media embeds (images, YouTube, Vimeo, Loom videos)
+- Settings: integrations, trust rules, scheduled tasks, reminders (Connected mode)
 - Attachment support (photos, files)
 - Voice input via `SFSpeechRecognizer`
 - Onboarding flow with adaptive steps based on connection mode
