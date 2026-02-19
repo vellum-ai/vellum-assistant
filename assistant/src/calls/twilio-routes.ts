@@ -16,6 +16,7 @@ import {
   buildCallbackDedupeKey,
   claimCallback,
   releaseCallbackClaim,
+  finalizeCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
@@ -36,12 +37,12 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function generateTwiML(callSessionId: string, relayBaseUrl: string, welcomeGreeting: string): string {
+function generateTwiML(callSessionId: string, relayUrl: string, welcomeGreeting: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXml(relayBaseUrl)}?callSessionId=${escapeXml(callSessionId)}"
+      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
       welcomeGreeting="${escapeXml(welcomeGreeting)}"
       voice="Google.en-US-Journey-O"
       language="en-US"
@@ -113,14 +114,13 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
 
   const config = getTwilioConfig();
-  // When wssBaseUrl is explicitly set, it points directly to the runtime
-  // and uses the runtime's /v1/calls/relay path. When falling back to
-  // webhookBaseUrl (the gateway), use the gateway's relay path instead.
   let relayUrl: string;
   if (config.wssBaseUrl) {
-    relayUrl = `${config.wssBaseUrl}/v1/calls/relay`;
+    // wssBaseUrl points directly to runtime — use runtime's internal relay path
+    relayUrl = `${config.wssBaseUrl.replace(/\/$/, '')}/v1/calls/relay`;
   } else {
-    relayUrl = `${config.webhookBaseUrl.replace(/^http/, 'ws')}/webhooks/twilio/relay`;
+    // Fall back to gateway's public URL — use gateway's relay path
+    relayUrl = `${config.webhookBaseUrl.replace(/\/$/, '').replace(/^http/, 'ws')}/webhooks/twilio/relay`;
   }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
@@ -205,6 +205,9 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     if (isTerminal) {
       expirePendingQuestions(session.id);
     }
+
+    // Mark the claim as permanently processed so it never expires
+    finalizeCallbackClaim(dedupeKey);
   } catch (err) {
     // Release claim so Twilio retries can reprocess
     releaseCallbackClaim(dedupeKey);

@@ -39,6 +39,7 @@ import {
   expirePendingQuestions,
   claimCallback,
   releaseCallbackClaim,
+  finalizeCallbackClaim,
 } from '../calls/call-store.js';
 
 initializeDb();
@@ -544,5 +545,66 @@ describe('call-store', () => {
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
     const rows = raw.query('SELECT COUNT(*) as cnt FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-4') as { cnt: number };
     expect(rows.cnt).toBe(1);
+  });
+
+  test('claimCallback reclaims expired orphaned claims', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-26',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Claim the key
+    const first = claimCallback('test-dedupe-key-expired', session.id);
+    expect(first).toBe(true);
+
+    // Simulate an orphaned claim by backdating the created_at to well past expiry
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const oldTimestamp = Date.now() - 120_000; // 2 minutes ago, well past 60s expiry
+    raw.query('UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ?').run(oldTimestamp, 'test-dedupe-key-expired');
+
+    // Reclaim should succeed because the old claim has expired
+    const second = claimCallback('test-dedupe-key-expired', session.id);
+    expect(second).toBe(true);
+  });
+
+  test('claimCallback does not reclaim finalized claims', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-27',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Claim and finalize
+    const first = claimCallback('test-dedupe-key-finalized', session.id);
+    expect(first).toBe(true);
+    finalizeCallbackClaim('test-dedupe-key-finalized');
+
+    // Attempting to reclaim a finalized key should fail because the far-future
+    // timestamp means it will never be considered expired
+    const second = claimCallback('test-dedupe-key-finalized', session.id);
+    expect(second).toBe(false);
+  });
+
+  test('finalizeCallbackClaim makes claim permanent', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-28',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Claim and finalize
+    claimCallback('test-dedupe-key-permanent', session.id);
+    finalizeCallbackClaim('test-dedupe-key-permanent');
+
+    // Verify the created_at is set far in the future
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const row = raw.query('SELECT created_at FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-permanent') as { created_at: number };
+    // Should be at least 50 years in the future from now
+    const fiftyYearsMs = 50 * 365 * 24 * 60 * 60 * 1000;
+    expect(row.created_at).toBeGreaterThan(Date.now() + fiftyYearsMs);
   });
 });
