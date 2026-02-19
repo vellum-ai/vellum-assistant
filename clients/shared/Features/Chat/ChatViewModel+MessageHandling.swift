@@ -910,6 +910,10 @@ extension ChatViewModel {
                 activeSubagents[index].error = msg.error
             }
 
+        case .subagentEvent(let msg):
+            // Unwrap and route the nested event through existing handlers.
+            handleServerMessage(msg.event)
+
         default:
             break
         }

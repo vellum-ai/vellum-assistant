@@ -52,7 +52,7 @@ export const subagentReadTool: Tool = {
       return { content: `No subagent found with ID "${subagentId}".`, isError: true };
     }
 
-    if (!TERMINAL_STATUSES.has(state.status) && state.status !== 'running') {
+    if (!TERMINAL_STATUSES.has(state.status)) {
       return {
         content: `Subagent "${state.config.label}" is still ${state.status}. Wait for it to finish.`,
         isError: false,

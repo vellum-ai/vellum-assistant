@@ -55,8 +55,10 @@ export function handleSubagentStatus(
     return;
   }
 
-  // Return all subagents for the session.
-  const children = manager.getChildrenOf(msg.sessionId);
+  // Return all subagents for the caller's session.
+  const callerSessionId = ctx.socketToSession.get(socket);
+  const sessionId = callerSessionId ?? msg.sessionId;
+  const children = manager.getChildrenOf(sessionId);
   for (const child of children) {
     ctx.send(socket, {
       type: 'subagent_status_changed',
