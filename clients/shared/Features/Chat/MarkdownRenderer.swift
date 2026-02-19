@@ -210,7 +210,7 @@ private enum MarkdownParser {
             }
             if !paraLines.isEmpty {
                 let text = paraLines.joined(separator: "\n")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: .newlines)
                 if !text.isEmpty {
                     blocks.append(.paragraph(text: text))
                 }
