@@ -79,6 +79,7 @@ export interface ProvidersConfig {
   apiKeys: Record<string, string>;
   provider: string;
   model: string;
+  webSearchProvider?: string;
 }
 
 function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
@@ -101,7 +102,9 @@ export function initializeProviders(config: ProvidersConfig): void {
   if (config.apiKeys.anthropic) {
     const model = resolveModel(config, 'anthropic');
     registerProvider('anthropic', new RetryProvider(
-      wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model)),
+      wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model, {
+        useNativeWebSearch: config.webSearchProvider === 'anthropic-native',
+      })),
     ));
   }
   if (config.apiKeys.openai) {

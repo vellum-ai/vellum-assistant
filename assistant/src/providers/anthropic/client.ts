@@ -339,10 +339,12 @@ export class AnthropicProvider implements Provider {
   public readonly name = "anthropic";
   private client: Anthropic;
   private model: string;
+  private useNativeWebSearch: boolean;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, options: { useNativeWebSearch?: boolean } = {}) {
     this.client = new Anthropic({ apiKey });
     this.model = model;
+    this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
   async sendMessage(
@@ -444,14 +446,28 @@ export class AnthropicProvider implements Provider {
       }
 
       if (tools && tools.length > 0) {
-        params.tools = tools.map((t, i) => ({
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-          ...(i === tools.length - 1
-            ? { cache_control: { type: 'ephemeral' as const } }
-            : {}),
-        }));
+        if (this.useNativeWebSearch && tools.some(t => t.name === 'web_search')) {
+          const otherTools = tools.filter(t => t.name !== 'web_search');
+          const mappedOther = otherTools.map((t, i) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema as Anthropic.Tool['input_schema'],
+            ...(i === otherTools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+          }));
+          params.tools = [
+            ...mappedOther,
+            { type: 'web_search_20250305' as const, name: 'web_search' as const, max_uses: 5 },
+          ] as unknown as Anthropic.MessageCreateParams['tools'];
+        } else {
+          params.tools = tools.map((t, i) => ({
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema as Anthropic.Tool["input_schema"],
+            ...(i === tools.length - 1
+              ? { cache_control: { type: 'ephemeral' as const } }
+              : {}),
+          }));
+        }
       }
 
       // Place cache breakpoints on the last two user turns so the
@@ -689,6 +705,11 @@ export class AnthropicProvider implements Provider {
           name: block.name,
           input: block.input as Record<string, unknown>,
         };
+      case "server_tool_use":
+      case "web_search_tool_result":
+        // Native Anthropic web search blocks — informational only, silently dropped
+        // by the empty-text filter in sendMessage.
+        return { type: "text", text: "" };
       default:
         return { type: "text", text: `[unsupported block type: ${(block as { type: string }).type}]` };
     }

@@ -1057,50 +1057,58 @@ private struct ChatBubble: View {
                     }
 
                     if canReportMessage {
-                        Menu {
-                            if let onReportMessage {
-                                Button("Export response for diagnostics") {
-                                    onReportMessage(message.daemonMessageId)
+                        // Use ZStack + conditional rendering so the NSPopUpButton is only
+                        // in the view hierarchy while hovered — avoiding per-message SF
+                        // Symbol and accessibility-string lookups on every scroll frame
+                        // that cause the scroll crash (#4809).
+                        ZStack {
+                            Color.clear.frame(width: 24, height: 24)
+                            if isHovered {
+                                Menu {
+                                    if let onReportMessage {
+                                        Button("Export response for diagnostics") {
+                                            onReportMessage(message.daemonMessageId)
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(VColor.textMuted)
+                                        .frame(width: 24, height: 24)
+                                        .contentShape(Rectangle())
                                 }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(VColor.textMuted)
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .tint(VColor.textMuted)
                                 .frame(width: 24, height: 24)
-                                .contentShape(Rectangle())
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .tint(VColor.textMuted)
-                        .frame(width: 24, height: 24)
-                        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
-                        .allowsHitTesting(isUser ? isHovered : true)
-                        .accessibilityLabel("Message actions")
-                        .onHover { isMoreHovered = $0 }
-                        .overlay(alignment: .bottom) {
-                            if isMoreHovered {
-                                Text("More")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .fill(VColor.surface)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                                    )
-                                    .vShadow(VShadow.sm)
-                                    .fixedSize()
-                                    .offset(y: 28)
-                                    .transition(.opacity)
-                                    .allowsHitTesting(false)
+                                .accessibilityLabel("Message actions")
+                                .onHover { isMoreHovered = $0 }
+                                .overlay(alignment: .bottom) {
+                                    if isMoreHovered {
+                                        Text("More")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textPrimary)
+                                            .padding(.horizontal, VSpacing.sm)
+                                            .padding(.vertical, VSpacing.xs)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                                    .fill(VColor.surface)
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                            )
+                                            .vShadow(VShadow.sm)
+                                            .fixedSize()
+                                            .offset(y: 28)
+                                            .transition(.opacity)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                                .animation(VAnimation.fast, value: isMoreHovered)
+                                .transition(.opacity.animation(VAnimation.fast))
                             }
                         }
-                        .animation(VAnimation.fast, value: isMoreHovered)
                     }
                 }
             }
