@@ -158,7 +158,7 @@ public final class AmbientAgent: ObservableObject {
                 config.arguments = ["--remote-debugging-port=9222", "--force-renderer-accessibility", "--user-data-dir=\(chromeDataDir)"]
             config.activates = true
             if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-                try? await NSWorkspace.shared.openApplication(at: chromeURL, configuration: config)
+                _ = try? await NSWorkspace.shared.openApplication(at: chromeURL, configuration: config)
                 // Wait for CDP to come up
                 for _ in 0..<30 {
                     try? await Task.sleep(nanoseconds: 500_000_000)
