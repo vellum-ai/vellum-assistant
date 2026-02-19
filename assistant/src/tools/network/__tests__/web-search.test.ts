@@ -89,7 +89,7 @@ describe('web_search tool', () => {
 
   test('executes Perplexity search successfully', async () => {
     mockPerplexityConfigKey = 'pplx-test-key';
-    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    globalThis.fetch = (async (_url: string, _init?: RequestInit) => {
       return new Response(JSON.stringify({
         choices: [{ message: { content: 'Perplexity answer about TypeScript' } }],
         citations: ['https://typescriptlang.org', 'https://example.com/ts'],
@@ -182,7 +182,7 @@ describe('web_search tool', () => {
   test('executes Brave search successfully', async () => {
     mockWebSearchProvider = 'brave';
     mockBraveConfigKey = 'brave-test-key';
-    globalThis.fetch = (async (url: string) => {
+    globalThis.fetch = (async (_url: string) => {
       return new Response(JSON.stringify({
         web: {
           results: [
@@ -325,7 +325,7 @@ describe('web_search tool', () => {
     mockWebSearchProvider = 'brave';
     mockPerplexityConfigKey = 'pplx-fallback-key';
     let capturedUrl = '';
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    globalThis.fetch = (async (url: string, _init?: RequestInit) => {
       capturedUrl = url;
       return new Response(JSON.stringify({
         choices: [{ message: { content: 'fallback result' } }],

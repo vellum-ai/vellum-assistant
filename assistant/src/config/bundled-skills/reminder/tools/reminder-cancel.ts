@@ -3,7 +3,7 @@ import { executeReminderCancel } from '../../../../tools/reminder/reminder.js';
 
 export async function run(
   input: Record<string, unknown>,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeReminderCancel(input);
 }

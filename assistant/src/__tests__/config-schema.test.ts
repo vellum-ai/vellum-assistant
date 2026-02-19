@@ -1,4 +1,4 @@
-import { afterAll, describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -945,7 +945,7 @@ describe('Call entrypoint gating', () => {
     // Force config reload
     loadConfig();
 
-    const { CallStartTool: CallStartToolClass } = await import('../tools/calls/call-start.js') as { CallStartTool: new () => { execute: (input: Record<string, unknown>, context: { conversationId: string }) => Promise<{ content: string; isError: boolean }> } };
+    const { CallStartTool: _CallStartToolClass } = await import('../tools/calls/call-start.js') as { CallStartTool: new () => { execute: (input: Record<string, unknown>, context: { conversationId: string }) => Promise<{ content: string; isError: boolean }> } };
 
     // The tool is registered via side effect. We need to test the gating logic directly.
     // Since the module registers itself, we test by loading config and checking behavior.
