@@ -28,22 +28,13 @@ struct SettingsPanel: View {
     @State private var integrationError: (id: String, message: String)?
     /// Tracks integrations that need setup (e.g. missing Google Cloud client ID).
     @State private var setupRequired: (id: String, skillId: String, hint: String)?
-    @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var accessibilityGranted: Bool = false
     @State private var screenRecordingGranted: Bool = false
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
-    @State private var newAllowlistDomain = ""
-    @State private var sessionToken: String = ""
-    @State private var tokenCopied: Bool = false
     @State private var selectedTab: SettingsTab = .integrations
-    #if DEBUG
-    @State private var showingEnvVars = false
-    @State private var appEnvVars: [(String, String)] = []
-    @State private var daemonEnvVars: [(String, String)] = []
-    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -94,15 +85,10 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
-            let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
-            sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
             daemonClient?.onIntegrationConnectResult = nil
-            #if DEBUG
-            daemonClient?.onEnvVarsResponse = nil
-            #endif
             permissionCheckTask?.cancel()
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
@@ -161,11 +147,6 @@ struct SettingsPanel: View {
                 RemindersView(daemonClient: daemonClient)
             }
         }
-        #if DEBUG
-        .sheet(isPresented: $showingEnvVars) {
-            SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
-        }
-        #endif
     }
 
     // MARK: - Nav Sidebar
@@ -196,9 +177,14 @@ struct SettingsPanel: View {
         case .reminders:
             remindersContent
         case .appearance:
-            appearanceContent
+            SettingsAppearanceTab(store: store)
         case .advanced:
-            advancedContent
+            SettingsAdvancedTab(
+                store: store,
+                threadManager: threadManager,
+                onClose: onClose,
+                daemonClient: daemonClient
+            )
         }
     }
 
@@ -602,296 +588,6 @@ struct SettingsPanel: View {
         }
     }
 
-    // MARK: - Appearance Tab
-
-    private var appearanceContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // DISPLAY section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Display")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Theme")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Picker("", selection: Binding(
-                        get: { themePreference },
-                        set: { newValue in
-                            themePreference = newValue
-                            if let delegate = NSApp.delegate as? AppDelegate {
-                                delegate.applyThemePreference()
-                            }
-                        }
-                    )) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
-                }
-
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // MEDIA EMBEDS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Media Embeds")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Auto media embeds")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { store.mediaEmbedsEnabled },
-                        set: { store.setMediaEmbedsEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                }
-
-                Text("Automatically embed images, videos, and other media shared in chat messages.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-
-                if store.mediaEmbedsEnabled {
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    Text("Video Domain Allowlist")
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textSecondary)
-
-                    HStack(spacing: VSpacing.sm) {
-                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-
-                        VButton(label: "Add", style: .primary) {
-                            let domain = newAllowlistDomain
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !domain.isEmpty else { return }
-                            var domains = store.mediaEmbedVideoAllowlistDomains
-                            domains.append(domain)
-                            store.setMediaEmbedVideoAllowlistDomains(domains)
-                            newAllowlistDomain = ""
-                        }
-                    }
-
-                    ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
-                        HStack {
-                            Text(domain)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            Button {
-                                var domains = store.mediaEmbedVideoAllowlistDomains
-                                domains.removeAll { $0 == domain }
-                                store.setMediaEmbedVideoAllowlistDomains(domains)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundColor(VColor.error)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.vertical, VSpacing.xs)
-                    }
-
-                    HStack {
-                        Spacer()
-                        VButton(label: "Reset to Defaults", style: .ghost) {
-                            store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
-                        }
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-        }
-    }
-
-    // MARK: - Advanced Tab
-
-    private var advancedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            // COMPUTER USAGE section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Computer Usage")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    Text("Max Steps per Session")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 12))
-                        .foregroundColor(VColor.textMuted)
-                    Spacer()
-                    Text("\(Int(store.maxSteps))")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // PRIVATE THREAD section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Private Thread")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                HStack {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("New Private Thread")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Private threads have isolated memory — facts learned in private threads stay private and won't appear in other conversations.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    Spacer()
-                    VButton(label: "New Private Thread", style: .primary) {
-                        threadManager.createPrivateThread()
-                        onClose()
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // ARCHIVED THREADS section
-            if !threadManager.archivedThreads.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Archived Threads")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    ForEach(threadManager.archivedThreads) { thread in
-                        HStack {
-                            Text(thread.title)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                                .lineLimit(1)
-                            Spacer()
-                            Button(action: { threadManager.unarchiveThread(id: thread.id) }) {
-                                Text("Unarchive")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.accent)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Unarchive \(thread.title)")
-                        }
-                        .padding(.vertical, VSpacing.xs)
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
-
-            // iOS DEVICE section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("iOS Device")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Session Token")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Paste this into the Vellum iOS app to connect it to this Mac.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-
-                    HStack(spacing: VSpacing.sm) {
-                        if sessionToken.isEmpty {
-                            Text("Token not found")
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textMuted)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        } else {
-                            Text(String(sessionToken.prefix(16)) + "...")
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        Button(tokenCopied ? "Copied!" : "Copy") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(sessionToken, forType: .string)
-                            tokenCopied = true
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                tokenCopied = false
-                            }
-                        }
-                        .disabled(sessionToken.isEmpty)
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
-
-            #if DEBUG
-            // DEVELOPER section (debug builds only)
-            if daemonClient != nil {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Developer")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Environment Variables")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View env vars for both the app and daemon processes")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "View...", style: .ghost) {
-                            appEnvVars = ProcessInfo.processInfo.environment
-                                .sorted(by: { $0.key < $1.key })
-                                .map { ($0.key, $0.value) }
-                            daemonEnvVars = []
-                            daemonClient?.onEnvVarsResponse = { response in
-                                Task { @MainActor in
-                                    self.daemonEnvVars = response.vars
-                                        .sorted(by: { $0.key < $1.key })
-                                        .map { ($0.key, $0.value) }
-                                }
-                            }
-                            try? daemonClient?.sendEnvVarsRequest()
-                            showingEnvVars = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
-            #endif
-        }
-    }
-
     // MARK: - Integration Row
 
     private func integrationRow(_ integration: IPCIntegrationListResponseIntegration) -> some View {
@@ -1213,7 +909,7 @@ private struct ModelPickerItem: View {
 // MARK: - Environment Variables Sheet (Debug Only)
 
 #if DEBUG
-private struct SettingsPanelEnvVarsSheet: View {
+struct SettingsPanelEnvVarsSheet: View {
     let appEnvVars: [(String, String)]
     let daemonEnvVars: [(String, String)]
     @Environment(\.dismiss) var dismiss
