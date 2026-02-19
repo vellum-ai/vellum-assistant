@@ -14,6 +14,10 @@ public struct InlineCardWidget: View {
            let templateData = data.templateData,
            let weatherData = WeatherForecastData.parse(from: templateData) {
             InlineWeatherWidget(data: weatherData)
+        } else if data.template == "task_progress",
+                  let templateData = data.templateData,
+                  let progressData = TaskProgressData.parse(from: templateData) {
+            InlineTaskProgressWidget(data: progressData)
         } else {
             standardCardLayout
         }
