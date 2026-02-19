@@ -51,7 +51,7 @@ struct WelcomeStep: View {
             Spacer()
 
             Text("✨")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("Welcome to Vellum Assistant")
                 .font(VFont.title)
@@ -84,7 +84,7 @@ struct ConnectionModeStep: View {
             Spacer()
 
             Text("🔗")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("How do you want to connect?")
                 .font(VFont.title)
@@ -183,7 +183,7 @@ struct APIKeyStep: View {
             Spacer()
 
             Text("🔑")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("Anthropic API Key")
                 .font(VFont.title)
@@ -244,7 +244,7 @@ struct DaemonSetupStep: View {
             Spacer()
 
             Text("🔌")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("Connect to Mac")
                 .font(VFont.title)
@@ -330,7 +330,7 @@ struct PermissionsStep: View {
             Spacer()
 
             Text("🎤")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("Permissions")
                 .font(VFont.title)
@@ -369,7 +369,7 @@ struct ReadyStep: View {
             Spacer()
 
             Text("🎉")
-                .font(.system(size: 80))
+                .font(VFont.onboardingEmoji)
 
             Text("You're All Set!")
                 .font(VFont.title)
