@@ -28,6 +28,25 @@ const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'code
 const MAX_CLAUDE_CODE_DEPTH = 1;
 const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
 
+function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  // Extract the most relevant field for each tool type
+  const name = toolName.toLowerCase();
+  if (name === 'bash') return String(input.command ?? '');
+  if (name === 'read' || name === 'file_read') return String(input.file_path ?? input.path ?? '');
+  if (name === 'edit' || name === 'file_edit') return String(input.file_path ?? input.path ?? '');
+  if (name === 'write' || name === 'file_write') return String(input.file_path ?? input.path ?? '');
+  if (name === 'glob') return String(input.pattern ?? '');
+  if (name === 'grep') return String(input.pattern ?? '');
+  if (name === 'websearch' || name === 'web_search') return String(input.query ?? '');
+  if (name === 'webfetch' || name === 'web_fetch') return String(input.url ?? '');
+  if (name === 'task') return String(input.description ?? '');
+  // Fallback: first string value
+  for (const val of Object.values(input)) {
+    if (typeof val === 'string' && val.length > 0 && val.length < 200) return val;
+  }
+  return '';
+}
+
 export const claudeCodeTool: Tool = {
   name: 'claude_code',
   description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
@@ -208,6 +227,7 @@ export const claudeCodeTool: Tool = {
       let resultText = '';
       let sessionId = '';
       let hasError = false;
+      let lastSubToolName: string | null = null;
 
       for await (const message of conversation) {
         switch (message.type) {
@@ -225,12 +245,36 @@ export const claudeCodeTool: Tool = {
                   context.onOutput?.(block.text);
                   resultText += block.text;
                 }
+                if (block.type === 'tool_use') {
+                  // Mark previous sub-tool as complete
+                  if (lastSubToolName) {
+                    context.onOutput?.(JSON.stringify({
+                      subType: 'tool_complete',
+                      subToolName: lastSubToolName,
+                    }));
+                  }
+                  const inputSummary = summarizeToolInput(block.name, block.input as Record<string, unknown>);
+                  context.onOutput?.(JSON.stringify({
+                    subType: 'tool_start',
+                    subToolName: block.name,
+                    subToolInput: inputSummary,
+                  }));
+                  lastSubToolName = block.name;
+                }
               }
             }
             sessionId = message.session_id;
             break;
           }
           case 'result': {
+            // Mark the final sub-tool as complete
+            if (lastSubToolName) {
+              context.onOutput?.(JSON.stringify({
+                subType: 'tool_complete',
+                subToolName: lastSubToolName,
+              }));
+              lastSubToolName = null;
+            }
             sessionId = message.session_id;
             const resultMeta = {
               subtype: message.subtype,
