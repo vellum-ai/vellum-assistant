@@ -36,7 +36,7 @@ export async function executeScheduleUpdate(
   // Set-aware pre-validation for RRULE expressions
   const effectiveSyntax = (updates.syntax as ScheduleSyntax | undefined) ?? (input.syntax as ScheduleSyntax | undefined);
   const effectiveExpr = (updates.expression as string | undefined) ?? (updates.cronExpression as string | undefined);
-  if (effectiveExpr && (effectiveSyntax === 'rrule' || /^(DTSTART|RRULE:)/m.test(effectiveExpr))) {
+  if (effectiveExpr && typeof effectiveExpr === 'string' && (effectiveSyntax === 'rrule' || /^(DTSTART|RRULE:)/m.test(effectiveExpr))) {
     const setError = validateRruleSetLines(effectiveExpr);
     if (setError) {
       return {
