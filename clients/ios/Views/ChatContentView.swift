@@ -276,7 +276,7 @@ struct ChatContentView: View {
         case .queueFull: return "tray.full.fill"
         case .sessionAborted: return "stop.circle.fill"
         case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"
-        case .contextTooLarge: return "doc.text.fill.viewfinder"
+        case .contextTooLarge: return "text.badge.xmark"
         case .unknown: return "exclamationmark.triangle.fill"
         }
     }
@@ -286,6 +286,7 @@ struct ChatContentView: View {
         case .rateLimit, .queueFull: return VColor.warning
         case .providerNetwork: return .orange
         case .sessionAborted: return VColor.textSecondary
+        case .contextTooLarge: return VColor.warning
         default: return VColor.error
         }
     }
