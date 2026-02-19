@@ -13,9 +13,16 @@ export function handleSubagentAbort(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // UI-initiated aborts skip session ownership checks — the user can see the
-  // subagent chip and is explicitly clicking abort.  This avoids false rejections
-  // when the socket is bound to a different session after a thread switch.
+  // Require the socket to have an active session (proves authentication), but
+  // don't require it to match the subagent's parent — thread switching can leave
+  // the socket bound to a different session than the one that spawned the subagent.
+  // The subagent UUID is unguessable, so knowing it is sufficient authorization.
+  const callerSessionId = ctx.socketToSession.get(socket);
+  if (!callerSessionId) {
+    log.warn({ subagentId: msg.subagentId }, 'Abort rejected: socket has no bound session');
+    return;
+  }
+
   const manager = getSubagentManager();
   const sendToClient = (m: unknown) => ctx.send(socket, m as Parameters<typeof ctx.send>[1]);
   const aborted = manager.abort(
