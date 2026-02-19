@@ -76,19 +76,30 @@ function backfillDefaults(rules: TrustRule[]): boolean {
     }
   }
 
-  // Migrate existing default rules whose priority or pattern has changed
-  // in the template (e.g. host_bash pattern changed from '*' to '**',
-  // host tool priorities changed from 1000 to 50).
+  // Migrate existing default rules whose priority, pattern, decision, or
+  // allowHighRisk has changed in the template (e.g. host_bash pattern changed
+  // from '*' to '**', host tool priorities changed from 1000 to 50).
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
-      if (rule && (rule.priority !== template.priority || rule.pattern !== template.pattern)) {
+      if (rule && (
+        rule.priority !== template.priority
+        || rule.pattern !== template.pattern
+        || rule.decision !== template.decision
+        || rule.allowHighRisk !== template.allowHighRisk
+      )) {
         log.info(
           { ruleId: rule.id, oldPriority: rule.priority, newPriority: template.priority, oldPattern: rule.pattern, newPattern: template.pattern },
           'Migrated default rule to updated template values',
         );
         rule.priority = template.priority;
         rule.pattern = template.pattern;
+        rule.decision = template.decision;
+        if (template.allowHighRisk != null) {
+          rule.allowHighRisk = template.allowHighRisk;
+        } else {
+          delete rule.allowHighRisk;
+        }
         changed = true;
       }
     }
@@ -96,7 +107,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
-      rules.push({
+      const rule: TrustRule = {
         id: template.id,
         tool: template.tool,
         pattern: template.pattern,
@@ -104,7 +115,11 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         decision: template.decision,
         priority: template.priority,
         createdAt: Date.now(),
-      });
+      };
+      if (template.allowHighRisk != null) {
+        rule.allowHighRisk = template.allowHighRisk;
+      }
+      rules.push(rule);
       changed = true;
       log.info({ ruleId: template.id }, 'Backfilled default trust rule');
     }

@@ -10,6 +10,7 @@ export interface DefaultRuleTemplate {
   scope: string;
   decision: 'allow' | 'deny' | 'ask';
   priority: number;
+  allowHighRisk?: boolean;
 }
 
 const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
@@ -54,6 +55,18 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: 'everywhere',
     decision: 'ask',
     priority: 50,
+  };
+
+  // Sandboxed bash commands run in an isolated container — auto-allow all of
+  // them (including high-risk) so the user is never prompted for sandbox work.
+  const sandboxShellRule: DefaultRuleTemplate = {
+    id: 'default:allow-bash-global',
+    tool: 'bash',
+    pattern: '**',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 50,
+    allowHighRisk: true,
   };
 
   // Standalone "**" globstar — minimatch only treats ** as globstar when it is
@@ -210,6 +223,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   return [
     ...hostFileRules,
     hostShellRule,
+    sandboxShellRule,
     ...computerUseRules,
     ...managedSkillRules,
     ...workspacePromptRules,

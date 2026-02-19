@@ -348,20 +348,30 @@ describe('Permission Checker', () => {
   // ── check (decision logic) ─────────────────────────────────────
 
   describe('check', () => {
-    test('high risk → always prompt', async () => {
-      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+    test('sandbox bash auto-allows all risk levels via default rule', async () => {
+      // High risk
+      const high = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(high.decision).toBe('allow');
+      expect(high.matchedRule?.id).toBe('default:allow-bash-global');
+
+      // Medium risk
+      const med = await check('bash', { command: 'rm file.txt' }, '/tmp');
+      expect(med.decision).toBe('allow');
+      expect(med.matchedRule?.id).toBe('default:allow-bash-global');
+
+      // Low risk
+      const low = await check('bash', { command: 'ls' }, '/tmp');
+      expect(low.decision).toBe('allow');
+      expect(low.matchedRule?.id).toBe('default:allow-bash-global');
+    });
+
+    test('host_bash high risk → always prompt', async () => {
+      const result = await check('host_bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('High risk');
     });
 
-    test('low risk → auto-allow', async () => {
-      const result = await check('bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Low risk');
-    });
-
-    test('medium risk with no matching rule → prompt', async () => {
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+    test('host_bash medium risk with no matching rule → prompt', async () => {
+      const result = await check('host_bash', { command: 'rm file.txt' }, '/tmp');
       expect(result.decision).toBe('prompt');
     });
 
@@ -1596,33 +1606,29 @@ describe('Permission Checker', () => {
   // ── strict mode: no implicit allow (PR 21) ───────────────────
 
   describe('strict mode — no implicit allow (PR 21)', () => {
-    test('low-risk tool with no matching rule returns prompt in strict mode', async () => {
+    test('sandbox bash auto-allows in strict mode (default rule is a matching rule)', async () => {
       testConfig.permissions.mode = 'strict';
-      const result = await check('bash', { command: 'ls' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
-    });
-
-    test('medium-risk tool with no matching rule returns prompt in strict mode', async () => {
-      testConfig.permissions.mode = 'strict';
-      const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
-    });
-
-    test('high-risk tool with no matching rule returns prompt in strict mode', async () => {
-      testConfig.permissions.mode = 'strict';
-      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      // High risk prompts via the existing high-risk path, not strict mode
-      expect(result.reason).toContain('requires approval');
-    });
-
-    test('low-risk tool still auto-allows in legacy mode (backward compat)', async () => {
-      testConfig.permissions.mode = 'legacy';
       const result = await check('bash', { command: 'ls' }, '/tmp');
       expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Low risk');
+      expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+    });
+
+    test('host_bash with no user rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('host_bash', { command: 'ls' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('medium-risk host_bash with no matching rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('host_bash', { command: 'rm file.txt' }, '/tmp');
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('high-risk host_bash with no matching rule returns prompt in strict mode', async () => {
+      testConfig.permissions.mode = 'strict';
+      const result = await check('host_bash', { command: 'sudo rm -rf /' }, '/tmp');
+      expect(result.decision).toBe('prompt');
     });
 
     test('explicit allow rule still returns allow in strict mode', async () => {
@@ -1698,16 +1704,15 @@ describe('Permission Checker', () => {
       expect(result.reason).toContain('High risk');
     });
 
-    test('high-risk tool with no matching rule returns prompt', async () => {
-      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+    test('high-risk host_bash with no matching user rule returns prompt', async () => {
+      const result = await check('host_bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('High risk');
     });
 
-    test('low-risk tool is NOT affected by allowHighRisk (still auto-allows without it)', async () => {
-      const result = await check('bash', { command: 'ls' }, '/tmp');
+    test('sandbox bash auto-allows high-risk via default allowHighRisk rule', async () => {
+      const result = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
       expect(result.decision).toBe('allow');
-      expect(result.reason).toContain('Low risk');
+      expect(result.matchedRule?.id).toBe('default:allow-bash-global');
     });
 
     test('medium-risk tool with allow rule is NOT affected by allowHighRisk', async () => {
@@ -1832,11 +1837,13 @@ describe('Permission Checker', () => {
       const trustDir = dirname(trustPath);
       if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
 
+      // Use host_bash — sandbox bash has a default allow rule that would match
+      // as a wildcard regardless of principal.
       writeFileSync(trustPath, JSON.stringify({
         version: 3,
         rules: [{
           id: 'test-strict-principal-mismatch',
-          tool: 'bash',
+          tool: 'host_bash',
           pattern: 'echo *',
           scope: 'everywhere',
           decision: 'allow',
@@ -1848,14 +1855,13 @@ describe('Permission Checker', () => {
       }, null, 2));
       clearCache();
 
-      // Wrong principal — rule should not match. In strict mode, bash 'echo' is
-      // low risk but has no matching rule → prompt with "Strict mode" reason.
+      // Wrong principal — rule should not match. The default ask rule for
+      // host_bash matches but is a prompt, so the result should be prompt.
       const ctx: PolicyContext = {
         principal: { kind: 'skill', id: 'attacker-skill' },
       };
-      const result = await check('bash', { command: 'echo hello' }, '/tmp', ctx);
+      const result = await check('host_bash', { command: 'echo hello' }, '/tmp', ctx);
       expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('Strict mode');
     });
 
     test('strict mode: high-risk allowHighRisk rule with version-bound principal auto-allows', async () => {
@@ -1905,11 +1911,13 @@ describe('Permission Checker', () => {
       const trustDir = dirname(trustPath);
       if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
 
+      // Use host_bash — sandbox bash has a default allowHighRisk rule that
+      // would match as a wildcard regardless of principal version.
       writeFileSync(trustPath, JSON.stringify({
         version: 3,
         rules: [{
           id: 'test-strict-hr-version-mismatch',
-          tool: 'bash',
+          tool: 'host_bash',
           pattern: 'sudo *',
           scope: 'everywhere',
           decision: 'allow',
@@ -1924,12 +1932,12 @@ describe('Permission Checker', () => {
       clearCache();
 
       // Same principal but different version — rule should not match.
+      // The default host_bash ask rule matches instead → prompt.
       const ctx: PolicyContext = {
         principal: { kind: 'skill', id: 'admin-skill', version: 'v2:different' },
       };
-      const result = await check('bash', { command: 'sudo apt update' }, '/tmp', ctx);
+      const result = await check('host_bash', { command: 'sudo apt update' }, '/tmp', ctx);
       expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('requires approval');
     });
 
     test('strict mode: deny rule overrides allowHighRisk rule even in strict mode', async () => {
@@ -2906,10 +2914,12 @@ describe('Permission Checker', () => {
 
     // ── high-risk: version-bound allowHighRisk rule stops matching after edit ──
 
-    test('high-risk bash: version-bound allowHighRisk rule stops matching after skill edit', async () => {
+    test('high-risk host_bash: version-bound allowHighRisk rule stops matching after skill edit', async () => {
+      // Use host_bash — sandbox bash has a default allowHighRisk rule that
+      // would match as a wildcard regardless of principal version.
       await addVersionBoundRule({
         id: 'pr35-hr-version-drift',
-        tool: 'bash',
+        tool: 'host_bash',
         pattern: 'sudo *',
         scope: 'everywhere',
         decision: 'allow',
@@ -2924,7 +2934,7 @@ describe('Permission Checker', () => {
       const ctxV1: PolicyContext = {
         principal: { kind: 'skill', id: 'pr35-admin-skill', version: 'v1:trusted-hash' },
       };
-      const r1 = await check('bash', { command: 'sudo apt update' }, '/tmp', ctxV1);
+      const r1 = await check('host_bash', { command: 'sudo apt update' }, '/tmp', ctxV1);
       expect(r1.decision).toBe('allow');
       expect(r1.reason).toContain('high-risk trust rule');
       expect(r1.matchedRule?.id).toBe('pr35-hr-version-drift');
@@ -2933,7 +2943,7 @@ describe('Permission Checker', () => {
       const ctxV2: PolicyContext = {
         principal: { kind: 'skill', id: 'pr35-admin-skill', version: 'v2:modified-hash' },
       };
-      const r2 = await check('bash', { command: 'sudo apt update' }, '/tmp', ctxV2);
+      const r2 = await check('host_bash', { command: 'sudo apt update' }, '/tmp', ctxV2);
       expect(r2.decision).toBe('prompt');
       expect(r2.matchedRule?.id).not.toBe('pr35-hr-version-drift');
     });
@@ -3060,11 +3070,17 @@ describe('Permission Checker', () => {
     //    explicit matching rule. ──────────────────────────────────────
 
     describe('Invariant 1: strict mode requires explicit matching rule for every tool', () => {
-      test('low-risk bash with no rule prompts in strict mode', async () => {
+      test('sandbox bash auto-allows in strict mode (default rule matches)', async () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('bash', { command: 'echo hello' }, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+      });
+
+      test('low-risk host_bash with no user rule prompts in strict mode', async () => {
+        testConfig.permissions.mode = 'strict';
+        const result = await check('host_bash', { command: 'echo hello' }, '/tmp');
         expect(result.decision).toBe('prompt');
-        expect(result.reason).toContain('Strict mode');
       });
 
       test('low-risk file_read with no rule prompts in strict mode', async () => {
@@ -3088,11 +3104,17 @@ describe('Permission Checker', () => {
         expect(result.reason).toContain('Strict mode');
       });
 
-      test('high-risk command with no rule prompts in strict mode', async () => {
+      test('high-risk sandbox bash auto-allows in strict mode (default allowHighRisk rule)', async () => {
         testConfig.permissions.mode = 'strict';
         const result = await check('bash', { command: 'sudo apt update' }, '/tmp');
+        expect(result.decision).toBe('allow');
+        expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+      });
+
+      test('high-risk host_bash command with no user rule prompts in strict mode', async () => {
+        testConfig.permissions.mode = 'strict';
+        const result = await check('host_bash', { command: 'sudo apt update' }, '/tmp');
         expect(result.decision).toBe('prompt');
-        expect(result.reason).toContain('requires approval');
       });
 
       test('skill-origin tool with no rule prompts in strict mode', async () => {

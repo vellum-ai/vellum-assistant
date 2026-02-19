@@ -321,13 +321,14 @@ describe('Trust Store', () => {
 
     test('returns null when tool does not match', () => {
       addRule('file_write', 'git *', '/tmp');
-      const match = findMatchingRule('bash', 'git push', '/tmp');
+      // host_bash default is 'ask' so findMatchingRule (allow-only) won't find it
+      const match = findMatchingRule('host_bash', 'git push', '/tmp');
       expect(match).toBeNull();
     });
 
     test('returns null when pattern does not match', () => {
-      addRule('bash', 'git *', '/tmp');
-      const match = findMatchingRule('bash', 'npm install', '/tmp');
+      addRule('host_bash', 'git *', '/tmp');
+      const match = findMatchingRule('host_bash', 'npm install', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -346,8 +347,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match when scope is outside rule scope', () => {
-        addRule('bash', 'npm *', '/home/user/project');
-        const match = findMatchingRule('bash', 'npm install', '/home/other');
+        addRule('host_bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('host_bash', 'npm install', '/home/other');
         expect(match).toBeNull();
       });
 
@@ -364,8 +365,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling path with shared prefix', () => {
-        addRule('bash', 'npm *', '/home/user/project');
-        const match = findMatchingRule('bash', 'npm install', '/home/user/project-evil');
+        addRule('host_bash', 'npm *', '/home/user/project');
+        const match = findMatchingRule('host_bash', 'npm install', '/home/user/project-evil');
         expect(match).toBeNull();
       });
 
@@ -382,8 +383,8 @@ describe('Trust Store', () => {
       });
 
       test('does not match sibling with glob-suffixed scope', () => {
-        addRule('bash', 'npm *', '/home/user/project*');
-        const match = findMatchingRule('bash', 'npm install', '/home/user/project-evil');
+        addRule('host_bash', 'npm *', '/home/user/project*');
+        const match = findMatchingRule('host_bash', 'npm install', '/home/user/project-evil');
         expect(match).toBeNull();
       });
     });
@@ -397,9 +398,9 @@ describe('Trust Store', () => {
       });
 
       test('matches exact string', () => {
-        addRule('bash', 'git status', '/tmp');
-        expect(findMatchingRule('bash', 'git status', '/tmp')).not.toBeNull();
-        expect(findMatchingRule('bash', 'git push', '/tmp')).toBeNull();
+        addRule('host_bash', 'git status', '/tmp');
+        expect(findMatchingRule('host_bash', 'git status', '/tmp')).not.toBeNull();
+        expect(findMatchingRule('host_bash', 'git push', '/tmp')).toBeNull();
       });
 
       test('matches file path pattern', () => {
@@ -460,15 +461,18 @@ describe('Trust Store', () => {
     });
 
     test('returns null when no rule matches', () => {
-      addRule('bash', 'git *', '/tmp', 'allow');
-      const match = findHighestPriorityRule('bash', ['npm install'], '/tmp');
+      // Use file_read with a non-workspace path — file_read defaults only
+      // cover specific workspace files, so /tmp paths won't match any default.
+      addRule('file_read', 'file_read:/specific/*', '/tmp', 'allow');
+      const match = findHighestPriorityRule('file_read', ['file_read:/other/path'], '/tmp');
       expect(match).toBeNull();
     });
 
     test('respects scope matching', () => {
-      addRule('bash', 'rm *', '/home/user/project', 'deny');
-      expect(findHighestPriorityRule('bash', ['rm file.txt'], '/home/user/project/sub')).not.toBeNull();
-      expect(findHighestPriorityRule('bash', ['rm file.txt'], '/home/other')).toBeNull();
+      // Use file_read — bash has a global default allow rule that matches everywhere.
+      addRule('file_read', 'file_read:/home/user/project/*', '/home/user/project', 'deny');
+      expect(findHighestPriorityRule('file_read', ['file_read:/home/user/project/file.txt'], '/home/user/project/sub')).not.toBeNull();
+      expect(findHighestPriorityRule('file_read', ['file_read:/home/user/project/file.txt'], '/home/other')).toBeNull();
     });
 
     test('everywhere scope matches any directory', () => {
@@ -564,8 +568,9 @@ describe('Trust Store', () => {
     });
 
     test('findMatchingRule ignores deny rules', () => {
-      addRule('bash', 'rm *', '/tmp', 'deny');
-      const match = findMatchingRule('bash', 'rm file.txt', '/tmp');
+      // Use host_bash — bash has a default allow rule that would match.
+      addRule('host_bash', 'rm *', '/tmp', 'deny');
+      const match = findMatchingRule('host_bash', 'rm file.txt', '/tmp');
       expect(match).toBeNull();
     });
 
@@ -845,14 +850,18 @@ describe('Trust Store', () => {
 
     test('bootstrap delete rule matches only when workingDir is the workspace dir', () => {
       const workspaceDir = join(testDir, 'workspace');
-      // Should match when workingDir is the workspace directory
+      // Should match when workingDir is the workspace directory — the bootstrap
+      // rule (priority 100) outranks the global default allow (priority 50).
       const match = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], workspaceDir);
       expect(match).not.toBeNull();
       expect(match!.id).toBe('default:allow-bash-rm-bootstrap');
       expect(match!.decision).toBe('allow');
-      // Should NOT match when workingDir is somewhere else
-      const noMatch = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], '/tmp/other-project');
-      expect(noMatch).toBeNull();
+      // Outside workspace, the bootstrap rule doesn't match — the global
+      // default:allow-bash-global rule matches instead (not the bootstrap rule).
+      const other = findHighestPriorityRule('bash', ['rm BOOTSTRAP.md'], '/tmp/other-project');
+      expect(other).not.toBeNull();
+      expect(other!.id).not.toBe('default:allow-bash-rm-bootstrap');
+      expect(other!.id).toBe('default:allow-bash-global');
     });
 
     test('default ask does not affect files outside protected directory', () => {
