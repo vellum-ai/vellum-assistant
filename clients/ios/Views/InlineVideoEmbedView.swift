@@ -169,9 +169,10 @@ private struct VideoEmbedWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Keep coordinator callbacks in sync with the latest SwiftUI closures,
+        // Keep coordinator state in sync with the latest SwiftUI values,
         // since SwiftUI may recreate the struct (and its closures) without
         // recreating the coordinator.
+        context.coordinator.provider = provider
         context.coordinator.onLoaded = onLoaded
         context.coordinator.onFailed = onFailed
     }
@@ -199,7 +200,7 @@ private struct VideoEmbedWebView: UIViewRepresentable {
     }
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let provider: String
+        var provider: String
         var onLoaded: () -> Void
         var onFailed: (String) -> Void
         /// The first programmatic navigation is the embed URL we control — always allow it.
