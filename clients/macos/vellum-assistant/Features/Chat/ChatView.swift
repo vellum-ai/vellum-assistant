@@ -96,11 +96,11 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Uses utf8.count (O(1) for contiguous strings) instead of String.count (O(n) grapheme
-    /// cluster enumeration) to avoid per-delta CPU cost on long streaming responses.
+    /// Sums utf8.count across all text segments so the value is monotonic even when new segments
+    /// are appended after tool calls. Each utf8.count is O(1) for contiguous Swift strings.
     private var streamingScrollTrigger: Int {
         let last = messages.last
-        let textLen = last?.textSegments.last?.utf8.count ?? 0
+        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
