@@ -167,6 +167,22 @@ private struct UsedToolsRow: View {
                     }
                     .padding(.horizontal, VSpacing.md)
 
+                    // Claude Code sub-steps (if any)
+                    if !toolCall.claudeCodeSteps.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Sub-steps")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+
+                            ClaudeCodeProgressView(
+                                steps: toolCall.claudeCodeSteps,
+                                isRunning: false
+                            )
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                    }
+
                     // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
                     if let img = toolCall.cachedImage,
                        let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
