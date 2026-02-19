@@ -49,6 +49,7 @@ import {
   handleVoiceWebhook,
   handleStatusCallback,
   handleConnectAction,
+  handleCallAnswer,
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
@@ -240,6 +241,12 @@ export class RuntimeHttpServer {
       if (!token || !this.verifyToken(token)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
+    }
+
+    // ── Call answer endpoint — behind auth gate ──────────────────────
+    const callAnswerMatch = path.match(/^\/v1\/calls\/([^/]+)\/answer$/);
+    if (callAnswerMatch && req.method === 'POST') {
+      return await handleCallAnswer(req, callAnswerMatch[1]);
     }
 
     // Serve shareable app pages

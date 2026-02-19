@@ -18,6 +18,7 @@ import {
 } from './call-store.js';
 import { MAX_CALL_DURATION_MS, USER_CONSULTATION_TIMEOUT_MS, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
+import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier } from './call-state.js';
 
 const log = getLogger('call-orchestrator');
 
@@ -45,6 +46,7 @@ export class CallOrchestrator {
     this.task = task;
     this.startDurationTimer();
     this.resetSilenceTimer();
+    registerCallOrchestrator(callSessionId, this);
   }
 
   /**
@@ -110,6 +112,7 @@ export class CallOrchestrator {
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.consultationTimer) clearTimeout(this.consultationTimer);
     this.abortController.abort();
+    unregisterCallOrchestrator(this.callSessionId);
     log.info({ callSessionId: this.callSessionId }, 'CallOrchestrator destroyed');
   }
 
@@ -195,6 +198,12 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
         recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
 
+        // Notify the conversation that a question was asked
+        const session = getCallSession(this.callSessionId);
+        if (session) {
+          fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+        }
+
         // Set a consultation timeout
         this.consultationTimer = setTimeout(() => {
           if (this.state === 'waiting_on_user') {
@@ -215,6 +224,12 @@ export class CallOrchestrator {
         this.relay.endSession('Call completed');
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
+
+        // Notify the conversation that the call completed
+        const endSession = getCallSession(this.callSessionId);
+        if (endSession) {
+          fireCallCompletionNotifier(endSession.conversationId, this.callSessionId);
+        }
         this.state = 'idle';
         return;
       }

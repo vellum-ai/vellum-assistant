@@ -13,8 +13,11 @@ import {
   updateCallSession,
   recordCallEvent,
   expirePendingQuestions,
+  getPendingQuestion,
+  answerPendingQuestion,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
+import { getCallOrchestrator } from './call-state.js';
 
 const log = getLogger('twilio-routes');
 
@@ -188,4 +191,32 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
       headers: { 'Content-Type': 'text/xml' },
     },
   );
+}
+
+/**
+ * Answer a pending question for an active call.
+ * POST /v1/calls/:callSessionId/answer
+ * Body: { answer: string }
+ */
+export async function handleCallAnswer(req: Request, callSessionId: string): Promise<Response> {
+  const body = await req.json() as { answer?: string };
+  if (!body.answer) {
+    return Response.json({ error: 'Missing answer' }, { status: 400 });
+  }
+
+  const question = getPendingQuestion(callSessionId);
+  if (!question) {
+    return Response.json({ error: 'No pending question found' }, { status: 404 });
+  }
+
+  // Mark question as answered
+  answerPendingQuestion(question.id, body.answer);
+
+  // Route answer to the orchestrator
+  const orchestrator = getCallOrchestrator(callSessionId);
+  if (orchestrator) {
+    await orchestrator.handleUserAnswer(body.answer);
+  }
+
+  return Response.json({ ok: true, questionId: question.id });
 }
