@@ -364,7 +364,8 @@ struct MainWindowView: View {
                         }
                         if !sidebarOpen,
                            let vm = threadManager.activeViewModel,
-                           vm.messages.contains(where: { $0.role == .user }) {
+                           threadManager.activeThread?.kind == .private
+                            || vm.messages.contains(where: { $0.role == .user }) {
                             Spacer().frame(width: VSpacing.xs)
                             VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true) {
                                 windowState.selection = nil
