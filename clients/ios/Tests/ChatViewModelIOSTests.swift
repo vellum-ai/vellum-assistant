@@ -145,12 +145,20 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isSending)
 
-        // Allow async Task to send session_create
+        // Poll until session_create appears in sentMessages (message-driven wait)
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         // Extract the correlation ID from the sent session_create message
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
@@ -282,12 +290,20 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertTrue(viewModel.isSending)
 
-        // Allow async Task to send session_create
+        // Poll until session_create appears in sentMessages (message-driven wait)
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         // Extract the correlation ID from the sent session_create message
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
