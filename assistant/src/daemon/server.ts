@@ -1008,6 +1008,9 @@ export class DaemonServer {
         // runAgentLoop normally does this in its finally block, but we
         // skipped it entirely.
         resetSessionProcessingState(session);
+        // Drain any queued messages that arrived while processing was true.
+        // runAgentLoop normally drains in its finally block, but we skipped it.
+        session.drainQueue('loop_complete');
         log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
         return { messageId };
       }
@@ -1060,15 +1063,18 @@ export class DaemonServer {
         }))
       : [];
 
-    // Persist user message first so we can check the call bridge
-    const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content, attachments, requestId);
-
-    // Attempt the call-answer bridge before launching the agent loop.
+    // Check the call-answer bridge before processing. If the message is
+    // consumed as a call answer, persist it and skip the agent loop.
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content);
       if (bridgeResult.handled) {
+        // Persist the user message so it appears in history, but skip the
+        // agent loop since the call system consumed it.
+        const requestId = crypto.randomUUID();
+        const messageId = session.persistUserMessage(content, attachments, requestId);
         resetSessionProcessingState(session);
+        // Drain any queued messages that arrived while processing was true.
+        session.drainQueue('loop_complete');
         log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
         return { messageId };
       }
@@ -1076,7 +1082,9 @@ export class DaemonServer {
       log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
     }
 
-    await session.runAgentLoop(content, messageId, () => {});
+    // Delegate to session.processMessage which handles slash-command
+    // resolution, skill preactivation, persistence, and the agent loop.
+    const messageId = await session.processMessage(content, attachments, () => {});
 
     if (!messageId) {
       throw new Error('Failed to persist user message');
