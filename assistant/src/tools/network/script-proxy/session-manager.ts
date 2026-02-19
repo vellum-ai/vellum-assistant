@@ -1,6 +1,5 @@
 import type { Server } from 'node:http';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createProxyServer } from './server.js';
 import type { ProxyServerConfig } from './server.js';
@@ -14,7 +13,7 @@ import type {
 } from './types.js';
 import type { PolicyCallback } from './http-forwarder.js';
 import { evaluateRequestWithApproval } from './policy.js';
-import { getCAPath, getCombinedCAPath, ensureLocalCA, ensureCombinedCABundle } from './certs.js';
+import { getCAPath, ensureLocalCA, ensureCombinedCABundle } from './certs.js';
 import { matchHostPattern, compareMatchSpecificity, type HostMatchKind } from '../../credentials/host-pattern-match.js';
 import { resolveById } from '../../credentials/resolve.js';
 import { listCredentialMetadata } from '../../credentials/metadata-store.js';
@@ -37,6 +36,8 @@ interface ManagedSession {
   listenHost: string;
   /** In-flight stop promise so concurrent callers can await the same shutdown. */
   stopPromise: Promise<void> | null;
+  /** Path to the combined CA bundle, set only when ensureCombinedCABundle succeeds. */
+  combinedCABundlePath: string | null;
 }
 
 const sessions = new Map<ProxySessionId, ManagedSession>();
@@ -110,6 +111,7 @@ export function createSession(
     approvalCallback: approvalCallback ?? null,
     listenHost: '127.0.0.1',
     stopPromise: null,
+    combinedCABundlePath: null,
   });
 
   return cloneSession(session);
@@ -153,7 +155,7 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         // Build a combined CA bundle (system roots + proxy CA) so
         // non-Node clients like curl, Python, and Go trust the proxy's
         // leaf certs via SSL_CERT_FILE (see getSessionEnv).
-        await ensureCombinedCABundle(managed.dataDir);
+        managed.combinedCABundlePath = await ensureCombinedCABundle(managed.dataDir);
       } catch (err) {
         sessions.delete(sessionId);
         throw err;
@@ -387,12 +389,10 @@ export function getSessionEnv(
     env.NODE_EXTRA_CA_CERTS = getCAPath(managed.dataDir);
     // Combined bundle lets non-Node clients (curl, Python, Go) trust
     // the proxy CA alongside system roots via SSL_CERT_FILE.
-    // Only set when the bundle file actually exists — it's created by
-    // ensureCombinedCABundle() during MITM setup, and pointing
-    // SSL_CERT_FILE at a missing file would break trust roots.
-    const combinedPath = getCombinedCAPath(managed.dataDir);
-    if (existsSync(combinedPath)) {
-      env.SSL_CERT_FILE = combinedPath;
+    // Only set when the bundle was actually created — pointing at a
+    // missing file would replace the system trust store with nothing.
+    if (managed.combinedCABundlePath) {
+      env.SSL_CERT_FILE = managed.combinedCABundlePath;
     }
   }
 
