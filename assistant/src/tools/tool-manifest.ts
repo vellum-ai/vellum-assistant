@@ -59,6 +59,9 @@ export const eagerModules: string[] = [
   './assets/search.js',
   './assets/materialize.js',
   './filesystem/view-image.js',
+  './calls/call-start.js',
+  './calls/call-status.js',
+  './calls/call-end.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -94,6 +97,9 @@ export const eagerModuleToolNames: string[] = [
   'asset_search',
   'asset_materialize',
   'view_image',
+  'call_start',
+  'call_status',
+  'call_end',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
