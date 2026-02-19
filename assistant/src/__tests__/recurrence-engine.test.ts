@@ -31,15 +31,15 @@ describe('recurrence engine — rrule', () => {
     expect(isValidScheduleExpression({ syntax: 'rrule', expression: 'RRULE:FREQ=DAILY' })).toBe(false);
   });
 
-  test('rejects RRULE set constructs', () => {
+  test('accepts RRULE set constructs', () => {
     const withExdate = 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nEXDATE:20250105T090000Z';
-    expect(isValidScheduleExpression({ syntax: 'rrule', expression: withExdate })).toBe(false);
+    expect(isValidScheduleExpression({ syntax: 'rrule', expression: withExdate })).toBe(true);
 
     const withRdate = 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nRDATE:20250115T090000Z';
-    expect(isValidScheduleExpression({ syntax: 'rrule', expression: withRdate })).toBe(false);
+    expect(isValidScheduleExpression({ syntax: 'rrule', expression: withRdate })).toBe(true);
 
     const multiRrule = 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nRRULE:FREQ=WEEKLY';
-    expect(isValidScheduleExpression({ syntax: 'rrule', expression: multiRrule })).toBe(false);
+    expect(isValidScheduleExpression({ syntax: 'rrule', expression: multiRrule })).toBe(true);
   });
 
   test('computes next run for RRULE with future DTSTART', () => {
@@ -59,8 +59,11 @@ describe('recurrence engine — rrule', () => {
     expect(() => computeNextRunAt({ syntax: 'rrule', expression: 'RRULE:FREQ=DAILY' })).toThrow(/DTSTART/);
   });
 
-  test('throws for RRULE set constructs in computeNextRunAt', () => {
-    const expr = 'DTSTART:20990101T090000Z\nRRULE:FREQ=DAILY\nEXDATE:20990105T090000Z';
-    expect(() => computeNextRunAt({ syntax: 'rrule', expression: expr })).toThrow(/set constructs/);
+  test('computes next run for RRULE with EXDATE set construct', () => {
+    const expr = 'DTSTART:20990101T090000Z\nRRULE:FREQ=DAILY\nEXDATE:20990101T090000Z';
+    const next = computeNextRunAt({ syntax: 'rrule', expression: expr });
+    // Should skip the excluded date and return January 2
+    const jan2 = new Date('2099-01-02T09:00:00Z').getTime();
+    expect(next).toBe(jan2);
   });
 });

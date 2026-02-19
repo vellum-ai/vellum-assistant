@@ -1,11 +1,56 @@
 import { Cron } from 'croner';
-import { rrulestr } from 'rrule';
+import { rrulestr, RRuleSet } from 'rrule';
 import type { ScheduleSyntax } from './recurrence-types.js';
 
 export interface ScheduleSpec {
   syntax: ScheduleSyntax;
   expression: string;
   timezone?: string | null;
+}
+
+const SUPPORTED_RRULE_PREFIXES = ['DTSTART', 'RRULE:', 'RDATE', 'EXDATE', 'EXRULE'];
+
+function normalizeRruleExpression(expression: string): string {
+  // Handle escaped newlines from JSON transport
+  return expression.replace(/\\n/g, '\n').trim();
+}
+
+function parseRruleLines(expression: string): string[] {
+  return normalizeRruleExpression(expression)
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean);
+}
+
+function validateRruleLines(lines: string[]): string | null {
+  let hasInclusion = false;
+  let hasDtstart = false;
+
+  for (const line of lines) {
+    if (!SUPPORTED_RRULE_PREFIXES.some(p => line.startsWith(p))) {
+      return `Unsupported recurrence line: ${line}`;
+    }
+    if (line.startsWith('DTSTART')) hasDtstart = true;
+    if (line.startsWith('RRULE:') || line.startsWith('RDATE')) hasInclusion = true;
+  }
+
+  if (!hasDtstart) return 'RRULE expression must include DTSTART for deterministic scheduling';
+  if (!hasInclusion) return 'RRULE expression must include at least one RRULE or RDATE';
+  return null;
+}
+
+/**
+ * Detect whether an RRULE expression contains set constructs (RDATE, EXDATE,
+ * EXRULE, or multiple RRULE lines) that require RRuleSet parsing.
+ */
+function hasSetConstructs(expression: string): boolean {
+  const lines = parseRruleLines(expression);
+  let rruleCount = 0;
+  for (const line of lines) {
+    if (line.startsWith('RDATE') || line.startsWith('EXDATE') || line.startsWith('EXRULE')) return true;
+    if (line.startsWith('RRULE:')) rruleCount++;
+  }
+  return rruleCount > 1;
 }
 
 /**
@@ -20,15 +65,16 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
     }
 
     if (spec.syntax === 'rrule') {
-      // Require DTSTART for deterministic anchoring
-      if (!spec.expression.includes('DTSTART')) {
-        return false;
+      const lines = parseRruleLines(spec.expression);
+      const error = validateRruleLines(lines);
+      if (error) return false;
+
+      const normalized = normalizeRruleExpression(spec.expression);
+      if (hasSetConstructs(normalized)) {
+        rrulestr(normalized, { forceset: true });
+      } else {
+        rrulestr(normalized);
       }
-      // Reject set constructs for now (lifted in PR 13)
-      if (hasSetConstructs(spec.expression)) {
-        return false;
-      }
-      rrulestr(spec.expression);
       return true;
     }
 
@@ -57,15 +103,16 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
   }
 
   if (spec.syntax === 'rrule') {
-    if (!spec.expression.includes('DTSTART')) {
-      throw new Error('RRULE expression must include DTSTART for deterministic scheduling');
-    }
-    if (hasSetConstructs(spec.expression)) {
-      throw new Error('RRULE set constructs (RDATE, EXDATE, EXRULE, multiple RRULE) are not yet supported. Support will be added in a future update.');
-    }
+    const normalized = normalizeRruleExpression(spec.expression);
+    const lines = parseRruleLines(normalized);
+    const error = validateRruleLines(lines);
+    if (error) throw new Error(error);
 
-    const rule = rrulestr(spec.expression);
-    const next = rule.after(new Date(now), true);
+    const useSet = hasSetConstructs(normalized);
+    const parsed = useSet
+      ? (rrulestr(normalized, { forceset: true }) as RRuleSet)
+      : rrulestr(normalized);
+    const next = parsed.after(new Date(now), true);
     if (!next) {
       throw new Error(`RRULE expression has no upcoming runs after ${new Date(now).toISOString()}`);
     }
@@ -73,22 +120,4 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
   }
 
   throw new Error(`Unsupported schedule syntax: ${spec.syntax}`);
-}
-
-/**
- * Check if an RRULE expression contains set constructs (RDATE, EXDATE, EXRULE,
- * or multiple RRULE lines). These are deferred to PR 13.
- */
-function hasSetConstructs(expression: string): boolean {
-  const lines = expression.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  let rruleCount = 0;
-  for (const line of lines) {
-    if (line.startsWith('RDATE') || line.startsWith('EXDATE') || line.startsWith('EXRULE')) {
-      return true;
-    }
-    if (line.startsWith('RRULE:')) {
-      rruleCount++;
-    }
-  }
-  return rruleCount > 1;
 }
