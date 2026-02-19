@@ -810,11 +810,13 @@ export const CallsConfigSchema = z.object({
     .number({ error: 'calls.maxDurationSeconds must be a number' })
     .int('calls.maxDurationSeconds must be an integer')
     .positive('calls.maxDurationSeconds must be a positive integer')
+    .max(2_147_483, 'calls.maxDurationSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(3600),
   userConsultTimeoutSeconds: z
     .number({ error: 'calls.userConsultTimeoutSeconds must be a number' })
     .int('calls.userConsultTimeoutSeconds must be an integer')
     .positive('calls.userConsultTimeoutSeconds must be a positive integer')
+    .max(2_147_483, 'calls.userConsultTimeoutSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(120),
   disclosure: CallsDisclosureConfigSchema.default({
     enabled: true,

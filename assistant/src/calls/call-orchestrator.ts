@@ -342,13 +342,15 @@ export class CallOrchestrator {
     const maxDurationMs = getMaxCallDurationMs();
     const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
 
-    this.durationWarningTimer = setTimeout(() => {
-      log.info({ callSessionId: this.callSessionId }, 'Call duration warning');
-      this.relay.sendTextToken(
-        'Just to let you know, we\'re running low on time for this call.',
-        true,
-      );
-    }, warningMs);
+    if (warningMs > 0) {
+      this.durationWarningTimer = setTimeout(() => {
+        log.info({ callSessionId: this.callSessionId }, 'Call duration warning');
+        this.relay.sendTextToken(
+          'Just to let you know, we\'re running low on time for this call.',
+          true,
+        );
+      }, warningMs);
+    }
 
     this.durationTimer = setTimeout(() => {
       log.info({ callSessionId: this.callSessionId }, 'Call duration limit reached');
