@@ -11,15 +11,18 @@ public final class SettingsStore: ObservableObject {
     @Published var hasKey: Bool
     @Published var hasBraveKey: Bool
     @Published var hasPerplexityKey: Bool
+    @Published var hasImageGenKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
+    @Published var maskedImageGenKey: String = ""
 
     // MARK: - Model Selection
 
     @Published var selectedModel: String = "claude-opus-4-6"
     @Published var configuredProviders: Set<String> = ["ollama"]
+    @Published var selectedImageGenModel: String = "gemini-2.5-flash-image"
 
     static let availableModels: [String] = [
         "claude-opus-4-6",
@@ -33,6 +36,16 @@ public final class SettingsStore: ObservableObject {
         "claude-opus-4-6-fast": "Claude Opus 4.6 Fast",
         "claude-sonnet-4-6": "Claude Sonnet 4.6",
         "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+    ]
+
+    static let availableImageGenModels: [String] = [
+        "gemini-2.5-flash-image",
+        "gemini-3-pro-image-preview",
+    ]
+
+    static let imageGenModelDisplayNames: [String: String] = [
+        "gemini-2.5-flash-image": "Gemini 2.5 Flash Image",
+        "gemini-3-pro-image-preview": "Gemini 3 Pro Image (Preview)",
     ]
 
     // MARK: - Settings Values
@@ -83,6 +96,14 @@ public final class SettingsStore: ObservableObject {
         let perplexityKey = APIKeyManager.getKey(for: "perplexity")
         self.hasPerplexityKey = perplexityKey != nil
         self.maskedPerplexityKey = Self.maskKey(perplexityKey)
+        let imageGenKey = APIKeyManager.getKey(for: "gemini")
+        self.hasImageGenKey = imageGenKey != nil
+        self.maskedImageGenKey = Self.maskKey(imageGenKey)
+
+        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
+        if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
+            self.selectedImageGenModel = storedImageGenModel
+        }
 
         let storedMaxSteps = UserDefaults.standard.double(forKey: "maxStepsPerSession")
         self.maxSteps = storedMaxSteps == 0 ? 50 : storedMaxSteps
@@ -183,6 +204,25 @@ public final class SettingsStore: ObservableObject {
         maskedPerplexityKey = ""
     }
 
+    func saveImageGenKey(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed, for: "gemini")
+        hasImageGenKey = true
+        maskedImageGenKey = Self.maskKey(trimmed)
+    }
+
+    func clearImageGenKey() {
+        APIKeyManager.deleteKey(for: "gemini")
+        hasImageGenKey = false
+        maskedImageGenKey = ""
+    }
+
+    func setImageGenModel(_ model: String) {
+        selectedImageGenModel = model
+        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
+    }
+
     func refreshAPIKeyState() {
         let anthropicKey = APIKeyManager.getKey()
         hasKey = anthropicKey != nil
@@ -195,6 +235,10 @@ public final class SettingsStore: ObservableObject {
         let perplexityKey = APIKeyManager.getKey(for: "perplexity")
         hasPerplexityKey = perplexityKey != nil
         maskedPerplexityKey = Self.maskKey(perplexityKey)
+
+        let imageGenKey = APIKeyManager.getKey(for: "gemini")
+        hasImageGenKey = imageGenKey != nil
+        maskedImageGenKey = Self.maskKey(imageGenKey)
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".

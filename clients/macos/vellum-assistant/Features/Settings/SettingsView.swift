@@ -7,6 +7,7 @@ public struct SettingsView: View {
     @State private var apiKeyText = ""
     @State private var braveKeyText = ""
     @State private var perplexityKeyText = ""
+    @State private var imageGenKeyText = ""
     @State private var vercelKeyText = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
@@ -142,6 +143,48 @@ public struct SettingsView: View {
                             braveKeyText = ""
                         }
                         .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
+            Section("Image Generation") {
+                if store.hasImageGenKey {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        Text(store.maskedImageGenKey)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            store.clearImageGenKey()
+                            imageGenKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+
+                    Picker("Model", selection: $store.selectedImageGenModel) {
+                        ForEach(SettingsStore.availableImageGenModels, id: \.self) { model in
+                            Text(SettingsStore.imageGenModelDisplayNames[model] ?? model)
+                                .tag(model)
+                        }
+                    }
+                    .onChange(of: store.selectedImageGenModel) { _, newValue in
+                        store.setImageGenModel(newValue)
+                    }
+                } else {
+                    SecureField("Enter Gemini API key", text: $imageGenKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at aistudio.google.com/apikey")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            store.saveImageGenKey(imageGenKeyText)
+                            imageGenKeyText = ""
+                        }
+                        .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }

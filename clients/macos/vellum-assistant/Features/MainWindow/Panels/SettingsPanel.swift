@@ -20,6 +20,7 @@ struct SettingsPanel: View {
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
+    @State private var imageGenKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingScheduledTasks = false
     @State private var showingReminders = false
@@ -413,6 +414,79 @@ struct SettingsPanel: View {
                     VButton(label: "Save", style: .primary) {
                         store.saveBraveKey(braveKeyText)
                         braveKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // IMAGE GENERATION section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Image Generation")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasImageGenKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedImageGenKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearImageGenKey()
+                            imageGenKeyText = ""
+                        }
+                    }
+
+                    HStack {
+                        Text("Model")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Picker("", selection: Binding(
+                            get: { store.selectedImageGenModel },
+                            set: { store.setImageGenModel($0) }
+                        )) {
+                            ForEach(SettingsStore.availableImageGenModels, id: \.self) { model in
+                                Text(SettingsStore.imageGenModelDisplayNames[model] ?? model)
+                                    .tag(model)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Gemini API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your Gemini API key", text: $imageGenKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your API key at aistudio.google.com/apikey")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveImageGenKey(imageGenKeyText)
+                        imageGenKeyText = ""
                     }
                 }
             }
