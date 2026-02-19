@@ -90,6 +90,10 @@ export const claudeCodeTool: Tool = {
             type: 'string',
             description: 'Model to use (defaults to claude-sonnet-4-6)',
           },
+          max_turns: {
+            type: 'number',
+            description: 'Maximum number of agentic turns (API round-trips) before stopping. Defaults to 50.',
+          },
           profile: {
             type: 'string',
             enum: ['general', 'researcher', 'coder', 'reviewer'],
@@ -128,6 +132,7 @@ export const claudeCodeTool: Tool = {
     const workingDir = (input.working_dir as string) || context.workingDir;
     const resumeSessionId = input.resume as string | undefined;
     const model = (input.model as string) || 'claude-sonnet-4-6';
+    const maxTurns = typeof input.max_turns === 'number' && input.max_turns > 0 ? input.max_turns : 50;
     const profileName = (input.profile as WorkerProfile | undefined) ?? 'general';
 
     // Validate profile
@@ -301,7 +306,7 @@ export const claudeCodeTool: Tool = {
       permissionMode: 'default',
       allowedTools: [...AUTO_APPROVE_TOOLS],
       env: subprocessEnv,
-      maxTurns: 50,
+      maxTurns,
       persistSession: true,
       stderr: (data: string) => {
         const trimmed = data.trimEnd();
