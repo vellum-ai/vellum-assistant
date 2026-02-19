@@ -80,7 +80,7 @@ struct APIKeyStepView: View {
                 apiKey = existingKey
                 hasExistingKey = true
             }
-            if userHostedEnabled, let saved = loadHostingModeFromConfig() {
+            if userHostedEnabled, let saved = loadHostingModeFromDefaults() {
                 hostingMode = saved
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
@@ -270,7 +270,6 @@ struct APIKeyStepView: View {
 
     private func saveAndContinue() {
         if userHostedEnabled {
-            saveHostingModeToConfig(hostingMode)
             state.cloudProvider = hostingMode.rawValue
         }
 
@@ -310,34 +309,8 @@ struct APIKeyStepView: View {
         }
     }
 
-    private func saveHostingModeToConfig(_ mode: HostingMode) {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["hostingMode"] = mode.rawValue
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["hostingMode": mode.rawValue]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
-    }
-
-    private func loadHostingModeFromConfig() -> HostingMode? {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = json["hostingMode"] as? String,
+    private func loadHostingModeFromDefaults() -> HostingMode? {
+        guard let raw = UserDefaults.standard.string(forKey: "onboarding.cloudProvider"),
               let mode = HostingMode(rawValue: raw) else {
             return nil
         }

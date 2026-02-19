@@ -47,6 +47,19 @@ final class OnboardingState {
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
 
+    // Cloud credentials held in memory during onboarding (never written to .vellum)
+    var gcpProjectId: String = ""
+    var gcpServiceAccountKey: String = ""
+    var awsRoleArn: String = ""
+    var sshHost: String = ""
+    var sshUser: String = ""
+    var sshPrivateKey: String = ""
+    var selectedModel: String = "claude-opus-4-6"
+    var isHatching: Bool = false
+    var hatchLogLines: [String] = []
+    var hatchCompleted: Bool = false
+    var hatchFailed: Bool = false
+
     // First-meeting-specific state
     var firstMeetingCrackProgress: CGFloat = 0.0
     var conversationCompleted: Bool = false
