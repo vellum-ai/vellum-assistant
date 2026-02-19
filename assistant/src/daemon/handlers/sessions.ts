@@ -348,17 +348,20 @@ export function handleHistoryRequest(
     if (m.role === 'assistant' && m.id) {
       const linked = getAttachmentsForMessageUnscoped(m.id);
       if (linked.length > 0) {
-        // Skip embedding base64 data for attachments larger than 512KB to keep
-        // the history_response payload small enough for the client to decode
-        // reliably. The client fetches large attachment data lazily via HTTP.
+        // Skip embedding base64 data for large video attachments to keep the
+        // history_response payload small. Only videos have a lazy-fetch path on
+        // the client, so non-video attachments always keep their inline data.
         const MAX_INLINE_B64_SIZE = 512 * 1024;
-        attachments = linked.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64.length > MAX_INLINE_B64_SIZE ? '' : a.dataBase64,
-          ...(a.dataBase64.length > MAX_INLINE_B64_SIZE ? { sizeBytes: a.sizeBytes } : {}),
-        }));
+        attachments = linked.map((a) => {
+          const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+          return {
+            id: a.id,
+            filename: a.originalFilename,
+            mimeType: a.mimeType,
+            data: omit ? '' : a.dataBase64,
+            ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+          };
+        });
       }
     }
     return {
