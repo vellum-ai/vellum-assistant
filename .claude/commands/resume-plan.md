@@ -91,17 +91,19 @@ Read the next PR section from the plan. Implement all changes in the worktree.
 **Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
-PR_BODY=$(cat <<'BODY_EOF'
+PLAN_CONTENT=$(cat ".private/plans/<plan-filename>")
+PR_BODY=$(cat <<VELLUM_PR_BODY
 ## Summary
 <1-3 bullet points>
 
-## Plan section
-<paste the full text of this PR's section from the plan file, verbatim>
+## Plan
+
+$PLAN_CONTENT
 
 Part of plan: <plan filename> (PR <X> of <total>)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-BODY_EOF
+VELLUM_PR_BODY
 )
 cd <worktree> && .claude/ship \
   --commit-msg "<commit message>" \

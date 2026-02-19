@@ -495,7 +495,7 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 **Validation**: Slash commands do **not** run tests, type-checking (`tsc`), or linting by default. These steps are only performed when the task specifically requires it (e.g., "fix the type errors", "make the tests pass"). This keeps agent-driven workflows fast for well-scoped changes.
 
-**PR body context**: Every PR created by a slash command includes the original prompt or plan section that triggered the work. Task-based commands (`/do`, `/safe-do`, `/work`, `/swarm`, `/blitz`, `/safe-blitz`) include the original task description under `## Original task` or `## Task`. Plan-based commands (`/execute-plan`, `/safe-execute-plan`, `/resume-plan`) include the verbatim plan section under `## Plan section`. This keeps reviewers oriented without needing to trace back through chat history.
+**PR body context**: Every PR created by a slash command includes the original prompt or plan that triggered the work. Task-based commands (`/do`, `/safe-do`, `/work`, `/swarm`, `/blitz`, `/safe-blitz`) include the original task description under `## Original task` or `## Task`. Plan-based commands (`/execute-plan`, `/safe-execute-plan`, `/resume-plan`) embed the full plan file content under `## Plan`. This keeps reviewers oriented without needing to trace back through chat history.
 
 ## Release Management
 

@@ -40,15 +40,17 @@ Read the PR section carefully. Implement all the changes described:
 Create a branch from the plan (or derive one from the PR title), then ship:
 
 ```bash
-PR_BODY=$(cat <<'BODY_EOF'
+PLAN_CONTENT=$(cat ".private/plans/<plan-filename>")
+PR_BODY=$(cat <<VELLUM_PR_BODY
 ## Summary
 <1-3 bullet points>
 
-## Plan section
-<paste the full text of this PR's section from the plan file, verbatim>
+## Plan
+
+$PLAN_CONTENT
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-BODY_EOF
+VELLUM_PR_BODY
 )
 .claude/ship \
   --commit-msg "<commit message>" \

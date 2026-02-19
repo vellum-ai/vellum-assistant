@@ -28,7 +28,23 @@ If you need to break it down into multiple PRs:
 
 If you can implement it in a single PR:
 
-- Create a PR for it (output a link to the PR). Include the original task description in the PR body under a `## Task` section so reviewers have context for why the changes were made.
+- Create a PR for it using `.claude/ship`. Build the body with a heredoc so task text with special characters doesn't break quoting:
+
+  ```bash
+  PR_BODY=$(cat <<'BODY_EOF'
+  ## Summary
+  <1-3 bullet points>
+
+  ## Task
+  <the verbatim task — from $ARGUMENTS if provided, or the exact TODO item text>
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+  BODY_EOF
+  )
+  .claude/ship --commit-msg "<message>" --title "<title>" --body "$PR_BODY" --base main --merge --track-unreviewed --pull-base
+  ```
+
+  Output the PR link.
 - Append the link to only this new PR to .private/UNREVIEWED_PRS.md
 - CRITICAL: Merge it immediately with `gh pr merge <N> --squash` and switch back to the main branch
 - If this task was addressing feedback on a previous PR (either "Address the feedback on <PR URL>" or a sub-task with "(feedback from <PR URL>)"), leave a paper trail on the original PR:
