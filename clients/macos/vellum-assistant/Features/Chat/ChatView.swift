@@ -902,10 +902,19 @@ struct ChatView: View {
                                 Circle()
                                     .fill(VColor.textMuted)
                                     .frame(width: 5, height: 5)
-                                Text(message.text)
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .lineLimit(1)
+                                if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    // Attachment-only message — show filenames
+                                    let names = message.attachments.map(\.filename).joined(separator: ", ")
+                                    Label(names.isEmpty ? "Attachment" : names, systemImage: "paperclip")
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textMuted)
+                                        .lineLimit(1)
+                                } else {
+                                    Text(message.text)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textSecondary)
+                                        .lineLimit(1)
+                                }
                                 Spacer()
                                 if let onDelete = onDeleteQueuedMessage {
                                     Button {
