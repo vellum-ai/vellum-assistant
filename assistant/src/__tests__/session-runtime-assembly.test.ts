@@ -3,8 +3,10 @@ import type { Message } from '../providers/types.js';
 import {
   applyRuntimeInjections,
   injectChannelCapabilityContext,
+  injectTemporalContext,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
+  stripTemporalContext,
 } from '../daemon/session-runtime-assembly.js';
 import type { ChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import { buildChannelAwarenessSection } from '../config/system-prompt.js';
@@ -311,5 +313,148 @@ describe('trust-gating via channel capabilities', () => {
     expect(injected).toContain('Do NOT use ui_show, ui_update, or app_create');
     expect(injected).toContain('Present information as well-formatted text');
     expect(injected).toContain('desktop app');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectTemporalContext
+// ---------------------------------------------------------------------------
+
+describe('injectTemporalContext', () => {
+  const baseUserMessage: Message = {
+    role: 'user',
+    content: [{ type: 'text', text: 'Plan a trip for next weekend' }],
+  };
+
+  const sampleContext = '<temporal_context>\nToday: 2026-02-18 (Wednesday)\nTimezone: UTC\n</temporal_context>';
+
+  test('prepends temporal context block to user message', () => {
+    const result = injectTemporalContext(baseUserMessage, sampleContext);
+    expect(result.content.length).toBe(2);
+    const injected = result.content[0];
+    expect(injected.type).toBe('text');
+    expect((injected as { type: 'text'; text: string }).text).toContain('<temporal_context>');
+    expect((injected as { type: 'text'; text: string }).text).toContain('2026-02-18');
+  });
+
+  test('preserves original message content', () => {
+    const result = injectTemporalContext(baseUserMessage, sampleContext);
+    const lastBlock = result.content[result.content.length - 1];
+    expect((lastBlock as { type: 'text'; text: string }).text).toBe('Plan a trip for next weekend');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripTemporalContext
+// ---------------------------------------------------------------------------
+
+describe('stripTemporalContext', () => {
+  test('strips temporal_context blocks from user messages', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<temporal_context>\nToday: 2026-02-18\n</temporal_context>' },
+          { type: 'text', text: 'Hello' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Hi there' }],
+      },
+    ];
+
+    const result = stripTemporalContext(messages);
+
+    expect(result.length).toBe(2);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    // Assistant message untouched
+    expect(result[1].content.length).toBe(1);
+  });
+
+  test('removes user messages that only contain temporal_context', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<temporal_context>\nToday: 2026-02-18\n</temporal_context>' },
+        ],
+      },
+    ];
+
+    const result = stripTemporalContext(messages);
+    expect(result.length).toBe(0);
+  });
+
+  test('does not touch unrelated blocks', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<channel_capabilities>\nchannel: dashboard\n</channel_capabilities>' },
+          { type: 'text', text: 'Hello' },
+        ],
+      },
+    ];
+
+    const result = stripTemporalContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe(messages[0]); // Same reference — untouched
+  });
+
+  test('leaves messages without temporal_context untouched', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Normal message' }],
+      },
+    ];
+
+    const result = stripTemporalContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe(messages[0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections with temporalContext
+// ---------------------------------------------------------------------------
+
+describe('applyRuntimeInjections with temporalContext', () => {
+  const baseMessages: Message[] = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'When is next weekend?' }],
+    },
+  ];
+
+  const sampleContext = '<temporal_context>\nToday: 2026-02-18 (Wednesday)\n</temporal_context>';
+
+  test('injects temporal context when provided', () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      temporalContext: sampleContext,
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(2);
+    const injected = result[0].content[0];
+    expect((injected as { type: 'text'; text: string }).text).toContain('<temporal_context>');
+  });
+
+  test('does not inject when temporalContext is null', () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      temporalContext: null,
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+  });
+
+  test('does not inject when temporalContext is omitted', () => {
+    const result = applyRuntimeInjections(baseMessages, {});
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
   });
 });
