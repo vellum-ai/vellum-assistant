@@ -28,7 +28,7 @@ mock.module('../tools/registry.js', () => ({
   registerTool: () => {},
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
   createAccount,
   listAccounts,
@@ -47,6 +47,7 @@ const _ctx: ToolContext = {
 };
 
 afterAll(() => {
+  resetDb();
   mock.restore();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
