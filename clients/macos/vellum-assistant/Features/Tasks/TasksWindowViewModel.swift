@@ -40,6 +40,13 @@ class TasksWindowViewModel: ObservableObject {
 
         daemonClient.onWorkItemStatusChanged = { _ in scheduleRefresh() }
         daemonClient.onTasksChanged = { _ in scheduleRefresh() }
+
+        daemonClient.onWorkItemDeleteResponse = { [weak self] response in
+            guard let self else { return }
+            if !response.success {
+                self.fetchItems()
+            }
+        }
     }
 
     func fetchItems() {
@@ -66,6 +73,23 @@ class TasksWindowViewModel: ObservableObject {
             try daemonClient.sendWorkItemComplete(id: id)
             items.removeAll { $0.id == id }
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func removeTask(id: String) {
+        let snapshot = items
+
+        withAnimation(.linear(duration: 0.15)) {
+            items.removeAll { $0.id == id }
+        }
+
+        do {
+            try daemonClient.sendWorkItemDelete(id: id)
+        } catch {
+            withAnimation(.linear(duration: 0.15)) {
+                items = snapshot
+            }
             errorMessage = error.localizedDescription
         }
     }

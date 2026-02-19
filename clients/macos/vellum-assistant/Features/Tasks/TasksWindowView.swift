@@ -99,6 +99,7 @@ struct TasksWindowView: View {
                                 item: item,
                                 onRun: { viewModel.runTask(id: item.id) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
+                                onRemove: { viewModel.removeTask(id: item.id) },
                                 onPriorityChange: { newTier in
                                     viewModel.updatePriority(id: item.id, tier: newTier)
                                 }
@@ -122,6 +123,7 @@ private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
     let onRun: () -> Void
     let onComplete: () -> Void
+    let onRemove: () -> Void
     let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
 
@@ -264,6 +266,19 @@ private struct TasksWindowRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Mark task as reviewed")
+            }
+
+            if isHovered {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 20, height: 20)
+                        .background(VColor.surfaceBorder.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove task")
             }
         }
     }
