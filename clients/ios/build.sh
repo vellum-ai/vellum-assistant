@@ -57,7 +57,14 @@ case "$CMD" in
     test)
         echo "Running iOS tests..."
         cd "$CLIENTS_DIR"
-        swift test --filter vellum_assistant_iosTests
+        # Use xcodebuild test instead of swift test to avoid compiling the
+        # macOS test target (which can crash on CI). xcodebuild only builds
+        # the dependencies needed for the selected scheme + destination.
+        xcodebuild test \
+            -scheme vellum-assistant-iosTests \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -derivedDataPath "$DIST_DIR/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO
         exit 0
         ;;
     clean)
