@@ -510,7 +510,7 @@ Run `/release [version]` in Claude Code. If no version is provided, the patch ve
 
 Creating the GitHub Release triggers three workflows in parallel:
 
-- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun daemon binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the public updates repo ([alex-nork/vellum-assistant-macos-updates](https://github.com/alex-nork/vellum-assistant-macos-updates)). This takes ~15-20 minutes.
+- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun daemon binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the public updates repo ([vellum-ai/velly](https://github.com/vellum-ai/velly)). This takes ~15-20 minutes.
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 
@@ -520,7 +520,7 @@ The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates
 
 ### First-time installation
 
-New users download the latest DMG from the [public updates repo releases page](https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+New users download the latest DMG from the [public updates repo releases page](https://github.com/vellum-ai/velly/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
 
 ## License
 

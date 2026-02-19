@@ -261,7 +261,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>SUFeedURL</key>
-    <string>https://github.com/alex-nork/vellum-assistant-macos-updates/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/vellum-ai/velly/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-}</string>
     <key>SUAutomaticallyUpdate</key>
