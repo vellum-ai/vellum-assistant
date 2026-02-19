@@ -1,7 +1,6 @@
-import VellumAssistantShared
 import SwiftUI
 
-struct SubagentStatusChip: View {
+public struct SubagentStatusChip: View {
     let subagent: SubagentInfo
 
     @State private var phase: Int = 0
@@ -24,7 +23,11 @@ struct SubagentStatusChip: View {
         }
     }
 
-    var body: some View {
+    public init(subagent: SubagentInfo) {
+        self.subagent = subagent
+    }
+
+    public var body: some View {
         HStack(spacing: VSpacing.sm) {
             Image(systemName: statusIcon)
                 .font(.system(size: 11))
@@ -88,24 +91,4 @@ struct SubagentStatusChip: View {
             }
         }
     }
-}
-
-#Preview("SubagentStatusChip") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: VSpacing.md) {
-            SubagentStatusChip(subagent: SubagentInfo(
-                id: "1", label: "Researching API docs", status: .running
-            ))
-            SubagentStatusChip(subagent: SubagentInfo(
-                id: "2", label: "Writing tests", status: .completed
-            ))
-            SubagentStatusChip(subagent: SubagentInfo(
-                id: "3", label: "Deploying service", status: .failed
-            ))
-        }
-        .padding()
-        .frame(maxWidth: 520)
-    }
-    .frame(width: 600, height: 200)
 }

@@ -75,6 +75,20 @@ struct ChatContentView: View {
                                 )
                                 .id(message.id)
                             }
+
+                            // Subagent chips anchored to the message that spawned them
+                            ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                                SubagentStatusChip(subagent: subagent)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id("subagent-\(subagent.id)")
+                            }
+                        }
+
+                        // Subagents with no parent message (e.g. from history load)
+                        ForEach(viewModel.activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                            SubagentStatusChip(subagent: subagent)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("subagent-\(subagent.id)")
                         }
 
                         // Current step indicator shown while generating
