@@ -2,8 +2,9 @@
  * Turn-boundary commit logic for workspace git tracking.
  *
  * After each conversation turn (user message -> assistant response cycle),
- * this module checks the workspace for uncommitted changes and creates a
- * single git commit capturing all file modifications from that turn.
+ * this module creates a git commit capturing all file modifications from
+ * that turn. If no tracked files changed, an empty commit is still created
+ * so that every turn is recorded in the git history as an audit trail.
  *
  * Commits are awaited so they complete before the next turn starts,
  * preventing cross-turn attribution of file changes.
@@ -54,7 +55,7 @@ function buildCommitMessage(summary: string, metadata: TurnCommitMetadata): stri
  */
 function buildChangeSummary(files: string[]): string {
   if (files.length === 0) {
-    return 'workspace changes';
+    return 'no file changes';
   }
   if (files.length === 1) {
     return files[0];
@@ -66,10 +67,11 @@ function buildChangeSummary(files: string[]): string {
 }
 
 /**
- * Attempt a turn-boundary commit for the workspace.
+ * Create a turn-boundary commit for the workspace.
  *
- * Checks the workspace for uncommitted changes. If any are found,
- * creates a single commit with structured metadata.
+ * Always creates a commit — even when no tracked files changed — so that
+ * every conversation turn is recorded in the git history. When files did
+ * change, they are staged and included in the commit.
  *
  * This function should be awaited so it completes before the next turn
  * starts. All errors are caught and logged to avoid disrupting the session.
@@ -86,8 +88,8 @@ export async function commitTurnChanges(
   try {
     const gitService = getWorkspaceGitService(workspaceDir);
 
-    // Atomic status check + commit within a single mutex lock to prevent
-    // TOCTOU races with heartbeat commits.
+    // First try the atomic dirty-check path which stages + commits under
+    // a single mutex lock (prevents TOCTOU races with heartbeat commits).
     const { committed, status } = await gitService.commitIfDirty((st) => {
       const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
       const timestamp = new Date().toISOString();
@@ -110,7 +112,18 @@ export async function commitTurnChanges(
         'Turn-boundary commit created',
       );
     } else {
-      log.debug({ sessionId, turnNumber }, 'No workspace changes to commit for turn');
+      // Workspace was clean — create an empty commit so the turn is still
+      // recorded in git history as an audit trail.
+      const timestamp = new Date().toISOString();
+      const metadata: TurnCommitMetadata = {
+        sessionId,
+        turnNumber,
+        timestamp,
+        filesChanged: 0,
+      };
+      const message = buildCommitMessage('no file changes', metadata);
+      await gitService.commitChanges(message);
+      log.info({ sessionId, turnNumber }, 'Turn-boundary empty commit created');
     }
   } catch (err) {
     // Never let commit failures propagate — they must not affect the turn

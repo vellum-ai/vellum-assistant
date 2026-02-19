@@ -53,7 +53,7 @@ describe('commitTurnChanges', () => {
     expect(fullMessage).toContain('Files: 2 changed');
   });
 
-  test('turn with no changes creates no commit', async () => {
+  test('turn with no changes creates an empty commit', async () => {
     // Initialize workspace git
     const service = new WorkspaceGitService(testDir);
     await service.ensureInitialized();
@@ -65,7 +65,7 @@ describe('commitTurnChanges', () => {
     }).trim();
     const commitCountBefore = logBefore.split('\n').length;
 
-    // No file changes — just call commitTurnChanges
+    // No file changes — commitTurnChanges should still create an empty commit
     await commitTurnChanges(testDir, 'sess_xyz', 3);
 
     // Count commits after
@@ -75,8 +75,18 @@ describe('commitTurnChanges', () => {
     }).trim();
     const commitCountAfter = logAfter.split('\n').length;
 
-    // No new commits should have been created
-    expect(commitCountAfter).toBe(commitCountBefore);
+    // An empty commit should have been created
+    expect(commitCountAfter).toBe(commitCountBefore + 1);
+
+    // Verify the empty commit has correct metadata
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+    expect(fullMessage).toContain('Turn: no file changes');
+    expect(fullMessage).toContain('Session: sess_xyz');
+    expect(fullMessage).toContain('Turn: 3');
+    expect(fullMessage).toContain('Files: 0 changed');
   });
 
   test('multiple tool calls in one turn result in single commit at end', async () => {
@@ -191,26 +201,32 @@ describe('commitTurnChanges', () => {
     writeFileSync(join(testDir, 'turn2.txt'), 'turn 2 content');
     await commitTurnChanges(testDir, 'sess_successive', 2);
 
-    // Turn 3 — no changes
+    // Turn 3 — no file changes, but should still create an empty commit
     await commitTurnChanges(testDir, 'sess_successive', 3);
 
-    // Should have 3 total commits: initial + turn 1 + turn 2
-    // Turn 3 had no changes so no commit
+    // Should have 4 total commits: initial + turn 1 + turn 2 + turn 3 (empty)
     const log = execFileSync('git', ['log', '--oneline'], {
       cwd: testDir,
       encoding: 'utf-8',
     }).trim();
     const commitCount = log.split('\n').length;
-    expect(commitCount).toBe(3);
+    expect(commitCount).toBe(4);
 
     // Verify turn metadata in the commits
-    const turn2Msg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+    const turn3Msg = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+    expect(turn3Msg).toContain('Turn: 3');
+    expect(turn3Msg).toContain('no file changes');
+
+    const turn2Msg = execFileSync('git', ['log', '-1', '--skip=1', '--pretty=%B'], {
       cwd: testDir,
       encoding: 'utf-8',
     });
     expect(turn2Msg).toContain('Turn: 2');
 
-    const turn1Msg = execFileSync('git', ['log', '-1', '--skip=1', '--pretty=%B'], {
+    const turn1Msg = execFileSync('git', ['log', '-1', '--skip=2', '--pretty=%B'], {
       cwd: testDir,
       encoding: 'utf-8',
     });

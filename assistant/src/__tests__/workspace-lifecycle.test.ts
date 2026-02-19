@@ -135,10 +135,10 @@ describe('Workspace git lifecycle (integration)', () => {
     expect(turn2Msg).toContain('Files: 1 changed');
 
     // ----------------------------------------------------------------
-    // Step 4: Turn 3 — no changes (should NOT create a commit)
+    // Step 4: Turn 3 — no file changes (still creates an empty commit)
     // ----------------------------------------------------------------
     await commitTurnChanges(testDir, sessionId, 3);
-    expect(commitCount(testDir)).toBe(3); // Still 3
+    expect(commitCount(testDir)).toBe(4); // initial + turn 1 + turn 2 + turn 3 (empty)
 
     // ----------------------------------------------------------------
     // Step 5: Heartbeat safety net — simulate uncommitted changes
@@ -168,7 +168,7 @@ describe('Workspace git lifecycle (integration)', () => {
 
     const secondCheck = await heartbeat.check();
     expect(secondCheck.committed).toBe(1);
-    expect(commitCount(testDir)).toBe(4);
+    expect(commitCount(testDir)).toBe(5);
 
     const heartbeatMsg = lastCommitMessage(testDir);
     expect(heartbeatMsg).toContain('auto-commit');
@@ -180,13 +180,14 @@ describe('Workspace git lifecycle (integration)', () => {
     // ----------------------------------------------------------------
     const fullLog = gitLog(testDir, '--oneline');
     const lines = fullLog.split('\n');
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(5);
 
     // Most recent first
     expect(lines[0]).toContain('auto-commit');
-    expect(lines[1]).toContain('Turn:');
-    expect(lines[2]).toContain('Turn:');
-    expect(lines[3]).toContain('Initial commit');
+    expect(lines[1]).toContain('Turn:');  // turn 3 (empty)
+    expect(lines[2]).toContain('Turn:');  // turn 2
+    expect(lines[3]).toContain('Turn:');  // turn 1
+    expect(lines[4]).toContain('Initial commit');
 
     // ----------------------------------------------------------------
     // Step 7: Shutdown commit — one more file, then graceful shutdown
@@ -195,7 +196,7 @@ describe('Workspace git lifecycle (integration)', () => {
 
     const shutdownResult = await heartbeat.commitAllPending();
     expect(shutdownResult.committed).toBe(1);
-    expect(commitCount(testDir)).toBe(5);
+    expect(commitCount(testDir)).toBe(6);
     expect(lastCommitMessage(testDir)).toContain('shutdown');
   });
 
@@ -270,10 +271,10 @@ describe('Workspace git lifecycle (integration)', () => {
     await Promise.all([p1, p2]);
 
     // All files should be committed (no data loss).
-    // The first commit may absorb both files, so the second sees a clean
-    // workspace and correctly skips rather than creating an empty commit.
+    // The first commit may absorb both files; the second always creates
+    // a commit (empty or with changes) so every turn is recorded.
     const count = commitCount(testDir);
-    expect(count).toBeGreaterThanOrEqual(2); // initial + at least 1 turn commit
+    expect(count).toBeGreaterThanOrEqual(3); // initial + 2 turn commits
 
     // Verify no file changes are lost
     const status = await service.getStatus();
