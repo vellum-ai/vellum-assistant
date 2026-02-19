@@ -753,6 +753,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processed_callbacks_dedupe_key ON processed_callbacks(dedupe_key)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processed_callbacks_call_session_id ON processed_callbacks(call_session_id)`);
 
+  // Add claim ownership token to prevent cross-handler claim interference
+  try { database.run(/*sql*/ `ALTER TABLE processed_callbacks ADD COLUMN claim_id TEXT`); } catch { /* already exists */ }
+
   // Unique constraint: at most one non-null provider_call_sid per (provider, provider_call_sid).
   // On upgraded databases that pre-date this constraint, duplicate rows may exist; deduplicate
   // them first to avoid a UNIQUE constraint failure that would prevent startup.

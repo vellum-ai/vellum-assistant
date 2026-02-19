@@ -585,5 +585,6 @@ export const processedCallbacks = sqliteTable('processed_callbacks', {
   callSessionId: text('call_session_id')
     .notNull()
     .references(() => callSessions.id, { onDelete: 'cascade' }),
+  claimId: text('claim_id'),
   createdAt: integer('created_at').notNull(),
 });

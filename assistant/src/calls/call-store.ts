@@ -340,18 +340,22 @@ export function tryRecordProcessedCallback(
 }
 
 /**
- * Atomically claim a callback for processing. Returns true if this caller
- * won the claim (INSERT succeeded). Returns false if another caller already
+ * Atomically claim a callback for processing. Returns a unique claim ID
+ * (string) if this caller won the claim, or null if another caller already
  * claimed it (dedupe_key conflict).
  *
  * Expired orphaned claims (older than CLAIM_EXPIRY_MS) are automatically
  * cleared before attempting the insert, so crashes mid-processing don't
  * permanently block retries.
  *
- * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow retries.
- * On success, call `finalizeCallbackClaim(dedupeKey)` to make the claim permanent.
+ * If processing fails, call `releaseCallbackClaim(dedupeKey, claimId)` to allow retries.
+ * On success, call `finalizeCallbackClaim(dedupeKey, claimId)` to make the claim permanent.
+ *
+ * The returned claim ID acts as an ownership token: release and finalize
+ * operations require it so that handler A cannot accidentally release or
+ * finalize a claim that was reclaimed by handler B after expiry.
  */
-export function claimCallback(dedupeKey: string, callSessionId: string): boolean {
+export function claimCallback(dedupeKey: string, callSessionId: string): string | null {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
 
@@ -360,34 +364,41 @@ export function claimCallback(dedupeKey: string, callSessionId: string): boolean
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
   ).run(dedupeKey, Date.now() - CLAIM_EXPIRY_MS);
 
+  const claimId = uuid();
   raw.query(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, claimId, Date.now());
   const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0;
+  return changes.c > 0 ? claimId : null;
 }
 
 /**
  * Release a callback claim so that retries can reprocess it.
  * Called when processing fails after a successful claim.
+ *
+ * Only deletes the row if both dedupe_key AND claim_id match, preventing
+ * handler A from releasing a claim that was reclaimed by handler B.
  */
-export function releaseCallbackClaim(dedupeKey: string): void {
+export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ?`).run(dedupeKey);
+  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`).run(dedupeKey, claimId);
 }
 
 /**
  * Finalize a callback claim after successful processing.
  * Sets the created_at to a far-future value so the claim never expires,
  * distinguishing it from in-flight claims that may need to be reclaimed.
+ *
+ * Only updates the row if both dedupe_key AND claim_id match, preventing
+ * handler A from finalizing a claim that was reclaimed by handler B.
  */
-export function finalizeCallbackClaim(dedupeKey: string): void {
+export function finalizeCallbackClaim(dedupeKey: string, claimId: string): void {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
   // Set created_at far in the future so expiry check never matches
   const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
   raw.query(
-    `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ?`,
-  ).run(NEVER_EXPIRE, dedupeKey);
+    `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
+  ).run(NEVER_EXPIRE, dedupeKey, claimId);
 }
