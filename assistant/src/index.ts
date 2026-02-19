@@ -230,10 +230,12 @@ program
 
     log.info('Starting daemon in dev mode (Ctrl+C to stop)');
 
+    const repoRoot = join(import.meta.dirname, '..', '..');
     const child = spawn('bun', ['--watch', 'run', mainPath], {
       stdio: 'inherit',
       env: {
         ...process.env,
+        BASE_DATA_DIR: repoRoot,
         VELLUM_LOG_STDERR: '1',
         VELLUM_DEBUG: '1',
       },
