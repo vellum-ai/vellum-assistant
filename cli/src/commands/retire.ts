@@ -45,6 +45,17 @@ async function retireLocal(): Promise<void> {
     });
   } catch {}
 
+  try {
+    const killGateway = spawn("pkill", ["-f", "gateway/src/index.ts"], {
+      stdio: "ignore",
+    });
+
+    await new Promise<void>((resolve) => {
+      killGateway.on("close", () => resolve());
+      killGateway.on("error", () => resolve());
+    });
+  } catch {}
+
   const vellumDir = join(homedir(), ".vellum");
   rmSync(vellumDir, { recursive: true, force: true });
   console.log("\u2705 Local instance retired.");
