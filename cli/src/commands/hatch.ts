@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
-import { homedir, tmpdir, userInfo } from "os";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
@@ -197,6 +197,7 @@ async function pollInstance(
   instanceName: string,
   project: string,
   zone: string,
+  account?: string,
 ): Promise<PollResult> {
   try {
     const remoteCmd =
@@ -204,7 +205,7 @@ async function pollInstance(
       "S=$(systemctl is-active google-startup-scripts.service 2>/dev/null || true); " +
       "E=$(cat /var/log/startup-error 2>/dev/null || true); " +
       'printf "%s\\n===HATCH_SEP===\\n%s\\n===HATCH_ERR===\\n%s" "$L" "$S" "$E"';
-    const output = await execOutput("gcloud", [
+    const args = [
       "compute",
       "ssh",
       instanceName,
@@ -216,7 +217,9 @@ async function pollInstance(
       "--ssh-flag=-o ConnectTimeout=10",
       "--ssh-flag=-o LogLevel=ERROR",
       `--command=${remoteCmd}`,
-    ]);
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
       return { lastLine: output.trim() || null, done: false, failed: false };
@@ -258,9 +261,10 @@ async function checkCurlFailure(
   instanceName: string,
   project: string,
   zone: string,
+  account?: string,
 ): Promise<boolean> {
   try {
-    const output = await execOutput("gcloud", [
+    const args = [
       "compute",
       "ssh",
       instanceName,
@@ -272,7 +276,9 @@ async function checkCurlFailure(
       "--ssh-flag=-o ConnectTimeout=10",
       "--ssh-flag=-o LogLevel=ERROR",
       `--command=test -s ${INSTALL_SCRIPT_REMOTE_PATH} && echo EXISTS || echo MISSING`,
-    ]);
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
     return output.trim() === "MISSING";
   } catch {
     return false;
@@ -284,30 +290,35 @@ async function recoverFromCurlFailure(
   project: string,
   zone: string,
   sshUser: string,
+  account?: string,
 ): Promise<void> {
   if (!existsSync(INSTALL_SCRIPT_PATH)) {
     throw new Error(`Install script not found at ${INSTALL_SCRIPT_PATH}`);
   }
 
-  console.log("📋 Uploading install script to instance...");
-  await exec("gcloud", [
+  const scpArgs = [
     "compute",
     "scp",
     INSTALL_SCRIPT_PATH,
     `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
     `--zone=${zone}`,
     `--project=${project}`,
-  ]);
+  ];
+  if (account) scpArgs.push(`--account=${account}`);
+  console.log("📋 Uploading install script to instance...");
+  await exec("gcloud", scpArgs);
 
-  console.log("🔧 Running install script on instance...");
-  await exec("gcloud", [
+  const sshArgs = [
     "compute",
     "ssh",
     `${sshUser}@${instanceName}`,
     `--zone=${zone}`,
     `--project=${project}`,
     `--command=source ${INSTALL_SCRIPT_REMOTE_PATH}`,
-  ]);
+  ];
+  if (account) sshArgs.push(`--account=${account}`);
+  console.log("🔧 Running install script on instance...");
+  await exec("gcloud", sshArgs);
 }
 
 export async function watchHatching(
@@ -418,49 +429,6 @@ export async function watchHatching(
   });
 }
 
-interface CloudCredentials {
-  provider: string;
-  projectId?: string;
-  serviceAccountKey?: string;
-}
-
-interface WorkspaceConfig {
-  cloudCredentials?: CloudCredentials;
-}
-
-async function activateGcpCredentials(): Promise<void> {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return;
-  }
-
-  const configPath = join(homedir(), ".vellum", "workspace", "config.json");
-  let config: WorkspaceConfig;
-  try {
-    config = JSON.parse(readFileSync(configPath, "utf8")) as WorkspaceConfig;
-  } catch {
-    return;
-  }
-
-  const creds = config.cloudCredentials;
-  if (!creds || creds.provider !== "gcp" || !creds.serviceAccountKey || !creds.projectId) {
-    return;
-  }
-
-  const keyPath = join(tmpdir(), `vellum-sa-key-${Date.now()}.json`);
-  writeFileSync(keyPath, creds.serviceAccountKey);
-  try {
-    await exec("gcloud", [
-      "auth",
-      "activate-service-account",
-      `--key-file=${keyPath}`,
-    ]);
-    await exec("gcloud", ["config", "set", "project", creds.projectId]);
-  } finally {
-    try {
-      unlinkSync(keyPath);
-    } catch {}
-  }
-}
 
 async function hatchGcp(
   species: Species,
@@ -468,8 +436,8 @@ async function hatchGcp(
   name: string | null,
 ): Promise<void> {
   const startTime = Date.now();
+  const account = process.env.GCP_ACCOUNT_EMAIL;
   try {
-    await activateGcpCredentials();
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
     let instanceName: string;
 
@@ -495,14 +463,14 @@ async function hatchGcp(
     console.log("");
 
     if (name) {
-      if (await instanceExists(name, project, zone)) {
+      if (await instanceExists(name, project, zone, account)) {
         console.error(
           `Error: Instance name '${name}' is already taken. Please choose a different name.`,
         );
         process.exit(1);
       }
     } else {
-      while (await instanceExists(instanceName, project, zone)) {
+      while (await instanceExists(instanceName, project, zone, account)) {
         console.log(`⚠️  Instance name ${instanceName} already exists, generating a new name...`);
         const suffix = generateRandomSuffix();
         instanceName = `${species}-${suffix}`;
@@ -522,7 +490,7 @@ async function hatchGcp(
 
     console.log("🔨 Creating instance with startup script...");
     try {
-      await exec("gcloud", [
+      const createArgs = [
         "compute",
         "instances",
         "create",
@@ -537,7 +505,9 @@ async function hatchGcp(
         `--metadata-from-file=startup-script=${startupScriptPath}`,
         `--labels=species=${species},vellum-assistant=true`,
         "--tags=vellum-assistant",
-      ]);
+      ];
+      if (account) createArgs.push(`--account=${account}`);
+      await exec("gcloud", createArgs);
     } finally {
       try {
         unlinkSync(startupScriptPath);
@@ -545,13 +515,13 @@ async function hatchGcp(
     }
 
     console.log("🔒 Syncing firewall rules...");
-    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG);
+    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG, account);
 
     console.log(`✅ Instance ${instanceName} created successfully\n`);
 
     let externalIp: string | null = null;
     try {
-      const ipOutput = await execOutput("gcloud", [
+      const describeArgs = [
         "compute",
         "instances",
         "describe",
@@ -559,7 +529,9 @@ async function hatchGcp(
         `--project=${project}`,
         `--zone=${zone}`,
         "--format=get(networkInterfaces[0].accessConfigs[0].natIP)",
-      ]);
+      ];
+      if (account) describeArgs.push(`--account=${account}`);
+      const ipOutput = await execOutput("gcloud", describeArgs);
       externalIp = ipOutput.trim() || null;
     } catch {
       console.log("⚠️  Could not retrieve external IP yet (instance may still be starting)");
@@ -598,7 +570,7 @@ async function hatchGcp(
       console.log("");
 
       const success = await watchHatching(
-        () => pollInstance(instanceName, project, zone),
+        () => pollInstance(instanceName, project, zone, account),
         instanceName,
         startTime,
         species,
@@ -607,11 +579,11 @@ async function hatchGcp(
       if (!success) {
         if (
           species === "vellum" &&
-          (await checkCurlFailure(instanceName, project, zone))
+          (await checkCurlFailure(instanceName, project, zone, account))
         ) {
           console.log("");
           console.log("🔄 Detected install script curl failure, attempting recovery...");
-          await recoverFromCurlFailure(instanceName, project, zone, sshUser);
+          await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
           console.log("✅ Recovery successful!");
         } else {
           console.log("");

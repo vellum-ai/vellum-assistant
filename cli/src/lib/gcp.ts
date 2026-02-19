@@ -41,16 +41,19 @@ interface FirewallRuleState {
 async function describeFirewallRule(
   ruleName: string,
   project: string,
+  account?: string,
 ): Promise<FirewallRuleState | null> {
   try {
-    const output = await execOutput("gcloud", [
+    const args = [
       "compute",
       "firewall-rules",
       "describe",
       ruleName,
       `--project=${project}`,
       "--format=json(name,direction,allowed,sourceRanges,destinationRanges,targetTags,description)",
-    ]);
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
     const parsed = JSON.parse(output);
     const allowed = (parsed.allowed ?? [])
       .map((a: { IPProtocol: string; ports?: string[] }) => {
@@ -87,7 +90,7 @@ function ruleNeedsUpdate(spec: FirewallRuleSpec, state: FirewallRuleState): bool
   );
 }
 
-async function createFirewallRule(spec: FirewallRuleSpec, project: string): Promise<void> {
+async function createFirewallRule(spec: FirewallRuleSpec, project: string, account?: string): Promise<void> {
   const args = [
     "compute",
     "firewall-rules",
@@ -106,35 +109,41 @@ async function createFirewallRule(spec: FirewallRuleSpec, project: string): Prom
   if (spec.destinationRanges) {
     args.push(`--destination-ranges=${spec.destinationRanges}`);
   }
+  if (account) args.push(`--account=${account}`);
   await exec("gcloud", args);
 }
 
-async function deleteFirewallRule(ruleName: string, project: string): Promise<void> {
-  await exec("gcloud", [
+async function deleteFirewallRule(ruleName: string, project: string, account?: string): Promise<void> {
+  const args = [
     "compute",
     "firewall-rules",
     "delete",
     ruleName,
     `--project=${project}`,
     "--quiet",
-  ]);
+  ];
+  if (account) args.push(`--account=${account}`);
+  await exec("gcloud", args);
 }
 
 export async function syncFirewallRules(
   desiredRules: FirewallRuleSpec[],
   project: string,
   tag: string,
+  account?: string,
 ): Promise<void> {
   let existingNames: string[];
   try {
-    const output = await execOutput("gcloud", [
+    const listArgs = [
       "compute",
       "firewall-rules",
       "list",
       `--project=${project}`,
       `--filter=targetTags:${tag}`,
       "--format=value(name)",
-    ]);
+    ];
+    if (account) listArgs.push(`--account=${account}`);
+    const output = await execOutput("gcloud", listArgs);
     existingNames = output
       .split("\n")
       .map((s) => s.trim())
@@ -148,23 +157,23 @@ export async function syncFirewallRules(
   for (const existingName of existingNames) {
     if (!desiredNames.has(existingName)) {
       console.log(`   🗑️  Deleting stale firewall rule: ${existingName}`);
-      await deleteFirewallRule(existingName, project);
+      await deleteFirewallRule(existingName, project, account);
     }
   }
 
   for (const spec of desiredRules) {
-    const state = await describeFirewallRule(spec.name, project);
+    const state = await describeFirewallRule(spec.name, project, account);
 
     if (!state) {
       console.log(`   ➕ Creating firewall rule: ${spec.name}`);
-      await createFirewallRule(spec, project);
+      await createFirewallRule(spec, project, account);
       continue;
     }
 
     if (ruleNeedsUpdate(spec, state)) {
       console.log(`   🔄 Updating firewall rule: ${spec.name}`);
-      await deleteFirewallRule(spec.name, project);
-      await createFirewallRule(spec, project);
+      await deleteFirewallRule(spec.name, project, account);
+      await createFirewallRule(spec, project, account);
       continue;
     }
 
@@ -224,9 +233,10 @@ export async function instanceExists(
   instanceName: string,
   project: string,
   zone: string,
+  account?: string,
 ): Promise<boolean> {
   try {
-    await execOutput("gcloud", [
+    const args = [
       "compute",
       "instances",
       "describe",
@@ -234,7 +244,9 @@ export async function instanceExists(
       `--project=${project}`,
       `--zone=${zone}`,
       "--format=get(name)",
-    ]);
+    ];
+    if (account) args.push(`--account=${account}`);
+    await execOutput("gcloud", args);
     return true;
   } catch {
     return false;

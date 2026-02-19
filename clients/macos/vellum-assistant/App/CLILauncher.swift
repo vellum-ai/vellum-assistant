@@ -110,6 +110,12 @@ final class CLILauncher {
                     .appendingPathComponent("vellum-sa-key-\(ProcessInfo.processInfo.processIdentifier).json")
                 try config.gcpServiceAccountKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
                 env["GOOGLE_APPLICATION_CREDENTIALS"] = tmpKeyPath.path
+
+                if let data = config.gcpServiceAccountKey.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let email = json["client_email"] as? String {
+                    env["GCP_ACCOUNT_EMAIL"] = email
+                }
             }
         } else if config.remote == "aws" {
             if !config.awsRoleArn.isEmpty {
@@ -133,10 +139,6 @@ final class CLILauncher {
                 env["VELLUM_SSH_KEY_PATH"] = tmpKeyPath.path
             }
         }
-
-        let entryFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vellum-hatch-entry-\(ProcessInfo.processInfo.processIdentifier).json")
-        env["VELLUM_HATCH_ENTRY_FILE"] = entryFile.path
 
         proc.environment = env
 
