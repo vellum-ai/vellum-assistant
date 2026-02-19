@@ -1152,7 +1152,7 @@ export interface SecretDetected {
   type: 'secret_detected';
   toolName: string;
   matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block';
+  action: 'redact' | 'warn' | 'block' | 'prompt';
 }
 
 export interface MemoryRecalledCandidateDebug {
