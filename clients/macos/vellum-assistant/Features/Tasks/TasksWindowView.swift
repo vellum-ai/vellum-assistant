@@ -140,7 +140,7 @@ struct TasksWindowView: View {
 
 // MARK: - Row View
 
-/// Row view for the standalone Tasks window.
+/// Row view using explicit columns aligned to `TasksTableContract`.
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
     let onRun: () -> Void
@@ -148,69 +148,24 @@ private struct TasksWindowRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                priorityIndicator
-                Text(item.title)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(2)
-                Spacer()
-                statusBadge
-            }
+        HStack(alignment: .center, spacing: 0) {
+            // Task column — flexible width
+            taskColumn
 
-            if let notes = item.notes, !notes.isEmpty {
-                Text(notes)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(2)
-            }
+            // Priority column — fixed width
+            priorityColumn
+                .frame(width: TasksTableContract.priorityWidth)
 
-            HStack(spacing: VSpacing.sm) {
-                if item.status == "queued" {
-                    Button(action: onRun) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 10))
-                            Text("Run")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.accent)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.accent.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                    .buttonStyle(.plain)
-                }
+            // Status column — fixed width
+            statusColumn
+                .frame(width: TasksTableContract.statusWidth)
 
-                if item.status == "awaiting_review" {
-                    Button(action: onComplete) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10))
-                            Text("Mark Reviewed")
-                                .font(VFont.caption)
-                        }
-                        .foregroundColor(VColor.success)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.success.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-
-                if let lastRunStatus = item.lastRunStatus {
-                    Text("Last run: \(lastRunStatus)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            }
+            // Actions column — fixed width
+            actionsColumn
+                .frame(width: TasksTableContract.actionsWidth)
         }
-        .padding(VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .padding(.horizontal, VSpacing.md)
         .background(isHovered ? VColor.surface.opacity(0.8) : VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
@@ -222,59 +177,84 @@ private struct TasksWindowRow: View {
         }
     }
 
-    // MARK: - Priority Indicator
+    // MARK: - Task Column
 
-    @ViewBuilder
-    private var priorityIndicator: some View {
-        let tier = item.priorityTier
-        Circle()
-            .fill(priorityColor(tier: tier))
+    private var taskColumn: some View {
+        Text(item.title)
+            .font(VFont.body)
+            .foregroundColor(VColor.textPrimary)
+            .lineLimit(TasksTableContract.titleLineLimit)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Priority Column
+
+    private var priorityColumn: some View {
+        let style = TasksTableContract.priorityStyle(for: item.priorityTier)
+        return Circle()
+            .fill(style.color)
             .frame(width: 8, height: 8)
-            .accessibilityLabel("Priority \(Int(tier))")
+            .accessibilityLabel("Priority \(style.label)")
     }
 
-    private func priorityColor(tier: Double) -> Color {
-        switch tier {
-        case 0: return VColor.error      // high
-        case 1: return VColor.accent     // medium
-        default: return VColor.textMuted // low
-        }
-    }
+    // MARK: - Status Column
 
-    // MARK: - Status Badge
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        let (label, color, showSpinner) = statusInfo(item.status)
-        HStack(spacing: VSpacing.xs) {
+    private var statusColumn: some View {
+        let style = TasksTableContract.statusStyle(for: item.status)
+        let showSpinner = item.status == "running"
+        return HStack(spacing: VSpacing.xs) {
             if showSpinner {
                 ProgressView()
                     .controlSize(.mini)
             }
-            Text(label)
+            Text(style.label)
                 .font(VFont.caption)
-                .foregroundColor(color)
+                .foregroundColor(style.color)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, 2)
-        .background(color.opacity(0.12))
+        .background(style.color.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
-    private func statusInfo(_ status: String) -> (String, Color, Bool) {
-        switch status {
-        case "queued":
-            return ("Queued", VColor.textSecondary, false)
-        case "running":
-            return ("Running", VColor.accent, true)
-        case "awaiting_review":
-            return ("Awaiting Review", VColor.warning, false)
-        case "failed":
-            return ("Failed", VColor.error, false)
-        case "done":
-            return ("Done", VColor.success, false)
-        default:
-            return (status, VColor.textMuted, false)
+    // MARK: - Actions Column
+
+    private var actionsColumn: some View {
+        HStack(spacing: VSpacing.xs) {
+            if item.status == "queued" {
+                Button(action: onRun) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10))
+                        Text("Run")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.accent)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if item.status == "awaiting_review" {
+                Button(action: onComplete) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10))
+                        Text("Reviewed")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.success)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.success.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }
