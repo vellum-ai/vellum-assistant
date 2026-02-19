@@ -97,6 +97,7 @@ struct TasksWindowView: View {
                         ForEach(viewModel.items, id: \.id) { item in
                             TasksWindowRow(
                                 item: item,
+                                runningIds: viewModel.runInFlightIds,
                                 onRun: { viewModel.runTask(id: item.id) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
@@ -121,6 +122,7 @@ struct TasksWindowView: View {
 /// Row view using explicit columns aligned to `TasksTableContract`.
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
+    let runningIds: Set<String>
     let onRun: () -> Void
     let onComplete: () -> Void
     let onRemove: () -> Void
@@ -236,10 +238,12 @@ private struct TasksWindowRow: View {
 
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
+        let isRunning = runningIds.contains(item.id)
         let isFailed = status == .failed
+        let runEnabled = !isRunning
         let showRun = status == .queued || isFailed
         let buttonColor = isFailed ? VColor.warning : VColor.accent
-        let buttonLabel = isFailed ? "Retry" : "Run"
+        let buttonLabel = isRunning ? "Starting..." : (isFailed ? "Retry" : "Run")
         return HStack(spacing: VSpacing.xs) {
             if showRun {
                 Button(action: onRun) {
@@ -257,8 +261,10 @@ private struct TasksWindowRow: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(isFailed ? "Retry task" : "Run task")
-                .accessibilityHint(isFailed ? "Retry running this failed task" : "")
+                .disabled(!runEnabled)
+                .opacity(runEnabled ? 1.0 : 0.4)
+                .accessibilityLabel(isRunning ? "Task is starting" : (isFailed ? "Retry task" : "Run task"))
+                .accessibilityHint(isRunning ? "Task is already starting" : (isFailed ? "Retry running this failed task" : ""))
             }
 
             if status == .awaitingReview {
