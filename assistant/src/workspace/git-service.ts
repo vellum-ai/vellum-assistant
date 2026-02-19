@@ -427,7 +427,7 @@ export class WorkspaceGitService {
             { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
             'Circuit breaker open after lock acquisition, skipping commit',
           );
-          return { committed: false, status: emptyStatus };
+          return { committed: false, status: emptyStatus, didRunGit: false as const };
         }
 
         // Re-check deadline after lock acquisition: the call may have waited
@@ -437,17 +437,17 @@ export class WorkspaceGitService {
             { workspaceDir: this.workspaceDir },
             'Deadline expired after lock acquisition, skipping commit',
           );
-          return { committed: false, status: emptyStatus };
+          return { committed: false, status: emptyStatus, didRunGit: false as const };
         }
 
         const status = await this.getStatusInternal();
         if (status.clean) {
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         }
 
         const decision = decide(status);
         if (!decision) {
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         }
 
         // Check deadline before expensive git add/commit operations.
@@ -456,7 +456,7 @@ export class WorkspaceGitService {
             { workspaceDir: this.workspaceDir },
             'Deadline expired before git add/commit, skipping commit',
           );
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         }
 
         await this.execGit(['add', '-A']);
@@ -467,7 +467,7 @@ export class WorkspaceGitService {
         try {
           await this.execGit(['diff', '--cached', '--quiet']);
           // Exit code 0 means nothing staged — nothing to commit
-          return { committed: false, status };
+          return { committed: false, status, didRunGit: true as const };
         } catch (err) {
           // git diff --cached --quiet exits with code 1 when there are staged changes.
           // Any other error (timeout, permission, etc.) should be treated as a failure.
@@ -486,10 +486,12 @@ export class WorkspaceGitService {
         }
 
         await this.execGit(['commit', '-m', fullMessage]);
-        return { committed: true, status };
+        return { committed: true, status, didRunGit: true as const };
       });
-      this.recordSuccess();
-      return result;
+      if (result.didRunGit) {
+        this.recordSuccess();
+      }
+      return { committed: result.committed, status: result.status };
     } catch (err) {
       this.recordFailure();
       throw err;
