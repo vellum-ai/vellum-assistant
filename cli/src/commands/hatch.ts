@@ -82,7 +82,7 @@ export function buildStartupScript(
   sshUser: string,
   anthropicApiKey: string,
 ): string {
-  const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+  const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
