@@ -405,7 +405,7 @@ export function resolveSlash(content: string, cwd?: string): SlashResolution {
 function buildCCCommandResolution(commandName: string, trailingArgs: string): SlashResolution {
   const rewrittenPrompt = [
     `The user invoked the slash command \`/${commandName}\`.`,
-    `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
+    `Execute the Claude Code command "${commandName}" using the claude_code tool with prompt="${commandName}".`,
     trailingArgs ? `\nUser arguments: ${trailingArgs}` : '',
   ].filter(Boolean).join('\n');
 

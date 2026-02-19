@@ -149,6 +149,8 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  } else if (slashResult.kind === 'cc_command') {
+    session.preactivatedSkillIds = ['claude-code'];
   }
 
   // Try to persist and run the dequeued message. If persistUserMessage
@@ -248,6 +250,8 @@ export async function processMessage(
   // Preactivate skill tools when slash resolution identifies a known skill
   if (slashResult.kind === 'rewritten') {
     session.preactivatedSkillIds = [slashResult.skillId];
+  } else if (slashResult.kind === 'cc_command') {
+    session.preactivatedSkillIds = ['claude-code'];
   }
 
   let userMessageId: string;
