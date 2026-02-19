@@ -67,6 +67,7 @@ Display a table with these columns:
 | PR  | Title | Age | Codex | Devin | Verdict | TODO | Removed |
 | --- | ----- | --- | ----- | ----- | ------- | ---- | ------- |
 
+- **PR**: Just the PR number (e.g., `#5471`), not the full URL.
 - **Title**: PR title, truncated to 30 characters with "..." if longer.
 - **Age**: How long ago the PR was created (e.g., "2h 15m", "45m").
 - **Codex/Devin columns**: Use emoji prefixes for quick scanning:
