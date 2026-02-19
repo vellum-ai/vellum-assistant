@@ -48,6 +48,7 @@ export async function sendTelegramReply(
 export async function sendTelegramAttachments(
   config: GatewayConfig,
   chatId: string,
+  assistantId: string,
   attachments: RuntimeAttachmentMeta[],
 ): Promise<void> {
   const failures: string[] = [];
@@ -60,7 +61,7 @@ export async function sendTelegramAttachments(
     }
 
     try {
-      const payload = await downloadAttachment(config, meta.id);
+      const payload = await downloadAttachment(config, assistantId, meta.id);
       const buffer = Buffer.from(payload.data, "base64");
       const blob = new Blob([buffer], { type: meta.mimeType });
 

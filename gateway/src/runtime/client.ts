@@ -64,16 +64,17 @@ export type RuntimeInboundResponse = {
 
 export async function forwardToRuntime(
   config: GatewayConfig,
+  assistantId: string,
   payload: RuntimeInboundPayload,
 ): Promise<RuntimeInboundResponse> {
-  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/inbound`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/inbound`;
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= config.runtimeMaxRetries; attempt++) {
     if (attempt > 0) {
       const delay = config.runtimeInitialBackoffMs * Math.pow(2, attempt - 1);
-      log.debug({ attempt, delay }, "Retrying runtime forward");
+      log.debug({ attempt, delay, assistantId }, "Retrying runtime forward");
       await new Promise((r) => setTimeout(r, delay));
     }
 
@@ -88,7 +89,7 @@ export async function forwardToRuntime(
       if (response.status >= 400 && response.status < 500) {
         const body = await response.text();
         log.warn(
-          { status: response.status, body },
+          { status: response.status, body, assistantId },
           "Runtime returned client error, not retrying",
         );
         throw new Error(`Runtime returned ${response.status}: ${body}`);
@@ -98,7 +99,7 @@ export async function forwardToRuntime(
         const body = await response.text();
         lastError = new Error(`Runtime returned ${response.status}: ${body}`);
         log.warn(
-          { status: response.status, attempt },
+          { status: response.status, attempt, assistantId },
           "Runtime returned server error",
         );
         continue;
@@ -106,7 +107,7 @@ export async function forwardToRuntime(
 
       const result = (await response.json()) as RuntimeInboundResponse;
       log.debug(
-        { eventId: result.eventId, duplicate: result.duplicate },
+        { assistantId, eventId: result.eventId, duplicate: result.duplicate },
         "Runtime forward succeeded",
       );
       return result;
@@ -119,7 +120,7 @@ export async function forwardToRuntime(
       }
       lastError = err instanceof Error ? err : new Error(String(err));
       log.warn(
-        { err: lastError, attempt },
+        { err: lastError, attempt, assistantId },
         "Runtime forward attempt failed",
       );
     }
@@ -130,10 +131,11 @@ export async function forwardToRuntime(
 
 export async function resetConversation(
   config: GatewayConfig,
+  assistantId: string,
   sourceChannel: string,
   externalChatId: string,
 ): Promise<void> {
-  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/conversation`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/conversation`;
 
   const response = await fetch(url, {
     method: "DELETE",
@@ -160,9 +162,10 @@ export type UploadAttachmentResponse = {
 
 export async function downloadAttachment(
   config: GatewayConfig,
+  assistantId: string,
   attachmentId: string,
 ): Promise<RuntimeAttachmentPayload> {
-  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments/${encodeURIComponent(attachmentId)}`;
 
   const response = await fetch(url, {
     method: "GET",
@@ -180,9 +183,10 @@ export async function downloadAttachment(
 
 export async function uploadAttachment(
   config: GatewayConfig,
+  assistantId: string,
   input: UploadAttachmentInput,
 ): Promise<UploadAttachmentResponse> {
-  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
+  const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments`;
 
   const response = await fetch(url, {
     method: "POST",

@@ -61,7 +61,7 @@ export async function handleInbound(
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
 
   try {
-    const response = await forwardToRuntime(config, {
+    const response = await forwardToRuntime(config, routing.assistantId, {
       sourceChannel: event.sourceChannel,
       externalChatId: event.message.externalChatId,
       externalMessageId: event.message.externalMessageId,
