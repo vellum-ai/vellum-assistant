@@ -135,11 +135,33 @@ export class OpenAIProvider implements Provider {
         });
       }
 
+      // Build a synthetic response object from accumulated streaming data
+      const rawResponse = {
+        model: responseModel,
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: contentText || null,
+            tool_calls: toolCallMap.size > 0
+              ? Array.from(toolCallMap.values()).map((tc) => ({
+                  id: tc.id,
+                  type: 'function',
+                  function: { name: tc.name, arguments: tc.args },
+                }))
+              : undefined,
+          },
+          finish_reason: finishReason,
+        }],
+        usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens },
+      };
+
       return {
         content,
         model: responseModel,
         usage: { inputTokens: promptTokens, outputTokens: completionTokens },
         stopReason: finishReason,
+        rawRequest: params,
+        rawResponse,
       };
     } catch (error) {
       if (error instanceof OpenAI.APIError) {

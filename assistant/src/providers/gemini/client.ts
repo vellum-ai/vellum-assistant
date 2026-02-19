@@ -120,11 +120,26 @@ export class GeminiProvider implements Provider {
         });
       }
 
+      const rawRequest = {
+        model: modelOverride ?? this.model,
+        contents: geminiContents,
+        config: geminiConfig,
+      };
+      const rawResponse = {
+        model: responseModel,
+        text: fullText || null,
+        functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
+        finishReason,
+        usageMetadata: { promptTokenCount: promptTokens, candidatesTokenCount: outputTokens },
+      };
+
       return {
         content,
         model: responseModel,
         usage: { inputTokens: promptTokens, outputTokens },
         stopReason: finishReason,
+        rawRequest,
+        rawResponse,
       };
     } catch (error) {
       if (error instanceof ApiError) {

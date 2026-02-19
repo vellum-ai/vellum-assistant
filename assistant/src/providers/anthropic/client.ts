@@ -594,6 +594,8 @@ export class AnthropicProvider implements Provider {
           cacheReadInputTokens: response.usage.cache_read_input_tokens ?? undefined,
         },
         stopReason: response.stop_reason ?? "unknown",
+        rawRequest: params,
+        rawResponse: response,
       };
     } catch (error) {
       if (error instanceof Anthropic.APIError) {

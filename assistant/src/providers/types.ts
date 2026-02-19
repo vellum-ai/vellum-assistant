@@ -81,6 +81,10 @@ export interface ProviderResponse {
     cacheReadInputTokens?: number;
   };
   stopReason: string;
+  /** Raw JSON request body sent to the provider (for diagnostics logging). */
+  rawRequest?: unknown;
+  /** Raw JSON response body received from the provider (for diagnostics logging). */
+  rawResponse?: unknown;
 }
 
 export type ProviderEvent =
