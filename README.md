@@ -183,7 +183,7 @@ When multiple credentials are passed to a proxied command via `credential_ids`, 
 
 2. **Cross-credential resolution**: After selecting the best template per credential, the proxy checks how many credentials produced a match. If exactly one credential matches, its header is injected. If **more than one credential** matches the same host, the request is **blocked** — the proxy cannot determine which credential to use and refuses to guess.
 
-Requests that match zero credentials pass through without injection.
+Requests that match zero session credentials are handled in two ways: if the target host matches a known credential template in the global registry (i.e., *some* credential exists for that host, just not one bound to this session), the request is **blocked** by default. If the host is completely unknown to the credential system, the request passes through without injection.
 
 **Example**: If credential A has pattern `*.example.com` and credential B has pattern `api.example.com`, a request to `api.example.com` is blocked because both credentials match (even though B's match is more specific — specificity is only compared within a single credential, not across credentials).
 
