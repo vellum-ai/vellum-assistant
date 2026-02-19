@@ -52,6 +52,8 @@ export interface ToolExecutedEvent extends ToolLifecycleEventBase {
   result: ToolExecutionResult;
 }
 
+export type ErrorCategory = 'permission_denied' | 'auth' | 'tool_failure' | 'unexpected';
+
 export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   type: 'error';
   riskLevel: string;
@@ -59,6 +61,8 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
   durationMs: number;
   errorMessage: string;
   isExpected: boolean;
+  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
+  errorCategory: ErrorCategory;
   errorName?: string;
   errorStack?: string;
 }

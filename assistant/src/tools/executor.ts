@@ -67,6 +67,7 @@ export class ToolExecutor {
         durationMs,
         errorMessage: msg,
         isExpected: true,
+        errorCategory: 'tool_failure',
       });
       return { content: msg, isError: true };
     }
@@ -90,6 +91,7 @@ export class ToolExecutor {
         durationMs,
         errorMessage: msg,
         isExpected: true,
+        errorCategory: 'tool_failure',
       });
       return { content: msg, isError: true };
     }
@@ -325,6 +327,7 @@ export class ToolExecutor {
           durationMs,
           errorMessage: msg,
           isExpected: true,
+          errorCategory: 'tool_failure',
         });
         return { content: msg, isError: true };
       }
@@ -358,6 +361,7 @@ export class ToolExecutor {
             durationMs,
             errorMessage: msg,
             isExpected: true,
+            errorCategory: 'tool_failure',
           });
           return { content: msg, isError: true };
         }
@@ -565,6 +569,14 @@ export class ToolExecutor {
       const msg = err instanceof Error ? err.message : String(err);
       const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
 
+      const errorCategory = err instanceof PermissionDeniedError
+        ? 'permission_denied' as const
+        : err instanceof TokenExpiredError
+          ? 'auth' as const
+          : err instanceof ToolError
+            ? 'tool_failure' as const
+            : 'unexpected' as const;
+
       emitLifecycleEvent(context, {
         type: 'error',
         toolName: name,
@@ -579,6 +591,7 @@ export class ToolExecutor {
         durationMs,
         errorMessage: msg,
         isExpected,
+        errorCategory,
         errorName: err instanceof Error ? err.name : undefined,
         errorStack: err instanceof Error ? err.stack : undefined,
       });
