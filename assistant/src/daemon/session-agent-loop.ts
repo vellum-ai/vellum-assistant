@@ -63,6 +63,10 @@ import type { SkillProjectionCache } from './session-skill-tools.js';
 
 const log = getLogger('session-agent-loop');
 
+type GitServiceInitializer = {
+  ensureInitialized(): Promise<void>;
+};
+
 // ── Context Interface ────────────────────────────────────────────────
 
 export interface AgentLoopSessionContext {
@@ -112,6 +116,9 @@ export interface AgentLoopSessionContext {
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 
+  getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
+  commitTurnChanges?: typeof commitTurnChanges;
+
   refreshWorkspaceTopLevelContextIfNeeded(): void;
   markWorkspaceTopLevelDirty(): void;
   getQueueDepth(): number;
@@ -142,7 +149,8 @@ export async function runAgentLoopImpl(
 
   // Ensure workspace git repo is initialized before any tools run.
   try {
-    const gitService = getWorkspaceGitService(ctx.workingDir);
+    const getWorkspaceGitServiceFn = ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+    const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
     await gitService.ensureInitialized();
   } catch (err) {
     rlog.warn({ err }, 'Failed to initialize workspace git repo (non-fatal)');
@@ -803,7 +811,8 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
-      const commitPromise = commitTurnChanges(
+      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+      const commitPromise = commitTurnChangesFn(
         ctx.workingDir, ctx.conversationId, ctx.turnCount,
         undefined,
         deadlineMs,

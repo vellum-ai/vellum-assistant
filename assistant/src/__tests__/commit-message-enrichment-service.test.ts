@@ -1,19 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import type { CommitContext } from '../workspace/commit-message-provider.js';
-
-// ---------------------------------------------------------------------------
-// Guard against module mock leakage from earlier test files (e.g. session-queue).
-// Re-register the real workspace modules so our static imports bind to them.
-// The ?real query string forces Bun to bypass the mock cache.
-// ---------------------------------------------------------------------------
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/git-service.js', async () => await import('../workspace/git-service.js?real'));
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/commit-message-enrichment-service.js', async () => await import('../workspace/commit-message-enrichment-service.js?real'));
 
 import {
   CommitEnrichmentService,
@@ -57,6 +47,16 @@ describe('CommitEnrichmentService', () => {
     writeFileSync(join(testDir, `file-${Date.now()}.txt`), 'content');
     await gitService.commitChanges('test commit');
     return await gitService.getHeadHash();
+  }
+
+  async function waitForDrain(service: CommitEnrichmentService, timeoutMs = 5000): Promise<void> {
+    const started = Date.now();
+    while (service._getQueueSize() > 0 || service._getActiveWorkers() > 0) {
+      if (Date.now() - started > timeoutMs) {
+        throw new Error(`Timed out waiting for enrichment queue to drain after ${timeoutMs}ms`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
   }
 
   test('enqueue and execute writes git note on success', async () => {
@@ -291,9 +291,7 @@ describe('CommitEnrichmentService', () => {
     });
 
     // Wait for queue to drain before shutdown (avoids discarding pending jobs)
-    while (service._getQueueSize() > 0 || service._getActiveWorkers() > 0) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await waitForDrain(service, 5000);
     await service.shutdown();
 
     // Both notes should exist
@@ -329,9 +327,7 @@ describe('CommitEnrichmentService', () => {
     // Wait for all retries to complete (initial + 2 retries, with backoff)
     // Backoff: 1s after attempt 1, 2s after attempt 2 = ~3s total
     // But since the job itself is very fast to time out, total time is dominated by backoff
-    while (service._getActiveWorkers() > 0 || service._getQueueSize() > 0) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForDrain(service, 10000);
     await service.shutdown();
 
     // After 1 initial attempt + 2 retries (3 total), the job should be counted as failed

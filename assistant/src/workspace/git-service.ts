@@ -546,11 +546,30 @@ export class WorkspaceGitService {
   private ensureGitignoreRulesLocked(): void {
     const gitignorePath = join(this.workspaceDir, '.gitignore');
     if (existsSync(gitignorePath)) {
-      const content = readFileSync(gitignorePath, 'utf-8');
+      let content = readFileSync(gitignorePath, 'utf-8');
+
+      // Migrate legacy broad ignore rule to selective data subdirectory rules.
+      // This keeps user-tracked files under data/ visible to git.
+      const lines = content.split('\n');
+      const hadLegacyDataRule = lines.some(line => line.trim() === 'data/');
+      if (hadLegacyDataRule) {
+        content = lines
+          .filter(line => line.trim() !== 'data/')
+          .join('\n');
+        if (!content.endsWith('\n')) {
+          content += '\n';
+        }
+      }
 
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !content.includes(rule));
-      if (missingRules.length > 0) {
-        const updated = content + '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+      if (hadLegacyDataRule || missingRules.length > 0) {
+        let updated = content;
+        if (missingRules.length > 0) {
+          if (!updated.endsWith('\n')) {
+            updated += '\n';
+          }
+          updated += '# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+        }
         writeFileSync(gitignorePath, updated, 'utf-8');
       }
     } else {
