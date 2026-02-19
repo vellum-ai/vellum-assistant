@@ -97,8 +97,10 @@ struct TasksWindowView: View {
                         ForEach(viewModel.items, id: \.id) { item in
                             TasksWindowRow(
                                 item: item,
+                                hasOutput: viewModel.taskHasOutput(item),
                                 runningIds: viewModel.runInFlightIds,
                                 timeoutIds: viewModel.runTimeoutIds,
+                                onTap: { viewModel.fetchOutput(for: item) },
                                 onRun: { viewModel.runTask(id: item.id) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
@@ -115,6 +117,18 @@ struct TasksWindowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VColor.background)
+        .sheet(isPresented: Binding(
+            get: { viewModel.selectedOutputItem != nil },
+            set: { if !$0 { viewModel.dismissOutput() } }
+        )) {
+            if let item = viewModel.selectedOutputItem {
+                TaskOutputDetailView(
+                    itemTitle: item.title,
+                    state: viewModel.outputState,
+                    onDismiss: { viewModel.dismissOutput() }
+                )
+            }
+        }
     }
 }
 
@@ -123,13 +137,16 @@ struct TasksWindowView: View {
 /// Row view using explicit columns aligned to `TasksTableContract`.
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
+    let hasOutput: Bool
     let runningIds: Set<String>
     let timeoutIds: Set<String>
+    let onTap: () -> Void
     let onRun: () -> Void
     let onComplete: () -> Void
     let onRemove: () -> Void
     let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
+    @State private var isTitleHovered = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -169,12 +186,29 @@ private struct TasksWindowRow: View {
     // MARK: - Task Column
 
     private var taskColumn: some View {
-        Text(item.title)
-            .font(VFont.body)
-            .foregroundColor(VColor.textPrimary)
-            .lineLimit(TasksTableContract.titleLineLimit)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if hasOutput {
+                Text(item.title)
+                    .font(VFont.body)
+                    .foregroundColor(isTitleHovered ? VColor.accent : VColor.textPrimary)
+                    .underline(isTitleHovered, color: VColor.accent)
+                    .lineLimit(TasksTableContract.titleLineLimit)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in isTitleHovered = hovering }
+                    .onTapGesture(perform: onTap)
+                    .accessibilityLabel("View output for \(item.title)")
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                Text(item.title)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(TasksTableContract.titleLineLimit)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     // MARK: - Priority Column

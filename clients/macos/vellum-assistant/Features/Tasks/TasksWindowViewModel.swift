@@ -20,6 +20,12 @@ class TasksWindowViewModel: ObservableObject {
     /// so the view can show a recoverable "no response" warning.
     @Published var runTimeoutIds: Set<String> = []
 
+    /// The currently selected item for output detail viewing, or nil when
+    /// the detail sheet is dismissed.
+    @Published var selectedOutputItem: IPCWorkItemsListResponseItem?
+    /// Loading/loaded/error state for the output detail sheet.
+    @Published var outputState: TaskOutputState = .loading
+
     /// Handles for pending timeout tasks keyed by work item ID, so we can
     /// cancel the timer when the daemon responds before the deadline.
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -83,6 +89,17 @@ class TasksWindowViewModel: ObservableObject {
             if !response.success {
                 self.logger.warning("onWorkItemDeleteResponse: server rejected delete for id=\(response.id, privacy: .public)")
                 self.fetchItems()
+            }
+        }
+
+        daemonClient.onWorkItemOutputResponse = { [weak self] response in
+            guard let self else { return }
+            // Only update if the response matches the currently selected item
+            guard self.selectedOutputItem?.id == response.id else { return }
+            if response.success, let output = response.output {
+                self.outputState = .loaded(output)
+            } else {
+                self.outputState = .error(response.error ?? "Output not available for this task.")
             }
         }
     }
@@ -180,6 +197,34 @@ class TasksWindowViewModel: ObservableObject {
             }
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Whether a task's status indicates it may have output to display.
+    func taskHasOutput(_ item: IPCWorkItemsListResponseItem) -> Bool {
+        let status = WorkItemStatus(rawStatus: item.status)
+        switch status {
+        case .awaitingReview, .done, .failed: return true
+        default: return false
+        }
+    }
+
+    /// Opens the output detail sheet for the given item and fetches its
+    /// output from the daemon.
+    func fetchOutput(for item: IPCWorkItemsListResponseItem) {
+        logger.info("fetchOutput: id=\(item.id, privacy: .public)")
+        selectedOutputItem = item
+        outputState = .loading
+        do {
+            try daemonClient.sendWorkItemOutput(id: item.id)
+        } catch {
+            logger.error("fetchOutput: transport error for id=\(item.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            outputState = .error(error.localizedDescription)
+        }
+    }
+
+    /// Dismisses the output detail sheet.
+    func dismissOutput() {
+        selectedOutputItem = nil
     }
 
     func updatePriority(id: String, tier: Double) {
