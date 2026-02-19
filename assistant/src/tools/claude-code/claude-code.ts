@@ -52,6 +52,7 @@ export const claudeCodeTool: Tool = {
   description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
   category: 'coding',
   defaultRiskLevel: RiskLevel.Medium,
+  timeoutSec: 600,
 
   getDefinition(): ToolDefinition {
     return {

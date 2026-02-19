@@ -178,6 +178,8 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /** Per-tool execution timeout in seconds. Overrides the global toolExecutionTimeoutSec config. */
+  timeoutSec?: number;
   getDefinition(): ToolDefinition;
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult>;
 }
