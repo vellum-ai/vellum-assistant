@@ -795,7 +795,7 @@ async function executeWithTimeout(
     if (result === TIMEOUT_SENTINEL) {
       const sec = Math.round(safeMs / 1000);
       return {
-        content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
+        content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. To increase the timeout for this tool, set timeouts.toolTimeoutOverrides.${toolName} to a higher value (in seconds) in ~/.vellum/workspace/config.json.`,
         isError: true,
       };
     }
