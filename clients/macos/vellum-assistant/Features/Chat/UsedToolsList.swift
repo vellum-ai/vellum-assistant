@@ -91,6 +91,7 @@ private struct UsedToolsRow: View {
 
     @State private var isExpanded = false
     @State private var isHovered = false
+    @State private var isImageHovered = false
     @Environment(\.displayScale) private var displayScale
 
     private var hasDetails: Bool {
@@ -190,7 +191,9 @@ private struct UsedToolsRow: View {
                             .onHover { hovering in
                                 if hovering { NSCursor.pointingHand.push() }
                                 else { NSCursor.pop() }
+                                isImageHovered = hovering
                             }
+                            .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
                     } else if let img = toolCall.cachedImage {
                         Image(nsImage: img)
                             .resizable()
@@ -202,7 +205,9 @@ private struct UsedToolsRow: View {
                             .onHover { hovering in
                                 if hovering { NSCursor.pointingHand.push() }
                                 else { NSCursor.pop() }
+                                isImageHovered = hovering
                             }
+                            .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
                     }
 
                     // Output
@@ -266,7 +271,7 @@ private struct UsedToolsRow: View {
         // Try opening the original file if inputFull points to a real file
         let path = toolCall.inputFull.components(separatedBy: "\n").first ?? ""
         if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            openInPreview(URL(fileURLWithPath: path))
             return
         }
         // Fallback: write cached image to a temp file and open it
@@ -277,10 +282,19 @@ private struct UsedToolsRow: View {
             .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
         do {
             try png.write(to: tempURL)
-            NSWorkspace.shared.open(tempURL)
+            openInPreview(tempURL)
         } catch {
             // Not critical — silently fail
         }
+    }
+
+    private func openInPreview(_ url: URL) {
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: previewURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
     }
 
     private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
