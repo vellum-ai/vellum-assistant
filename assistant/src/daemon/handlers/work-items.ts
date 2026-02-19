@@ -285,14 +285,19 @@ export async function handleWorkItemRunTask(
   broadcastWorkItemStatus(ctx, msg.id);
   ctx.broadcast({ type: 'tasks_changed' });
 
-  // Execute task asynchronously — create a session and wire processMessage
+  // Execute task asynchronously — lazily create a session inside the callback
+  // using the conversationId provided by runTask, so the session references
+  // the conversation that was actually inserted into the database.
   try {
-    const session = await ctx.getOrCreateSession(crypto.randomUUID());
+    let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
     // Pass pre-approved tools from the preflight flow if available
     const approvedTools: string[] | undefined = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
     const result = await runTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
-      async (_conversationId, message) => {
+      async (conversationId, message) => {
+        if (!session) {
+          session = await ctx.getOrCreateSession(conversationId);
+        }
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
         });
