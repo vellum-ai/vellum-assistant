@@ -2695,7 +2695,7 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 | `assistant/src/tools/network/script-proxy/http-forwarder.ts` | HTTP proxy forwarder — absolute-URL form forwarding with policy callback |
 | `assistant/src/tools/network/script-proxy/session-manager.ts` | Session lifecycle — create, start, stop, idle timeout, env var generation |
 | `assistant/src/tools/network/script-proxy/certs.ts` | Local CA management — ensureLocalCA, issueLeafCert, getCAPath |
-| `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization — header/URL redaction for credential values |
+| `assistant/src/tools/network/script-proxy/logging.ts` | Log sanitization (header/URL redaction) and safe decision trace builders for policy and credential resolution |
 | `assistant/src/tools/network/script-proxy/types.ts` | Type definitions — session, policy decisions, approval callback |
 | `assistant/src/tools/terminal/backends/docker.ts` | Per-invocation network override — `networkMode: 'proxied'` switches to `--network=bridge` |
 | `assistant/src/tools/executor.ts` | `persistentDecisionsAllowed` gate — disables trust rule saving for proxied bash |
@@ -2706,7 +2706,7 @@ The proxy subsystem intercepts outbound HTTPS requests and injects stored creden
 
 The proxy subsystem is fully wired, including credential injection. The session manager's `startSession()` calls `createProxyServer()` with:
 
-- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that injects credential headers for matched hosts — it collects matching `CredentialInjectionTemplate` candidates by hostname, blocks on ambiguity (multiple matches), and for `header`-type templates resolves the secret from secure storage and sets the outbound header
+- **MITM handler config**: `mitmHandler` is configured with the local CA path and a `rewriteCallback` that performs per-credential specificity-based template selection — for each credential it picks the most specific matching header template (exact > wildcard), blocks on same-credential equal-specificity ties or cross-credential ambiguity, and for the winning `header`-type template resolves the secret from secure storage and sets the outbound header. Wildcard patterns (`*.fal.run`) match the bare apex domain (`fal.run`) via apex-inclusive matching.
 - **Policy callback**: `evaluateRequestWithApproval()` is called via the `policyCallback`; for `'matched'` decisions it injects credential headers (reading the secret value at injection time), while `'ambiguous'` decisions are blocked and `'ask_*'` decisions route through the approval callback
 - **Approval callback**: `createProxyApprovalCallback()` from `session-tool-setup.ts` routes approval prompts through the `PermissionPrompter`, using the `network_request` tool name with URL-based trust rules
 - **Docker network override**: `network_mode: 'proxied'` switches the sandbox to `--network=bridge` with `--add-host=host.docker.internal:host-gateway`; proxy env vars use `host.docker.internal` so containers can reach the host-side proxy
