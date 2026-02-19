@@ -11,7 +11,6 @@ struct ModelSelectionStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var selectedModel = "claude-opus-4-6"
 
     private static let models: [(id: String, name: String, detail: String)] = [
         ("claude-opus-4-6", "Opus 4.6", "Most capable"),
@@ -85,9 +84,6 @@ struct ModelSelectionStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existing = loadModelFromConfig() {
-                selectedModel = existing
-            }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -100,8 +96,8 @@ struct ModelSelectionStepView: View {
     // MARK: - Model Card
 
     private func modelCard(id: String, name: String, detail: String) -> some View {
-        let isSelected = selectedModel == id
-        return Button(action: { selectedModel = id }) {
+        let isSelected = state.selectedModel == id
+        return Button(action: { state.selectedModel = id }) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
@@ -155,41 +151,7 @@ struct ModelSelectionStepView: View {
     }
 
     private func saveModelAndContinue() {
-        saveModelToConfig(selectedModel)
         state.advance()
-    }
-
-    private func saveModelToConfig(_ model: String) {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["model"] = model
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["model": model]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
-    }
-
-    private func loadModelFromConfig() -> String? {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let model = json["model"] as? String else {
-            return nil
-        }
-        return model
     }
 }
 

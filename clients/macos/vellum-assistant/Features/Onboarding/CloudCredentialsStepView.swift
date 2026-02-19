@@ -10,13 +10,7 @@ struct CloudCredentialsStepView: View {
     @State private var showTitle = false
     @State private var showContent = false
 
-    @State private var awsRoleArn: String = ""
-    @State private var gcpProjectId: String = ""
-    @State private var gcpServiceAccountKey: String = ""
     @State private var gcpServiceAccountFileName: String = ""
-    @State private var sshHost: String = ""
-    @State private var sshUser: String = ""
-    @State private var sshPrivateKey: String = ""
     @State private var sshPrivateKeyFileName: String = ""
 
     @FocusState private var arnFieldFocused: Bool
@@ -68,7 +62,12 @@ struct CloudCredentialsStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            loadCredentialsFromConfig()
+            if !state.gcpServiceAccountKey.isEmpty {
+                gcpServiceAccountFileName = "service-account-key.json"
+            }
+            if !state.sshPrivateKey.isEmpty {
+                sshPrivateKeyFileName = "id_rsa"
+            }
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
             }
@@ -95,7 +94,7 @@ struct CloudCredentialsStepView: View {
                 Text("IAM Role ARN")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $awsRoleArn)
+                TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $state.awsRoleArn)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -126,7 +125,7 @@ struct CloudCredentialsStepView: View {
                 Text("Host")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextField("192.168.1.100 or my-mac-mini.local", text: $sshHost)
+                TextField("192.168.1.100 or my-mac-mini.local", text: $state.sshHost)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -143,7 +142,7 @@ struct CloudCredentialsStepView: View {
                 Text("Username")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextField("admin", text: $sshUser)
+                TextField("admin", text: $state.sshUser)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -164,7 +163,7 @@ struct CloudCredentialsStepView: View {
                     prompt: "Select SSH Private Key File",
                     onPick: { pickSSHKeyFile() },
                     onClear: {
-                        sshPrivateKey = ""
+                        state.sshPrivateKey = ""
                         sshPrivateKeyFileName = ""
                     }
                 )
@@ -187,7 +186,7 @@ struct CloudCredentialsStepView: View {
                 Text("Project ID")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
-                TextField("my-gcp-project-id", text: $gcpProjectId)
+                TextField("my-gcp-project-id", text: $state.gcpProjectId)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -209,7 +208,7 @@ struct CloudCredentialsStepView: View {
                     prompt: "Select Service Account JSON File",
                     onPick: { pickGCPServiceAccountFile() },
                     onClear: {
-                        gcpServiceAccountKey = ""
+                        state.gcpServiceAccountKey = ""
                         gcpServiceAccountFileName = ""
                     }
                 )
@@ -322,10 +321,10 @@ struct CloudCredentialsStepView: View {
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 let contents = try String(contentsOf: url, encoding: .utf8)
-                gcpServiceAccountKey = contents
+                state.gcpServiceAccountKey = contents
                 gcpServiceAccountFileName = url.lastPathComponent
             } catch {
-                gcpServiceAccountKey = ""
+                state.gcpServiceAccountKey = ""
                 gcpServiceAccountFileName = ""
             }
         }
@@ -343,10 +342,10 @@ struct CloudCredentialsStepView: View {
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 let contents = try String(contentsOf: url, encoding: .utf8)
-                sshPrivateKey = contents
+                state.sshPrivateKey = contents
                 sshPrivateKeyFileName = url.lastPathComponent
             } catch {
-                sshPrivateKey = ""
+                state.sshPrivateKey = ""
                 sshPrivateKeyFileName = ""
             }
         }
@@ -356,7 +355,7 @@ struct CloudCredentialsStepView: View {
 
     private var continueButton: some View {
         Button(action: { saveAndContinue() }) {
-            Text("Continue")
+            Text("Hatch!")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(adaptiveColor(light: .white, dark: .white))
                 .frame(maxWidth: .infinity)
@@ -419,14 +418,14 @@ struct CloudCredentialsStepView: View {
 
     private var continueDisabled: Bool {
         if isCustomHardware {
-            return sshHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || sshUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || sshPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return state.sshHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.sshUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.sshPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         } else if isAws {
-            return awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return state.awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         } else {
-            return gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return state.gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || state.gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
@@ -438,107 +437,8 @@ struct CloudCredentialsStepView: View {
 
     private func saveAndContinue() {
         guard !continueDisabled else { return }
-        saveCredentialsToConfig()
-        saveModelToConfig("claude-opus-4-6")
-        if state.cloudProvider == "gcp" {
-            Task {
-                try? await cliLauncher.runHatch()
-            }
-        }
+        state.isHatching = true
         state.advance()
-    }
-
-    private func saveModelToConfig(_ model: String) {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["model"] = model
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["model": model]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
-    }
-
-    private func saveCredentialsToConfig() {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-
-        let dirURL = configURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
-
-        var credentials: [String: Any] = [:]
-        if isCustomHardware {
-            credentials["provider"] = "customHardware"
-            credentials["sshHost"] = sshHost.trimmingCharacters(in: .whitespacesAndNewlines)
-            credentials["sshUser"] = sshUser.trimmingCharacters(in: .whitespacesAndNewlines)
-            credentials["sshPrivateKey"] = sshPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if isAws {
-            credentials["provider"] = "aws"
-            credentials["roleArn"] = awsRoleArn.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            credentials["provider"] = "gcp"
-            credentials["projectId"] = gcpProjectId.trimmingCharacters(in: .whitespacesAndNewlines)
-            credentials["serviceAccountKey"] = gcpServiceAccountKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        do {
-            let data = try Data(contentsOf: configURL)
-            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                json["cloudCredentials"] = credentials
-                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-                try updated.write(to: configURL)
-            }
-        } catch {
-            let json: [String: Any] = ["cloudCredentials": credentials]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-                try? data.write(to: configURL)
-            }
-        }
-    }
-
-    private func loadCredentialsFromConfig() {
-        let configURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/workspace/config.json")
-        guard let data = try? Data(contentsOf: configURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let creds = json["cloudCredentials"] as? [String: Any] else {
-            return
-        }
-        if let roleArn = creds["roleArn"] as? String {
-            awsRoleArn = roleArn
-        }
-        if let projectId = creds["projectId"] as? String {
-            gcpProjectId = projectId
-        }
-        if let key = creds["serviceAccountKey"] as? String {
-            gcpServiceAccountKey = key
-            if !key.isEmpty {
-                gcpServiceAccountFileName = "service-account-key.json"
-            }
-        }
-        if let host = creds["sshHost"] as? String {
-            sshHost = host
-        }
-        if let user = creds["sshUser"] as? String {
-            sshUser = user
-        }
-        if let privKey = creds["sshPrivateKey"] as? String {
-            sshPrivateKey = privKey
-            if !privKey.isEmpty {
-                sshPrivateKeyFileName = "id_rsa"
-            }
-        }
     }
 }
 

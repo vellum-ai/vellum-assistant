@@ -20,7 +20,22 @@ struct OnboardingFlowView: View {
         ZStack {
             VColor.background.ignoresSafeArea()
 
-            if (0...maxOnboardingStep).contains(state.currentStep) {
+            if state.isHatching {
+                HatchingStepView(state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(
+                        RadialGradient(
+                            colors: [
+                                adaptiveColor(light: Slate._100, dark: Slate._900),
+                                adaptiveColor(light: Slate._200, dark: Slate._950)
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 500
+                        )
+                        .ignoresSafeArea()
+                    )
+            } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Trimmed onboarding flow.
                 // When userHostedEnabled: WakeUp → APIKey → CloudCredentials (steps 0–2)
                 // Otherwise: WakeUp → APIKey (steps 0–1)
