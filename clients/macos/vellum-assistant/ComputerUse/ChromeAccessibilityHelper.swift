@@ -106,10 +106,12 @@ final class ChromeAccessibilityHelper {
     /// Restart Chrome for CDP mode with both remote debugging and accessibility flags.
     @MainActor
     static func restartChromeForCDP(app: NSRunningApplication) async -> Bool {
+        // Chrome 145+ requires a non-default --user-data-dir for CDP to bind the debugging port.
+        let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
         let success = await restartChromeWithFlags(app: app, flags: [
             "--remote-debugging-port=9222",
             "--force-renderer-accessibility",
-            "--restore-last-session"
+            "--user-data-dir=\(chromeDataDir)"
         ])
         guard success else { return false }
 

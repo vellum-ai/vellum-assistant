@@ -1,18 +1,61 @@
 import type * as net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type { HandlerContext } from './handlers.js';
-import type { RideShotgunStart } from './ipc-protocol.js';
+import type { RideShotgunStart, RideShotgunStop } from './ipc-protocol.js';
 import {
   watchSessions,
   registerWatchCompletionNotifier,
   unregisterWatchCompletionNotifier,
   fireWatchStartNotifier,
+  fireWatchCompletionNotifier,
 } from '../tools/watch/watch-state.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import { lastSummaryBySession, generateSummary } from './watch-handler.js';
+import { join } from 'node:path';
 import { getLogger } from '../util/logger.js';
+import { getDataDir } from '../util/platform.js';
+import { NetworkRecorder } from '../tools/browser/network-recorder.js';
+import { saveRecording } from '../tools/browser/recording-store.js';
+import type { SessionRecording } from '../tools/browser/network-recording-types.js';
 
 const log = getLogger('ride-shotgun-handler');
+
+/** Active network recorders keyed by watchId. */
+const activeRecorders = new Map<string, NetworkRecorder>();
+
+/**
+ * Complete a session — finalize recording (if learn mode), generate summary, fire notifier.
+ * Shared by both the duration timeout and the early-stop handler.
+ */
+async function completeSession(session: WatchSession): Promise<void> {
+  if (session.status !== 'active') return; // already completing/completed
+
+  session.status = 'completing';
+  if (session.timeoutHandle) {
+    clearTimeout(session.timeoutHandle);
+    session.timeoutHandle = undefined;
+  }
+
+  const { watchId, sessionId } = session;
+  log.info(
+    { watchId, sessionId, observationCount: session.observations.length },
+    'Session completing...',
+  );
+
+  // In learn mode, stop recording and save — skip the LLM summary (not needed)
+  if (session.isLearnMode && session.recordingId) {
+    await finalizeLearnRecording(watchId, session, session.recordingId);
+    lastSummaryBySession.set(sessionId, 'Learn session completed — recording saved.');
+    session.status = 'completed';
+    log.info({ watchId, sessionId }, 'Learn session complete — firing completion notifier');
+    fireWatchCompletionNotifier(sessionId, session);
+    log.info({ watchId, sessionId }, 'Completion notifier fired');
+    return;
+  }
+
+  await generateSummary(session);
+  session.status = 'completed';
+}
 
 export async function handleRideShotgunStart(
   msg: RideShotgunStart,
@@ -22,11 +65,17 @@ export async function handleRideShotgunStart(
   const watchId = randomUUID();
   const sessionId = randomUUID();
   const { durationSeconds, intervalSeconds } = msg;
+  const mode = msg.mode ?? 'observe';
+  const targetDomain = msg.targetDomain;
+  const isLearnMode = mode === 'learn';
+  const recordingId = isLearnMode ? randomUUID() : undefined;
 
   const session: WatchSession = {
     watchId,
     sessionId,
-    focusArea: 'General workflow observation',
+    focusArea: isLearnMode
+      ? `Learn mode: recording network traffic and screen observations${targetDomain ? ` for ${targetDomain}` : ''}`
+      : 'General workflow observation',
     durationSeconds,
     intervalSeconds,
     observations: [],
@@ -34,39 +83,64 @@ export async function handleRideShotgunStart(
     status: 'active',
     startedAt: Date.now(),
     isRideShotgun: true,
+    isLearnMode,
+    targetDomain,
+    recordingId,
   };
 
   watchSessions.set(watchId, session);
   log.debug(
-    { watchId, sessionId, durationSeconds, intervalSeconds },
+    { watchId, sessionId, durationSeconds, intervalSeconds, mode, targetDomain },
     'Session created and stored in watchSessions map',
   );
 
-  // Set timeout for duration expiry — generate summary before firing notifier
-  session.timeoutHandle = setTimeout(async () => {
-    session.status = 'completing';
-    session.timeoutHandle = undefined;
-    log.debug(
-      { watchId, sessionId, observationCount: session.observations.length },
-      'Duration timer fired — session completing. Generating summary...',
-    );
-    await generateSummary(session);
-    session.status = 'completed';
-    log.debug(
-      { watchId, sessionId },
-      'generateSummary returned — completion notifier should have fired',
-    );
-  }, durationSeconds * 1000);
+  // In learn mode, connect directly to Chrome's CDP endpoint for network recording.
+  // Retry a few times since Chrome may still be starting up after the Swift client restarts it.
+  if (isLearnMode) {
+    const startRecording = async () => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          const recorder = new NetworkRecorder(targetDomain);
+          await recorder.startDirect();
+          // Auto-stop when login is detected
+          recorder.onLoginDetected = () => {
+            log.info({ watchId }, 'Login detected — auto-stopping learn session');
+            completeSession(session);
+          };
+          activeRecorders.set(watchId, recorder);
+          log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
+          return;
+        } catch (err) {
+          if (attempt < 9) {
+            log.debug({ attempt, watchId }, 'CDP not ready, retrying in 2s...');
+            await new Promise(r => setTimeout(r, 2000));
+          } else {
+            log.warn({ err, watchId }, 'Failed to start network recording after 10 attempts');
+          }
+        }
+      }
+    };
+    // Don't block session start — record in background
+    startRecording();
+  }
+
+  // Set timeout for duration expiry
+  session.timeoutHandle = setTimeout(() => { completeSession(session); }, durationSeconds * 1000);
 
   // Register completion notifier to send summary back to client
   registerWatchCompletionNotifier(sessionId, (_completedSession: WatchSession) => {
     const summary = lastSummaryBySession.get(sessionId) ?? '';
     const observationCount = _completedSession.observations.length;
 
-    log.debug(
+    log.info(
       { watchId, sessionId, observationCount, summaryLength: summary.length, socketDestroyed: socket.destroyed },
       'Completion notifier firing — sending ride_shotgun_result to client',
     );
+
+    let recordingPath: string | undefined;
+    if (isLearnMode && recordingId) {
+      recordingPath = join(getDataDir(), 'recordings', `${recordingId}.json`);
+    }
 
     ctx.send(socket, {
       type: 'ride_shotgun_result',
@@ -74,21 +148,19 @@ export async function handleRideShotgunStart(
       watchId,
       summary,
       observationCount,
+      recordingId,
+      recordingPath,
     });
 
     unregisterWatchCompletionNotifier(sessionId);
     lastSummaryBySession.delete(sessionId);
-    log.debug({ watchId, sessionId, observationCount }, 'Ride shotgun result sent successfully');
+    log.debug({ watchId, sessionId, observationCount, recordingId }, 'Ride shotgun result sent successfully');
   });
 
   // Fire start notifier
   fireWatchStartNotifier(sessionId, session);
 
   // Send watch_started so the Swift client knows the watchId/sessionId
-  log.debug(
-    { watchId, sessionId, socketDestroyed: socket.destroyed },
-    'Sending watch_started to client',
-  );
   ctx.send(socket, {
     type: 'watch_started',
     sessionId,
@@ -97,5 +169,65 @@ export async function handleRideShotgunStart(
     intervalSeconds,
   });
 
-  log.debug({ watchId, sessionId, durationSeconds, intervalSeconds }, 'Ride shotgun session started — waiting for observations');
+  log.info({ watchId, sessionId, durationSeconds, intervalSeconds, mode }, 'Ride shotgun session started');
+}
+
+export async function handleRideShotgunStop(
+  msg: RideShotgunStop,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): Promise<void> {
+  const { watchId } = msg;
+  const session = watchSessions.get(watchId);
+  if (!session) {
+    log.warn({ watchId }, 'ride_shotgun_stop: session not found');
+    return;
+  }
+  log.info({ watchId, sessionId: session.sessionId }, 'Early stop requested');
+  await completeSession(session);
+}
+
+/**
+ * Stop network recording, extract cookies, build and save the SessionRecording.
+ */
+async function finalizeLearnRecording(
+  watchId: string,
+  session: WatchSession,
+  recordingId: string,
+): Promise<string | undefined> {
+  try {
+    const recorder = activeRecorders.get(watchId);
+
+    // Extract cookies before stopping (needs the CDP connection alive)
+    const cookies = recorder ? await recorder.extractCookies(session.targetDomain) : [];
+
+    const networkEntries = recorder ? await recorder.stop() : [];
+    activeRecorders.delete(watchId);
+
+    const recording: SessionRecording = {
+      id: recordingId,
+      startedAt: session.startedAt,
+      endedAt: Date.now(),
+      targetDomain: session.targetDomain,
+      networkEntries,
+      cookies,
+      observations: session.observations.map(obs => ({
+        ocrText: obs.ocrText,
+        appName: obs.appName,
+        windowTitle: obs.windowTitle,
+        timestamp: obs.timestamp,
+        captureIndex: obs.captureIndex,
+      })),
+    };
+
+    const path = saveRecording(recording);
+    log.info(
+      { recordingId, networkEntries: networkEntries.length, cookies: cookies.length, observations: session.observations.length },
+      'Learn recording finalized and saved',
+    );
+    return path;
+  } catch (err) {
+    log.error({ err, watchId, recordingId }, 'Failed to finalize learn recording');
+    return undefined;
+  }
 }

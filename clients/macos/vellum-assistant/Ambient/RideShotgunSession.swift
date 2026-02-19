@@ -19,6 +19,8 @@ public final class RideShotgunSession: ObservableObject {
     @Published public var state: State = .idle
     @Published public var summary: String = ""
     @Published public var observationCount: Int = 0
+    @Published public var recordingId: String?
+    @Published public var recordingPath: String?
 
     // Pass-through from WatchSession
     @Published public var elapsedSeconds: Double = 0
@@ -27,6 +29,8 @@ public final class RideShotgunSession: ObservableObject {
 
     public let durationSeconds: Int
     public let intervalSeconds: Int
+    public let mode: String?
+    public let targetDomain: String?
 
     private var watchSession: WatchSession?
     private var daemonClient: DaemonClient?
@@ -34,9 +38,11 @@ public final class RideShotgunSession: ObservableObject {
     private var watchSessionObserver: Task<Void, Never>?
     private var expectedWatchId: String?
 
-    public init(durationSeconds: Int, intervalSeconds: Int = 10) {
+    public init(durationSeconds: Int, intervalSeconds: Int = 10, mode: String? = nil, targetDomain: String? = nil) {
         self.durationSeconds = durationSeconds
         self.intervalSeconds = intervalSeconds
+        self.mode = mode
+        self.targetDomain = targetDomain
     }
 
     public func start(daemonClient: DaemonClient) {
@@ -67,10 +73,12 @@ public final class RideShotgunSession: ObservableObject {
 
         // Send ride_shotgun_start to daemon
         do {
-            log.debug("Sending ride_shotgun_start to daemon")
+            log.debug("Sending ride_shotgun_start to daemon: mode=\(self.mode ?? "observe") targetDomain=\(self.targetDomain ?? "nil")")
             try daemonClient.send(RideShotgunStartMessage(
                 durationSeconds: Double(durationSeconds),
-                intervalSeconds: Double(intervalSeconds)
+                intervalSeconds: Double(intervalSeconds),
+                mode: mode,
+                targetDomain: targetDomain
             ))
             log.debug("ride_shotgun_start sent successfully")
         } catch {
@@ -85,6 +93,24 @@ public final class RideShotgunSession: ObservableObject {
         watchSession?.stop()
         state = .cancelled
         cleanup()
+    }
+
+    /// Stop the session early but let the daemon finalize (save recording, generate summary).
+    /// The result will arrive via ride_shotgun_result as normal.
+    public func stopEarly() {
+        guard let watchId = expectedWatchId, let daemonClient else {
+            log.warning("Cannot stop early: no watchId or daemon client")
+            cancel()
+            return
+        }
+        log.info("Requesting early stop for watchId=\(watchId)")
+        do {
+            try daemonClient.send(RideShotgunStopMessage(watchId: watchId))
+            state = .summarizing
+        } catch {
+            log.error("Failed to send ride_shotgun_stop: \(error.localizedDescription)")
+            cancel()
+        }
     }
 
     // MARK: - Private
@@ -142,9 +168,11 @@ public final class RideShotgunSession: ObservableObject {
 
         summary = result.summary
         observationCount = result.observationCount
+        recordingId = result.recordingId
+        recordingPath = result.recordingPath
         state = .complete
 
-        log.debug("Ride shotgun session complete: \(result.observationCount) observations")
+        log.debug("Ride shotgun session complete: \(result.observationCount) observations, recordingId=\(result.recordingId ?? "nil")")
         cleanup()
     }
 

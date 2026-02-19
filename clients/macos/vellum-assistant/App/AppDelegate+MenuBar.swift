@@ -193,7 +193,32 @@ extension AppDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Ride Shotgun menu item disabled — re-enable when the feature has a clearer value prop
+        // Ride Shotgun submenu
+        let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
+        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
+        let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
+
+        let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
+        observeItem.target = self
+        observeItem.isEnabled = ambientAgent.currentSession == nil
+        rideShotgunSubmenu.addItem(observeItem)
+
+        let learnItem = NSMenuItem(title: "Learn (5 min)", action: #selector(startRideShotgunLearn), keyEquivalent: "")
+        learnItem.target = self
+        learnItem.isEnabled = ambientAgent.currentSession == nil
+        rideShotgunSubmenu.addItem(learnItem)
+
+        if ambientAgent.currentSession != nil {
+            rideShotgunSubmenu.addItem(NSMenuItem.separator())
+            let stopItem = NSMenuItem(title: "Stop & Save", action: #selector(stopRideShotgun), keyEquivalent: "")
+            stopItem.target = self
+            rideShotgunSubmenu.addItem(stopItem)
+        }
+
+        rideShotgunItem.submenu = rideShotgunSubmenu
+        menu.addItem(rideShotgunItem)
+
+        menu.addItem(NSMenuItem.separator())
 
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
@@ -248,6 +273,18 @@ extension AppDelegate {
         Task { @MainActor in
             await ambientAgent.showInvitation()
         }
+    }
+
+    @objc func startRideShotgunObserve() {
+        ambientAgent.startRideShotgun(durationSeconds: 180)
+    }
+
+    @objc func startRideShotgunLearn() {
+        ambientAgent.startLearnSession(targetDomain: "doordash.com", durationSeconds: 300)
+    }
+
+    @objc func stopRideShotgun() {
+        ambientAgent.stopRideShotgunEarly()
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
