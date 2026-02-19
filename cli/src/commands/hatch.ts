@@ -624,6 +624,118 @@ async function hatchGcp(
   }
 }
 
+function buildSshArgs(host: string): string[] {
+  return [
+    host,
+    "-o", "StrictHostKeyChecking=no",
+    "-o", "UserKnownHostsFile=/dev/null",
+    "-o", "ConnectTimeout=10",
+    "-o", "LogLevel=ERROR",
+  ];
+}
+
+function extractHostname(host: string): string {
+  return host.includes("@") ? host.split("@")[1] : host;
+}
+
+async function hatchCustom(
+  species: Species,
+  detached: boolean,
+  name: string | null,
+): Promise<void> {
+  const host = process.env.VELLUM_CUSTOM_HOST;
+  if (!host) {
+    console.error("Error: VELLUM_CUSTOM_HOST environment variable is required when using --remote custom (e.g., user@hostname)");
+    process.exit(1);
+  }
+
+  try {
+    const hostname = extractHostname(host);
+    const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+
+    console.log(`🥚 Creating new assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Cloud: Custom`);
+    console.log(`   Host: ${host}`);
+    console.log("");
+
+    const sshUser = host.includes("@") ? host.split("@")[0] : userInfo().username;
+    const bearerToken = randomBytes(32).toString("hex");
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      process.exit(1);
+    }
+
+    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
+    writeFileSync(startupScriptPath, startupScript);
+
+    try {
+      console.log("📋 Uploading install script to instance...");
+      await exec("scp", [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        INSTALL_SCRIPT_PATH,
+        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+      ]);
+
+      console.log("📋 Uploading startup script to instance...");
+      const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
+      await exec("scp", [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        startupScriptPath,
+        `${host}:${remoteStartupPath}`,
+      ]);
+
+      console.log("🔨 Running startup script on instance...");
+      await exec("ssh", [
+        ...buildSshArgs(host),
+        `chmod +x ${remoteStartupPath} ${INSTALL_SCRIPT_REMOTE_PATH} && bash ${remoteStartupPath}`,
+      ]);
+    } finally {
+      try {
+        unlinkSync(startupScriptPath);
+      } catch {}
+    }
+
+    const runtimeUrl = `http://${hostname}:${GATEWAY_PORT}`;
+    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
+    if (entryFilePath) {
+      writeFileSync(
+        entryFilePath,
+        JSON.stringify({
+          assistantId: instanceName,
+          runtimeUrl,
+          bearerToken,
+          species,
+          sshUser,
+          hatchedAt: new Date().toISOString(),
+        }),
+      );
+    }
+
+    if (detached) {
+      console.log("");
+      console.log("✅ Assistant is hatching!\n");
+    } else {
+      console.log("");
+      console.log("✅ Assistant has been set up!");
+    }
+    console.log("Instance details:");
+    console.log(`  Name: ${instanceName}`);
+    console.log(`  Host: ${host}`);
+    console.log(`  Runtime URL: ${runtimeUrl}`);
+    console.log("");
+  } catch (error) {
+    console.error("❌ Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
   const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
 
@@ -681,6 +793,11 @@ export async function hatch(): Promise<void> {
 
   if (remote === "gcp") {
     await hatchGcp(species, detached, name);
+    return;
+  }
+
+  if (remote === "custom") {
+    await hatchCustom(species, detached, name);
     return;
   }
 
