@@ -180,7 +180,7 @@ cat > "$EXPORT_OPTIONS" <<PLIST
     <key>uploadBitcode</key>
     <false/>
     <key>destination</key>
-    <string>upload</string>
+    <string>export</string>
 </dict>
 </plist>
 PLIST

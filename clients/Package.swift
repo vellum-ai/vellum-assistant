@@ -89,7 +89,7 @@ let package = Package(
             name: "vellum-assistant-ios",
             dependencies: ["VellumAssistantShared"],
             path: "ios",
-            exclude: ["Resources/Info.plist", "README.md", "Tests"],
+            exclude: ["Resources/Info.plist", "Resources/vellum-assistant-ios.entitlements", "README.md", "Tests", "build.sh", "dist"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/background.png"),
