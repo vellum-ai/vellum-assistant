@@ -10,6 +10,8 @@ import { resolve } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { getSecureKey } from '../security/secure-keys.js';
+import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -101,6 +103,72 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Regex to extract the Twilio webhook subpath from both top-level and
+ * assistant-scoped route shapes:
+ *   /v1/calls/twilio/<subpath>
+ *   /v1/assistants/<id>/calls/twilio/<subpath>
+ */
+const TWILIO_WEBHOOK_RE = /^\/v1\/(?:assistants\/[^/]+\/)?calls\/twilio\/(.+)$/;
+
+/**
+ * Validate a Twilio webhook request's X-Twilio-Signature header.
+ *
+ * Returns the raw body text on success so callers can reconstruct the Request
+ * for downstream handlers (which also need to read the body).
+ * Returns a 403 Response if signature validation fails.
+ * If the Twilio auth token is not configured, skips validation with a warning.
+ */
+async function validateTwilioWebhook(
+  req: Request,
+): Promise<{ body: string } | Response> {
+  const rawBody = await req.text();
+  const authToken = getSecureKey('twilio_auth_token');
+
+  if (!authToken) {
+    log.warn('Twilio auth token not configured — skipping webhook signature validation');
+    return { body: rawBody };
+  }
+
+  const signature = req.headers.get('x-twilio-signature');
+  if (!signature) {
+    log.warn('Twilio webhook request missing X-Twilio-Signature header');
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // Parse form-urlencoded body into key-value params for signature computation
+  const params: Record<string, string> = {};
+  const formData = new URLSearchParams(rawBody);
+  for (const [key, value] of formData.entries()) {
+    params[key] = value;
+  }
+
+  const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(
+    req.url,
+    params,
+    signature,
+  );
+
+  if (!isValid) {
+    log.warn('Twilio webhook signature validation failed');
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  return { body: rawBody };
+}
+
+/**
+ * Re-create a Request with the same method, headers, and URL but with a
+ * pre-read body string so downstream handlers can call req.text() again.
+ */
+function cloneRequestWithBody(original: Request, body: string): Request {
+  return new Request(original.url, {
+    method: original.method,
+    headers: original.headers,
+    body,
+  });
 }
 
 export class RuntimeHttpServer {
@@ -223,15 +291,29 @@ export class RuntimeHttpServer {
     }
 
     // ── Twilio webhook endpoints — before auth check because Twilio
-    //    webhook POSTs don't include bearer tokens. ────────────────────
-    if (path === '/v1/calls/twilio/voice-webhook' && req.method === 'POST') {
-      return await handleVoiceWebhook(req);
-    }
-    if (path === '/v1/calls/twilio/status' && req.method === 'POST') {
-      return await handleStatusCallback(req);
-    }
-    if (path === '/v1/calls/twilio/connect-action' && req.method === 'POST') {
-      return await handleConnectAction(req);
+    //    webhook POSTs don't include bearer tokens.
+    //    Supports both /v1/calls/twilio/* and /v1/assistants/:id/calls/twilio/*
+    //    Validates X-Twilio-Signature to prevent unauthorized access. ──
+    const twilioMatch = path.match(TWILIO_WEBHOOK_RE);
+    if (twilioMatch && req.method === 'POST') {
+      const twilioSubpath = twilioMatch[1];
+
+      // Validate Twilio request signature before dispatching
+      const validation = await validateTwilioWebhook(req);
+      if (validation instanceof Response) return validation;
+
+      // Reconstruct request so handlers can read the body
+      const validatedReq = cloneRequestWithBody(req, validation.body);
+
+      if (twilioSubpath === 'voice-webhook') {
+        return await handleVoiceWebhook(validatedReq);
+      }
+      if (twilioSubpath === 'status') {
+        return await handleStatusCallback(validatedReq);
+      }
+      if (twilioSubpath === 'connect-action') {
+        return await handleConnectAction(validatedReq);
+      }
     }
 
     // Require bearer token when configured
