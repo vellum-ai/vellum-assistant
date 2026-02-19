@@ -232,7 +232,7 @@ describe('image-studio TOOLS.json manifest', () => {
     const props = manifest.tools[0].input_schema.properties;
     expect(props.mode.enum).toEqual(['generate', 'edit']);
     expect(props.attachment_ids.type).toBe('array');
-    expect(props.model.enum).toEqual(['gemini-2.5-flash-image', 'gemini-3-pro-image']);
+    expect(props.model.enum).toEqual(['gemini-2.5-flash-image', 'gemini-3-pro-image', 'gemini-3-pro-image-preview']);
     expect(props.variants.type).toBe('number');
   });
 });

@@ -709,6 +709,13 @@ exports[`IPC message snapshots ClientMessage types work_item_run_task serializes
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types work_item_output serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_output",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
 {
   "content": "# Hello",
@@ -2045,6 +2052,26 @@ exports[`IPC message snapshots ServerMessage types work_item_run_task_response s
   "lastRunId": "run-001",
   "success": true,
   "type": "work_item_run_task_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_output_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "output": {
+    "completedAt": 1700002000,
+    "conversationId": "conv-001",
+    "highlights": [
+      "- Key finding 1",
+      "- Key finding 2",
+    ],
+    "runId": "run-001",
+    "status": "completed",
+    "summary": "Report processed successfully.",
+    "title": "Process report",
+  },
+  "success": true,
+  "type": "work_item_output_response",
 }
 `;
 

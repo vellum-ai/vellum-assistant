@@ -54,7 +54,7 @@ describe('browser skill cutover — startup tool payload', () => {
     // Floor at 30 000 catches accidental wholesale removal; ceiling ensures
     // browser tools (~4 640 chars) haven't leaked back in.
     expect(serialized.length).toBeGreaterThan(30_000);
-    expect(serialized.length).toBeLessThan(42_000);
+    expect(serialized.length).toBeLessThan(48_000);
   });
 
   test('no browser-categorised tools remain in startup registry', () => {

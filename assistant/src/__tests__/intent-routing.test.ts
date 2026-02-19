@@ -81,7 +81,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 
   test('routing section explains all three subsystems', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Task Queue (task_list_add / task_list_show)');
+    expect(prompt).toContain('### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)');
     expect(prompt).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
     expect(prompt).toContain('### Reminders (reminder)');
   });

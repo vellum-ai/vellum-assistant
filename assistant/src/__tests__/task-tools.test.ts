@@ -221,7 +221,7 @@ describe('task_run tool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No task found with ID "bad-id"');
+    expect(result.content).toContain('No task template found with ID "bad-id"');
   });
 
   test('renders template with inputs', async () => {
@@ -381,18 +381,14 @@ describe('task_list_show tool', () => {
     const result = await taskListShowTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Found 2 work item(s)');
-    expect(result.content).toContain('Work Item Alpha');
-    expect(result.content).toContain('Work Item Beta');
-    expect(result.content).toContain('Status: queued');
-    expect(result.content).toContain('Notes: some notes');
+    expect(result.content).toContain('Opened Tasks window (2 items)');
   });
 
   test('returns empty message when no work items', async () => {
     const result = await taskListShowTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('No Tasks found');
+    expect(result.content).toContain('no tasks queued');
   });
 
   test('filters by status when status param is provided', async () => {
@@ -405,15 +401,11 @@ describe('task_list_show tool', () => {
 
     const resultQueued = await taskListShowTool.execute({ status: 'queued' }, stubContext);
     expect(resultQueued.isError).toBe(false);
-    expect(resultQueued.content).toContain('Found 1 work item(s)');
-    expect(resultQueued.content).toContain('Queued Item');
-    expect(resultQueued.content).not.toContain('Done Item');
+    expect(resultQueued.content).toContain('1 queued item');
 
     const resultDone = await taskListShowTool.execute({ status: 'done' }, stubContext);
     expect(resultDone.isError).toBe(false);
-    expect(resultDone.content).toContain('Found 1 work item(s)');
-    expect(resultDone.content).toContain('Done Item');
-    expect(resultDone.content).not.toContain('Queued Item');
+    expect(resultDone.content).toContain('1 done item');
   });
 });
 
@@ -515,7 +507,7 @@ describe('task_list_add tool', () => {
     const listResult = await taskListShowTool.execute({}, stubContext);
 
     expect(listResult.isError).toBe(false);
-    expect(listResult.content).toContain('Call dentist');
+    expect(listResult.content).toContain('Opened Tasks window (1 item)');
   });
 
   test('applies optional overrides (title, notes, priority_tier)', async () => {
@@ -573,7 +565,7 @@ describe('task_delete tool', () => {
     const result = await taskDeleteTool.execute({ task_ids: ['nonexistent-id'] }, stubContext);
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('No task found with ID nonexistent-id');
+    expect(result.content).toContain('No task template or work item found with ID "nonexistent-id"');
   });
 
   test('cascades deletion to associated task runs and work items', async () => {

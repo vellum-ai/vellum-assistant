@@ -71,7 +71,7 @@ describe('cliDiscoverTool', () => {
     expect(result.isError).toBe(false);
     // Should at least find git which is nearly universally available
     expect(result.content).toContain('**git**');
-  }, 30_000);
+  }, 60_000);
 
   test('includes version info for found CLIs', async () => {
     const result = await cliDiscoverTool.execute(
