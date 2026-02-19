@@ -62,7 +62,20 @@ export const claudeCodeTool: Tool = {
         properties: {
           prompt: {
             type: 'string',
-            description: 'The coding task or question for Claude Code to work on',
+            description: 'The coding task or question for Claude Code to work on (mutually exclusive with command)',
+          },
+          command: {
+            type: 'string',
+            description: 'Name of a .claude/commands/*.md command to execute (mutually exclusive with prompt)',
+          },
+          arguments: {
+            type: 'string',
+            description: 'Arguments to substitute for $ARGUMENTS in the command template',
+          },
+          template_vars: {
+            type: 'object',
+            description: 'Optional key-value pairs to substitute in the command template (e.g., {{key}} patterns)',
+            additionalProperties: { type: 'string' },
           },
           working_dir: {
             type: 'string',
@@ -82,7 +95,7 @@ export const claudeCodeTool: Tool = {
             description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
           },
         },
-        required: ['prompt'],
+        required: [],
       },
     };
   },
@@ -92,7 +105,25 @@ export const claudeCodeTool: Tool = {
       return { content: 'Cancelled', isError: true };
     }
 
-    const prompt = input.prompt as string;
+    const prompt = input.prompt as string | undefined;
+    const command = input.command as string | undefined;
+    const args = input.arguments as string | undefined;
+    const templateVars = input.template_vars as Record<string, string> | undefined;
+
+    // Validate one-of: exactly one of prompt or command
+    if (prompt && command) {
+      return {
+        content: 'Error: Cannot specify both "prompt" and "command". Use one or the other.',
+        isError: true,
+      };
+    }
+    if (!prompt && !command) {
+      return {
+        content: 'Error: Must specify either "prompt" or "command".',
+        isError: true,
+      };
+    }
+
     const workingDir = (input.working_dir as string) || context.workingDir;
     const resumeSessionId = input.resume as string | undefined;
     const model = (input.model as string) || 'claude-sonnet-4-6';
@@ -107,6 +138,67 @@ export const claudeCodeTool: Tool = {
     }
 
     const profilePolicy = getProfilePolicy(profileName);
+
+    // Resolve prompt from command template if needed
+    let resolvedPrompt: string;
+
+    if (command) {
+      // Validate command name: basename-only, no path traversal
+      if (command.includes('/') || command.includes('\\') || command.includes('..')) {
+        return {
+          content: `Error: Invalid command name "${command}". Command names must not contain path separators.`,
+          isError: true,
+        };
+      }
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) {
+        return {
+          content: `Error: Invalid command name "${command}". Must match pattern: alphanumeric start, then alphanumeric/dot/underscore/hyphen.`,
+          isError: true,
+        };
+      }
+
+      // Import and use CC command registry
+      const { getCCCommand, loadCCCommandTemplate, discoverCCCommands } = await import('../../commands/cc-command-registry.js');
+
+      const entry = getCCCommand(workingDir, command);
+      if (!entry) {
+        const registry = discoverCCCommands(workingDir);
+        const available = Array.from(registry.entries.values()).map(e => e.name).sort();
+        const availableList = available.length > 0
+          ? `\nAvailable commands: ${available.join(', ')}`
+          : '\nNo commands found in .claude/commands/';
+        return {
+          content: `Error: Command "${command}" not found in .claude/commands/.${availableList}`,
+          isError: true,
+        };
+      }
+
+      // Load full template
+      let template: string;
+      try {
+        template = loadCCCommandTemplate(entry);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: `Error: Failed to load command template "${command}": ${message}`,
+          isError: true,
+        };
+      }
+
+      // Substitute $ARGUMENTS
+      resolvedPrompt = template.replace(/\$ARGUMENTS/g, args ?? '');
+
+      // Substitute template_vars: {{key}} patterns
+      if (templateVars) {
+        for (const [key, value] of Object.entries(templateVars)) {
+          resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        }
+      }
+
+      log.info({ command, workingDir, hasArgs: !!args }, 'Executing Claude Code command from template');
+    } else {
+      resolvedPrompt = prompt!;
+    }
 
     // Validate API key
     const config = getConfig();
@@ -136,7 +228,7 @@ export const claudeCodeTool: Tool = {
     // Collect stderr output from the Claude Code subprocess for debugging
     const stderrLines: string[] = [];
 
-    log.info({ prompt: truncate(prompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
+    log.info({ prompt: truncate(resolvedPrompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
     // Build the canUseTool callback, enforcing profile-based restrictions
     const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName, toolInput, _options) => {
@@ -227,7 +319,7 @@ export const claudeCodeTool: Tool = {
     let activeToolUseId: string | null = null;
 
     try {
-      const conversation = query({ prompt, options: queryOptions });
+      const conversation = query({ prompt: resolvedPrompt, options: queryOptions });
       let resultText = '';
       let sessionId = '';
       let hasError = false;
