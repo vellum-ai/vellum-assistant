@@ -35,6 +35,9 @@ export const uiShowTool: Tool = {
     'templateData shape: { location: string, currentTemp: number, feelsLike: number, unit: "F"|"C", condition: string, humidity: number, windSpeed: number, windDirection: string, ' +
     'hourly: Array<{ time: string, icon: string (SF Symbol name), temp: number }>, ' +
     'forecast: Array<{ day: string, icon: string (SF Symbol name), low: number, high: number, precip: number|null, condition: string }> }\n' +
+    '  Template "task_progress": renders a live-updating task progress widget showing structured step-by-step progress. ' +
+    'templateData shape: { title: string, status: "in_progress"|"completed"|"failed", ' +
+    'steps: Array<{ label: string, status: "pending"|"in_progress"|"completed"|"failed", detail?: string }> }\n' +
     '- table: Data table with columns, selectable rows, and action buttons. ' +
     'data shape: { columns: Array<{ id: string, label: string }>, rows: Array<{ id: string, cells: Record<string, string>, selectable?: boolean, selected?: boolean }>, selectionMode?: "none"|"single"|"multiple", caption?: string }\n' +
     '- form: Input form with typed fields. ' +
