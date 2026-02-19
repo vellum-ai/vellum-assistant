@@ -696,11 +696,6 @@ describe('Trust Store', () => {
         }
       }
 
-      const protectedDefaults = defaults.filter((rule) => rule.id.endsWith('-protected'));
-      expect(protectedDefaults).toHaveLength(3);
-      for (const rule of protectedDefaults) {
-        expect(rule.pattern).toContain(`${testDir}/protected/`);
-      }
     });
 
     test('default rules cover file, host file, host shell, and workspace prompt tools', () => {
@@ -745,6 +740,7 @@ describe('Trust Store', () => {
         'skill_load',
         'ui_dismiss',
         'ui_update',
+        'view_image',
       ]);
     });
 
@@ -1843,11 +1839,11 @@ describe('Trust Store', () => {
       });
 
       test('existing default rules (no principal fields) match with any context', () => {
-        // Default rules have no principal fields and should match regardless of context
-        const protectedPath = join(testDir, 'protected', 'trust.json');
+        // Default rules have no principal fields and should match regardless of context.
+        // Use host_file_read which has a default ask rule (default:ask-host_file_read-global).
         const match = findHighestPriorityRule(
-          'file_read',
-          [`file_read:${protectedPath}`],
+          'host_file_read',
+          ['host_file_read:/etc/hosts'],
           '/tmp',
           { principal: { kind: 'skill', id: 'random-skill', version: 'v99' } },
         );
