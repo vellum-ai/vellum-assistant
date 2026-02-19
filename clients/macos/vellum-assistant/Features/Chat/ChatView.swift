@@ -624,7 +624,8 @@ struct ChatView: View {
                     }
 
                     let hasPendingConfirmation = messages.last?.confirmation?.state == .pending
-                    if isSending && !(messages.last?.isStreaming == true) && !hasPendingConfirmation {
+                    let hasActiveToolCall = messages.last?.toolCalls.contains(where: { !$0.isComplete }) == true
+                    if isSending && !(messages.last?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
