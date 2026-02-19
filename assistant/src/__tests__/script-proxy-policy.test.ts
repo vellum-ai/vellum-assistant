@@ -91,17 +91,15 @@ describe('evaluateRequest', () => {
     expect(result).toEqual({ kind: 'matched', credentialId: 'cred-multi', template: tpl2 });
   });
 
-  test('returns ambiguous when one credential matches multiple templates', () => {
+  test('single credential with exact + wildcard templates picks exact', () => {
     const tpl1 = headerTemplate('*.fal.ai', 'Authorization', 'Key ');
     const tpl2 = headerTemplate('api.fal.ai', 'Authorization', 'Bearer ');
     const templates = new Map<string, CredentialInjectionTemplate[]>([
       ['cred-dual', [tpl1, tpl2]],
     ]);
     const result = evaluateRequest('api.fal.ai', '/', ['cred-dual'], templates);
-    expect(result.kind).toBe('ambiguous');
-    if (result.kind === 'ambiguous') {
-      expect(result.candidates).toHaveLength(2);
-    }
+    // Specificity selection: exact (api.fal.ai) wins over wildcard (*.fal.ai)
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-dual', template: tpl2 });
   });
 
   test('excludes query templates from candidate matching', () => {
@@ -137,13 +135,36 @@ describe('evaluateRequest', () => {
     expect(result).toEqual({ kind: 'matched', credentialId: 'cred-fal', template: tpl });
   });
 
-  test('non-matching hostname with glob returns missing', () => {
+  test('bare domain matches wildcard with apex-inclusive matching', () => {
+    const tpl = headerTemplate('*.fal.ai');
     const templates = new Map<string, CredentialInjectionTemplate[]>([
-      ['cred-1', [headerTemplate('*.fal.ai')]],
+      ['cred-1', [tpl]],
     ]);
     const result = evaluateRequest('fal.ai', '/', ['cred-1'], templates);
-    // "*.fal.ai" does not match bare "fal.ai" with minimatch
-    expect(result).toEqual({ kind: 'missing' });
+    // Apex-inclusive: "*.fal.ai" now matches bare "fal.ai"
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-1', template: tpl });
+  });
+
+  test('same-credential equal-specificity ties remain ambiguous', () => {
+    const tpl1 = headerTemplate('api.fal.ai', 'Authorization', 'Key ');
+    const tpl2 = headerTemplate('api.fal.ai', 'X-Api-Key', 'Bearer ');
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-dual', [tpl1, tpl2]],
+    ]);
+    const result = evaluateRequest('api.fal.ai', '/', ['cred-dual'], templates);
+    expect(result.kind).toBe('ambiguous');
+    if (result.kind === 'ambiguous') {
+      expect(result.candidates).toHaveLength(2);
+    }
+  });
+
+  test('evaluateRequest with apex-inclusive fal.run matches *.fal.run', () => {
+    const tpl = headerTemplate('*.fal.run');
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-fal', [tpl]],
+    ]);
+    const result = evaluateRequest('fal.run', '/', ['cred-fal'], templates);
+    expect(result).toEqual({ kind: 'matched', credentialId: 'cred-fal', template: tpl });
   });
 });
 
