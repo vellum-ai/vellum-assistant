@@ -138,8 +138,11 @@ export async function handleDiagnosticsExport(
       .get();
 
     // Use the preceding user message timestamp as the range start,
-    // or fall back to the anchor message timestamp if none found
-    const rangeStart = precedingUserMessage?.createdAt ?? anchorMessage.createdAt;
+    // or fall back to the anchor message timestamp minus a small buffer.
+    // Request logs are recorded during the usage event before the assistant
+    // message is persisted, so same-turn logs can have timestamps slightly
+    // earlier than the anchor.
+    const rangeStart = precedingUserMessage?.createdAt ?? (anchorMessage.createdAt - 2000);
     const rangeEnd = anchorMessage.createdAt;
     // Usage events are recorded asynchronously after the assistant message
     // is persisted, so their createdAt can be slightly later. Use a separate
