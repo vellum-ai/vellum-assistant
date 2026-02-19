@@ -343,6 +343,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'vercel_api_config',
     action: 'get',
   },
+  twitter_integration_config: {
+    type: 'twitter_integration_config',
+    action: 'get',
+  },
   link_open_request: {
     type: 'link_open_request',
     url: 'https://example.com',
@@ -1120,6 +1124,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'vercel_api_config_response',
     hasToken: true,
     success: true,
+  },
+  twitter_integration_config_response: {
+    type: 'twitter_integration_config_response',
+    success: true,
+    mode: 'local_byo',
+    managedAvailable: false,
+    localClientConfigured: true,
+    connected: false,
   },
   open_url: {
     type: 'open_url',

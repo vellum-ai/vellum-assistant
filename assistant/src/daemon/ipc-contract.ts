@@ -482,6 +482,25 @@ export interface VercelApiConfigResponse {
   error?: string;
 }
 
+export interface TwitterIntegrationConfigRequest {
+  type: 'twitter_integration_config';
+  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect';
+  mode?: 'local_byo' | 'managed';
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export interface TwitterIntegrationConfigResponse {
+  type: 'twitter_integration_config_response';
+  success: boolean;
+  mode?: 'local_byo' | 'managed';
+  managedAvailable: boolean;
+  localClientConfigured: boolean;
+  connected: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface LinkOpenRequest {
   type: 'link_open_request';
   url: string;
@@ -891,6 +910,7 @@ export type ClientMessage =
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
   | VercelApiConfigRequest
+  | TwitterIntegrationConfigRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
@@ -2091,6 +2111,7 @@ export type ServerMessage =
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
   | VercelApiConfigResponse
+  | TwitterIntegrationConfigResponse
   | OpenUrl
   | AppUpdatePreviewResponse
   | AppPreviewResponse
