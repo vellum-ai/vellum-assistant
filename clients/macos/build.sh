@@ -41,8 +41,11 @@ CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
 
-# Version (overridable via env for CI)
-DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
+# Version (overridable via env for CI, defaults to Package.swift)
+if [ -z "${DISPLAY_VERSION:-}" ]; then
+    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$SCRIPT_DIR/../Package.swift" 2>/dev/null | head -1)
+    DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
+fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
 CMD="${1:-build}"

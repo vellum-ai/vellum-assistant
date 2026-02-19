@@ -1,8 +1,9 @@
 name: Build and Release macOS App
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: [clients/Package.swift]
   workflow_dispatch:
 
 concurrency:
@@ -54,16 +55,13 @@ jobs:
           # Verify the certificate was imported
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Stamp version
+      - name: Read version from Package.swift
         id: version
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            TAG="${{ github.event.release.tag_name }}"
-            DISPLAY_VERSION="${TAG#v}"
-          else
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-            SHORT_SHA=$(git rev-parse --short HEAD)
-            DISPLAY_VERSION="${TAG#v}-${SHORT_SHA}"
+          DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' ../Package.swift)
+          if [ -z "$DISPLAY_VERSION" ]; then
+            echo "::error::Could not extract version from clients/Package.swift"
+            exit 1
           fi
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
@@ -364,43 +362,20 @@ jobs:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
           owner: vellum-ai
-          repositories: velly
+          repositories: vellum-assistant,velly
 
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stamp version
+      - name: Read version from Package.swift
         id: version
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            TAG="${{ github.event.release.tag_name }}"
-            DISPLAY_VERSION="${TAG#v}"
-          else
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-            SHORT_SHA=$(git rev-parse --short HEAD)
-            DISPLAY_VERSION="${TAG#v}-${SHORT_SHA}"
+          DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' clients/Package.swift)
+          if [ -z "$DISPLAY_VERSION" ]; then
+            echo "::error::Could not extract version from clients/Package.swift"
+            exit 1
           fi
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Zip assistant directory
-        run: |
-          (cd assistant && zip -r ../assistant.zip .)
-          ls -lh assistant.zip
-
-      - name: Zip gateway directory
-        run: |
-          (cd gateway && zip -r ../gateway.zip .)
-          ls -lh gateway.zip
-
-      - name: Zip cli directory
-        run: |
-          (cd cli && zip -r ../cli.zip .)
-          ls -lh cli.zip
-
-      - name: Copy install.sh from repo
-        run: |
-          cp cli/src/adapters/install.sh install.sh
-          chmod +x install.sh
 
       - name: Download macOS build artifacts
         id: download-macos
@@ -411,15 +386,15 @@ jobs:
           path: macos-artifacts
         continue-on-error: true
 
-      - name: Create GitHub Release on public repos
+      - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          UPSTREAM_BODY: ${{ github.event.release.body }}
         run: |
           VERSION="${{ steps.version.outputs.display_version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          VERSION_TAG="v${VERSION}"
 
           NOTES_FILE=$(mktemp)
           {
@@ -429,30 +404,12 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            if [ -n "$UPSTREAM_BODY" ]; then
-              echo "$UPSTREAM_BODY"
-              echo ""
-              echo "---"
-              echo ""
-            fi
             echo "Download the DMG, open it, and drag Vellum to your Applications folder."
             echo "Existing installations will auto-update via Sparkle."
           } > "$NOTES_FILE"
 
-          REPO="vellum-ai/velly"
-
-          # Build asset list from available files
+          # Build asset list from macOS build artifacts
           ASSETS=()
-
-          # Always include assistant, cli, and gateway zips
-          [ -f "assistant.zip" ] && ASSETS+=("assistant.zip#assistant.zip")
-          [ -f "cli.zip" ] && ASSETS+=("cli.zip#cli.zip")
-          [ -f "gateway.zip" ] && ASSETS+=("gateway.zip#gateway.zip")
-
-          # Include install script
-          [ -f "install.sh" ] && ASSETS+=("install.sh#install.sh")
-
-          # Include macOS artifacts if the build succeeded
           if [ -d "macos-artifacts" ]; then
             DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
             ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
@@ -466,19 +423,31 @@ jobs:
 
           echo "Release assets: ${ASSETS[*]}"
 
-          VERSION_TAG="v${VERSION}"
-
-          # Create version-tagged release
-          if ! gh release view "$VERSION_TAG" --repo "$REPO" &>/dev/null; then
+          # Create release on vellum-assistant (this repo)
+          if ! gh release view "$VERSION_TAG" --repo "${{ github.repository }}" &>/dev/null; then
             gh release create "$VERSION_TAG" \
               "${ASSETS[@]}" \
-              --repo "$REPO" \
+              --repo "${{ github.repository }}" \
               --title "Vellum $VERSION" \
               --notes-file "$NOTES_FILE" \
               --latest
-            echo "Release created at https://github.com/$REPO/releases/tag/$VERSION_TAG"
+            echo "Release created at https://github.com/${{ github.repository }}/releases/tag/$VERSION_TAG"
           else
-            echo "Release $VERSION_TAG already exists, skipping"
+            echo "Release $VERSION_TAG already exists on ${{ github.repository }}, skipping"
+          fi
+
+          # Create release on velly
+          VELLY_REPO="vellum-ai/velly"
+          if ! gh release view "$VERSION_TAG" --repo "$VELLY_REPO" &>/dev/null; then
+            gh release create "$VERSION_TAG" \
+              "${ASSETS[@]}" \
+              --repo "$VELLY_REPO" \
+              --title "Vellum $VERSION" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+            echo "Release created at https://github.com/$VELLY_REPO/releases/tag/$VERSION_TAG"
+          else
+            echo "Release $VERSION_TAG already exists on $VELLY_REPO, skipping"
           fi
 
           rm -f "$NOTES_FILE"
