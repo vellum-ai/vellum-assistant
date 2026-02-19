@@ -7,6 +7,7 @@ import type { SkillSummary } from '../../config/skills.js';
 import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
+import { discoverCCCommands } from '../../commands/cc-command-registry.js';
 
 const log = getLogger('skill-load');
 
@@ -33,7 +34,7 @@ export class SkillLoadTool implements Tool {
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const selector = input.skill;
     if (typeof selector !== 'string' || selector.trim().length === 0) {
       return { content: 'Error: skill is required and must be a non-empty string', isError: true };
@@ -117,6 +118,21 @@ export class SkillLoadTool implements Tool {
       }
     }
 
+    // When loading the claude-code skill, append available CC commands
+    let ccCommandsSection = '';
+    if (skill.id === 'claude-code' && context.workingDir) {
+      const ccRegistry = discoverCCCommands(context.workingDir);
+      if (ccRegistry.entries.size > 0) {
+        const lines = ['Available Claude Code Commands (from .claude/commands/):'];
+        for (const [, entry] of ccRegistry.entries) {
+          lines.push(`- /${entry.name}: ${entry.summary}`);
+        }
+        lines.push('');
+        lines.push('Users can invoke these with /command-name. You can execute them using the claude_code tool with the `command` parameter.');
+        ccCommandsSection = '\n\n' + lines.join('\n');
+      }
+    }
+
     return {
       content: [
         `Skill: ${skill.name}`,
@@ -124,7 +140,7 @@ export class SkillLoadTool implements Tool {
         `Description: ${skill.description}`,
         `Path: ${skill.skillFilePath}`,
         '',
-        body,
+        body + ccCommandsSection,
         '',
         immediateChildrenSection,
         '',
