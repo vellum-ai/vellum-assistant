@@ -101,7 +101,7 @@ struct TasksWindowView: View {
                                 runningIds: viewModel.runInFlightIds,
                                 timeoutIds: viewModel.runTimeoutIds,
                                 onTap: { viewModel.fetchOutput(for: item) },
-                                onRun: { viewModel.runTask(id: item.id) },
+                                onRun: { viewModel.initiateRun(item: item) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
                                 onPriorityChange: { newTier in
@@ -126,6 +126,21 @@ struct TasksWindowView: View {
                     itemTitle: item.title,
                     state: viewModel.outputState,
                     onDismiss: { viewModel.dismissOutput() }
+                )
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { viewModel.preflightItem != nil },
+            set: { if !$0 { viewModel.dismissPreflight() } }
+        )) {
+            if let item = viewModel.preflightItem {
+                TaskPermissionPreflightView(
+                    itemTitle: item.title,
+                    state: viewModel.preflightState,
+                    onApprove: { approvedTools in
+                        viewModel.approveAndRun(id: item.id, approvedTools: approvedTools)
+                    },
+                    onDismiss: { viewModel.dismissPreflight() }
                 )
             }
         }

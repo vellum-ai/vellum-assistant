@@ -26,6 +26,12 @@ class TasksWindowViewModel: ObservableObject {
     /// Loading/loaded/error state for the output detail sheet.
     @Published var outputState: TaskOutputState = .loading
 
+    /// The item currently undergoing permission preflight, or nil when
+    /// the preflight sheet is dismissed.
+    @Published var preflightItem: IPCWorkItemsListResponseItem?
+    /// Loading/loaded/error state for the preflight sheet.
+    @Published var preflightState: PreflightState = .loading
+
     /// Handles for pending timeout tasks keyed by work item ID, so we can
     /// cancel the timer when the daemon responds before the deadline.
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -103,6 +109,33 @@ class TasksWindowViewModel: ObservableObject {
                 self.outputState = .error(response.error ?? "Output not available for this task.")
             }
         }
+
+        daemonClient.onWorkItemPreflightResponse = { [weak self] response in
+            guard let self else { return }
+            guard self.preflightItem?.id == response.id else { return }
+            if response.success, let permissions = response.permissions {
+                if permissions.isEmpty {
+                    // No permissions needed — skip the sheet and run directly
+                    self.dismissPreflight()
+                    self.runTask(id: response.id)
+                } else {
+                    self.preflightState = .loaded(permissions)
+                }
+            } else {
+                self.preflightState = .error(response.error ?? "Failed to check permissions.")
+            }
+        }
+
+        daemonClient.onWorkItemApprovePermissionsResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                let itemId = response.id
+                self.dismissPreflight()
+                self.runTask(id: itemId)
+            } else {
+                self.preflightState = .error(response.error ?? "Failed to save permission approvals.")
+            }
+        }
     }
 
     func fetchItems() {
@@ -115,6 +148,44 @@ class TasksWindowViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             isLoading = false
         }
+    }
+
+    /// Initiates the run flow for a work item. If the task has required tools,
+    /// opens the permission preflight sheet first. Otherwise runs directly.
+    func initiateRun(item: IPCWorkItemsListResponseItem) {
+        logger.info("initiateRun: id=\(item.id, privacy: .public)")
+
+        let alreadyInFlight = runInFlightIds.contains(item.id)
+        if alreadyInFlight {
+            logger.warning("initiateRun: skipping — already in flight for id=\(item.id, privacy: .public)")
+            return
+        }
+
+        // Start the preflight check to see if permissions are needed
+        preflightItem = item
+        preflightState = .loading
+        do {
+            try daemonClient.sendWorkItemPreflight(id: item.id)
+        } catch {
+            logger.error("initiateRun: preflight transport error for id=\(item.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            preflightState = .error(error.localizedDescription)
+        }
+    }
+
+    /// Approves the selected permissions and runs the task.
+    func approveAndRun(id: String, approvedTools: [String]) {
+        logger.info("approveAndRun: id=\(id, privacy: .public) tools=\(approvedTools.joined(separator: ","), privacy: .public)")
+        do {
+            try daemonClient.sendWorkItemApprovePermissions(id: id, approvedTools: approvedTools)
+        } catch {
+            logger.error("approveAndRun: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            preflightState = .error(error.localizedDescription)
+        }
+    }
+
+    /// Dismisses the preflight sheet.
+    func dismissPreflight() {
+        preflightItem = nil
     }
 
     func runTask(id: String) {

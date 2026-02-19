@@ -287,6 +287,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_update_response` message.
     public var onWorkItemUpdateResponse: ((IPCWorkItemUpdateResponse) -> Void)?
 
+    /// Called when the daemon sends a `work_item_preflight_response` message.
+    public var onWorkItemPreflightResponse: ((IPCWorkItemPreflightResponse) -> Void)?
+
+    /// Called when the daemon sends a `work_item_approve_permissions_response` message.
+    public var onWorkItemApprovePermissionsResponse: ((IPCWorkItemApprovePermissionsResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -895,6 +901,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
     }
 
+    /// Request a permission preflight check for a work item's required tools.
+    public func sendWorkItemPreflight(id: String) throws {
+        try send(IPCWorkItemPreflightRequest(type: "work_item_preflight", id: id))
+    }
+
+    /// Approve specific permissions for a work item before running.
+    public func sendWorkItemApprovePermissions(id: String, approvedTools: [String]) throws {
+        try send(IPCWorkItemApprovePermissionsRequest(type: "work_item_approve_permissions", id: id, approvedTools: approvedTools))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
@@ -1450,6 +1466,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemOutputResponse?(msg)
         case .workItemUpdateResponse(let msg):
             onWorkItemUpdateResponse?(msg)
+        case .workItemPreflightResponse(let msg):
+            onWorkItemPreflightResponse?(msg)
+        case .workItemApprovePermissionsResponse(let msg):
+            onWorkItemApprovePermissionsResponse?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):

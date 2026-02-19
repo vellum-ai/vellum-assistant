@@ -823,6 +823,10 @@ export function initializeDb(): void {
     )
   `);
 
+  // Work item permission preflight columns
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch {}
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch {}
+
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_priority_sort ON work_items(priority_tier, sort_index)`);

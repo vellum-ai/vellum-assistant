@@ -813,6 +813,17 @@ export interface WorkItemOutputRequest {
   id: string;
 }
 
+export interface WorkItemPreflightRequest {
+  type: 'work_item_preflight';
+  id: string;  // work item ID
+}
+
+export interface WorkItemApprovePermissionsRequest {
+  type: 'work_item_approve_permissions';
+  id: string;
+  approvedTools: string[];  // tools the user approved
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -908,6 +919,8 @@ export type ClientMessage =
   | WorkItemDeleteRequest
   | WorkItemRunTaskRequest
   | WorkItemOutputRequest
+  | WorkItemPreflightRequest
+  | WorkItemApprovePermissionsRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest;
@@ -1966,6 +1979,26 @@ export interface WorkItemOutputResponse {
   };
 }
 
+export interface WorkItemPreflightResponse {
+  type: 'work_item_preflight_response';
+  id: string;
+  success: boolean;
+  error?: string;
+  permissions?: {
+    tool: string;
+    description: string;
+    riskLevel: 'low' | 'medium' | 'high';
+    currentDecision: 'allow' | 'deny' | 'prompt';
+  }[];
+}
+
+export interface WorkItemApprovePermissionsResponse {
+  type: 'work_item_approve_permissions_response';
+  id: string;
+  success: boolean;
+  error?: string;
+}
+
 /** Server push — tells the client to open/focus the tasks window. */
 export interface OpenTasksWindow {
   type: 'open_tasks_window';
@@ -2094,6 +2127,8 @@ export type ServerMessage =
   | WorkItemDeleteResponse
   | WorkItemRunTaskResponse
   | WorkItemOutputResponse
+  | WorkItemPreflightResponse
+  | WorkItemApprovePermissionsResponse
   | WorkItemStatusChanged
   | TasksChanged
   | OpenTasksWindow

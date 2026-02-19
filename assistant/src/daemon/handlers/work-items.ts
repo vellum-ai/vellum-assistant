@@ -8,6 +8,8 @@ import type {
   WorkItemDeleteRequest,
   WorkItemRunTaskRequest,
   WorkItemOutputRequest,
+  WorkItemPreflightRequest,
+  WorkItemApprovePermissionsRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
 import {
@@ -21,6 +23,8 @@ import {
 import { getTask, getTaskRun } from '../../tasks/task-store.js';
 import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
+import { classifyRisk, check } from '../../permissions/checker.js';
+import { RiskLevel } from '../../permissions/types.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -285,8 +289,10 @@ export async function handleWorkItemRunTask(
   // Execute task asynchronously — create a session and wire processMessage
   try {
     const session = await ctx.getOrCreateSession(crypto.randomUUID());
+    // Pass pre-approved tools from the preflight flow if available
+    const approvedTools: string[] | undefined = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
     const result = await runTask(
-      { taskId: workItem.taskId, workingDir: process.cwd() },
+      { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
       async (_conversationId, message) => {
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
@@ -313,4 +319,79 @@ export async function handleWorkItemRunTask(
     broadcastWorkItemStatus(ctx, msg.id);
     ctx.broadcast({ type: 'tasks_changed' });
   }
+}
+
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  bash: 'Execute shell commands',
+  host_bash: 'Execute shell commands on host',
+  file_read: 'Read files',
+  file_write: 'Write files',
+  file_edit: 'Edit files',
+  host_file_read: 'Read host files',
+  host_file_write: 'Write host files',
+  host_file_edit: 'Edit host files',
+  web_fetch: 'Fetch web URLs',
+  web_search: 'Search the web',
+  browser_navigate: 'Navigate browser',
+  network_request: 'Make network requests',
+  skill_load: 'Load skills',
+};
+
+export async function handleWorkItemPreflight(
+  msg: WorkItemPreflightRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const workItem = getWorkItem(msg.id);
+  if (!workItem) {
+    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: 'Work item not found' });
+    return;
+  }
+
+  const task = getTask(workItem.taskId);
+  if (!task) {
+    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
+    return;
+  }
+
+  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
+  if (requiredTools.length === 0) {
+    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+    return;
+  }
+
+  const workingDir = process.cwd();
+  const permissions = await Promise.all(
+    requiredTools.map(async (tool) => {
+      const risk = await classifyRisk(tool, {}, workingDir);
+      const result = await check(tool, {}, workingDir);
+      return {
+        tool,
+        description: TOOL_DESCRIPTIONS[tool] ?? tool,
+        riskLevel: risk.toLowerCase() as 'low' | 'medium' | 'high',
+        currentDecision: result.decision as 'allow' | 'deny' | 'prompt',
+      };
+    }),
+  );
+
+  ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions });
+}
+
+export function handleWorkItemApprovePermissions(
+  msg: WorkItemApprovePermissionsRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const workItem = getWorkItem(msg.id);
+  if (!workItem) {
+    ctx.send(socket, { type: 'work_item_approve_permissions_response', id: msg.id, success: false, error: 'Work item not found' });
+    return;
+  }
+
+  updateWorkItem(msg.id, {
+    approvedTools: JSON.stringify(msg.approvedTools),
+    approvalStatus: 'approved',
+  });
+
+  ctx.send(socket, { type: 'work_item_approve_permissions_response', id: msg.id, success: true });
 }

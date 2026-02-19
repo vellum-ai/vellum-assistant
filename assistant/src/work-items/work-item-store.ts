@@ -20,6 +20,8 @@ export interface WorkItem {
   lastRunStatus: string | null;
   sourceType: string | null;
   sourceId: string | null;
+  approvedTools: string | null;
+  approvalStatus: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -51,6 +53,8 @@ export function createWorkItem(opts: {
     lastRunStatus: null,
     sourceType: opts.sourceType ?? null,
     sourceId: opts.sourceId ?? null,
+    approvedTools: null,
+    approvalStatus: 'none',
     createdAt: now,
     updatedAt: now,
   };
@@ -76,7 +80,7 @@ export function listWorkItems(opts?: { status?: WorkItemStatus }): WorkItem[] {
 
 export function updateWorkItem(
   id: string,
-  updates: Partial<Pick<WorkItem, 'title' | 'notes' | 'status' | 'priorityTier' | 'sortIndex' | 'lastRunId' | 'lastRunConversationId' | 'lastRunStatus'>>,
+  updates: Partial<Pick<WorkItem, 'title' | 'notes' | 'status' | 'priorityTier' | 'sortIndex' | 'lastRunId' | 'lastRunConversationId' | 'lastRunStatus' | 'approvedTools' | 'approvalStatus'>>,
 ): WorkItem | undefined {
   const db = getDb();
   db.update(workItems)
