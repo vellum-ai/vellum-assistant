@@ -247,7 +247,7 @@ public final class ChatViewModel: ObservableObject {
         // When a message-less bootstrap is in flight (e.g. private thread
         // pre-allocation), adopt the user's message as the pending message
         // so it gets sent when session_info arrives instead of being dropped.
-        if isSending && sessionId == nil {
+        if (isSending || isBootstrapping) && sessionId == nil {
             if pendingUserMessage == nil {
                 let attachments = pendingAttachments
                 pendingAttachments = []
@@ -338,10 +338,11 @@ public final class ChatViewModel: ObservableObject {
     }
 
     private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
-        isSending = true
-        // Only show thinking indicator when there's an actual user message
-        // to process; message-less session creates are silent.
+        // Only set sending/thinking indicators when there's an actual user
+        // message; message-less session creates (e.g. private thread
+        // pre-allocation) are silent and shouldn't affect UI state.
         if userMessage != nil {
+            isSending = true
             isThinking = true
         }
         pendingUserMessage = userMessage
@@ -512,7 +513,7 @@ public final class ChatViewModel: ObservableObject {
     public func sendSilently(_ text: String) -> Bool {
         // Don't re-enter bootstrap if a session creation is already in progress —
         // that would overwrite pendingUserMessage and orphan the in-flight session.
-        if sessionId == nil && isSending {
+        if sessionId == nil && (isSending || isBootstrapping) {
             return false
         }
         if sessionId == nil {
@@ -528,7 +529,7 @@ public final class ChatViewModel: ObservableObject {
     /// (e.g. to store the thread in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
     public func createSessionIfNeeded(threadType: String? = nil) {
-        guard sessionId == nil, !isSending else { return }
+        guard sessionId == nil, !isBootstrapping else { return }
         if let threadType {
             self.threadType = threadType
         }
