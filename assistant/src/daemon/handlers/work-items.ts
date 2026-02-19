@@ -90,6 +90,18 @@ export function handleWorkItemComplete(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  // Only allow completion from the 'awaiting_review' state — this ensures
+  // items go through the full run lifecycle before being marked done.
+  const existing = getWorkItem(msg.id);
+  if (!existing) {
+    ctx.send(socket, { type: 'error', message: `Work item not found: ${msg.id}` });
+    return;
+  }
+  if (existing.status !== 'awaiting_review') {
+    ctx.send(socket, { type: 'error', message: `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'` });
+    return;
+  }
+
   const item = updateWorkItem(msg.id, { status: 'done' }) ?? null;
   ctx.send(socket, { type: 'work_item_update_response', item });
   if (item) {

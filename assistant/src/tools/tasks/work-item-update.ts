@@ -45,7 +45,7 @@ const definition: ToolDefinition = {
       },
       status: {
         type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed', 'done', 'archived'],
+        enum: ['queued', 'running', 'awaiting_review', 'failed', 'archived'],
         description: 'New status for the work item',
       },
       sort_index: {
@@ -121,6 +121,16 @@ class TaskListUpdateTool implements Tool {
       }
 
       const item = result.workItem;
+
+      // Block direct transitions to 'done' — the only path to done is
+      // through the Review action (handleWorkItemComplete in the daemon).
+      if (input.status === 'done') {
+        log.warn({ selectorType, resolvedWorkItemId: item.id }, 'rejected attempt to set status to done directly');
+        return {
+          content: 'Error: Cannot set status to \'done\' directly. Use the Review action in the Tasks window.',
+          isError: true,
+        };
+      }
 
       log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id }, 'resolved work item for update');
 

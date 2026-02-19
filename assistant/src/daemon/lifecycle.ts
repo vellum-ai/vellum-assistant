@@ -22,6 +22,7 @@ import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { DaemonServer } from './server.js';
+import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
 import { initSentry } from '../instrument.js';
@@ -279,6 +280,17 @@ export async function runDaemon(): Promise<void> {
   ensurePromptFiles();
   initializeDb();
   log.info('Daemon startup: DB initialized');
+
+  // Recover orphaned work items that were left in 'running' state when the
+  // daemon previously crashed or was killed mid-task.
+  const orphanedRunning = listWorkItems({ status: 'running' });
+  if (orphanedRunning.length > 0) {
+    for (const item of orphanedRunning) {
+      updateWorkItem(item.id, { status: 'failed', lastRunStatus: 'interrupted' });
+      log.info({ workItemId: item.id, title: item.title }, 'Recovered orphaned running work item → failed (interrupted)');
+    }
+    log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
+  }
 
   log.info('Daemon startup: loading config');
   const config = loadConfig();
