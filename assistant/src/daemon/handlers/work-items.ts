@@ -362,11 +362,14 @@ export async function handleWorkItemPreflight(
     return;
   }
 
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  if (requiredTools.length === 0) {
-    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
-    return;
-  }
+  // If the task has explicit requiredTools, use those. Otherwise fall back
+  // to the default set of common tools so the preflight dialog always
+  // appears — ad-hoc tasks never have requiredTools, and without this
+  // fallback the task would run with zero permissions, causing it to hang
+  // on confirmation prompts that have no client to respond.
+  const requiredTools: string[] = task.requiredTools
+    ? JSON.parse(task.requiredTools)
+    : Object.keys(TOOL_DESCRIPTIONS);
 
   const workingDir = process.cwd();
   const permissions = await Promise.all(
