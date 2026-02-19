@@ -144,11 +144,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const messagesMatch = url.pathname === "/v1/messages";
+  const messagesMatch = url.pathname.match(/^\/v1\/assistants\/([^/]+)\/messages$/);
   if (messagesMatch) {
+    const assistantId = messagesMatch[1];
 
     if (req.method === "GET") {
-      const key = url.searchParams.get("conversationKey") ?? "default";
+      const key = url.searchParams.get("conversationKey") ?? assistantId;
       const msgs = messages[key] ?? [];
       res.writeHead(200);
       res.end(JSON.stringify({ messages: msgs }));
@@ -158,7 +159,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST") {
       try {
         const parsed = await parseBody(req);
-        const key = (parsed.conversationKey as string) || "default";
+        const key = (parsed.conversationKey as string) || assistantId;
         if (!messages[key]) messages[key] = [];
         const messageId = crypto.randomUUID();
         messages[key].push({
