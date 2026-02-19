@@ -1798,19 +1798,22 @@ private struct ChatBubble: View {
         return "Sent \(count) attachments"
     }
 
-    /// Partitions attachments into decoded images and non-image files in a single pass,
+    /// Partitions attachments into decoded images, videos, and non-media files in a single pass,
     /// avoiding redundant base64 decoding and NSImage construction across render calls.
-    private var partitionedAttachments: (images: [(ChatAttachment, NSImage)], files: [ChatAttachment]) {
+    private var partitionedAttachments: (images: [(ChatAttachment, NSImage)], videos: [ChatAttachment], files: [ChatAttachment]) {
         var images: [(ChatAttachment, NSImage)] = []
+        var videos: [ChatAttachment] = []
         var files: [ChatAttachment] = []
         for attachment in message.attachments {
             if attachment.mimeType.hasPrefix("image/"), let img = nsImage(for: attachment) {
                 images.append((attachment, img))
+            } else if attachment.mimeType.hasPrefix("video/") {
+                videos.append(attachment)
             } else {
                 files.append(attachment)
             }
         }
-        return (images, files)
+        return (images, videos, files)
     }
 
     private var bubbleContent: some View {
@@ -1949,6 +1952,14 @@ private struct ChatBubble: View {
                 attachmentImageGrid(partitioned.images)
             }
 
+            if !partitioned.videos.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    ForEach(partitioned.videos) { attachment in
+                        InlineVideoAttachmentView(attachment: attachment)
+                    }
+                }
+            }
+
             if !partitioned.files.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(partitioned.files) { attachment in
@@ -2079,6 +2090,8 @@ private struct ChatBubble: View {
     }
 
     private func fileIcon(for mimeType: String) -> String {
+        if mimeType.hasPrefix("video/") { return "film" }
+        if mimeType.hasPrefix("audio/") { return "waveform" }
         if mimeType.hasPrefix("text/") { return "doc.text.fill" }
         if mimeType == "application/pdf" { return "doc.fill" }
         if mimeType.contains("zip") || mimeType.contains("archive") { return "doc.zipper" }

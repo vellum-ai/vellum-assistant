@@ -31,7 +31,7 @@ export interface AssistantAttachmentDraft {
   mimeType: string;
   dataBase64: string;
   sizeBytes: number;
-  kind: 'image' | 'document';
+  kind: 'image' | 'video' | 'document';
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,12 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   js: 'text/javascript',
   ts: 'text/typescript',
 
+  // Video
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mpeg: 'video/mpeg',
+
   // Archives
   zip: 'application/zip',
   gz: 'application/gzip',
@@ -96,8 +102,10 @@ export function inferMimeType(filename: string): string {
 // Kind classification
 // ---------------------------------------------------------------------------
 
-export function classifyKind(mimeType: string): 'image' | 'document' {
-  return mimeType.startsWith('image/') ? 'image' : 'document';
+export function classifyKind(mimeType: string): 'image' | 'video' | 'document' {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  return 'document';
 }
 
 // ---------------------------------------------------------------------------

@@ -106,7 +106,13 @@ describe('classifyKind', () => {
     expect(classifyKind('image/webp')).toBe('image');
   });
 
-  test('classifies non-image mime types as document', () => {
+  test('classifies video mime types as video', () => {
+    expect(classifyKind('video/mp4')).toBe('video');
+    expect(classifyKind('video/webm')).toBe('video');
+    expect(classifyKind('video/quicktime')).toBe('video');
+  });
+
+  test('classifies non-image non-video mime types as document', () => {
     expect(classifyKind('application/pdf')).toBe('document');
     expect(classifyKind('text/plain')).toBe('document');
     expect(classifyKind('application/octet-stream')).toBe('document');

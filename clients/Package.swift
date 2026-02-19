@@ -69,6 +69,7 @@ let package = Package(
                 .linkedFramework("Vision"),
                 .linkedFramework("Network"),
                 .linkedFramework("SpriteKit"),
+                .linkedFramework("AVKit"),
                 .linkedFramework("AuthenticationServices"),
             ]
         ),
