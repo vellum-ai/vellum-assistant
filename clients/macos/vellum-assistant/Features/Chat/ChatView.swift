@@ -68,6 +68,7 @@ struct ChatView: View {
     @State private var isQueueExpanded = true
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
+    @State private var dismissedDocumentSurfaceIds: Set<String> = []
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private var isEmptyState: Bool {
@@ -450,6 +451,10 @@ struct ChatView: View {
                                 showRegenerate: isLastAssistant,
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
+                                onDismissDocumentWidget: { surfaceId in
+                                    dismissedDocumentSurfaceIds.insert(surfaceId)
+                                },
+                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort
@@ -576,6 +581,8 @@ private struct ChatBubble: View {
     let showRegenerate: Bool
     let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    let onDismissDocumentWidget: (String) -> Void
+    let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var daemonHttpPort: Int?
@@ -1595,7 +1602,7 @@ private struct ChatBubble: View {
     private func documentWidget(for toolCall: ToolCallData) -> some View {
         let parsed = parseDocumentResult(from: toolCall)
 
-        if let surfaceId = parsed.surfaceId {
+        if let surfaceId = parsed.surfaceId, !dismissedDocumentSurfaceIds.contains(surfaceId) {
             DocumentReopenWidget(
                 documentTitle: parsed.title,
                 onReopen: {
@@ -1606,7 +1613,7 @@ private struct ChatBubble: View {
                     )
                 },
                 onDismiss: {
-                    // TODO: Hide this widget (would need state management)
+                    onDismissDocumentWidget(surfaceId)
                 }
             )
             .padding(.top, VSpacing.sm)
