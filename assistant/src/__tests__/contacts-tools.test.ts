@@ -32,11 +32,9 @@ mock.module('../config/loader.js', () => ({
 import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
-
-// Register contact tools
-await import('../tools/contacts/index.js');
-
-import { getTool } from '../tools/registry.js';
+import { executeContactUpsert } from '../tools/contacts/contact-upsert.js';
+import { executeContactSearch } from '../tools/contacts/contact-search.js';
+import { executeContactMerge } from '../tools/contacts/contact-merge.js';
 
 initializeDb();
 
@@ -64,10 +62,8 @@ function clearContacts(): void {
 describe('contact_upsert tool', () => {
   beforeEach(clearContacts);
 
-  const tool = getTool('contact_upsert')!;
-
   test('creates a new contact with display name only', async () => {
-    const result = await tool.execute({ display_name: 'Alice' }, ctx);
+    const result = await executeContactUpsert({ display_name: 'Alice' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Created contact');
@@ -76,7 +72,7 @@ describe('contact_upsert tool', () => {
   });
 
   test('creates a contact with all fields', async () => {
-    const result = await tool.execute({
+    const result = await executeContactUpsert({
       display_name: 'Bob',
       relationship: 'colleague',
       importance: 0.8,
@@ -99,7 +95,7 @@ describe('contact_upsert tool', () => {
   });
 
   test('updates an existing contact by ID', async () => {
-    const createResult = await tool.execute({ display_name: 'Charlie' }, ctx);
+    const createResult = await executeContactUpsert({ display_name: 'Charlie' }, ctx);
     expect(createResult.isError).toBe(false);
 
     // Extract ID from output
@@ -107,7 +103,7 @@ describe('contact_upsert tool', () => {
     expect(idMatch).not.toBeNull();
     const contactId = idMatch![1];
 
-    const updateResult = await tool.execute({
+    const updateResult = await executeContactUpsert({
       id: contactId,
       display_name: 'Charlie Updated',
       importance: 0.9,
@@ -121,13 +117,13 @@ describe('contact_upsert tool', () => {
 
   test('auto-matches by channel address on create', async () => {
     // Create a contact with an email
-    await tool.execute({
+    await executeContactUpsert({
       display_name: 'Diana',
       channels: [{ type: 'email', address: 'diana@example.com' }],
     }, ctx);
 
     // Upsert with same email but different display name
-    const result = await tool.execute({
+    const result = await executeContactUpsert({
       display_name: 'Diana Updated',
       channels: [{ type: 'email', address: 'diana@example.com' }],
     }, ctx);
@@ -142,21 +138,21 @@ describe('contact_upsert tool', () => {
   });
 
   test('rejects missing display_name', async () => {
-    const result = await tool.execute({}, ctx);
+    const result = await executeContactUpsert({}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('display_name is required');
   });
 
   test('rejects empty display_name', async () => {
-    const result = await tool.execute({ display_name: '   ' }, ctx);
+    const result = await executeContactUpsert({ display_name: '   ' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('display_name is required');
   });
 
   test('rejects importance out of range', async () => {
-    const result = await tool.execute({
+    const result = await executeContactUpsert({
       display_name: 'Test',
       importance: 1.5,
     }, ctx);
@@ -166,7 +162,7 @@ describe('contact_upsert tool', () => {
   });
 
   test('rejects negative importance', async () => {
-    const result = await tool.execute({
+    const result = await executeContactUpsert({
       display_name: 'Test',
       importance: -0.1,
     }, ctx);
@@ -181,14 +177,11 @@ describe('contact_upsert tool', () => {
 describe('contact_search tool', () => {
   beforeEach(clearContacts);
 
-  const upsertTool = getTool('contact_upsert')!;
-  const searchTool = getTool('contact_search')!;
-
   test('searches by display name', async () => {
-    await upsertTool.execute({ display_name: 'Alice Smith' }, ctx);
-    await upsertTool.execute({ display_name: 'Bob Jones' }, ctx);
+    await executeContactUpsert({ display_name: 'Alice Smith' }, ctx);
+    await executeContactUpsert({ display_name: 'Bob Jones' }, ctx);
 
-    const result = await searchTool.execute({ query: 'Alice' }, ctx);
+    const result = await executeContactSearch({ query: 'Alice' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Alice Smith');
@@ -196,22 +189,22 @@ describe('contact_search tool', () => {
   });
 
   test('searches by channel address', async () => {
-    await upsertTool.execute({
+    await executeContactUpsert({
       display_name: 'Charlie',
       channels: [{ type: 'email', address: 'charlie@example.com' }],
     }, ctx);
 
-    const result = await searchTool.execute({ channel_address: 'charlie@example' }, ctx);
+    const result = await executeContactSearch({ channel_address: 'charlie@example' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Charlie');
   });
 
   test('searches by relationship', async () => {
-    await upsertTool.execute({ display_name: 'Diana', relationship: 'friend' }, ctx);
-    await upsertTool.execute({ display_name: 'Eve', relationship: 'colleague' }, ctx);
+    await executeContactUpsert({ display_name: 'Diana', relationship: 'friend' }, ctx);
+    await executeContactUpsert({ display_name: 'Eve', relationship: 'colleague' }, ctx);
 
-    const result = await searchTool.execute({ relationship: 'friend' }, ctx);
+    const result = await executeContactSearch({ relationship: 'friend' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Diana');
@@ -219,23 +212,23 @@ describe('contact_search tool', () => {
   });
 
   test('returns no results message when nothing matches', async () => {
-    await upsertTool.execute({ display_name: 'Existing' }, ctx);
+    await executeContactUpsert({ display_name: 'Existing' }, ctx);
 
-    const result = await searchTool.execute({ query: 'Nonexistent' }, ctx);
+    const result = await executeContactSearch({ query: 'Nonexistent' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No contacts found');
   });
 
   test('rejects search with no criteria', async () => {
-    const result = await searchTool.execute({}, ctx);
+    const result = await executeContactSearch({}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('At least one search criterion is required');
   });
 
   test('searches by channel address with type filter', async () => {
-    await upsertTool.execute({
+    await executeContactUpsert({
       display_name: 'Frank',
       channels: [
         { type: 'email', address: 'frank@example.com' },
@@ -243,7 +236,7 @@ describe('contact_search tool', () => {
       ],
     }, ctx);
 
-    const result = await searchTool.execute({
+    const result = await executeContactSearch({
       channel_address: 'frank@example',
       channel_type: 'slack',
     }, ctx);
@@ -258,9 +251,6 @@ describe('contact_search tool', () => {
 describe('contact_merge tool', () => {
   beforeEach(clearContacts);
 
-  const upsertTool = getTool('contact_upsert')!;
-  const mergeTool = getTool('contact_merge')!;
-
   function extractContactId(result: { content: string }): string {
     const match = result.content.match(/Contact (\S+)/);
     expect(match).not.toBeNull();
@@ -268,12 +258,12 @@ describe('contact_merge tool', () => {
   }
 
   test('merges two contacts', async () => {
-    const r1 = await upsertTool.execute({
+    const r1 = await executeContactUpsert({
       display_name: 'Alice (Email)',
       importance: 0.7,
       channels: [{ type: 'email', address: 'alice@example.com' }],
     }, ctx);
-    const r2 = await upsertTool.execute({
+    const r2 = await executeContactUpsert({
       display_name: 'Alice (Slack)',
       importance: 0.9,
       channels: [{ type: 'slack', address: '@alice' }],
@@ -282,7 +272,7 @@ describe('contact_merge tool', () => {
     const keepId = extractContactId(r1);
     const mergeId = extractContactId(r2);
 
-    const result = await mergeTool.execute({
+    const result = await executeContactMerge({
       keep_id: keepId,
       merge_id: mergeId,
     }, ctx);
@@ -299,24 +289,24 @@ describe('contact_merge tool', () => {
   });
 
   test('rejects missing keep_id', async () => {
-    const result = await mergeTool.execute({ merge_id: 'some-id' }, ctx);
+    const result = await executeContactMerge({ merge_id: 'some-id' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('keep_id is required');
   });
 
   test('rejects missing merge_id', async () => {
-    const result = await mergeTool.execute({ keep_id: 'some-id' }, ctx);
+    const result = await executeContactMerge({ keep_id: 'some-id' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('merge_id is required');
   });
 
   test('returns error for nonexistent keep_id', async () => {
-    const r = await upsertTool.execute({ display_name: 'Exists' }, ctx);
+    const r = await executeContactUpsert({ display_name: 'Exists' }, ctx);
     const existingId = extractContactId(r);
 
-    const result = await mergeTool.execute({
+    const result = await executeContactMerge({
       keep_id: 'nonexistent',
       merge_id: existingId,
     }, ctx);
@@ -326,10 +316,10 @@ describe('contact_merge tool', () => {
   });
 
   test('returns error for nonexistent merge_id', async () => {
-    const r = await upsertTool.execute({ display_name: 'Exists' }, ctx);
+    const r = await executeContactUpsert({ display_name: 'Exists' }, ctx);
     const existingId = extractContactId(r);
 
-    const result = await mergeTool.execute({
+    const result = await executeContactMerge({
       keep_id: existingId,
       merge_id: 'nonexistent',
     }, ctx);
