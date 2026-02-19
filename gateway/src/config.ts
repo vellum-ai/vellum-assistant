@@ -35,6 +35,10 @@ export type GatewayConfig = {
   telegramMaxRetries: number;
   telegramTimeoutMs: number;
   telegramWebhookSecret: string | undefined;
+  /** Twilio auth token for validating webhook signatures at the gateway boundary. */
+  twilioAuthToken: string | undefined;
+  /** Public base URL that Twilio uses when computing webhook signatures. */
+  twilioWebhookBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
 };
 
@@ -200,6 +204,9 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
+  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
+  const twilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || undefined;
+
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
   const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
@@ -222,6 +229,7 @@ export function loadConfig(): GatewayConfig {
       port,
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
+      hasTwilioAuthToken: !!twilioAuthToken,
     },
     "Configuration loaded",
   );
@@ -249,6 +257,8 @@ export function loadConfig(): GatewayConfig {
     telegramMaxRetries,
     telegramTimeoutMs,
     telegramWebhookSecret,
+    twilioAuthToken,
+    twilioWebhookBaseUrl,
     unmappedPolicy,
   };
 }

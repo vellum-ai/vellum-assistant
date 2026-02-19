@@ -1,6 +1,9 @@
 import { loadConfig } from "./config.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
+import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
+import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
+import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
@@ -49,6 +52,10 @@ function main() {
       )
     : null;
 
+  const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
+  const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
+  const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
+
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
     : null;
@@ -81,6 +88,18 @@ function main() {
           );
         }
         return handleTelegramWebhook(req);
+      }
+
+      if (url.pathname === "/webhooks/twilio/voice") {
+        return handleTwilioVoiceWebhook(req);
+      }
+
+      if (url.pathname === "/webhooks/twilio/status") {
+        return handleTwilioStatusWebhook(req);
+      }
+
+      if (url.pathname === "/webhooks/twilio/connect-action") {
+        return handleTwilioConnectActionWebhook(req);
       }
 
       if (handleRuntimeProxy) {

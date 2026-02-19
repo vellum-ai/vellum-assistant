@@ -181,6 +181,89 @@ export async function downloadAttachment(
   return (await response.json()) as RuntimeAttachmentPayload;
 }
 
+// ── Twilio webhook forwarding ────────────────────────────────────────
+
+export type TwilioForwardResponse = {
+  status: number;
+  body: string;
+  headers: Record<string, string>;
+};
+
+/**
+ * Forward a validated Twilio voice webhook payload to the runtime.
+ * The gateway sends the parsed form params as JSON; the runtime's internal
+ * endpoint reconstructs what it needs.
+ */
+export async function forwardTwilioVoiceWebhook(
+  config: GatewayConfig,
+  params: Record<string, string>,
+  originalUrl: string,
+): Promise<TwilioForwardResponse> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/voice-webhook`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+    body: JSON.stringify({ params, originalUrl }),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  const body = await response.text();
+  const headers: Record<string, string> = {};
+  const contentType = response.headers.get("content-type");
+  if (contentType) headers["Content-Type"] = contentType;
+
+  return { status: response.status, body, headers };
+}
+
+/**
+ * Forward a validated Twilio status callback payload to the runtime.
+ */
+export async function forwardTwilioStatusWebhook(
+  config: GatewayConfig,
+  params: Record<string, string>,
+): Promise<TwilioForwardResponse> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/status`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+    body: JSON.stringify({ params }),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  const body = await response.text();
+  const headers: Record<string, string> = {};
+  const contentType = response.headers.get("content-type");
+  if (contentType) headers["Content-Type"] = contentType;
+
+  return { status: response.status, body, headers };
+}
+
+/**
+ * Forward a validated Twilio connect-action callback payload to the runtime.
+ */
+export async function forwardTwilioConnectActionWebhook(
+  config: GatewayConfig,
+  params: Record<string, string>,
+): Promise<TwilioForwardResponse> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/connect-action`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+    body: JSON.stringify({ params }),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  const body = await response.text();
+  const headers: Record<string, string> = {};
+  const contentType = response.headers.get("content-type");
+  if (contentType) headers["Content-Type"] = contentType;
+
+  return { status: response.status, body, headers };
+}
+
 export async function uploadAttachment(
   config: GatewayConfig,
   assistantId: string,
