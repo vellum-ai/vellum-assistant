@@ -59,15 +59,20 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
 
   // Sandboxed bash commands run in an isolated container — auto-allow all of
   // them (including high-risk) so the user is never prompted for sandbox work.
-  const sandboxShellRule: DefaultRuleTemplate = {
-    id: 'default:allow-bash-global',
-    tool: 'bash',
-    pattern: '**',
-    scope: 'everywhere',
-    decision: 'allow',
-    priority: 50,
-    allowHighRisk: true,
-  };
+  // Only emit this rule when the sandbox is actually enabled; otherwise bash
+  // commands execute on the host and must go through normal permission checks.
+  const sandboxEnabled = getConfig().sandbox.enabled;
+  const sandboxShellRule: DefaultRuleTemplate | null = sandboxEnabled
+    ? {
+        id: 'default:allow-bash-global',
+        tool: 'bash',
+        pattern: '**',
+        scope: 'everywhere',
+        decision: 'allow',
+        priority: 50,
+        allowHighRisk: true,
+      }
+    : null;
 
   // Standalone "**" globstar — minimatch only treats ** as globstar when it is
   // its own path segment, so a "tool:**" prefix would collapse to single-star
@@ -223,7 +228,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   return [
     ...hostFileRules,
     hostShellRule,
-    sandboxShellRule,
+    ...(sandboxShellRule ? [sandboxShellRule] : []),
     ...computerUseRules,
     ...managedSkillRules,
     ...workspacePromptRules,

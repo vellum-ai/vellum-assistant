@@ -35,6 +35,7 @@ mock.module('../util/logger.js', () => ({
 const testConfig: Record<string, any> = {
   permissions: { mode: 'legacy' as 'legacy' | 'strict' },
   skills: { load: { extraDirs: [] as string[] } },
+  sandbox: { enabled: true },
 };
 
 mock.module('../config/loader.js', () => ({
@@ -363,6 +364,26 @@ describe('Permission Checker', () => {
       const low = await check('bash', { command: 'ls' }, '/tmp');
       expect(low.decision).toBe('allow');
       expect(low.matchedRule?.id).toBe('default:allow-bash-global');
+    });
+
+    test('bash prompts when sandbox is disabled (no global allow rule)', async () => {
+      testConfig.sandbox.enabled = false;
+      clearCache();
+      try {
+        const high = await check('bash', { command: 'sudo rm -rf /' }, '/tmp');
+        expect(high.decision).toBe('prompt');
+
+        const med = await check('bash', { command: 'rm file.txt' }, '/tmp');
+        expect(med.decision).toBe('prompt');
+
+        // Low risk still auto-allows via the normal risk-based fallback
+        const low = await check('bash', { command: 'ls' }, '/tmp');
+        expect(low.decision).toBe('allow');
+        expect(low.reason).toContain('Low risk');
+      } finally {
+        testConfig.sandbox.enabled = true;
+        clearCache();
+      }
     });
 
     test('host_bash high risk → always prompt', async () => {
