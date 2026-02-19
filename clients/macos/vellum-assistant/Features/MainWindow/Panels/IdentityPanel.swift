@@ -12,69 +12,70 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
 
+    private let maxContentWidth: CGFloat = 1100
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("Assistant ID")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(alignment: .center) {
+                    Text("Assistant ID")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                }
+                .padding(.top, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xl)
+
+                Divider().background(VColor.surfaceBorder)
+                    .padding(.bottom, VSpacing.xl)
+
+                // Avatar + ID card side by side
+                HStack(alignment: .center, spacing: VSpacing.lg) {
+                    DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                        .frame(width: 180, height: 200)
+
+                    if let identity {
+                        idCardSection(identity: identity)
+                    }
+                }
+                .padding(.bottom, VSpacing.xl)
+
+                // Customize Avatar CTA
+                Button(action: onCustomizeAvatar) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "paintpalette")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("Customize Avatar")
+                            .font(VFont.bodyMedium)
+                    }
+                    .foregroundColor(VColor.accent)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close Assistant ID")
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+                .padding(.bottom, VSpacing.xl)
 
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Avatar + ID card side by side
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                    .frame(width: 180, height: 200)
-
-                if let identity {
-                    idCardSection(identity: identity)
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
-
-            // Customize Avatar CTA
-            Button(action: onCustomizeAvatar) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "paintpalette")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Customize Avatar")
-                        .font(VFont.bodyMedium)
-                }
-                .foregroundColor(VColor.accent)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                // Constellation
+                ConstellationView(
+                    identity: identity,
+                    skills: skills,
+                    workspaceFiles: workspaceFiles
                 )
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.lg)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 400)
+                .background(VColor.background)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
 
-            // Constellation fills remaining space
-            ConstellationView(
-                identity: identity,
-                skills: skills,
-                workspaceFiles: workspaceFiles
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
+                Spacer(minLength: VSpacing.xxl)
+            }
+            .frame(maxWidth: maxContentWidth)
+            .padding(.horizontal, VSpacing.xxl)
+            .frame(maxWidth: .infinity)
         }
         .background(VColor.backgroundSubtle)
         .onAppear {
