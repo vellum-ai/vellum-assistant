@@ -744,10 +744,7 @@ export class DaemonServer {
       ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
         ? msgRecord.sessionId as string
         : undefined) ?? this.socketToSession.get(socket);
-    // Resolve assistantId from the session if available; fall back to daemon default.
-    const socketSession = sessionId ? this.sessions.get(sessionId) : undefined;
-    const assistantId = socketSession?.assistantId ?? this.assistantId;
-    this.publishAssistantEvent(msg, sessionId, assistantId);
+    this.publishAssistantEvent(msg, sessionId, this.assistantId);
   }
 
   broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
@@ -763,10 +760,7 @@ export class DaemonServer {
       ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
         ? msgRecord.sessionId as string
         : undefined) ?? (excludeSocket ? this.socketToSession.get(excludeSocket) : undefined);
-    // Resolve assistantId from the origin session if available; fall back to daemon default.
-    const originSession = sessionId ? this.sessions.get(sessionId) : undefined;
-    const assistantId = originSession?.assistantId ?? this.assistantId;
-    this.publishAssistantEvent(msg, sessionId, assistantId);
+    this.publishAssistantEvent(msg, sessionId, this.assistantId);
   }
 
   /**
