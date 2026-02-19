@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getDataDir } from '../util/platform.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks'] as const;
-const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave'] as const;
+const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave', 'anthropic-native'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
@@ -756,7 +756,7 @@ export const AssistantConfigSchema = z.object({
     .enum(VALID_WEB_SEARCH_PROVIDERS, {
       error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(', ')}`,
     })
-    .default('perplexity'),
+    .default('anthropic-native'),
   providerOrder: z
     .array(z.enum(VALID_PROVIDERS, {
       error: `Each providerOrder entry must be one of: ${VALID_PROVIDERS.join(', ')}`,

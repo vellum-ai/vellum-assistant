@@ -57,7 +57,11 @@ interface PerplexityResponse {
 
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
-  return config.webSearchProvider ?? 'perplexity';
+  const configured = config.webSearchProvider ?? 'perplexity';
+  // 'anthropic-native' is handled by the Anthropic client directly;
+  // fall back to perplexity for other providers.
+  if (configured === 'anthropic-native') return 'perplexity';
+  return configured as WebSearchProvider;
 }
 
 function getApiKey(provider: WebSearchProvider): string | undefined {
