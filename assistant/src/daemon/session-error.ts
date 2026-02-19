@@ -45,6 +45,13 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /exceeded.*max_tokens/i,
 ];
 
+// Timeout patterns (provider-side timeouts distinct from network-level ETIMEDOUT)
+const TIMEOUT_PATTERNS = [
+  /\btimeout\b/i,
+  /deadline.?exceeded/i,
+  /request.?timed?.?out/i,
+];
+
 // Provider API error patterns (5xx, server error, etc.)
 const PROVIDER_API_PATTERNS = [
   /\b5\d{2}\b/,
@@ -206,6 +213,17 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
       return {
         code: 'PROVIDER_RATE_LIMIT',
         userMessage: 'The AI provider is rate limiting requests. Please wait a moment and try again.',
+        retryable: true,
+      };
+    }
+  }
+
+  // Timeout errors (checked before network so generic "timeout" isn't caught by NETWORK_PATTERNS)
+  for (const pattern of TIMEOUT_PATTERNS) {
+    if (pattern.test(message)) {
+      return {
+        code: 'PROVIDER_API',
+        userMessage: 'The request took too long. This is usually temporary — try again shortly.',
         retryable: true,
       };
     }
