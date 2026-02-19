@@ -139,8 +139,8 @@ export function registerDoordashCommand(program: Command): void {
   dd.command('refresh')
     .description(
       'Start a Ride Shotgun learn session to capture fresh DoorDash cookies. ' +
-      'Opens doordash.com in Chrome — sign in when prompted. ' +
-      'NOTE: Chrome will restart with debugging enabled; your tabs will be restored.',
+      'Opens doordash.com in a separate Chrome window — sign in when prompted. ' +
+      'Your existing Chrome and tabs are not affected.',
     )
     .option('--duration <seconds>', 'Recording duration in seconds', '180')
     .action(async (opts: { duration: string }, cmd: Command) => {
@@ -687,27 +687,8 @@ async function ensureChromeWithCDP(): Promise<void> {
   // Already running with CDP?
   if (await isCdpReady()) return;
 
-  // Kill existing Chrome gracefully
-  try {
-    execSync('osascript -e \'tell application "Google Chrome" to quit\'', {
-      timeout: 5000,
-      stdio: 'ignore',
-    });
-  } catch {
-    // Chrome might not be running
-  }
-
-  // Wait for Chrome to quit
-  for (let i = 0; i < 30; i++) {
-    try {
-      execSync('pgrep -x "Google Chrome"', { stdio: 'ignore' });
-      await new Promise(r => setTimeout(r, 200));
-    } catch {
-      break; // Not running
-    }
-  }
-
-  // Relaunch Chrome with CDP flags
+  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
+  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
   const chromeApp =
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   spawnChild(chromeApp, [

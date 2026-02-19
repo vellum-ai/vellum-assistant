@@ -143,37 +143,11 @@ public final class AmbientAgent: ObservableObject {
             return
         }
 
-        // Find running Chrome and restart it with CDP, or launch fresh
-        if let chrome = ChromeAccessibilityHelper.findRunningChrome() {
-            log.info("Restarting Chrome with CDP for learn session")
-            let success = await ChromeAccessibilityHelper.restartChromeForCDP(app: chrome)
-            if !success {
-                log.warning("Chrome CDP restart failed, proceeding without network recording")
-            }
-        } else {
-            // No Chrome running — launch it with CDP
-            log.info("Launching Chrome with CDP for learn session")
-            let config = NSWorkspace.OpenConfiguration()
-            let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
-                config.arguments = ["--remote-debugging-port=9222", "--force-renderer-accessibility", "--user-data-dir=\(chromeDataDir)"]
-            config.activates = true
-            if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-                _ = try? await NSWorkspace.shared.openApplication(at: chromeURL, configuration: config)
-                // Wait for CDP to come up
-                for _ in 0..<30 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    if let url = URL(string: "http://localhost:9222/json/version"),
-                       let (_, response) = try? await URLSession.shared.data(from: url),
-                       let httpResponse = response as? HTTPURLResponse,
-                       httpResponse.statusCode == 200 {
-                        log.info("Chrome launched with CDP ready")
-                        return
-                    }
-                }
-                log.warning("Chrome launched but CDP not responding")
-            } else {
-                log.warning("Google Chrome not found")
-            }
+        // Launch a separate Chrome instance for CDP (doesn't touch existing Chrome)
+        log.info("Launching separate Chrome instance with CDP for learn session")
+        let success = await ChromeAccessibilityHelper.launchChromeForCDP()
+        if !success {
+            log.warning("Chrome CDP launch failed, proceeding without network recording")
         }
     }
 

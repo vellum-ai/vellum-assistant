@@ -1150,9 +1150,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Show confirmation dialog
         let alert = NSAlert()
         alert.messageText = "Browser Remote Control"
-        alert.informativeText = "To control your browser, Chrome needs to be restarted with remote debugging enabled. Your tabs will be automatically restored."
+        alert.informativeText = "A separate Chrome window will open for the assistant to control. Your existing Chrome and tabs will not be affected."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Restart Chrome")
+        alert.addButton(withTitle: "Open Browser")
         alert.addButton(withTitle: "Use Background Browser")
 
         // Add "Always launch" checkbox
@@ -1162,33 +1162,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
 
         if response == .alertFirstButtonReturn {
-            // User chose to restart Chrome
-            var success = false
-            if let chrome = ChromeAccessibilityHelper.findRunningChrome() {
-                success = await ChromeAccessibilityHelper.restartChromeForCDP(app: chrome)
-            } else {
-                // Chrome not running — launch it with flags
-                if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-                    do {
-                        let config = NSWorkspace.OpenConfiguration()
-                        config.arguments = ["--remote-debugging-port=9222", "--force-renderer-accessibility"]
-                        config.activates = true
-                        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                            NSWorkspace.shared.openApplication(at: chromeURL, configuration: config) { _, error in
-                                if let error {
-                                    continuation.resume(throwing: error)
-                                } else {
-                                    continuation.resume()
-                                }
-                            }
-                        }
-                        // Poll for CDP availability instead of blind sleep
-                        success = await Self.pollForCDP()
-                    } catch {
-                        success = false
-                    }
-                }
-            }
+            // Launch a separate Chrome instance for CDP (doesn't touch existing Chrome)
+            let success = await ChromeAccessibilityHelper.launchChromeForCDP()
 
             // Handle "Always launch" checkbox
             if checkbox.state == .on {
