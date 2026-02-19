@@ -126,6 +126,7 @@ export interface HandlerContext {
  */
 export function getScreenDimensions(): { width: number; height: number } {
   if (cachedScreenDims) return cachedScreenDims;
+  if (process.platform !== 'darwin') return FALLBACK_SCREEN;
   try {
     const out = execSync(
       `swift -e 'import CoreGraphics; let b = CGDisplayBounds(CGMainDisplayID()); print("\\(Int(b.width))x\\(Int(b.height))")'`,
