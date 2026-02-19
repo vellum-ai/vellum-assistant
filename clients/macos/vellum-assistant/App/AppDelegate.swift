@@ -86,7 +86,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
     private let daemonLauncher = DaemonLauncher()
-    let updateManager = UpdateManager()
+    public let updateManager = UpdateManager()
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
