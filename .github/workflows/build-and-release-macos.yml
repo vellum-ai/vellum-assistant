@@ -286,7 +286,7 @@ jobs:
           SIZE=$(stat -f%z dist/vellum-assistant.zip)
 
           REPO="vellum-ai/velly"
-          FILENAME="appcast-${REPO//\//-}.xml"
+          FILENAME="appcast.xml"
           cat > "dist/$FILENAME" << EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -315,7 +315,7 @@ jobs:
           path: |
             clients/macos/build/vellum-assistant.dmg
             clients/macos/dist/vellum-assistant.zip
-            clients/macos/dist/appcast-*.xml
+            clients/macos/dist/appcast.xml
           if-no-files-found: error
           retention-days: 1
 
@@ -438,7 +438,7 @@ jobs:
           if [ -d "macos-artifacts" ]; then
             DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
             ZIP=$(find macos-artifacts -name "vellum-assistant.zip" -type f | head -1)
-            APPCAST=$(find macos-artifacts -name "appcast-*.xml" -type f | head -1)
+            APPCAST=$(find macos-artifacts -name "appcast.xml" -type f | head -1)
             [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
             [ -n "$ZIP" ] && ASSETS+=("$ZIP#vellum-assistant.zip")
             [ -n "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
