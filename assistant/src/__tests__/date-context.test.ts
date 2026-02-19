@@ -234,3 +234,121 @@ describe('DST-safe timezone behavior', () => {
     expect(result).toContain('2026-02-22 Sunday');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Trip-planning regression: "next weekend" resolution
+// ---------------------------------------------------------------------------
+
+describe('trip-planning: next weekend resolution', () => {
+  test('Wednesday → "next weekend" anchors resolve to upcoming Sat-Sun', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    // A user asking "plan a trip for next weekend" on Wednesday Feb 18
+    // expects Sat Feb 21 – Sun Feb 22.
+    expect(result).toContain('Next weekend: 2026-02-21 – 2026-02-22');
+    // Both dates must appear in the horizon so the model can reference them.
+    expect(result).toContain('2026-02-21 Saturday');
+    expect(result).toContain('2026-02-22 Sunday');
+  });
+
+  test('Saturday → "next weekend" skips current weekend', () => {
+    const result = buildTemporalContext({ nowMs: SAT_FEB_21, timeZone: 'UTC' });
+    // Already on Saturday → "next weekend" means the *following* weekend.
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('Sunday → "next weekend" skips current weekend', () => {
+    const result = buildTemporalContext({ nowMs: SUN_FEB_22, timeZone: 'UTC' });
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('Friday → "next weekend" is tomorrow', () => {
+    const result = buildTemporalContext({ nowMs: FRI_FEB_27, timeZone: 'UTC' });
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip-planning regression: "next work week" resolution
+// ---------------------------------------------------------------------------
+
+describe('trip-planning: next work week resolution', () => {
+  test('Wednesday → "next work week" skips remainder of current week', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Next work week: 2026-02-23 – 2026-02-27');
+  });
+
+  test('Monday → "next work week" is the following Monday-Friday', () => {
+    /** Monday 2026-02-23 12:00 UTC */
+    const MON_FEB_23 = Date.UTC(2026, 1, 23, 12, 0, 0);
+    const result = buildTemporalContext({ nowMs: MON_FEB_23, timeZone: 'UTC' });
+    expect(result).toContain('Next work week: 2026-03-02 – 2026-03-06');
+  });
+
+  test('Saturday → "next work week" is the upcoming Monday-Friday', () => {
+    const result = buildTemporalContext({ nowMs: SAT_FEB_21, timeZone: 'UTC' });
+    expect(result).toContain('Next work week: 2026-02-23 – 2026-02-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip-planning regression: month-without-year disambiguation
+// ---------------------------------------------------------------------------
+
+describe('trip-planning: month-without-year disambiguation via temporal anchors', () => {
+  test('"May" in Feb 2026 → model sees current date is Feb 2026, so May = May 2026', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Today: 2026-02-18 (Wednesday)');
+    // The model sees it's Feb 2026, so "May" unambiguously means May 2026.
+  });
+
+  test('"January" in Feb 2026 → model infers January = next year (Jan 2027)', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
+    expect(result).toContain('Today: 2026-02-18');
+    // The model has enough context: today is Feb 2026, so "January" = Jan 2027.
+  });
+
+  test('December in late Dec → model sees current month for disambiguation', () => {
+    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC' });
+    expect(result).toContain('Today: 2026-12-29');
+    // "December" when it's already Dec 29 → remainder of current month or Dec 2027.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip-planning regression: cross-month weekend resolution
+// ---------------------------------------------------------------------------
+
+describe('trip-planning: cross-month weekend resolution', () => {
+  test('weekend that spans a month boundary (Feb → Mar)', () => {
+    const result = buildTemporalContext({ nowMs: FRI_FEB_27, timeZone: 'UTC' });
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+
+  test('year-boundary weekend (Dec 2026 → Jan 2027)', () => {
+    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC' });
+    expect(result).toContain('Next weekend: 2027-01-02 – 2027-01-03');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip-planning regression: timezone-shifted weekend anchors
+// ---------------------------------------------------------------------------
+
+describe('trip-planning: timezone-shifted weekend anchors', () => {
+  test('late Friday UTC is already Saturday in Auckland → skips to next weekend', () => {
+    // Friday Feb 27 23:00 UTC = Saturday Feb 28 12:00 NZDT
+    const lateFriUTC = Date.UTC(2026, 1, 27, 23, 0, 0);
+    const result = buildTemporalContext({ nowMs: lateFriUTC, timeZone: 'Pacific/Auckland' });
+    expect(result).toContain('Today: 2026-02-28 (Saturday)');
+    // "Next weekend" skips current weekend → Mar 7-8.
+    expect(result).toContain('Next weekend: 2026-03-07 – 2026-03-08');
+  });
+
+  test('early Saturday UTC is still Friday in US Pacific → next weekend is tomorrow', () => {
+    // Saturday Feb 28 02:00 UTC = Friday Feb 27 18:00 PST
+    const earlySatUTC = Date.UTC(2026, 1, 28, 2, 0, 0);
+    const result = buildTemporalContext({ nowMs: earlySatUTC, timeZone: 'America/Los_Angeles' });
+    expect(result).toContain('Today: 2026-02-27 (Friday)');
+    expect(result).toContain('Next weekend: 2026-02-28 – 2026-03-01');
+  });
+});
