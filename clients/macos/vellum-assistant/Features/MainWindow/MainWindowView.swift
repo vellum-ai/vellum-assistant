@@ -1120,6 +1120,18 @@ struct MainWindowView: View {
                             windowState.setAppEditing(appId: appId, threadId: threadId)
                         }
                     }
+                    // Route relay_prompt actions directly as chat messages so they
+                    // reach the active session instead of being lost when the surface
+                    // was opened outside a session context (e.g. home base via app_open).
+                    if actionId == "relay_prompt" || actionId == "agent_prompt",
+                       let dataDict = actionData as? [String: Any],
+                       let prompt = dataDict["prompt"] as? String,
+                       !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       let vm = threadManager.activeViewModel {
+                        vm.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        vm.sendMessage()
+                        return
+                    }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
                 onLinkOpen: { url, metadata in
@@ -1746,6 +1758,17 @@ private struct DynamicWorkspaceWrapper: View {
                 onAction: { actionId, actionData in
                     if !isChatDockOpen {
                         onToggleChatDock()
+                    }
+                    // Route relay_prompt actions directly as chat messages so they
+                    // reach the active session instead of being lost when the surface
+                    // was opened outside a session context (e.g. home base via app_open).
+                    if actionId == "relay_prompt" || actionId == "agent_prompt",
+                       let dataDict = actionData as? [String: Any],
+                       let prompt = dataDict["prompt"] as? String,
+                       !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        viewModel.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        viewModel.sendMessage()
+                        return
                     }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
                 },
