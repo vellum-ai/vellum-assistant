@@ -21,6 +21,7 @@ struct InlineVideoAttachmentView: View {
     @State private var videoAspectRatio: CGFloat = 3.0 / 4.0
     @State private var isHovering = false
     @State private var isSaving = false
+    @State private var thumbnailImage: NSImage?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -71,20 +72,34 @@ struct InlineVideoAttachmentView: View {
     }
 
     private var placeholderView: some View {
-        VStack(spacing: VSpacing.sm) {
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(VColor.textSecondary)
+        ZStack {
+            if let thumbnailImage {
+                Image(nsImage: thumbnailImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            }
 
-            Text(attachment.filename)
-                .font(VFont.caption)
-                .foregroundStyle(VColor.textSecondary)
-                .lineLimit(1)
+            VStack(spacing: VSpacing.sm) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
+                    .shadow(radius: thumbnailImage != nil ? 4 : 0)
+
+                Text(attachment.filename)
+                    .font(VFont.caption)
+                    .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
+                    .shadow(radius: thumbnailImage != nil ? 2 : 0)
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             prepareAndPlay()
+        }
+        .task {
+            await generateThumbnail()
         }
     }
 
@@ -123,6 +138,40 @@ struct InlineVideoAttachmentView: View {
         let sanitized = (attachment.filename as NSString).lastPathComponent
         let safeName = sanitized.isEmpty ? "video" : sanitized
         return FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+    }
+
+    private func generateThumbnail() async {
+        guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
+
+        let fileURL = safeTempURL()
+        do {
+            try data.write(to: fileURL)
+        } catch {
+            return
+        }
+
+        let asset = AVAsset(url: fileURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 720, height: 720)
+
+        if let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) {
+            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+
+            // Also update aspect ratio from the thumbnail
+            let w = CGFloat(cgImage.width)
+            let h = CGFloat(cgImage.height)
+            if w > 0, h > 0 {
+                await MainActor.run {
+                    videoAspectRatio = w / h
+                    thumbnailImage = nsImage
+                }
+            } else {
+                await MainActor.run {
+                    thumbnailImage = nsImage
+                }
+            }
+        }
     }
 
     private func prepareAndPlay() {
