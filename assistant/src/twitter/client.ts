@@ -80,12 +80,11 @@ async function findTwitterTab(): Promise<string> {
     throw new SessionExpiredError('Chrome CDP not available. Run `vellum twitter refresh` first.');
   }
   const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
-  const twitterTab = targets.find(
+  const tab = targets.find(
     t => t.type === 'page' && (t.url.includes('x.com') || t.url.includes('twitter.com')),
   );
-  const tab = twitterTab ?? targets.find(t => t.type === 'page');
   if (!tab?.webSocketDebuggerUrl) {
-    throw new SessionExpiredError('No Chrome tab available for Twitter requests.');
+    throw new SessionExpiredError('No x.com tab found in Chrome. Open x.com and try again.');
   }
   return tab.webSocketDebuggerUrl;
 }

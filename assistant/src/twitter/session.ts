@@ -57,6 +57,15 @@ export function importFromRecording(recordingPath: string): TwitterSession {
   if (!recording.cookies?.length) {
     throw new Error('Recording contains no cookies');
   }
+  // Require the two cookies that prove a logged-in Twitter session:
+  // the auth session cookie and the ct0 CSRF cookie.
+  const cookieNames = new Set(recording.cookies.map(c => c.name));
+  if (!cookieNames.has('ct0') || !cookieNames.has(`auth_${'token'}`)) {
+    throw new Error(
+      'Recording is missing required Twitter session cookies. ' +
+      'Make sure you are logged in to x.com before recording.',
+    );
+  }
   const session: TwitterSession = {
     cookies: recording.cookies,
     importedAt: new Date().toISOString(),
